@@ -10,10 +10,12 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
@@ -469,5 +471,73 @@ func TestAirScaleColumnBoundClearsNavigationAndTarget(t *testing.T) {
 	}
 	if bound >= targetLeftEdge {
 		t.Errorf("bound %d does not clear TARGET's left edge %d (width %d)", bound, targetLeftEdge, targetW+2)
+	}
+}
+
+// ascentTrendFixture returns a Saturn V pad-spawned craft moved to a 20
+// km ascent, 300 m/s straight up (satisfies AscentCueFor's climb-rate
+// gate, no orbital-element requirement of its own) PLUS a 7000 m/s
+// tangential component, so the state carries real, nonzero angular
+// momentum and craftLiveElements/Apoapsis is actually defined and
+// movable (a purely radial velocity, TestAirScaleColumnBoundClearsNavigationAndTarget's
+// own fixture, is a degenerate zero-angular-momentum trajectory whose
+// apoapsis reads "-" and never trends).
+func ascentTrendFixture(t *testing.T) (*sim.World, *spacecraft.Spacecraft) {
+	t.Helper()
+	w, c := spawnSaturnVOnPad(t)
+	c.Landed = false
+	c.CurrentAttitudeDir = orbital.Vec3{X: 1}
+	rHat := c.State.R.Scale(1 / c.State.R.Norm())
+	tHat := rHat.Cross(orbital.Vec3{Z: 1}).Unit()
+	c.State.R = rHat.Scale(c.Primary.RadiusMeters() + 20_000)
+	c.State.V = rHat.Scale(300).Add(tHat.Scale(7000))
+	c.State.M = c.TotalMass()
+	return w, c
+}
+
+// TestLaunchViewApTrendArrowAgreesWithMap (review finding 3, 2026-09-25):
+// airScaleColumnBound (launch.go) measures NAVIGATION's width by calling
+// v.hudSource.buildNavigationBox a second time per frame purely to
+// measure it, and that call mutates the trend sampler
+// (navigationApPeCells' v.ascentTrendCraft/ApoM/Time, orbit_box_navigation.go).
+// composeChips then builds NAVIGATION again for real in the same frame,
+// with dt = 0 against the measurement call's just-written timestamp, so
+// the arrow the pilot actually sees is always empty during an Earth
+// ascent even while apoapsis is genuinely climbing. The map builds
+// NAVIGATION once per frame and is unaffected.
+//
+// Two frames one second apart with the velocity scaled 1.05 (mirrors the
+// review's own probe R2) through two independent OrbitView/LaunchView
+// pairs so each pipeline gets its own honest two-frame history: the
+// map's build is the positive control (it must show the arrow, or the
+// fixture itself is broken), and the LAUNCH view's real rendered output
+// must show the same arrow for the same climbing instant.
+func TestLaunchViewApTrendArrowAgreesWithMap(t *testing.T) {
+	th := launchThemeForTest()
+
+	// Map pipeline: one buildNavigationBox call per frame.
+	mapHUD := NewOrbitView(th)
+	wMap, cMap := ascentTrendFixture(t)
+	mapHUD.buildNavigationBox(wMap) // frame 1, establishes the baseline
+	wMap.Clock.SimTime = wMap.Clock.SimTime.Add(time.Second)
+	cMap.State.V = cMap.State.V.Scale(1.05)
+	mapOut := strings.Join(mapHUD.buildNavigationBox(wMap), "\n") // frame 2
+	if !strings.Contains(mapOut, "↑") {
+		t.Fatalf("setup: the map's own NAVIGATION box shows no climbing trend arrow for a growing apoapsis:\n%s", mapOut)
+	}
+
+	// LAUNCH pipeline: same two frames, through the real Render path,
+	// which builds NAVIGATION twice internally each frame.
+	launchHUD := NewOrbitView(th)
+	v := NewLaunchView(th, launchHUD)
+	wLaunch, cLaunch := ascentTrendFixture(t)
+	v.Resize(DesignWidth, DesignHeight)
+	v.Render(wLaunch, DesignWidth, DesignHeight) // frame 1, establishes the baseline
+	wLaunch.Clock.SimTime = wLaunch.Clock.SimTime.Add(time.Second)
+	cLaunch.State.V = cLaunch.State.V.Scale(1.05)
+	launchOut := v.Render(wLaunch, DesignWidth, DesignHeight) // frame 2
+
+	if !strings.Contains(launchOut, "↑") {
+		t.Errorf("LAUNCH view shows no climbing trend arrow even though the map shows one for the same instant")
 	}
 }
