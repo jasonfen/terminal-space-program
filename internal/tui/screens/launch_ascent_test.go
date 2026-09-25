@@ -213,7 +213,7 @@ func TestDrawAscentAirScaleMarksCurrentAndMaxQ(t *testing.T) {
 		HasMaxQ:          true,
 	}
 	const col, topRow = 50, 1
-	v.drawAscentAirScale(qb, col, topRow)
+	v.drawAscentAirScale(qb, col, topRow, 0)
 	out := v.canvas.String()
 
 	curRow := qBandRowIndex(qb.CurrentAltM, qb.AtmosphereDepthM, airScaleRows)
@@ -250,7 +250,7 @@ func TestDrawAscentAirScaleOmitsMaxQBeforeMeasured(t *testing.T) {
 	v.Resize(120, 40)
 	v.canvas.Clear()
 	qb := sim.AscentQBand{AtmosphereDepthM: 150_000, CurrentAltM: 1_000, CurrentQPa: 10, HasMaxQ: false}
-	v.drawAscentAirScale(qb, 50, 1)
+	v.drawAscentAirScale(qb, 50, 1, 0)
 	out := v.canvas.String()
 	if strings.Contains(stripANSI(out), ascentQBandMaxQGlyph) {
 		t.Errorf("scale mentions max Q before any peak was measured:\n%s", out)
@@ -267,7 +267,7 @@ func TestDrawAscentAirScaleTracksAltitude(t *testing.T) {
 		v := NewLaunchView(launchThemeForTest(), nil)
 		v.Resize(120, 40)
 		v.canvas.Clear()
-		v.drawAscentAirScale(sim.AscentQBand{AtmosphereDepthM: 150_000, CurrentAltM: altM}, 50, 1)
+		v.drawAscentAirScale(sim.AscentQBand{AtmosphereDepthM: 150_000, CurrentAltM: altM}, 50, 1, 0)
 		out := v.canvas.String()
 		for i := 0; i < airScaleRows; i++ {
 			if canvasCellRuneAt(t, out, 1+i, 50) == []rune(ascentQBandCraftGlyph)[0] {
@@ -472,6 +472,34 @@ func TestAirScaleColumnBoundClearsNavigationAndTarget(t *testing.T) {
 	if bound >= targetLeftEdge {
 		t.Errorf("bound %d does not clear TARGET's left edge %d (width %d)", bound, targetLeftEdge, targetW+2)
 	}
+
+	// The left side (review finding 4, 2026-09-25): this test's own name
+	// claims both boxes, but until now only ever measured the right;
+	// nothing checked that a label could clear PROPELLANT/GUIDANCE on the
+	// left, which is exactly the side the defect painted over.
+	leftBound := v.airScaleLabelLeftBound(w)
+
+	engineLines := v.hudSource.buildEngineBox(w)
+	_, engineW := padChipBlock(engineLines)
+	engineRightEdge := engineW + 2
+
+	propLines := v.hudSource.buildPropellantBox(w)
+	_, propW := padChipBlock(propLines)
+	propRightEdge := propW + 2
+
+	guidanceLines := v.hudSource.buildGuidanceBox(w)
+	_, guidanceW := padChipBlock(guidanceLines)
+	guidanceRightEdge := guidanceW + 2
+
+	if leftBound <= engineRightEdge {
+		t.Errorf("label left bound %d does not clear ENGINE's right edge %d (width %d)", leftBound, engineRightEdge, engineW+2)
+	}
+	if leftBound <= propRightEdge {
+		t.Errorf("label left bound %d does not clear PROPELLANT's right edge %d (width %d)", leftBound, propRightEdge, propW+2)
+	}
+	if leftBound <= guidanceRightEdge {
+		t.Errorf("label left bound %d does not clear GUIDANCE's right edge %d (width %d)", leftBound, guidanceRightEdge, guidanceW+2)
+	}
 }
 
 // ascentTrendFixture returns a Saturn V pad-spawned craft moved to a 20
@@ -539,5 +567,49 @@ func TestLaunchViewApTrendArrowAgreesWithMap(t *testing.T) {
 
 	if !strings.Contains(launchOut, "↑") {
 		t.Errorf("LAUNCH view shows no climbing trend arrow even though the map shows one for the same instant")
+	}
+}
+
+// TestDrawAscentAirScaleLabelClearsLeftStack (review finding 4,
+// 2026-09-25): airScaleColumnBound only ever cleared NAVIGATION and
+// TARGET on the right; nothing clears PROPELLANT or GUIDANCE on the
+// left, so a 17-cell max-Q label ("10.00 km (max Q) ") starting close to
+// a narrow marker column can begin well inside the left stack's own
+// boxes. The label must not paint left of leftBound; when the full label
+// does not fit, it shortens to the bare "(max Q) " marker (the glyph
+// already says max Q; the altitude number is in the F1 glossary) rather
+// than spilling over.
+func TestDrawAscentAirScaleLabelClearsLeftStack(t *testing.T) {
+	v := NewLaunchView(launchThemeForTest(), nil)
+	v.Resize(120, 40)
+	v.canvas.Clear()
+	qb := sim.AscentQBand{
+		AtmosphereDepthM: 150_000,
+		CurrentAltM:      10_000,
+		MaxQAltM:         10_000, // current == max-Q row: the worst-case combined label
+		HasMaxQ:          true,
+	}
+	const markerCol = 60  // close enough to leftBound that the full 17-cell label would cross it
+	const leftBound = 50
+	v.drawAscentAirScale(qb, markerCol, 1, leftBound)
+
+	isBlank := func(r rune) bool { return r == ' ' || r == '⠀' }
+
+	row := 1 + qBandRowIndex(qb.CurrentAltM, qb.AtmosphereDepthM, airScaleRows)
+	if got := canvasCellRuneAt(t, v.canvas.String(), row, leftBound-1); !isBlank(got) {
+		t.Errorf("column %d (one left of leftBound %d) = %q, want blank: the label reached past the left bound", leftBound-1, leftBound, string(got))
+	}
+	// The shortened marker itself must still be present between the
+	// bound and the marker column, or the fix dropped the label
+	// entirely instead of shortening it.
+	found := false
+	for c := leftBound; c < markerCol; c++ {
+		if !isBlank(canvasCellRuneAt(t, v.canvas.String(), row, c)) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("no label text at all between leftBound and markerCol, want the shortened (max Q) marker")
 	}
 }
