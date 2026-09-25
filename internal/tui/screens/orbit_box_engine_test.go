@@ -227,3 +227,41 @@ func TestEngineNavigationNoOverlapWithQueuedNodes(t *testing.T) {
 	}
 	_ = out
 }
+
+// TestEngineThrottleLabelClockDirectionConsistent (review finding 5,
+// 2026-09-25): under the identical "● FIRING" glyph, a manual burn's
+// throttle cell counted UP (T+, elapsed since ignition) while a node
+// (ActiveBurn) burn's counted DOWN (T-, remaining), with nothing on the
+// cell saying which convention applied. The node row (engineBurnLine)
+// already prints "N left" for a node burn, so the throttle cell drops
+// its own clock there rather than showing a second, oppositely-signed
+// one; a manual burn, which has no node row to carry that information,
+// keeps its elapsed T+.
+func TestEngineThrottleLabelClockDirectionConsistent(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+
+	c.ManualBurn = &spacecraft.ManualBurn{StartTime: w.Clock.SimTime.Add(-90 * time.Second)}
+	label := v.engineThrottleLabel(w, c)
+	if !strings.Contains(label, "T+") {
+		t.Errorf("manual burn throttle label = %q, want an elapsed T+ clock", label)
+	}
+	c.ManualBurn = nil
+
+	c.ActiveBurn = &spacecraft.ActiveBurn{
+		Mode:        spacecraft.BurnPrograde,
+		DVRemaining: 100,
+		EndTime:     w.Clock.SimTime.Add(30 * time.Second),
+	}
+	label = v.engineThrottleLabel(w, c)
+	if strings.Contains(label, "T+") || strings.Contains(label, "T-") {
+		t.Errorf("node burn throttle label = %q, want no clock at all (the node row already carries the remaining time)", label)
+	}
+	if !strings.Contains(label, "FIRING") {
+		t.Errorf("node burn throttle label = %q, want it to still read FIRING", label)
+	}
+}

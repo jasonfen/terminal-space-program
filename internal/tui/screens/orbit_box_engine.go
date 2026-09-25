@@ -48,6 +48,15 @@ func (v *OrbitView) buildEngineBox(w *sim.World) []string {
 // how long it has been firing. Mirrors the pre-ADR-0051 throttleRow/
 // buildLaunchChip elapsed logic, now unified onto one row instead of
 // split across VESSEL's "(idle)"/"● FIRING" and SURFACE's "● LIT".
+//
+// Only a manual burn carries a clock here (T+, elapsed since ignition):
+// a node (ActiveBurn) burn used to print T- (time remaining) instead,
+// the opposite direction under the identical "● FIRING" glyph with no
+// label saying which convention applied (review finding 5, 2026-09-25).
+// A node burn's own remaining time already reads on the node row
+// (engineBurnLine's "... left"), so this cell drops its clock there
+// rather than showing a second, oppositely-signed one; a manual burn has
+// no node row to carry that information, so it keeps its own.
 func (v *OrbitView) engineThrottleLabel(w *sim.World, c *spacecraft.Spacecraft) string {
 	base := fmt.Sprintf("%.0f%%", c.EffectiveThrottle()*100)
 	if !sim.StackMidBurn(c) {
@@ -55,15 +64,8 @@ func (v *OrbitView) engineThrottleLabel(w *sim.World, c *spacecraft.Spacecraft) 
 	}
 	firing := v.theme.Warning.Render("● FIRING")
 	elapsed := ""
-	switch {
-	case c.ManualBurn != nil:
+	if c.ManualBurn != nil {
 		elapsed = " " + readout.Countdown(-(w.Clock.SimTime.Sub(c.ManualBurn.StartTime)))
-	case c.ActiveBurn != nil:
-		remaining := c.ActiveBurn.EndTime.Sub(w.Clock.SimTime)
-		if remaining < 0 {
-			remaining = 0
-		}
-		elapsed = " " + readout.Countdown(remaining)
 	}
 	return base + " " + firing + elapsed
 }
