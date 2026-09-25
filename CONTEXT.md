@@ -285,6 +285,19 @@ _Avoid_: Altitude presets / the altitude ladder (deleted in ADR 0044 —
 safe altitude (the floor is not a safety claim; an in-band orbit can still
 be a bad idea).
 
+**Orbit Floor gates ORBIT READY** (ADR 0051 decision 10, re-grill Q7):
+a second role for the same **Orbit Floor** above, replacing the old flat
+`sim.LaunchMissionFloorM` (200 km on every world) as the threshold at
+which the `● ORBIT READY [C]` cue lights on NAVIGATION's title (and on
+the LAUNCH strip). Earth's threshold drops from 200 km to 175 km; every
+airless world reads 25 km. The floor's number is never shown to the
+player anywhere, on the cue, the strip, the Pe cell or MISSION: the cue
+lighting is the floor made visible, by the maintainer's own ruling
+("this doesn't need to be narrated to the player"). Also gates the one
+Flight School objective that used to carry its own hardcoded 200 km.
+_Avoid_: mission floor, 200 km floor, `LaunchMissionFloorM` (the
+retired constant).
+
 **Orbit Stops** (ADR 0044):
 The per-body altitudes `←`/`→` walks in the spawn form once the altitude
 ladder is gone — **floor, up to two round interior waypoints, synchronous
@@ -597,13 +610,16 @@ Unlike Focus and Target, NavMode lives on `World`, not on the Vessel — it's
 a known scope cap (each Vessel does not yet remember its own NavMode across
 active-Vessel switches); revisit if that asymmetry starts to bite.
 
-**Every `hold:` row (ATTITUDE, SURFACE, DESCENT chips) names the frame
-it holds in** (ADR 0050) — `Prograde (ORBIT)`, `Radial+ (SURF)`,
-`Target+ (TGT)` — read off the **held mode**, never the live NavMode,
-so it can't contradict itself: a frame-locked mode (Surface* modes,
-Target*/AntiTarget) always tags its own frame even when NavMode itself
-reads differently, while a frame-agnostic mode (Prograde, Retrograde,
-RadialOut/In, NormalPlus/Minus) tags the current NavMode.
+**Every `hold:` row names the frame it holds in** (ADR 0050) —
+`Prograde (ORBIT)`, `Radial+ (SURF)`, `Target+ (TGT)` — read off the
+**held mode**, never the live NavMode, so it can't contradict itself: a
+frame-locked mode (Surface* modes, Target*/AntiTarget) always tags its
+own frame even when NavMode itself reads differently, while a
+frame-agnostic mode (Prograde, Retrograde, RadialOut/In,
+NormalPlus/Minus) tags the current NavMode. Retired (ADR 0051): the
+row used to live on three separate chips (ATTITUDE, SURFACE, DESCENT),
+one per phase; it is now GUIDANCE's own `hold:` row, one instrument,
+always drawn.
 _Avoid_: Navball mode, Nav frame.
 
 ### Maneuver & thrust
@@ -962,27 +978,32 @@ thrust is rotated about local up onto the commanded heading, so pitch
 always tilts in the heading's vertical plane; the reverse order is a
 no-op on any vertical-start hold, including the pad's default. Heading
 away from east harvests less of the surface co-rotation velocity, which
-is the only Δv cost. Shown as `heading: 090°` on the SURFACE chip
-(atmospheric pads) and, identically, on the DESCENT chip while Landed
-on an airless body, which has no SURFACE chip at all (ADR 0050
-decision 9 — Luna, Glyph and every other airless world previously
-showed no heading/inclination information at all while Landed).
+is the only Δv cost. Shown as `heading: 090°` on GUIDANCE, identically
+Landed or in flight, on an atmospheric world or an airless one alike
+(ADR 0050 decision 9 — Luna, Glyph and every other airless world
+previously showed no heading/inclination information at all while
+Landed). Retired (ADR 0051): the row used to live on the SURFACE chip
+(atmospheric pads) or the DESCENT chip (airless pads, which had no
+SURFACE chip at all); GUIDANCE is now the one instrument box for both.
 _Avoid_: Yaw trim (yaw is the camera control in the tilted view),
 launch azimuth (as a player-facing label; the row says `heading:`),
 Locked.
 
 **Inclination Floor** (grilled 2026-09-09, ADR 0049; extended by ADR
-0050):
+0050; placement updated by ADR 0051):
 The lowest inclination reachable from a pad: |launch latitude|. Any
 inclination at or above it, prograde or retrograde, is reachable by
 choosing a **Heading Trim**; due east gives the floor itself. The
-Landed `incl:` row (SURFACE chip on an atmospheric pad, DESCENT chip
-on an airless one) shows the inclination the commanded heading yields
-with the floor as a tag, `incl: 28.6° (min 28.6°)`, and never says
-"locked", since nothing is. With a Target set the chip adds `Δincl:`,
-the plane angle an ascent lit *now* would leave to the Target's plane,
-which sweeps with the Primary's rotation so pad warp visibly changes
-it — unchanged on the pad, and in the full TARGET chip in flight.
+Landed `incl:` row, on NAVIGATION (the SURFACE and DESCENT chips it
+used to live on are both retired), shows the inclination the commanded
+heading yields with the floor as a tag, `incl: 28.6° (min 28.6°)`, and
+never says "locked", since nothing is. `Δincl:` moved to the TARGET
+box only (ADR 0051 decision 11, ending the duplicate the pad and the
+in-flight TARGET chip used to both carry): the plane angle an ascent
+lit *now* would leave to the Target's plane, which sweeps with the
+Primary's rotation so pad warp visibly changes it, drawn for every
+vessel (a dash cell with no target) rather than only appearing once
+one is set.
 
 **`Δincl:` reads against a targeted vessel as well as a body** (ADR
 0050 decision 6): withheld unless the target shares the Active
@@ -999,13 +1020,14 @@ plane (`r×v` for its co-rotation state) and is tagged as one:
 _Avoid_: Launch lat (the old row label), locked, minimum inclination
 (say Inclination Floor).
 
-**Depart** (grilled 2026-09-10, ADR 0050):
-The `depart:` row, alongside every `incl:` row — the Landed pad
-(SURFACE and DESCENT chips) and the ORBIT chip in flight: the angle
-between the orbit you'd reach (or are in) and the plane the world
-beneath you travels in, e.g. Luna's own orbit around Earth for a Luna
-pad, the ecliptic for an Earth pad (Earth's orbital inclination to the
-ecliptic is ~0.00005°, so the two agree there). This is the plane a
+**Depart** (grilled 2026-09-10, ADR 0050; placement updated by ADR
+0051):
+The `depart:` row, alongside every `incl:` row, on NAVIGATION's fifth
+row (with `e:` and `dir:`, one instrument box, Landed or in flight):
+the angle between the orbit you'd reach (or are in) and the plane the
+world beneath you travels in, e.g. Luna's own orbit around Earth for a
+Luna pad, the ecliptic for an Earth pad (Earth's orbital inclination to
+the ecliptic is ~0.00005°, so the two agree there). This is the plane a
 departure actually wants — leaving Luna for Earth wants Luna's orbit
 plane, leaving Earth for Mars wants the ecliptic — not the ecliptic
 everywhere, which is frozen on every moon. On the pad it carries
@@ -1013,13 +1035,18 @@ everywhere, which is frozen on every moon. On the pad it carries
 **Inclination Floor**'s `(min N°)` sitting directly above it; in
 orbit the suffix is dropped, since an orbital plane is fixed under
 two-body coast so the value on screen is already the best one.
-**Hidden** where the world's spin axis and its own orbital-plane
-normal sit within 0.005° of each other, so the row can't move: frozen
-on Kern, Cursor, Shell and Pipe; alive on Earth, Mars, Mercury, Luna,
-Glyph, Ember, Rust and Daemon. Ninth F1 READOUT GLOSSARY entry.
+The cell (not the row) reads `—` where the world's spin axis and its
+own orbital-plane normal sit within 0.005° of each other, so nothing
+can move: frozen on Kern, Cursor, Shell and Pipe; alive on Earth, Mars,
+Mercury, Luna, Glyph, Ember, Rust and Daemon. Under ADR 0051's two
+readings per row the row itself always exists, for `e:` and `dir:`
+regardless of what `depart:` reads, so "hide the row" (ADR 0050's
+original wording) has only one reading left: the dash. Ninth F1
+READOUT GLOSSARY entry.
 _Avoid_: Ecliptic (the reference is the *local* world's own orbital
 plane, not always the ecliptic — false on a moon), Departure angle
-(bare).
+(bare), Hidden row (say Dash cell; the row is never hidden, only the
+`depart:` value).
 
 **OnPad**:
 A flag on a Vessel that's *currently* sitting at its original
@@ -2377,6 +2404,49 @@ the current tooling.
 _Avoid_: Approach (too generic — also covers planetary flybys),
 Intercept (military / kinetic connotation), Catch (informal only).
 
+**Rendezvous Planner** (ADR 0045 S2/S5/S6, #398/#399; renamed from
+"Meeting Planner" in ADR 0051 slice 3, 2026-09-15):
+The map's escalation path when `K`'s own single-burn **Nudge** can't
+close the gap: too far apart in phase, but the two orbits' *shapes*
+already match (a **Shape-Match Gate** pass). Opens as the `RENDEZVOUS
+PLAN` picker, a **Notice** that holds keyboard focus (it never folds or
+shrinks while open); the help overlay's own section is `RENDEZVOUS
+PLANNER`. Distinct from `K`'s direct nudge, which plants immediately
+with no picker when the gap is already small. Player-facing wording
+only: internal identifiers (`MeetingPlace`, `RecommendMeetingLadder`,
+`ErrMeetingSizeMismatch`, `OpenMeetingPicker`) kept the `Meeting*` name
+and were not renamed.
+_Avoid_: Meeting Planner, Meeting Plan, Meeting Place (all retired
+player-facing wording; keep the internal Go identifiers as they are).
+
+**Meeting Place** (ADR 0045 §2, `planner.MeetingPlace`):
+Which craft's orbit the **Rendezvous Planner**'s meeting point lives
+on: **"their orbit"** (the target holds, the active craft burns to
+arrive), **"your orbit"** (the active craft holds, the burn is for the
+*partner*, so planting it on a remote craft is out of scope), or
+**"the crossing"** (the two current, unburned courses' own natural
+intersection, which refuses today, `ErrMeetingCrossingNotImplemented`;
+a solver existed briefly, PR #412, and was reverted rather than fixed
+forward after it planted burns that only matched at one instant). The
+picker's `←`/`→` walk these three.
+_Avoid_: Meeting point (ambiguous with **Closest Approach**), Rally
+point.
+
+**Lap Ladder** (ADR 0045 §2):
+The picker's `↑`/`↓` list of **Meeting Burn** options, one row per lap
+count, cheaper (lower Δv) with more laps and a longer wait, the same
+"waiting is cheap, Δv is dear" trade **Arrival Speed** documents for
+the ordinary Nudge. An unaffordable or otherwise unsafe row still
+shows, dimmed, with its reason (`ErrMeetingUnaffordable`,
+`ErrRendezvousUnsafePeriapsis`, `ErrMeetingNoSolution`), rather than
+being hidden, so the trade stays visible even when it isn't legal
+right now. Refused outright, structurally, when the mover's current
+orbital radius sits outside the holder's periapsis-to-apoapsis range:
+`ErrMeetingSizeMismatch`, surfaced as `radius outside target's
+apsides: plan a transfer [H] first` (reworded from "Meeting Place"
+wording in ADR 0051 slice 3).
+_Avoid_: Meeting Ladder, Burn ladder (bare).
+
 **Rendezvous Advisory**:
 The single-burn recommendation surfaced by `RecommendRendezvousNudge`
 when a useful **Nudge** is available. Carries the Δv magnitude, the
@@ -2754,45 +2824,68 @@ _Avoid_: Feature type (Kind is the canonical noun here), Layer
 
 ### HUD & overlays
 
-How orbit-screen information is placed: a slim always-on column of core
-readouts, compact overlays composited onto the canvas, and a momentary
-hide-all gesture. The model and its rejected alternatives are recorded in
-ADR 0010 in the planning vault
-(`designdocs/terminal-space-program/adr/0010-hud-column-canvas-chips-and-settings.md`).
+How orbit-screen information is placed: eight fixed **Instrument Box**es
+in two columns, transient **Notice**s in a bay between them, and a
+momentary hide-all gesture. ADR 0010 in the planning vault
+(`designdocs/terminal-space-program/adr/0010-hud-column-canvas-chips-and-settings.md`)
+recorded the original chip-and-column model; ADR 0051
+(`designdocs/terminal-space-program/adr/0051-instrument-layout-contract.md`)
+replaced it with the fixed layout below after a 2026-09-13 review found
+flight data scattered and duplicated across a dozen chips that came and
+went with the phase. The terms in this subsection are ADR 0051's unless
+marked otherwise; where an older term is now retired, its entry says so
+and points at what replaced it.
 
-**HUD**:
-The pinned core-telemetry **Chip** of irreducible vessel telemetry (name,
-primary, fuel %, Δv budget, throttle, velocity), composited onto the
-canvas's top-left corner. It is never hidden by [[#hud--overlays|Declutter]]
-(F2 must not hide fuel/Δv mid-burn) and its contents are fixed, not
-player-configurable — the one Chip that survives Declutter. Narrowed from the
-pre-ADR-0010 sense, where "HUD" meant the whole tall stack of blocks; a
-v0.13 playtest then moved it off a right-hand column onto the canvas (see
-ADR 0010's amendment) so the orbit map spans the full terminal width.
-_Avoid_: Sidebar, right bar, info panel, HUD blocks (the contextual ones
-are now [[#hud--overlays|Chips]]).
+**Instrument Box**:
+One of the eight fixed boxes named for the subsystem it reads: ENGINE
+(throttle, lit state, elapsed time, mode, TWR, the next burn), PROPELLANT
+(fuel, mass, Δv, Δv→circ, monoprop, RCS Δv), GUIDANCE (hold, nav,
+heading, trim, fpa, orbit fpa), NAVIGATION (altitude, vert, horiz,
+speed, Ap, Pe, incl, period, depart, e, dir, impact, stop, the **Plan
+row**), COMMS, TARGET, STAGES, and MISSION. A box never changes corner
+or column and never disappears; only its rows fill or read `—` (a
+**Dash cell**). The same eight boxes, same rows, same places, in both
+the orbit map and the LAUNCH view. At or above the **Design Size** a
+box never shrinks, drops, or moves; below it, **Graceful Shrink**
+governs as it always did.
+_Avoid_: Panel (the Navball), Chip (a Notice, below), Block, HUD block.
 
-**Chip**:
-A compact (2–4 row) overlay composited onto a corner of the **Canvas**
-carrying one contextual readout — Target, Stages, Nodes, Launch, Capture.
-Most Chips render only when their Setting is enabled, they are contextually
-relevant, and Declutter is off. The current **Orbit** metrics (apo/peri/incl,
-and from #426 the eccentricity `e:` row in the full form only, so the
-eccentricity-graded challenge rungs have a number to check against)
-are **always-on** (non-toggleable) — a player must never be able to hide them
-from the **Settings screen** — though they still vanish under Declutter. The
-**Nodes** Chip carries any in-flight **Burn** as its firing head (the active
-● Burns readout was folded in here, v0.16); while a Burn is live it
-**force-shows** — overriding both its Setting toggle *and* Declutter — so a
-live Burn (safety-critical) can never be hidden at or above the **Design
-Size** (below it, Graceful Shrink may stub it; ruled out of scope
-2026-09-04). With nothing burning the
-Nodes Chip honours its toggle and Declutter like any other. The **HUD** core
-Chip and a live-Burn Nodes Chip are the only overlays that survive Declutter.
-Distinct from the larger **Navball** panel, which is also a canvas overlay
-but a fixed instrument.
-_Avoid_: Widget, card, badge, HUD block, panel (reserve panel for the
-Navball).
+**Slot**:
+The fixed place an **Instrument Box** occupies in its column for the
+whole flight, in ADR 0051's order (left: ENGINE, PROPELLANT, GUIDANCE,
+COMMS, STAGES, MISSION; right: NAVIGATION, TARGET). A box switched off
+in the **Settings screen** leaves its slot blank at its declared
+maximum height rather than closing the stack up; `F2` **Declutter**
+clears all eight slots at once instead.
+_Avoid_: Corner (the stacker's placement anchor, a mechanism term),
+Position.
+
+**Notice**:
+A box that is not an instrument: it comes and goes with an event (a
+planned encounter, a frame change, a session event, a crash, a chute,
+the Rendezvous picker) and renders in the **Notice bay**, never in a
+column. Standing Alerts (below) are Notices; Event Flashes are not
+(they are the border row); no CommNet signal is a COMMS row, not a
+Notice. Retired (ADR 0051): what "**Chip**" used to name (Target,
+Stages, Nodes, Launch, Capture) is now split between the eight
+Instrument Boxes (Target, Stages and the rest became boxes) and the
+Notice class (Capture, Frame Transition, SOI Pass and the other
+event-driven overlays stayed contextual). "Chip" as a bare word now
+means Notice.
+_Avoid_: Chip (bare; the word now names the Notice class specifically),
+Alert (bare; say Standing Alert), Popup, Widget, card, badge.
+
+**Notice bay**:
+The region at the bottom middle of the map, between the two Instrument
+Box columns and the Navball, above the **Hint Strip** (63 columns by
+17 rows at the Design Size). Notices stack upward, newest at the
+bottom, each with its full body; when the stack would exceed the bay's
+budget the oldest fold behind a `▸ +N more` line rather than ever paint
+over a box. Exempt from **Graceful Shrink**'s side budgets. Below the
+Design Size the bay is exempt from the stacker too and may paint over
+a box, per ADR 0046's floor rule.
+_Avoid_: Notice corner, canvas centre (the first-drafted placement,
+refuted: the canvas centre was never actually free), overlay slot.
 
 **Playable Floor** / **Design Size** (grilled 2026-09-04, #422):
 Two terminal sizes with different contracts. The **Playable Floor** is
@@ -2811,53 +2904,63 @@ host happens to sit at the Floor, but the Floor is a rendering gate,
 not a player target).
 
 **Graceful Shrink** / **Compact Form**:
-The contract for Chips between the Playable Floor and the Design Size:
-a Chip **shrinks before it vanishes and never overlaps**. Every Chip
-has a **Compact Form** (its title plus one or two key rows: the Orbit
-Chip becomes an Ap/Pe strip) that it collapses to, lowest priority
-first, when its side of the Canvas runs out of rows. Each *side* (left,
-right) is one column, so a top-corner stack and a bottom-corner stack
-can never collide; the Navball keeps its rows. Only when every Chip on
-a side is already Compact and the column still overflows does a Chip
-drop, and then a one-row **Hidden Stub** ("▸ +2 hidden") stands where it
-was, so a missing readout is never silent. A numeric field that must be
-cut is cut on the right, never on the left (a left-clipped number reads
-as a different, plausible number). The title bar is deliberately outside
-this contract: it clips from the right below the Design Size and is not
-budgeted.
+The contract for Notices between the Playable Floor and the Design
+Size: a Notice **shrinks before it vanishes and never overlaps**. Below
+ADR 0051 the eight fixed **Instrument Box**es never shrink or drop at
+or above the Design Size at all; between the Playable Floor and the
+Design Size they still fold the way every Chip used to (a known gap
+flagged by the slices 2 to 4 review: the boxes have no dedicated
+Compact Form of their own down there yet, so they can currently crowd
+out a Notice that needs the room). Each *side* (left, right) is one
+column, so a top-corner stack and a bottom-corner stack can never
+collide; the Navball keeps its rows. Only when every Notice on a side
+is already Compact and the column still overflows does one drop, and
+then a one-row **Hidden Stub** ("▸ +2 hidden") stands where it was, so
+a missing readout is never silent. A numeric field that must be cut is
+cut on the right, never on the left (a left-clipped number reads as a
+different, plausible number). The title bar is deliberately outside
+this contract: it clips from the right below the Design Size and is
+not budgeted.
 _Avoid_: Drop / hide for space (the pre-#422 behaviour, where a
 critical Chip clamped onto the canvas painted over its neighbour),
 Collapse (bare; say Compact Form), Responsive.
 
 **Declutter**:
-The momentary "hide all overlays" action (F2) that clears every Chip and
-the Navball to expose a clean orbit view. Transient and unsaved — it does
-not change the persisted Settings, and it never hides the **HUD** column.
-Named twice on screen while it's on (grilled 2026-09-06): the canvas
-footer's view label gets a trailing `· declutter`, and the title bar
-carries a Dim `[F2 declutter]` tag beside the warp readout — both gone
-the instant F2 clears it. The Launch View shares the same state and gets
-the same title-bar tag.
+The momentary "hide all overlays" action (`F2`). Retired and rewritten
+by ADR 0051 decision 16: it now clears all eight **Instrument Box**es
+and the Navball together (the columns vanish and return as one unit,
+so nothing moves), except ENGINE and PROPELLANT stay up while an
+engine is lit (the **Engine-lit cue**'s own rule that fuel and a live
+burn are never hidden mid-burn, carried over from the old
+force-showing Nodes chip). Transient and unsaved: it does not change
+the persisted Settings. Named twice on screen while it's on (grilled
+2026-09-06): the canvas footer's view label gets a trailing
+`· declutter`, and the title bar carries a Dim `[F2 declutter]` tag
+beside the warp readout, both gone the instant F2 clears it. The
+Launch View shares the same state and gets the same title-bar tag.
 _Avoid_: Hide UI, clean mode, F2 mode, toggle overlays.
 
 **Engine-lit cue** (grilled 2026-09-06, "burn state is invisible";
 revised after the v0.41.0 playtest found the original whole-screen
-treatment too loud): the set of always-visible signals that an engine
-is actually producing thrust right now, as opposed to merely set to
-some throttle. Two parts, both gated on live thrust (`AnyCraftThrusting`:
-a live `ActiveBurn` or `ManualBurn` on any craft in the slate) and never
-on the throttle *setting*: the **VESSEL** chip's `throttle:` row carries
-a trailing `(idle)` (Dim) or `● FIRING` (Warning) suffix for the active
-craft specifically, and the VESSEL chip's own header carries a `● BURN`
-badge in Warning — the whole-slate signal, since `AnyCraftThrusting`
-walks every craft, not just the active one, so this still answers "why
-is warp capped" even when the burning craft isn't the one on screen.
-Both clear the tick thrust stops. (Originally a canvas-border color
-swap plus a separate title-bar badge; both were removed in favor of the
-single VESSEL-chip badge.)
+treatment too loud; moved again by ADR 0051): the set of
+always-visible signals that an engine is actually producing thrust
+right now, as opposed to merely set to some throttle. Two parts, both
+gated on live thrust (`AnyCraftThrusting`: a live `ActiveBurn` or
+`ManualBurn` on any craft in the slate) and never on the throttle
+*setting*: ENGINE's `throttle:` row carries a trailing `(idle)` (Dim)
+or `● FIRING` (Warning) suffix for the active craft specifically, and
+ENGINE's own title carries a `● BURN` badge in Warning, the
+whole-slate signal, since `AnyCraftThrusting` walks every craft, not
+just the active one, so this still answers "why is warp capped" even
+when the burning craft isn't the one on screen. Both clear the tick
+thrust stops. Retired (ADR 0051): this used to live on the VESSEL
+chip, now retired; ENGINE is the one instrument box for it. A node
+burn's throttle cell carries no clock of its own (the node row already
+has one); a manual burn keeps its `T+` elapsed reading, since it has no
+node row to duplicate.
 _Avoid_: "engine on"/"engine off" (ambiguous with the throttle setting),
 LIT (that's the Launch pad's separate pre-ignition `twr:` row indicator,
-ADR 0048 §3, not this cue).
+ADR 0048 §3, not this cue), VESSEL chip (retired).
 
 **Announcement** — **Event Flash** / **Standing Alert** (grilled 2026-09-04, #421/#427):
 How the game tells the player something happened, in two tiers by
@@ -2867,14 +2970,19 @@ the moment they happen: a Burn fired or finished, a Stage dropped, a
 dock or undock, a save. Refusals ("undock: nothing is docked") are Event
 Flashes too; every Flash goes through one helper in one voice: verb,
 what, and the number that matters ("node 1 burned — 3054 m/s, 2
-remaining"). A **Standing Alert** is an alert-coloured Chip that
-persists for as long as its state does: VESSEL DESTROYED (naming the
-exits, `E` end flight / `F9` quickload), no CommNet signal. A Flash must
-never be the only notice of a state that persists (the ADR 0044 lesson:
-transient feedback does not replace a standing warning).
+remaining"). A **Standing Alert** is an alert-coloured **Notice** (ADR
+0051 retired "Chip" as the word for this) that persists for as long as
+its state does: VESSEL DESTROYED (naming the exits, `E` end flight /
+`F9` quickload). No CommNet signal is not a Standing Alert any more: on
+a vessel the link actually command-gates it is COMMS's own alert-coloured
+row (`⚠ NO SIGNAL`); on a crewed vessel COMMS reads the real link state
+in the ordinary colour with no alarm at all (`no signal` in Dim), since
+nothing gates on it yet. A Flash must never be the only notice of a
+state that persists (the ADR 0044 lesson: transient feedback does not
+replace a standing warning).
 _Avoid_: Toast, notification, status message (bare), banner (say
 Standing Alert), log (there is no event history; a missed Flash is
-missed).
+missed), Chip (say Notice).
 
 **Hint Strip** (grilled 2026-09-04, #425):
 The one dim row of key hints on the bottom row of the orbit map, to the
@@ -2882,16 +2990,17 @@ right of the `view:` label: `[F1] help · [t] target · [m] plan · [n] new
 vessel · [./,] warp · [tab] system`. It is the map's *legend*, not a
 coach: fixed content, always shown, never rotates, never phase-gated,
 and it does not go away when Flight School is passed or switched off.
-Step-by-step instruction is the **Mission** chip's job. Sits on the last
+Step-by-step instruction is the **MISSION** box's job. Sits on the last
 canvas row, so it never collides with an **Event Flash** (which rides the
 border row below it). Clips on the right below the **Design Size**; it is
 not a numeric field, so right-clipping is safe. `?` opens the same help
 overlay as F1 everywhere F1 does.
 _Avoid_: Footer (the pre-v0.13 cheat-sheet row, which was removed),
 Cheat sheet, Key bar, Rotating hints (rejected: a moving row that
-duplicates the Mission chip).
+duplicates the MISSION box).
 
-**Readout Contract** (grilled 2026-09-09, ADR 0049):
+**Readout Contract** (grilled 2026-09-09, ADR 0049; extended by ADR
+0051):
 The one way every number on a flight surface reads, so no two panels
 disagree on the arithmetic. Four rules. Durations are two adjacent
 units (`45s`, `2m07s`, `4h43m`, `3d05h`), signed the launch way: `T-`
@@ -2901,27 +3010,84 @@ SI ladder at four significant figures (`m`, `km`, `Mm`, `Gm`, then
 `AU`; `kg` then `t`; thrust in `kN`), the rung always printed. Off the
 ladder, four significant figures and at most two decimals (`5519 m/s`,
 `0.12 m/s`, `28.60°`), steering angles integer (`090°`). Labels are one
-short word; the only codes are `fpa`, `Q`, `TCA`, `TWR`, `Ap`/`Pe` and
-`Δv`/`Δincl`, each explained in the F1 glossary. Five further bare
-codes survive elsewhere on the HUD with no glossary line of their own —
-`CA:`, `e:`, `τ`, the AN/DN angle, `rcs` — a count corrected from an
-earlier claim of six by the ADR 0050 audit. A sub-surface periapsis
-keeps its signed depth and turns the row Warning. `Δv:` reads
-stage / vehicle.
+short word; a sub-surface periapsis keeps its signed depth and turns
+the row Warning. `Δv:` reads stage / vehicle. The F1 READOUT GLOSSARY
+(`help.go`) grew from 9 lines to 17 under ADR 0051: `fpa`, `Q`, `TCA`,
+`TWR`, `Ap`/`Pe`, `Δv`/`Δincl`, `T-`/`T+`, `incl (min N°)`, `depart`
+from ADR 0049/0050, plus the **Trend arrow** and **Plan arrow** (one
+shared line), `⚠` on a node, `plan`, `dir`, `speed`, `(max N)`, and
+`● ORBIT READY [C]` from ADR 0051. Five further bare codes still
+survive with no glossary line of their own: `CA:`, `e:`, `τ`, the
+AN/DN angle, `rcs`.
 _Avoid_: Units setting (there is none; the contract is not a
 preference), `alt` suffix, `budget`, raw seconds, decimal hours,
 thousands separators, variable-name labels (`v_vert`, `t_to_apo`),
 `|v_rel|`, `sas`.
 
+**Trend arrow** (ADR 0051 decision 10, re-grill Q3):
+`↑` on the Ap cell while apoapsis climbs, `↓` while it falls, nothing
+while it's steady. A Readout Contract symbol.
+_Avoid_: the words climbing/steady/falling on the instrument, `→` for
+steady (that glyph means something else, below).
+
+**Plan arrow** (ADR 0051 decision 10, re-grill Q3):
+`→` between a current value and a planned or resulting one, wherever it
+appears: NAVIGATION's Ap/Pe/incl/period cells while a burn is planned
+(`Ap: 500.0 km → 729.6 km`), FRAME TRANSITION's `Earth → Moon`, the
+title's `warp 4x→2x`, inside the label `Δv→circ:`. One glyph, one
+meaning, "becomes," everywhere it sits; it does not mean "steady" (the
+**Trend arrow** owns that, with no glyph at all) after an early draft
+collided the two on the same Ap cell.
+_Avoid_: PROJECTED ORBIT box (retired, below), preview row, `⇒`.
+
+**Plan row** (ADR 0051 decision 15, re-grill Q1):
+NAVIGATION's permanent tenth row, `plan:`, reading `—` until a burn is
+planted and then the world the planned numbers are measured from, plus
+the node angles: `plan: Moon encounter  AN 355.0°  DN 175.0°`, or
+`Earth orbit` / `Earth escape` / `equatorial` where there's no
+encounter, no node angles, or an equatorial result respectively.
+Always drawn (a permanent row, not one that appears when a burn is
+planted) so that NAVIGATION's other nine rows never move when a plan
+is added or cleared.
+_Avoid_: node-angle row, AN/DN row, primary row.
+
+**Title badge** (ADR 0051):
+A short state word on an Instrument Box's title instead of a row:
+`● BURN` (ENGINE), `DOCK READY` (TARGET), `● ORBIT READY [C]` and a
+world's name (NAVIGATION on the map), a landed site
+(`landed 28.61°, -80.60°`) or a descent alarm (`⚠ TIGHT`,
+`⚠ NO STOP`), all on NAVIGATION's title, mutually exclusive by phase.
+_Avoid_: header flag, suffix (that's a cell's own parenthetical).
+
+**Braking start** (ADR 0051 decision 12, re-grill Q2):
+The latest safe moment to light the engine on a descent, read on
+ENGINE's `node:` row (`▸ braking burn at 406 m  T-57s`) while one
+exists. Outranks a queued node on that same row; outranked by a live
+burn. Retired: the alarm words (`TIGHT`, `CAN'T STOP (...)`) moved off
+the NAVIGATION `stop:` cell onto its title, in a **Title badge**,
+shortened to `⚠ TIGHT` / `⚠ NO STOP` where the full form wouldn't fit.
+_Avoid_: burn at (the retired row label), stop margin.
+
+**Launch strip**:
+The LAUNCH view's one-row `T+ … downrange: … Q: … (max …)` line under
+the picture, carrying `● ORBIT READY [C]` at the end while the cue
+applies (ADR 0051 decision 3). It dropped its own `vert:` reading
+(NAVIGATION's is the only one, so the two views can't disagree the way
+the old strip and the old ORBIT chip once did). Distinct from the
+map's **Hint Strip**, which stays fixed and unrelated.
+_Avoid_: HUD strip, status line.
+
 **Settings screen**:
-The menu-reached screen where the player toggles each toggleable Chip's
-default visibility (and future preferences such as units). The always-on
-Orbit readout is deliberately not listed; the **Nodes** Chip is listed
-(toggleable) but force-shows while a Burn is in flight regardless, so its
-firing-head Burn readout can't be switched off. Persisted to a global
-`settings.json` under `$XDG_CONFIG_HOME`, separate from the **Theme** —
-visibility versus colour are distinct concerns — and independent of any
-save game.
+The menu-reached screen where the player toggles each toggleable
+Notice's or **Instrument Box**'s default visibility (and future
+preferences such as units). A box switched off leaves its slot blank
+at its declared maximum height (**Slot**) rather than closing the
+stack up. Retired (ADR 0051): the per-chip ids for VESSEL, the old
+Launch/Descent/Attitude/Projected-Orbit chips are gone, replaced by one
+id per Instrument Box; `ChipNodes` is kept only for click-to-open
+routing, no longer a player-facing toggle. Persisted to a global
+`settings.json` under `$XDG_CONFIG_HOME`, separate from the **Theme**,
+and independent of any save game.
 _Avoid_: Options, preferences pane, config menu.
 
 ### Engineering vocabulary

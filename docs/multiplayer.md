@@ -54,7 +54,7 @@ From that roster:
 
 Closing the distance takes orbits of coasting, so warp there *together*.
 `w` on a player's roster row **agrees to meet them** — you don't need a
-predicted encounter first. If K's rendezvous nudge or the Meeting Planner
+predicted encounter first. If K's rendezvous nudge or the Rendezvous Planner
 already has a burn queued toward them, `w` commits to where it leads,
 however far out; otherwise it commits to whatever the current courses
 turn up inside the next 4 hours; and if neither finds anything, it still
@@ -62,7 +62,7 @@ arms — a standing agreement with no plan yet. They get a persistent
 prompt on their main screen (`y` joins), and from that moment your warps
 are rate-locked. Once there's a committed encounter, warping runs the
 pair all the way to it, planted burns firing en route; the `RENDEZVOUS`
-block names the Meeting Place when one was planted (their orbit / your
+block names the meeting place when one was planted (their orbit / your
 orbit / the crossing) and how many laps.
 
 Either side cancels with `/`, and only with `/`: the manual warp keys and the

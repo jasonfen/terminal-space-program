@@ -32,7 +32,7 @@ behind a one-row `▸ +N hidden` marker rather than overlap each other.
   - [Spawn form (`n`)](#spawn-form-n)
   - [Maneuver planner (`m`)](#maneuver-planner-m)
   - [Porkchop plot (`P`)](#porkchop-plot-p)
-  - [Meeting Planner (`K`)](#meeting-planner-k)
+  - [Rendezvous Planner (`K`)](#rendezvous-planner-k)
   - [Vehicle Assembly Building](#vehicle-assembly-building-esc--build-vab)
   - [Missions ladder (`M`)](#missions-ladder-m)
   - [Saves](#saves-esc--save-game--load-game)
@@ -107,12 +107,14 @@ A good first attempt:
 5. Press `space` to drop the empty first stage. You keep flying the upper
    stage and the stage list advances. Keep burning, drop the next stage, then
    the last one.
-6. Watch the projected high point climb. When it passes 200 km the **● ORBIT
-   READY** note appears. That's your cue to cut the throttle (`x`) and coast.
+6. Watch the projected high point climb. When it clears Earth's orbit floor
+   (175 km, the atmosphere's top plus a safety margin) the **● ORBIT
+   READY** note appears on NAVIGATION's title. That's your cue to cut the
+   throttle (`x`) and coast.
 7. Press `C` to plan a circularising burn at the top of your arc.
 8. Coast up to that point. The planned burn fires on its own and rounds out
-   your orbit. Once your low point also clears 200 km you're safely in orbit,
-   and the LAUNCH readout tracks the gap along the way.
+   your orbit. Once your low point also clears the floor you're safely in
+   orbit, and the LAUNCH readout tracks the gap along the way.
 
 The whole thing runs on numbers, not memorised pitch tables: the high point
 climbs as you burn, ORBIT READY tells you when to stop, `C` sets up the last
@@ -137,7 +139,7 @@ Dvorak, and free per-key remapping aren't supported yet.
 | `Esc` | Back; on the main view, open the save / load / build / settings / controls / quit menu |
 | `Ctrl+C` | Quit immediately |
 | `F1` or `?` | Toggle the help overlay (scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`). `?` opens the same overlay as `F1` everywhere `F1` does |
-| `F2` | Declutter: hide the corner chips and the navball for a clean look at the orbit. Press again to restore. The telemetry column stays |
+| `F2` | Declutter: hide all eight instrument boxes and the navball together for a clean look at the orbit. Press again to restore. ENGINE and PROPELLANT stay up while an engine is lit, so fuel and a live burn are never hidden mid-burn |
 | `` ` `` | **Boss key**: instantly swap the screen for a convincing fake developer shell. Type `exit`, `logout`, or `Ctrl+D` to come back where you left off. Left out of the `F1` overlay on purpose |
 | `Tab` | Switch star system (Sol first, then alphabetical: Alpha Centauri, Kepler-452, Lumen, TRAPPIST-1). A camera toggle only; vessels stay in the system they spawned in |
 | `i` | Body info screen for the body under the map cursor |
@@ -156,7 +158,7 @@ Dvorak, and free per-key remapping aren't supported yet.
 | `shift+↑` / `shift+↓` | Tilt the 3D view up / down (tilted view only) |
 | `shift+←` / `shift+→` | Yaw the 3D view left / right in 5° steps, wrapping (tilted view only) |
 | `o` | **Proximity view** for the last kilometres of a rendezvous: the target vessel sits dead centre, its direction of travel runs right, the planet is below, so you read your drift the way the physics works. Needs a vessel target; a `CLOSE RANGE` chip reminds you once within 35 km. Press again to return to the map as you left it |
-| `V` | **Launch / surface view**: chase-cam on your active vessel with a curved horizon, pad marker, and breadcrumb trail, scaled tight at liftoff and pulled back high up. Lifting off routes you here automatically; a `DESCENDING` chip reminds you when you're headed for the ground. Press again to return to the map |
+| `V` | **Launch / surface view**: chase-cam on your active vessel with a curved horizon, pad marker, and breadcrumb trail, scaled tight at liftoff and pulled back high up. Lifting off routes you here automatically. Press again to return to the map |
 | `j` | **Inspect**: each press steps a bright highlight onto the next thing drawn (bodies, vessels, other players' ghosts, planned burns, the closest-approach `✕`) and names it in a chip. One press past the last item clears it; `Esc` clears immediately. Clicking any orbit line or marker jumps the highlight there |
 | `Enter` | While inspecting: make the highlighted thing your target and clear the highlight. Works on vessels and other players, not just bodies. Things that can't be a target say so |
 
@@ -219,7 +221,7 @@ does not affect your travel target.
 | `H` | Plan a transfer to your target. To a moon of your current planet it works out two routes and plans the cheaper, showing both costs. To another planet it plans a Hohmann transfer. To a moon's parent planet it plans an escape |
 | `I` | Plan a burn to match your target's orbital tilt (or to level out to the equator with no target) |
 | `C` | Plan a circularising burn at the top of your orbit; pairs with the ORBIT READY cue on launch. Refused if the top of your orbit is inside the atmosphere or you're on an escape trajectory |
-| `K` | Close in on a target vessel. Close and near-matched → plants a small nudge directly, using the closest-approach numbers in the target readout. Too far apart in phase → opens the [Meeting Planner](#meeting-planner-k) instead of refusing. Your planes differ → names `I` instead of planting anything. Needs a vessel target sharing your planet |
+| `K` | Close in on a target vessel. Close and near-matched → plants a small nudge directly, using the closest-approach numbers in the target readout. Too far apart in phase → opens the [Rendezvous Planner](#rendezvous-planner-k) instead of refusing. Your planes differ → names `I` instead of planting anything. Needs a vessel target sharing your planet |
 | `P` | [Porkchop plot](#porkchop-plot-p) for the body under the map cursor (not your `t` target). Other planets only; moon targets point you back to `H` |
 | `R` | Refine the plan: recompute the transfer from where you are now and update the arrival |
 
@@ -297,6 +299,14 @@ overlay carries, so you can look one up without leaving the game.
 | `T-` / `T+` | Countdown convention: `T-` counts down to an event, `T+` counts up since it |
 | `incl (min N°)` | On the pad: the inclination your commanded heading yields, and the Inclination Floor (your launch latitude, unsigned) it can't go below |
 | `depart` | The angle between the orbit you'd reach and the plane the world beneath you travels in: the plane you leave along |
+| `Ap ↑` / `↓` | Apoapsis trend: climbing / falling; no glyph while it's steady |
+| `→` | Becomes: between a current value and a planned or resulting one, wherever it appears |
+| `⚠` (on a node) | The planned burn exceeds the stage's Δv budget |
+| `plan` | The world the planned burn's numbers are measured from, plus its node angles |
+| `dir` | Prograde or retrograde: which way the orbit runs |
+| `speed` | Inertial speed, alongside `vert:` and `horiz:` |
+| `(max N)` | The same figure at full throttle, when it differs from the current one |
+| `● ORBIT READY [C]` | Apoapsis has cleared this world's orbit floor: press `C` to plant the circularising burn |
 
 ## Screens
 
@@ -344,9 +354,10 @@ PROJECTED ORBIT always shows the orbit *after that node* — never a leftover
 draft from an earlier edit. The list ends in a blank **+ new node** row; with
 the cursor there, PROJECTED ORBIT shows the form's own draft instead, labelled
 as such. A node whose Δv is more than the vessel can currently afford still
-plants — you may be about to refuel, stage, or dock a tug — but its row (and
-the map's NODES chip) carries a `⚠ exceeds budget by …` marker so it never
-comes as a surprise.
+plants (you may be about to refuel, stage, or dock a tug), but its row
+carries a `⚠ exceeds budget by …` marker so it never comes as a surprise
+(the map's ENGINE box shows the same thing as a bare `⚠` on its node row,
+with the words in the F1 readout glossary).
 
 Below PLANNED NODES, **QUICK PLANS** lists the same six one-key planners as
 the map; whichever ones aren't legal right now (no target, no vessel target,
@@ -380,19 +391,20 @@ no planted transfer, …) are dimmed with the reason instead of hidden.
 The cursor opens on the cheapest cell. A `·` marks cells where no transfer was
 found; `Enter` does nothing there.
 
-### Meeting Planner (`K`)
+### Rendezvous Planner (`K`)
 
-A chip on the map, not a separate screen — it opens when `K`'s small nudge
-isn't enough to close on your target (too far apart in phase) but your
+A notice on the map, not a separate screen (it holds keyboard focus while
+open, so it never shrinks or gets tucked away). It opens when `K`'s small
+nudge isn't enough to close on your target (too far apart in phase) but your
 planes already match. Pick where to meet: on their orbit, on yours, or at
 the natural crossing of your current courses; then pick a lap count on the
-**Lap Ladder** for that Meeting Place — more laps, less Δv, longer wait.
-Unaffordable or unsafe rows still show, dimmed, with the reason, rather than
-being hidden.
+**Lap Ladder** for that meeting place, more laps for less Δv but a longer
+wait. Unaffordable or unsafe rows still show, dimmed, with the reason,
+rather than being hidden.
 
 | Key | Action |
 |---|---|
-| `←` / `→` | Walk the Meeting Place: their orbit / your orbit / the crossing |
+| `←` / `→` | Walk the Rendezvous: their orbit / your orbit / the crossing |
 | `↑` / `↓` | Walk the Lap Ladder |
 | `Enter` | Plant the highlighted row's burn |
 | `Esc` | Close without planting |
