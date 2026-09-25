@@ -1139,11 +1139,10 @@ func TestComposeChipsBayExemptFromSideBudget(t *testing.T) {
 // bay notice is present.
 func TestComposeChipsBayNoticeDoesNotMoveBoxes(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	const cCols, cRows = 140, 40
-	boxes := []builtChip{
-		{id: settings.ChipEngine, corner: cornerTopLeft, lines: []string{"ENGINE", "  a", "  b"}, priority: chipPriorityCore},
-		{id: settings.ChipNavigation, corner: cornerTopRight, lines: []string{"NAVIGATION", "  c", "  d"}, priority: chipPriorityCore},
-	}
+	const cCols, cRows = 138, 37 // the real canvas at the Design Size (140x40 terminal), not the terminal's own 140x40 (review finding 2, 2026-09-25)
+	boxes := realisticBayLeftStack()
+	boxes[0].id = settings.ChipEngine
+	boxes = append(boxes, builtChip{id: settings.ChipNavigation, corner: cornerTopRight, lines: []string{"NAVIGATION", "  c", "  d"}, priority: chipPriorityCore})
 	v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, boxes)
 	before := append([]chipRect{}, v.chipRects...)
 
@@ -1153,12 +1152,12 @@ func TestComposeChipsBayNoticeDoesNotMoveBoxes(t *testing.T) {
 	v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, withNotice)
 	after := v.chipRects
 
-	if len(before) != 2 || len(after) != 3 {
-		t.Fatalf("rect counts = %d before, %d after, want 2 and 3", len(before), len(after))
+	if len(before) != len(boxes) || len(after) != len(boxes)+1 {
+		t.Fatalf("rect counts = %d before, %d after, want %d and %d", len(before), len(after), len(boxes), len(boxes)+1)
 	}
-	for i, name := range []string{"ENGINE", "NAVIGATION"} {
+	for i := range boxes {
 		if before[i] != after[i] {
-			t.Errorf("%s box moved when a bay notice appeared: before=%+v after=%+v", name, before[i], after[i])
+			t.Errorf("box %d (%s) moved when a bay notice appeared: before=%+v after=%+v", i, boxes[i].lines[0], before[i], after[i])
 		}
 	}
 }
@@ -1170,33 +1169,33 @@ func TestComposeChipsBayNoticeDoesNotMoveBoxes(t *testing.T) {
 // unwrapped, per the item 1 measurement of the old wording) does not fit
 // the bay's ~63-column gap at 140x40. It must now wrap instead of
 // spilling into the left stack: every placed rect stays within
-// [leftStackMaxCol, navballLeft], and it must not overlap the right-side
-// box standing in for MISSION/TARGET.
+// [the bay's own left bound, navballLeft], and it must not overlap the
+// right-side box standing in for MISSION/TARGET.
+//
+// Uses the real six-box, 32-row left stack (review finding 2, 2026-09-25)
+// at the real 138x37 canvas, not a one-box stand-in at the terminal's own
+// 140x40: the bay's left bound is MISSION's own edge (the last, narrower
+// box), not the widest box anywhere in the stack (GUIDANCE), so a
+// realistic stack is what actually exercises that clamp.
 func TestComposeChipsBayWrapsWidePickerLine(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	const cCols, cRows = 140, 40
+	const cCols, cRows = 138, 37
 	v.OpenMeetingPicker(planner.MeetingTheirOrbit, planner.MeetingLadder{}, sim.ErrMeetingSizeMismatch)
 	pickerLines := v.buildMeetingPickerChip()
 	if pickerLines == nil {
 		t.Fatal("setup: picker chip nil while open")
 	}
 
-	// Realistic box width (matching ENGINE's ~48 measured columns, item
-	// 1's own numbers): a generous fake gap would let the picker fit
-	// unwrapped and prove nothing about the clamp actually engaging.
-	leftBox := builtChip{corner: cornerTopLeft, lines: []string{
-		"ENGINE",
-		"  throttle:  100% idle             mode:  main",
-	}, priority: chipPriorityCore}
-	chips := []builtChip{leftBox, {corner: cornerBay, lines: pickerLines}}
+	leftStack := realisticBayLeftStack()
+	chips := append(append([]builtChip{}, leftStack...), builtChip{corner: cornerBay, lines: pickerLines})
 	const navballReserved = navballPanelH + 1 // navball showing, as at 140x40 in real play
 	navballLeft := cCols - navballPanelW
 
 	v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, navballReserved, 0, 0, chips)
-	if len(v.chipRects) != 2 {
-		t.Fatalf("recorded %d rects, want 2", len(v.chipRects))
+	if len(v.chipRects) != len(leftStack)+1 {
+		t.Fatalf("recorded %d rects, want %d", len(v.chipRects), len(leftStack)+1)
 	}
-	left, picker := v.chipRects[0], v.chipRects[1]
+	left, picker := v.chipRects[len(leftStack)-1], v.chipRects[len(leftStack)] // MISSION (last left box), then the picker
 	width := picker.colEnd - picker.colStart + 1
 	t.Logf("picker rect: %+v (width %d, height %d)", picker, width, picker.rowEnd-picker.rowStart+1)
 	// The real invariant ("nothing ever covers an instrument box") is a
@@ -1219,29 +1218,76 @@ func TestComposeChipsBayWrapsWidePickerLine(t *testing.T) {
 	assertNoChipRectOverlaps(t, v.chipRects)
 }
 
+// realisticBayLeftStack returns the six ADR 0051 instrument boxes shaped
+// exactly like decision 4's own measured pad mock (ENGINE 6 + PROPELLANT
+// 6 + GUIDANCE 6 + COMMS 4 + STAGES 3 + MISSION 7 = 32 rows), for the bay
+// tests that need a real left stack rather than a one-box, 2-row stand-in
+// (review finding 2, second half, 2026-09-25): a shallow stand-in can
+// never exercise the bug where GUIDANCE, wider than MISSION but rows
+// above the bay's own band, wrongly shrank the bay's budget anyway
+// because the old code clamped against the left stack's deepest row
+// (leftStackMaxCol's row cursor) rather than against the box actually
+// beside the bay (MISSION, the last box in the stack under decision 10).
+func realisticBayLeftStack() []builtChip {
+	return []builtChip{
+		{corner: cornerTopLeft, priority: chipPriorityCore, lines: []string{
+			"ENGINE",
+			"  throttle:  100% idle           mode:   main",
+			"  TWR:       1.23",
+			"  node:      -",
+		}},
+		{corner: cornerTopLeft, lines: []string{
+			"PROPELLANT",
+			"  fuel:      100% (2160 t)       mass:   2902 t",
+			"  dv:        3518 / 18872 m/s    dv->circ: -",
+			"  monoprop:  11.85 t             rcs dv: 8.83 m/s",
+		}},
+		{corner: cornerTopLeft, lines: []string{
+			"GUIDANCE",
+			"  hold:      Radial+ (ORBIT)     nav:    SURFACE",
+			"  heading:   090deg               trim:   +0deg",
+			"  fpa:       -                   orbit fpa: 0deg",
+		}},
+		{corner: cornerTopLeft, lines: []string{
+			"COMMS",
+			"  DIRECT",
+		}},
+		{corner: cornerTopLeft, lines: []string{
+			"STAGES  o o o  #1 S-IC (1/3)",
+		}},
+		{corner: cornerTopLeft, lines: []string{
+			"MISSION  Flight School: Orientation",
+			"  #1 Change your view  0/2",
+			"    Press [v] to cycle the camera view.",
+			"    Rather fly solo? [M] then [1] turns",
+			"    Flight School off.",
+		}},
+	}
+}
+
 // bayFoldTestChips builds the fixture TestComposeChipsBayFoldsOldest* and
-// TestComposeChipsBayFoldedNoticeReturns share: a short top-left chip, a
-// tall top-right chip standing in for TARGET/NAVIGATION (17 content rows,
-// 19 with its border, the exact shape that clobbered TARGET in the item 1
-// measurement, re-grill Q5 / slice 3 ruling 1), and up to four bay chips
-// sized like the real notices (FRAME TRANSITION 5, CAPTURE PREVIEW 7, SOI
-// PASS 7, a fourth 4-row notice). At cRows=40 this leaves the bay a budget
-// of exactly 20 rows (38 - 19 + 1), one short of the 23 all four would
-// need with their own fold line, so showing all four must fold exactly the
-// oldest (FRAME TRANSITION) into one line.
+// TestComposeChipsBayFoldedNoticeReturns share: the real six-box left
+// stack (above), a tall top-right chip standing in for TARGET/NAVIGATION
+// (17 content rows, 19 with its border, the exact shape that clobbered
+// TARGET in the item 1 measurement, re-grill Q5 / slice 3 ruling 1), and
+// up to four bay chips sized like the real notices (FRAME TRANSITION 5,
+// CAPTURE PREVIEW 7, SOI PASS 7, a fourth 4-row notice). At the real
+// 138x37 canvas this leaves the bay a 17-row budget (35 - 19 + 1, bayTop
+// pinned to the right stack's own bottom row now that the bay's left
+// bound is MISSION, not GUIDANCE), so all four (23 rows plus a fold line)
+// cannot fit and the oldest must fold.
 func bayFoldTestChips(includeFourth bool) (cCols, cRows int, chips []builtChip) {
-	cCols, cRows = 140, 40
+	cCols, cRows = 138, 37
 	rightLines := []string{"TARGET"}
 	for i := 0; i < 16; i++ {
 		rightLines = append(rightLines, fmt.Sprintf("  row%d", i))
 	}
-	chips = []builtChip{
-		{corner: cornerTopLeft, lines: []string{"ENGINE", "  a"}, priority: chipPriorityCore},
-		{corner: cornerTopRight, lines: rightLines, priority: chipPriorityCore},
-		{corner: cornerBay, lines: []string{"FRAME TRANSITION", "  Earth -> Moon", "  at T-8d17h"}},
-		{corner: cornerBay, lines: []string{"CAPTURE PREVIEW", "  primary: Moon", "  arrival: 1593 m/s", "  direction: retrograde", "  extra row"}},
-		{corner: cornerBay, lines: []string{"SOI PASS", "  body: Moon", "  planned: 616.9 km", "  entry: T-7d22h", "  extra row"}},
-	}
+	chips = append(realisticBayLeftStack(),
+		builtChip{corner: cornerTopRight, lines: rightLines, priority: chipPriorityCore},
+		builtChip{corner: cornerBay, lines: []string{"FRAME TRANSITION", "  Earth -> Moon", "  at T-8d17h"}},
+		builtChip{corner: cornerBay, lines: []string{"CAPTURE PREVIEW", "  primary: Moon", "  arrival: 1593 m/s", "  direction: retrograde", "  extra row"}},
+		builtChip{corner: cornerBay, lines: []string{"SOI PASS", "  body: Moon", "  planned: 616.9 km", "  entry: T-7d22h", "  extra row"}},
+	)
 	if includeFourth {
 		chips = append(chips, builtChip{corner: cornerBay, lines: []string{"SESSION", "  bob joined"}})
 	}
@@ -1252,9 +1298,15 @@ func bayFoldTestChips(includeFourth bool) (cCols, cRows int, chips []builtChip) 
 // 1): four bay notices don't all fit the bay's budget once the budget is
 // clamped against the right-side box's own rows (the collision item 1
 // actually measured: FRAME TRANSITION painting over TARGET's Ap/Pe/incl
-// row). The bay must show the three newest in full, fold the oldest
-// (FRAME TRANSITION) into a single "▸ +1 more" line, and leave the
-// right-side box's rows untouched.
+// row) and, since review finding 2 (2026-09-25), against the real
+// 17-row budget the corrected gate and clamp actually produce at 138x37
+// (35 - 19 + 1: bayTop pinned to the right stack's own bottom row, 19,
+// now that the bay's left bound is MISSION rather than GUIDANCE). FRAME
+// TRANSITION (5) and CAPTURE PREVIEW (7) together with SOI PASS (7) and
+// SESSION (4) total 23 rows, 6 over budget even after paying for one
+// fold-indicator row, so the two oldest fold; SOI PASS and SESSION (the
+// two newest, 11 rows plus the indicator, 12 of 17) stay visible. The
+// right-side box's rows must stay untouched throughout.
 func TestComposeChipsBayFoldsOldestWhenOverflowing(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	cCols, cRows, chips := bayFoldTestChips(true)
@@ -1263,10 +1315,13 @@ func TestComposeChipsBayFoldsOldestWhenOverflowing(t *testing.T) {
 	if strings.Contains(out, "Earth -> Moon") {
 		t.Errorf("FRAME TRANSITION (oldest) rendered in full, want it folded:\n%s", out)
 	}
-	if !strings.Contains(out, "+1 more") {
-		t.Errorf("no fold indicator for the dropped oldest notice:\n%s", out)
+	if strings.Contains(out, "arrival: 1593 m/s") {
+		t.Errorf("CAPTURE PREVIEW (2nd oldest) rendered in full, want it folded too at this budget:\n%s", out)
 	}
-	for _, want := range []string{"CAPTURE PREVIEW", "SOI PASS", "SESSION", "bob joined"} {
+	if !strings.Contains(out, "+2 more") {
+		t.Errorf("want a +2 more fold indicator for the two dropped oldest notices:\n%s", out)
+	}
+	for _, want := range []string{"SOI PASS", "SESSION", "bob joined"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("newer notice %q missing, should stay visible:\n%s", want, out)
 		}
@@ -1283,20 +1338,32 @@ func TestComposeChipsBayFoldsOldestWhenOverflowing(t *testing.T) {
 }
 
 // TestComposeChipsBayFoldedNoticeReturnsWhenNewerClears (ruling 1): the
-// fold is recomputed fresh every frame from whatever's actually present:
-// so once the notice that caused the overflow (the fourth, SESSION) is
-// gone, the previously-folded oldest (FRAME TRANSITION) is back in full
-// with no fold line at all.
+// fold is recomputed fresh every frame from whatever's actually present,
+// so once the notice that caused the WORST of the overflow (the fourth,
+// SESSION) is gone, one of the two previously-folded notices (CAPTURE
+// PREVIEW, the newer of the two) is back in full: the remaining three
+// notices (19 rows) still exceed the real 17-row budget by themselves,
+// so the oldest (FRAME TRANSITION) stays folded with a "+1 more"
+// indicator rather than the "+2 more" the four-notice case showed. This
+// is still the recompute-from-scratch property the ruling asks for
+// (nothing here is "remembered" from the four-notice frame), just against
+// the real budget rather than a fixture generous enough to hide it.
 func TestComposeChipsBayFoldedNoticeReturnsWhenNewerClears(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	cCols, cRows, chips := bayFoldTestChips(false) // SESSION cleared
 	out := v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, chips)
 
-	if strings.Contains(out, "+1 more") || strings.Contains(out, "+2 more") {
-		t.Errorf("fold indicator present after the overflowing notice cleared:\n%s", out)
+	if !strings.Contains(out, "+1 more") {
+		t.Errorf("want exactly one fold (FRAME TRANSITION) once SESSION cleared:\n%s", out)
 	}
-	if !strings.Contains(out, "Earth -> Moon") {
-		t.Errorf("FRAME TRANSITION did not return once SESSION cleared:\n%s", out)
+	if strings.Contains(out, "+2 more") {
+		t.Errorf("still folding two notices after SESSION cleared:\n%s", out)
+	}
+	if strings.Contains(out, "Earth -> Moon") {
+		t.Errorf("FRAME TRANSITION (still the oldest of three) rendered in full, want it still folded:\n%s", out)
+	}
+	if !strings.Contains(out, "arrival: 1593 m/s") {
+		t.Errorf("CAPTURE PREVIEW did not return once SESSION cleared:\n%s", out)
 	}
 	assertNoChipRectOverlaps(t, v.chipRects)
 }
