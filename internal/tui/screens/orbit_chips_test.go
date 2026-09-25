@@ -594,8 +594,9 @@ func chipRowStart(v *OrbitView, id settings.Chip) (int, bool) {
 // staleness rationale, now on ENGINE's node row (the retired NODES chip
 // folded in here, ADR 0051 decision 1): every node after the first fires
 // against an orbit it was never computed for, so 2+ queued nodes on the
-// active craft carry the "(+N more → [m])" overflow annotation; a single
-// queued node does not.
+// active craft carry the "+N [m]" overflow annotation (shortened from
+// "(+N more → [m])" by review finding 1, 2026-09-25, to stop ENGINE
+// overlapping NAVIGATION at 138 columns); a single queued node does not.
 func TestEngineNodeRowOverflowCountWhenMultipleNodesQueued(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w, err := sim.NewWorld()
@@ -610,7 +611,7 @@ func TestEngineNodeRowOverflowCountWhenMultipleNodesQueued(t *testing.T) {
 		{Mode: spacecraft.BurnPrograde, DV: 42, TriggerTime: w.Clock.SimTime.Add(time.Minute)},
 	}
 	lines := v.buildEngineBox(w)
-	if strings.Contains(lines[3], "more") {
+	if strings.Contains(lines[3], "[m]") {
 		t.Errorf("a single queued node must not carry an overflow count:\n%s", lines[3])
 	}
 
@@ -618,8 +619,8 @@ func TestEngineNodeRowOverflowCountWhenMultipleNodesQueued(t *testing.T) {
 		Mode: spacecraft.BurnRetrograde, DV: 7, TriggerTime: w.Clock.SimTime.Add(2 * time.Minute),
 	})
 	lines = v.buildEngineBox(w)
-	if !strings.Contains(lines[3], "+1 more") {
-		t.Errorf("2 queued nodes must show a +1 more overflow count on ENGINE's node row:\n%s", lines[3])
+	if !strings.Contains(lines[3], "+1 [m]") {
+		t.Errorf("2 queued nodes must show a +1 [m] overflow count on ENGINE's node row:\n%s", lines[3])
 	}
 }
 
