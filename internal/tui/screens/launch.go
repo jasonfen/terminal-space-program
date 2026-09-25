@@ -33,14 +33,6 @@ type LaunchView struct {
 	theme     Theme
 	hudSource *OrbitView // reused for the side-HUD chrome (v0.11.0+)
 
-	// lastVZSample caches the previous tick's altitude + sim-time so
-	// the HUD can compute vert (m/s) as a finite difference rather than
-	// requiring a sim-side velocity decomposition. Re-keyed on active-
-	// craft change so a vessel switch can't bleed a stale baseline.
-	vzCraft *spacecraft.Spacecraft
-	vzAltM  float64
-	vzAtSim time.Time
-
 	// hAxisCraft/hAxisLatched/hAxisValue cache the chase-cam's
 	// horizontal axis across renders (issue #380 review, following
 	// #378). The axis is derived from surface-relative horizontal
@@ -51,8 +43,8 @@ type LaunchView struct {
 	// surface-frame-east default, or flip 180°: the same whole-scene
 	// mirroring #378 removed from burn start, reappearing at touchdown
 	// instead. chaseHAxis latches the last velocity-derived axis
-	// through that dead zone. Re-keyed on active-craft change (mirrors
-	// vzCraft) so switching vessels doesn't inherit a stale heading.
+	// through that dead zone. Re-keyed on active-craft change so
+	// switching vessels doesn't inherit a stale heading.
 	//
 	// hAxisWasLanded is the same craft's Landed value as of the
 	// previous chaseHAxis call, used to detect the true→false
@@ -165,8 +157,17 @@ func launchAutoScale(altitudeM float64, rows int) float64 {
 // since the event) because liftoff has already happened by the time this
 // line renders at all.
 //
-// Inputs in SI units: vZ m/s, downrangeM m, q / qMaxPa Pa.
-func formatLaunchHUD(tPlus time.Duration, vZ, downrangeM, qPa, qMaxPa float64) string {
+// ADR 0051 slice 4 item 2: `vert:` is retired from this strip (decision
+// 3, "one derivation": NAVIGATION's own vert: row, shared by both
+// views, is the only one left) and the strip gains the ORBIT READY cue
+// (decision 3's worked mock; the cue only while it applies, decision
+// 10). orbitReadyBadge is the pre-rendered badge string (already styled
+// by the caller, which has the theme) or "" when the cue does not apply
+// this frame, so formatLaunchHUD stays a pure, plain-string-testable
+// formatter with no theme dependency of its own.
+//
+// Inputs in SI units: downrangeM m, q / qMaxPa Pa.
+func formatLaunchHUD(tPlus time.Duration, downrangeM, qPa, qMaxPa float64, orbitReadyBadge string) string {
 	if tPlus < 0 {
 		tPlus = 0
 	}
@@ -185,20 +186,23 @@ func formatLaunchHUD(tPlus time.Duration, vZ, downrangeM, qPa, qMaxPa float64) s
 	h := secs / 3600
 	m := (secs / 60) % 60
 	s := secs % 60
-	// F14 (gate review): colons throughout (vert:/downrange:, matching
-	// Q:'s own rename-table colon), and the "(max ...)" parenthetical
-	// drops its repeated unit per decision 6's own worked example
-	// ("Q: 0.0 kPa (max 0.0)", not "(max 0.0 kPa)").
+	// F14 (gate review): colons throughout (downrange:, matching Q:'s own
+	// rename-table colon), and the "(max ...)" parenthetical drops its
+	// repeated unit per decision 6's own worked example ("Q: 0.0 kPa
+	// (max 0.0)", not "(max 0.0 kPa)").
 	qMaxNum, _, _ := strings.Cut(readout.Pressure(qMaxPa), " ")
-	return fmt.Sprintf(
-		"T+ %02d:%02d:%02d  vert: %s | downrange: %s  %s %s (max %s)",
+	line := fmt.Sprintf(
+		"T+ %02d:%02d:%02d  downrange: %s  %s %s (max %s)",
 		h, m, s,
-		readout.Speed(vZ),
 		readout.Distance(downrangeM),
 		readout.LabelQ,
 		readout.Pressure(qPa),
 		qMaxNum,
 	)
+	if orbitReadyBadge != "" {
+		line += "  " + orbitReadyBadge
+	}
+	return line
 }
 
 // isNearHemisphere reports whether a body-relative point lies on the
@@ -861,9 +865,9 @@ func chaseHorizontalAxis(c *spacecraft.Spacecraft, body bodies.CelestialBody, ca
 // LaunchView owns this state, not the spacecraft: screens read from
 // the shared world and don't mutate it (see the package doc comment on
 // World/screens), and "which way the camera happens to be facing right
-// now" is a rendering concern, not simulation state. Mirrors vzCraft's
-// pattern: re-keyed on active-craft change so switching vessels can't
-// inherit a stale heading from a different craft, and a fresh
+// now" is a rendering concern, not simulation state. Re-keyed on
+// active-craft change so switching vessels can't inherit a stale
+// heading from a different craft, and a fresh
 // LaunchView (or a craft that's never had a valid velocity-derived
 // axis — the pad-spawn case the floor was originally for) has nothing
 // to latch, so it still falls back to surface-frame east.
@@ -1506,32 +1510,26 @@ func (v *LaunchView) composeHUDLine(w *sim.World, c *spacecraft.Spacecraft) stri
 	if w.LaunchSessionActive && !w.LaunchT0.IsZero() {
 		tPlus = w.Clock.SimTime.Sub(w.LaunchT0)
 	}
-	vZ := v.sampleVerticalSpeed(c, w.Clock.SimTime)
 	downrange := greatCircleDistanceM(c.Primary, c.LaunchLatDeg, c.LaunchLonDeg, c, w.Clock.SimTime)
 	q := dynamicPressurePa(c)
-	return formatLaunchHUD(tPlus, vZ, downrange, q, w.LaunchMaxQ)
+	return formatLaunchHUD(tPlus, downrange, q, w.LaunchMaxQ, v.launchOrbitReadyBadge(c))
 }
 
-// sampleVerticalSpeed returns a finite-difference altitude rate (m/s)
-// for the active craft. Re-baselined on craft change so a vessel
-// switch doesn't bleed a stale altitude into the readout. The first
-// call after a re-baseline returns 0 m/s.
-func (v *LaunchView) sampleVerticalSpeed(c *spacecraft.Spacecraft, simTime time.Time) float64 {
-	alt := c.Altitude()
-	if v.vzCraft != c || v.vzAtSim.IsZero() {
-		v.vzCraft = c
-		v.vzAltM = alt
-		v.vzAtSim = simTime
-		return 0
+// launchOrbitReadyBadge (ADR 0051 slice 4 item 2, re-grill Q6): the same
+// gate as NAVIGATION's title badge (isSubOrbitalClimb + apoapsis above
+// sim.OrbitFloorForCraft), rendered in the identical style, so the map
+// and the LAUNCH strip can never disagree about when the cue lights.
+// Returns "" while the cue does not apply this frame.
+func (v *LaunchView) launchOrbitReadyBadge(c *spacecraft.Spacecraft) string {
+	if c == nil || !isSubOrbitalClimb(c) {
+		return ""
 	}
-	dt := simTime.Sub(v.vzAtSim).Seconds()
-	if dt <= 0 {
-		return 0
+	_, apoAltM, _, ok := craftLiveElements(c)
+	if !ok || apoAltM <= sim.OrbitFloorForCraft(c) {
+		return ""
 	}
-	dv := (alt - v.vzAltM) / dt
-	v.vzAltM = alt
-	v.vzAtSim = simTime
-	return dv
+	orbitReadyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#3DDC84")).Bold(true)
+	return orbitReadyStyle.Render("● ORBIT READY [C]")
 }
 
 // greatCircleDistanceM returns the great-circle distance over the

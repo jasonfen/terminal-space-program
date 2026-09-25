@@ -208,14 +208,13 @@ func TestSurfaceViewShowsOneDescentBlock(t *testing.T) {
 	if n := strings.Count(out, "altitude:"); n != 1 {
 		t.Errorf("frame carries %d `altitude:` rows, want 1 (NAVIGATION only, now that the LAUNCH-only DESCENT CORRIDOR block is retired)", n)
 	}
-	// F9/F14 (gate review): the launch strip's own always-on bottom-row
-	// clock line carries one "vert:" reading of its own; NAVIGATION
-	// (ADR 0051) carries a second. Both read the same state, so they
-	// never disagree; DESCENT (the chip this test originally guarded)
-	// still never appears. Slice 4 item 2 retires the strip's own vert:,
-	// which will bring this down to 1.
-	if n := strings.Count(out, "vert:"); n != 2 {
-		t.Errorf("frame carries %d `vert:` rows, want 2 (the launch strip's own + NAVIGATION's): the retired DESCENT chip must not have reappeared", n)
+	// ADR 0051 slice 4 item 2 retires the launch strip's own vert:
+	// reading (decision 3, "one derivation"); NAVIGATION's is the only
+	// one left, so a Moon descent now carries exactly one `vert:` too.
+	// DESCENT (the chip this test originally guarded) still never
+	// appears.
+	if n := strings.Count(out, "vert:"); n != 1 {
+		t.Errorf("frame carries %d `vert:` rows, want 1 (NAVIGATION only): the retired DESCENT chip must not have reappeared", n)
 	}
 	// The rows worth keeping came along rather than being dropped —
 	// `fpa` included; it survived the #377 layout change (Jason's call).

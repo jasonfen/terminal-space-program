@@ -79,40 +79,146 @@ func spawnSaturnVOnPad(t *testing.T) (*sim.World, *spacecraft.Spacecraft) {
 //     repeated unit per decision 6's own worked example
 //     ("Q: 0.0 kPa (max 0.0)", not "(max 0.0 kPa)").
 //
-// vert/downrange/Q: themselves still route through internal/tui/readout
-// like every other flight readout (v_z was a third spelling of vert:'s
-// own quantity).
+// ADR 0051 slice 4 item 2: `vert:` is gone (NAVIGATION carries it, one
+// derivation, decision 3), and the strip gains the ORBIT READY cue
+// (decision 3's own worked mock: `T+ ...  downrange: ...  Q: ...
+// (max ...)  ● ORBIT READY [C]`), passed in pre-rendered so this stays a
+// pure, plain-string-testable formatter; composeHUDLine decides whether
+// the badge string is empty.
+//
+// downrange/Q: themselves still route through internal/tui/readout like
+// every other flight readout.
 func TestFormatLaunchHUDTracerBullet(t *testing.T) {
 	got := formatLaunchHUD(
 		2*time.Minute+34*time.Second,
-		120.0,
 		15_400.0,
 		18_345.0,
 		24_500.0,
+		"",
 	)
-	want := "T+ 00:02:34  vert: 120.0 m/s | downrange: 15.40 km  Q: 18.34 kPa (max 24.50)"
+	want := "T+ 00:02:34  downrange: 15.40 km  Q: 18.34 kPa (max 24.50)"
 	if got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
 }
 
-// At T+0 with the rocket still on the pad: T+ zeros, vert reads 0,
-// downrange/Q all zero.
+// At T+0 with the rocket still on the pad: T+ zeros, downrange/Q all
+// zero, no cue.
 func TestFormatLaunchHUDPadIdle(t *testing.T) {
-	got := formatLaunchHUD(0, 0, 0, 0, 0)
-	want := "T+ 00:00:00  vert: 0.00 m/s | downrange: 0 m  Q: 0.000 kPa (max 0.000)"
+	got := formatLaunchHUD(0, 0, 0, 0, "")
+	want := "T+ 00:00:00  downrange: 0 m  Q: 0.000 kPa (max 0.000)"
 	if got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
 	}
 }
 
-// Negative vert (apex passed, falling back) renders signed; T+ above
-// the hour boundary rolls cleanly past HH.
+// T+ above the hour boundary rolls cleanly past HH; the cue badge, when
+// non-empty, appends after Q's max reading (decision 3's worked mock).
 func TestFormatLaunchHUDDescentAcrossHourBoundary(t *testing.T) {
-	got := formatLaunchHUD(time.Hour+9*time.Minute+5*time.Second, -42.0, 300_000, 0, 500)
-	want := "T+ 01:09:05  vert: -42.00 m/s | downrange: 300.0 km  Q: 0.000 kPa (max 0.500)"
+	got := formatLaunchHUD(time.Hour+9*time.Minute+5*time.Second, 300_000, 0, 500, "")
+	want := "T+ 01:09:05  downrange: 300.0 km  Q: 0.000 kPa (max 0.500)"
 	if got != want {
 		t.Errorf("\n got: %q\nwant: %q", got, want)
+	}
+}
+
+// TestFormatLaunchHUDAppendsOrbitReadyBadge: a non-empty badge string
+// appends after Q's max reading, with the two-space gap every other
+// field on this strip uses. Same numeric inputs as
+// TestFormatLaunchHUDTracerBullet, so the only difference in `want` is
+// the appended badge.
+func TestFormatLaunchHUDAppendsOrbitReadyBadge(t *testing.T) {
+	got := formatLaunchHUD(
+		2*time.Minute+34*time.Second,
+		15_400.0,
+		18_345.0,
+		24_500.0,
+		"● ORBIT READY [C]",
+	)
+	want := "T+ 00:02:34  downrange: 15.40 km  Q: 18.34 kPa (max 24.50)  ● ORBIT READY [C]"
+	if got != want {
+		t.Errorf("\n got: %q\nwant: %q", got, want)
+	}
+}
+
+// stripLine pulls the one rendered line that carries the launch strip
+// out of a full LaunchView render, keyed on "downrange:" (unique to the
+// strip: the navball's own "◉ T+" legend entry also contains "T+ ", so
+// matching on that alone picks up the wrong line), so an assertion
+// about the strip specifically can't be satisfied by NAVIGATION's own
+// rows (which sit elsewhere in the same frame and can carry similar
+// text, e.g. their own "● ORBIT READY [C]" title badge) or the navball.
+func stripLine(t *testing.T, rendered string) string {
+	t.Helper()
+	for _, line := range strings.Split(stripANSI(rendered), "\n") {
+		if strings.Contains(line, "downrange:") {
+			return line
+		}
+	}
+	t.Fatal("no launch strip line (containing \"downrange:\") found in the render")
+	return ""
+}
+
+// TestLaunchStripHasNoVert (ADR 0051 slice 4 item 2): the strip's own
+// `vert:` reading is retired, NAVIGATION carries the only one now
+// (decision 3, "one derivation").
+func TestLaunchStripHasNoVert(t *testing.T) {
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	w, c := spawnSaturnVOnPad(t)
+	// Off the pad: composeHUDLine's Landed-with-no-burn branch replaces
+	// the whole strip with an ignite hint, which carries no
+	// "downrange:" for stripLine to find.
+	c.Landed = false
+	rHat := c.State.R.Scale(1 / c.State.R.Norm())
+	c.State.R = rHat.Scale(c.Primary.RadiusMeters() + 1_000)
+	c.State.V = rHat.Scale(50)
+
+	line := stripLine(t, v.Render(w, 200, 60))
+	if strings.Contains(line, "vert:") {
+		t.Errorf("launch strip still carries its own vert: reading: %q", line)
+	}
+}
+
+// TestLaunchStripOrbitReadyThreshold (ADR 0051 slice 4 item 2, re-grill
+// Q6): the strip's cue uses the same gate as NAVIGATION's title badge
+// (sim.OrbitFloorForCraft), so it lights at the same threshold: Ap
+// 185 km on Earth (above the 175 km Orbit Floor) lights it, Ap 165 km
+// (below) does not. Mirrors orbit_launch_hud_test.go's
+// TestLaunchHUDRendersOrbitReadyOnApAboveFloor's own construction (a
+// sub-orbital arc, periapsis -100 km so the craft is genuinely still
+// climbing to that apoapsis).
+func TestLaunchStripOrbitReadyThreshold(t *testing.T) {
+	render := func(t *testing.T, apoAltM float64) string {
+		t.Helper()
+		th := launchThemeForTest()
+		v := NewLaunchView(th, NewOrbitView(th))
+		w, err := sim.NewWorld()
+		if err != nil {
+			t.Fatalf("NewWorld: %v", err)
+		}
+		c := w.ActiveCraft()
+		c.Landed = false
+		c.Throttle = 0
+		c.AttitudeMode = spacecraft.BurnPrograde
+		mu := c.Primary.GravitationalParameter()
+		primaryR := c.Primary.RadiusMeters()
+		rApo := primaryR + apoAltM
+		rPeri := primaryR - 100e3
+		a := (rPeri + rApo) / 2
+		vAtPeri := math.Sqrt(mu * (2/rPeri - 1/a))
+		c.State.R.X, c.State.R.Y, c.State.R.Z = rPeri, 0, 0
+		c.State.V.X, c.State.V.Y, c.State.V.Z = 0, vAtPeri, 0
+		return stripLine(t, v.Render(w, 200, 60))
+	}
+
+	lit := render(t, 185_000)
+	if !strings.Contains(lit, "ORBIT READY") {
+		t.Errorf("Ap 185 km on Earth (above the 175 km Orbit Floor): strip did not light ORBIT READY: %q", lit)
+	}
+	dark := render(t, 165_000)
+	if strings.Contains(dark, "ORBIT READY") {
+		t.Errorf("Ap 165 km on Earth (below the 175 km Orbit Floor): strip lit ORBIT READY: %q", dark)
 	}
 }
 
