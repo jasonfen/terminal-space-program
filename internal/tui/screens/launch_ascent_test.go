@@ -231,24 +231,24 @@ func TestAscentQBandLinesOmitsMaxQBeforeMeasured(t *testing.T) {
 }
 
 // TestLaunchViewAscentInstrumentsAt80x24: the ascent half has to survive
-// the smallest supported terminal — the ATMOSPHERE chip composites onto
-// the canvas and the attitude stubs land near the sprite at 80×24, not
-// only at roomy dev-window sizes.
+// the smallest supported terminal: the attitude stubs land near the
+// sprite at 80×24, not only at roomy dev-window sizes.
 // Rendered at the Design Size (ADR 0046/0051): ADR 0051's eight
 // instrument boxes are much larger than the VESSEL/ATTITUDE/etc. chips
-// they replace and are never dropped (Core priority), so at 80x24,
-// below the Design Size in both dimensions, they can legitimately
-// consume the whole budget before ATMOSPHERE (a LAUNCH-view-only chip,
-// untouched by ADR 0051, slice 4's to retire) gets a look in. 140x40 is
-// the one canvas the Design Size floor actually guarantees room at.
+// they replace and are never dropped (Core priority). ADR 0051 slice 4
+// item 1 retires the ATMOSPHERE box outright (decision 8 draws the same
+// reading into the horizon picture instead, item 3), so this no longer
+// checks for it as text; item 3 is what re-adds an ascent-only assertion
+// for the picture-drawn air scale. 140x40 is the one canvas the Design
+// Size floor actually guarantees room at.
 func TestLaunchViewAscentInstrumentsAt80x24(t *testing.T) {
 	th := launchThemeForTest()
 	v := NewLaunchView(th, NewOrbitView(th))
 	w := ascendingCraftWorld(t, "earth", 20_000, 300, orbital.Vec3{X: 1})
 
 	out := v.Render(w, DesignWidth, DesignHeight)
-	if !strings.Contains(stripANSI(out), "ATMOSPHERE") {
-		t.Errorf("ascending render is missing the ATMOSPHERE chip:\n%s", out)
+	if strings.Contains(stripANSI(out), "ATMOSPHERE") {
+		t.Errorf("ascending render still shows the retired ATMOSPHERE box:\n%s", out)
 	}
 	if rows := len(strings.Split(out, "\n")); rows > DesignHeight {
 		t.Errorf("render is %d rows tall, want <= %d", rows, DesignHeight)
@@ -289,5 +289,53 @@ func TestLaunchViewNoAscentInstrumentsOnDescentOrCoast(t *testing.T) {
 	}
 	if strings.Contains(coastOut, "DESCENT CORRIDOR") {
 		t.Errorf("coasting vehicle rendered the DESCENT CORRIDOR chip:\n%s", coastOut)
+	}
+}
+
+// TestLaunchViewShowsTargetDuringEarthAscent (ADR 0051 slice 4 item 1):
+// the LAUNCH view used to append its own DESCENT CORRIDOR and ATMOSPHERE
+// boxes on top of the shared chips assembleChips already returns. During
+// an Earth ascent with the navball actually showing (NavballSubObserver
+// resolving, as it does the instant a real craft has a defined attitude)
+// and a target set, the extra ATMOSPHERE box pushed the right column's
+// budget (NAVIGATION 10 + TARGET 7 = 17 of 17, no slack) over the edge;
+// the drop phase then took the stub's own row from TARGET too (Core
+// tier, but still droppable when the stub itself doesn't fit), hiding
+// both behind "▸ +2 hidden"
+// (ux-reviews/20260913-readout-overlap/adr0051-slice2b/04-burn-map.txt).
+// Retiring both appends must bring TARGET back at the Design Size.
+func TestLaunchViewShowsTargetDuringEarthAscent(t *testing.T) {
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	w, c := spawnSaturnVOnPad(t)
+	c.Landed = false
+	c.CurrentAttitudeDir = orbital.Vec3{X: 1}
+	rHat := c.State.R.Scale(1 / c.State.R.Norm())
+	c.State.R = rHat.Scale(c.Primary.RadiusMeters() + 20_000)
+	c.State.V = rHat.Scale(300)
+	c.State.M = c.TotalMass()
+
+	sys := w.System()
+	moonIdx := -1
+	for i, b := range sys.Bodies {
+		if b.EnglishName == "Moon" || b.ID == "moon" {
+			moonIdx = i
+			break
+		}
+	}
+	if moonIdx <= 0 {
+		t.Fatalf("moon not found in default system")
+	}
+	w.SetTargetBody(moonIdx)
+	if _, _, ok := w.NavballSubObserver(); !ok {
+		t.Fatal("setup: expected the navball to resolve so its rows are reserved, matching the real overflow")
+	}
+
+	out := stripANSI(v.Render(w, DesignWidth, DesignHeight))
+	if !strings.Contains(out, "TARGET") {
+		t.Errorf("LAUNCH view during an Earth ascent with a target set is missing the TARGET box:\n%s", out)
+	}
+	if strings.Contains(out, "hidden") {
+		t.Errorf("LAUNCH view during an Earth ascent shows a hidden-chip stub:\n%s", out)
 	}
 }
