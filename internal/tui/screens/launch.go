@@ -587,6 +587,18 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft, cor
 		v.drawAscentArc(bodyCentre, ascent.Arc)
 	}
 
+	// The air scale (ADR 0051 decision 8, slice 4 item 3): only on
+	// worlds with an atmosphere, only while still below its top, exactly
+	// ascent.HasQBand's own gate, the same one the retired
+	// ATMOSPHERE box used (an airless-body ascent gets the arc and the
+	// attitude markers but has no air column to chart). Drawn onto the
+	// canvas here, before composeChips runs, so a box painted afterward
+	// always wins any column it happens to share.
+	if ascending && ascent.HasQBand {
+		col := v.airScaleColumnBound(w, v.canvas.Cols())
+		v.drawAscentAirScale(ascent.QBand, col, 1)
+	}
+
 	// Pad marker at the active craft's launch site, depth-culled.
 	v.drawPadMarker(w, craft, bodyCentre, camFromBody)
 
@@ -1195,20 +1207,19 @@ func (v *LaunchView) drawAscentAttitudeMarkers(vec sim.AttitudeVectors, anchorWo
 	v.canvas.PlotDenseLineColored(anchorWorld, anchorWorld.Add(vec.ProgradeDir.Scale(step)), render.ColorNavballMarkerPrograde, 1)
 }
 
-// ascentQBandRows is the number of altitude bands the ATMOSPHERE chip's
-// vertical scale divides the atmosphere into — top row is the cutoff
-// altitude (the top of the modelled atmosphere), bottom row is the
-// ground. Six is enough to place the current-altitude and max-Q marks
-// distinctly without making the chip taller than the DESCENT CORRIDOR
-// chip it never coexists with.
-const ascentQBandRows = 6
+// airScaleRows is the number of altitude bands the air scale divides the
+// atmosphere into (ADR 0051 decision 8, slice 4 item 3). The retired
+// ATMOSPHERE box used 6 (all it had room for); drawn into the picture
+// instead of a box there is no such ceiling, so this matches the ADR
+// audit's own historical measurement of the in-picture ladder (P-11,
+// P-14: "a 16-row scale") for the same reason: enough rows to place the
+// current-altitude and max-Q marks distinctly with headroom to spare.
+const airScaleRows = 16
 
-// Glyphs for the ATMOSPHERE chip's vertical scale: the vessel's current
-// band, the band the peak-Q-so-far was measured in, and a bare tick for
-// every other band. Single-cell, no wide/combining runes — the chip's
-// padChipBlock right-pads by rune count, and a double-width glyph here
-// would throw that off (the same "no %-Ns padding" trap the launch HUD
-// strip already documents for byte-vs-rune widths).
+// Glyphs for the air scale: the vessel's current band, the band the
+// peak-Q-so-far was measured in, and a bare tick for every other band.
+// Single-cell, no wide/combining runes (SetCellLabel writes one rune per
+// cell, so a double-width glyph here would land half in the next cell).
 const (
 	ascentQBandCraftGlyph = "▶"
 	ascentQBandMaxQGlyph  = "✕"
@@ -1240,37 +1251,81 @@ func qBandRowIndex(altM, cutoffM float64, rows int) int {
 	return idx
 }
 
-// ascentQBandLines renders the ATMOSPHERE chip: a vertical scale from the
-// atmosphere's outer edge down to the ground, the vessel's current
-// position on it, and the altitude of the peak dynamic pressure measured
-// so far this session. See sim.AscentQBand's doc comment for why the mark
-// is "the peak measured so far" rather than a forecast eventual peak —
-// the ballistic-from-now ascent arc has no future thrust program to
-// integrate a real forecast from.
-func (v *LaunchView) ascentQBandLines(qb sim.AscentQBand) []string {
-	curRow := qBandRowIndex(qb.CurrentAltM, qb.AtmosphereDepthM, ascentQBandRows)
-	maxRow := -1
-	if qb.HasMaxQ {
-		maxRow = qBandRowIndex(qb.MaxQAltM, qb.AtmosphereDepthM, ascentQBandRows)
+// airScaleColumnBound returns the canvas column the air scale's own
+// marker column must sit at or left of, so it never touches NAVIGATION
+// or TARGET (ADR 0051 decision 8, item 3: "must not paint over the
+// instrument boxes"). Each of those two boxes is independently
+// right-aligned by composeChips (cornerTopRight, atCol = cCols-bw), and
+// their widths vary by phase (NAVIGATION 51 to 73 columns; TARGET a
+// steadier ~60), so the bound is measured fresh every frame against
+// whichever is currently widest rather than a fixed historical column
+// (the ADR audit's own "column 78" was measured against one 58-wide
+// case, not the 71-to-73-wide range decision 15's plan: row can reach).
+// Returns cCols-1 (effectively "no constraint") when hudSource is nil,
+// since there is then nothing to measure against and nothing to protect
+// (composeChips itself never runs).
+func (v *LaunchView) airScaleColumnBound(w *sim.World, cCols int) int {
+	if v.hudSource == nil {
+		return cCols - 1
 	}
-	lines := []string{v.theme.Primary.Render("ATMOSPHERE")}
-	for i := 0; i < ascentQBandRows; i++ {
-		switch {
-		case i == curRow && i == maxRow:
-			lines = append(lines, fmt.Sprintf("  %s %s (max Q)", ascentQBandCraftGlyph, readout.Distance(qb.CurrentAltM)))
-		case i == curRow:
-			lines = append(lines, fmt.Sprintf("  %s %s", ascentQBandCraftGlyph, readout.Distance(qb.CurrentAltM)))
-		case i == maxRow:
-			lines = append(lines, fmt.Sprintf("  %s %s (max Q)", ascentQBandMaxQGlyph, readout.Distance(qb.MaxQAltM)))
-		default:
-			lines = append(lines, "  "+ascentQBandTickGlyph)
+	widest := 0
+	for _, lines := range [][]string{v.hudSource.buildNavigationBox(w), v.hudSource.buildTargetBox(w)} {
+		_, contentW := padChipBlock(lines)
+		if bw := contentW + 2; bw > widest { // +2: the border padChipBlock's caller wraps every chip in
+			widest = bw
 		}
 	}
-	lines = append(lines, fmt.Sprintf("  %s     %s", readout.LabelQ, readout.Pressure(qb.CurrentQPa)))
-	if qb.HasMaxQ {
-		lines = append(lines, fmt.Sprintf("  max %s %s", readout.LabelQ, readout.Pressure(qb.MaxQPa)))
+	bound := cCols - widest - 1 // one column of clearance, matching the ADR's own "one column clear"
+	if bound < 1 {
+		bound = 1
 	}
-	return lines
+	return bound
+}
+
+// drawAscentAirScale paints the atmosphere ladder directly into the
+// horizon picture (ADR 0051 decision 8, slice 4 item 3), replacing the
+// retired ATMOSPHERE box: a vertical scale along the right edge of the
+// picture from the top of the air down to the ground, the vessel's own
+// glyph tracking its current altitude, and a mark at the peak-Q altitude
+// measured so far this session. Reuses qBandRowIndex's altitude-to-row
+// mapping verbatim (the retired box's own row math), so a given altitude
+// lands on the same row whether or not the box ever existed. See
+// sim.AscentQBand's doc comment for why the mark is "the peak measured
+// so far" rather than a forecast eventual peak.
+//
+// markerCol is the scale's own column (ticks/glyphs); labels are written
+// to its left via SetCellLabel, ending one cell before markerCol so the
+// text never collides with the marker itself. topRow is the screen row
+// the scale's first (highest-altitude) band starts at.
+func (v *LaunchView) drawAscentAirScale(qb sim.AscentQBand, markerCol, topRow int) {
+	if markerCol < 0 {
+		return
+	}
+	curRow := qBandRowIndex(qb.CurrentAltM, qb.AtmosphereDepthM, airScaleRows)
+	maxRow := -1
+	if qb.HasMaxQ {
+		maxRow = qBandRowIndex(qb.MaxQAltM, qb.AtmosphereDepthM, airScaleRows)
+	}
+	for i := 0; i < airScaleRows; i++ {
+		row := topRow + i
+		glyph, label := ascentQBandTickGlyph, ""
+		switch {
+		case i == curRow && i == maxRow:
+			glyph, label = ascentQBandCraftGlyph, readout.Distance(qb.CurrentAltM)+" (max Q) "
+		case i == curRow:
+			glyph, label = ascentQBandCraftGlyph, readout.Distance(qb.CurrentAltM)+" "
+		case i == maxRow:
+			glyph, label = ascentQBandMaxQGlyph, readout.Distance(qb.MaxQAltM)+" (max Q) "
+		case i == 0:
+			glyph, label = "┬", readout.Distance(qb.AtmosphereDepthM)+" "
+		case i == airScaleRows-1:
+			glyph, label = "┴", "0 m "
+		}
+		if label != "" {
+			v.canvas.SetCellLabel(markerCol-lipgloss.Width(label), row, label)
+		}
+		v.canvas.SetCellLabel(markerCol, row, glyph)
+	}
 }
 
 // (launchOrbitSamples retired by ADR 0042 §3.) The chase-cam used to size
