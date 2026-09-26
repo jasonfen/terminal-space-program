@@ -192,6 +192,42 @@ func TestQuitPromptRendersHostWording(t *testing.T) {
 	}
 }
 
+// TestMenuQuitRowRaisesSameQuitPrompt (#474) — the pause menu's Quit
+// row used to run its own plain yes/no confirm ("Quit (autosaves on
+// exit)?"). It must now arm the exact same app-level prompt ctrl+c
+// does, with no separate confirm step of its own, so there's one
+// question and one wording wherever the player leaves from.
+func TestMenuQuitRowRaisesSameQuitPrompt(t *testing.T) {
+	dir := testStateDirs(t)
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.active = screenMenu
+
+	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+
+	if isQuitCmd(cmd) {
+		t.Fatal("menu q quit immediately instead of arming the prompt")
+	}
+	if !a.quitConfirm {
+		t.Fatal("menu q did not arm the app-level quit prompt")
+	}
+	if files := savesDirFiles(t, dir); len(files) != 0 {
+		t.Fatalf("menu q wrote to the saves dir before the prompt was answered: %v", files)
+	}
+
+	// The same y/n/esc handling answers it — y from here writes.
+	_, cmd = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	if !isQuitCmd(cmd) {
+		t.Fatal("y at the menu-raised prompt did not quit")
+	}
+	files := savesDirFiles(t, dir)
+	if len(files) != 1 || files[0] != "autosave-1.json" {
+		t.Fatalf("saves dir = %v, want exactly [autosave-1.json]", files)
+	}
+}
+
 // quitPromptLine returns the rendered bottom-border row (where every
 // App-level confirm overlay rides — see overlayBottomBorder), the one
 // line the quit prompt actually occupies. Scoping assertions to this

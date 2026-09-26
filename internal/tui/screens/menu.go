@@ -10,17 +10,16 @@ import (
 // footer prompt with a centered modal that doubles as a "what can I
 // do from here" entry point. v0.7.3.3+.
 //
-// v0.7.4+ adds clickable controls. Screen-opening rows (Save / Load /
-// VAB / Settings / Controls) fire their action on click directly —
-// opening a screen is reversible. Quit keeps a mouse-only confirm
-// sub-state with [Yes] / [No] buttons; the keyboard path keeps the
-// legacy direct flow (q executes immediately) so muscle memory still
-// works. v0.26 (ADR 0033 §F) rehomed Save / Load onto the Saves
-// screen, which owns its own destructive confirms (§H) — so their
-// click-confirm gates moved there with them.
+// v0.7.4+ added clickable controls; v0.26 (ADR 0033 §F) rehomed
+// Save / Load onto the Saves screen, which owns its own destructive
+// confirms (§H). #474 removed Quit's own click/keyboard confirm
+// sub-state (menuModeConfirmQuit, [Yes]/[No]): the row now fires
+// MenuActionQuit directly, same as every other row, and the caller
+// (App.applyMenuAction) arms the single app-level quit prompt that
+// ctrl+c also raises — one question, one wording, wherever the player
+// leaves from.
 type Menu struct {
 	theme Theme
-	mode  menuMode
 
 	// Click-target ranges, recomputed each Render so terminal-resize
 	// doesn't stale the hit-tests. Each is (row, colStart, colEnd).
@@ -32,17 +31,7 @@ type Menu struct {
 	controlsBtn buttonRange
 	helpBtn     buttonRange // #425: "Help (F1)" row, opens the F1 overlay
 	quitBtn     buttonRange
-	yesBtn      buttonRange
-	noBtn       buttonRange
 }
-
-// menuMode tracks which sub-screen the menu is showing.
-type menuMode int
-
-const (
-	menuModeList menuMode = iota
-	menuModeConfirmQuit
-)
 
 // buttonRange records a clickable label's row + column span. set=false
 // means the button isn't rendered in the current mode (Hit returns
@@ -58,12 +47,10 @@ func (br buttonRange) Hit(col, row int) bool {
 
 func NewMenu(th Theme) *Menu { return &Menu{theme: th} }
 
-// Reset returns the menu to its top-level list state. Called by the
-// App when transitioning into screenMenu so the screen always opens
-// in the action-list view, not whatever confirm state was last
-// dismissed.
+// Reset clears every button's click-target visibility. Called by the
+// App when transitioning into screenMenu so a stale hit-test from the
+// previous time the menu was open can't linger.
 func (m *Menu) Reset() {
-	m.mode = menuModeList
 	m.saveBtn.set = false
 	m.loadBtn.set = false
 	m.vabBtn.set = false
@@ -71,8 +58,6 @@ func (m *Menu) Reset() {
 	m.controlsBtn.set = false
 	m.helpBtn.set = false
 	m.quitBtn.set = false
-	m.yesBtn.set = false
-	m.noBtn.set = false
 }
 
 // MenuAction enumerates the menu's outcomes. Returned by HandleKey
@@ -94,113 +79,58 @@ const (
 )
 
 // HandleKey maps a raw key string to a MenuAction. Lower- and
-// upper-case both match. The keyboard path skips the click-only
-// confirm gate for the reversible rows — typing "s" still saves
-// immediately, matching v0.7.3.3 muscle memory. "q" is the exception
-// (item-3 UX batch): it arms the same confirm the [Quit] click uses,
-// since quit is the one list-state action that isn't reversible. In a
-// confirm state the keys narrow to y / n / enter / esc.
+// upper-case both match. Every row — including Quit — fires its action
+// directly; #474 moved quit's confirm off this screen entirely and
+// onto the single app-level quit prompt (App.applyMenuAction arms it
+// via a.quitConfirm), the same one ctrl+c raises, so there's one
+// question and one wording wherever the player leaves from.
 func (m *Menu) HandleKey(s string) MenuAction {
-	switch m.mode {
-	case menuModeList:
-		switch s {
-		case "s", "S":
-			return MenuActionSave
-		case "l", "L":
-			return MenuActionLoad
-		case "b", "B":
-			return MenuActionVAB
-		case "t", "T":
-			return MenuActionSettings
-		case "c", "C":
-			return MenuActionControls
-		case "h", "H":
-			return MenuActionHelp
-		case "q", "Q":
-			// item-3 UX batch (controls findings 8/21): route the
-			// keyboard path through the same confirm the [Quit] click
-			// already uses instead of quitting instantly — the two
-			// paths to the single most destructive action must agree,
-			// and the F1 overlay already describes the key as "quit
-			// (confirm + autosave)".
-			m.mode = menuModeConfirmQuit
-			return MenuActionNone
-		case "esc":
-			return MenuActionCancel
-		}
-	default:
-		switch s {
-		case "y", "Y", "enter":
-			action := m.confirmAction()
-			m.mode = menuModeList
-			return action
-		case "n", "N":
-			m.mode = menuModeList
-			return MenuActionNone
-		case "esc":
-			// Esc from a confirm step backs out to the list rather
-			// than escaping all the way to orbit — gives a way to
-			// undo a misclick on Save / Load / Quit.
-			m.mode = menuModeList
-			return MenuActionNone
-		}
-	}
-	return MenuActionNone
-}
-
-// HandleClick maps a (col, row) click to a MenuAction. List-state
-// clicks on Save / Load / Quit transition into the corresponding
-// confirm sub-state and return MenuActionNone (the action only fires
-// when the player confirms with Yes). Confirm-state Yes returns the
-// stored action; No returns to the list.
-func (m *Menu) HandleClick(col, row int) MenuAction {
-	if m.backBtn.Hit(col, row) {
-		m.mode = menuModeList
+	switch s {
+	case "s", "S":
+		return MenuActionSave
+	case "l", "L":
+		return MenuActionLoad
+	case "b", "B":
+		return MenuActionVAB
+	case "t", "T":
+		return MenuActionSettings
+	case "c", "C":
+		return MenuActionControls
+	case "h", "H":
+		return MenuActionHelp
+	case "q", "Q":
+		return MenuActionQuit
+	case "esc":
 		return MenuActionCancel
 	}
-	switch m.mode {
-	case menuModeList:
-		switch {
-		case m.vabBtn.Hit(col, row):
-			// Opening a screen is reversible, so the VAB skips the
-			// click-confirm gate save/load/quit go through.
-			return MenuActionVAB
-		case m.settingsBtn.Hit(col, row):
-			// Opening a screen is reversible, so settings skips the
-			// click-confirm gate save/load/quit go through.
-			return MenuActionSettings
-		case m.controlsBtn.Hit(col, row):
-			return MenuActionControls
-		case m.helpBtn.Hit(col, row):
-			return MenuActionHelp
-		case m.saveBtn.Hit(col, row):
-			// v0.26 (ADR 0033 §F): Save / Load open the Saves screen —
-			// reversible like VAB / Settings, so no click-confirm gate;
-			// the screen owns the destructive confirms (§H).
-			return MenuActionSave
-		case m.loadBtn.Hit(col, row):
-			return MenuActionLoad
-		case m.quitBtn.Hit(col, row):
-			m.mode = menuModeConfirmQuit
-		}
-	default:
-		switch {
-		case m.yesBtn.Hit(col, row):
-			action := m.confirmAction()
-			m.mode = menuModeList
-			return action
-		case m.noBtn.Hit(col, row):
-			m.mode = menuModeList
-		}
-	}
 	return MenuActionNone
 }
 
-// confirmAction returns the MenuAction matching the current confirm
-// sub-state (quit is the only one left post-v0.26). Used by both the
-// keyboard "y" / enter path and the mouse [Yes] click path.
-func (m *Menu) confirmAction() MenuAction {
-	if m.mode == menuModeConfirmQuit {
+// HandleClick maps a (col, row) click to a MenuAction. Every row fires
+// its action directly on click — #474 removed Quit's mouse-only
+// [Yes]/[No] confirm sub-state along with the rest of the menu's own
+// confirm machinery; the click-confirm gate save/load/quit go through
+// now lives on the single app-level quit prompt instead.
+func (m *Menu) HandleClick(col, row int) MenuAction {
+	if m.backBtn.Hit(col, row) {
+		return MenuActionCancel
+	}
+	switch {
+	case m.vabBtn.Hit(col, row):
+		return MenuActionVAB
+	case m.settingsBtn.Hit(col, row):
+		return MenuActionSettings
+	case m.controlsBtn.Hit(col, row):
+		return MenuActionControls
+	case m.helpBtn.Hit(col, row):
+		return MenuActionHelp
+	case m.saveBtn.Hit(col, row):
+		// v0.26 (ADR 0033 §F): Save / Load open the Saves screen, which
+		// owns its own destructive confirms (§H).
+		return MenuActionSave
+	case m.loadBtn.Hit(col, row):
+		return MenuActionLoad
+	case m.quitBtn.Hit(col, row):
 		return MenuActionQuit
 	}
 	return MenuActionNone
@@ -230,27 +160,11 @@ func (m *Menu) Render(width int) string {
 		strings.Repeat(" ", pad)+
 		m.theme.Primary.Render(backLabel))
 
-	// Reset confirm-button visibility — only the active mode sets them.
-	m.saveBtn.set = false
-	m.loadBtn.set = false
-	m.vabBtn.set = false
-	m.settingsBtn.set = false
-	m.controlsBtn.set = false
-	m.helpBtn.set = false
-	m.quitBtn.set = false
-	m.yesBtn.set = false
-	m.noBtn.set = false
-
 	// rowOffset is the count of rows already in `lines` (the title row).
-	// The mode-specific helpers record buttonRange.row in absolute
-	// terms, so they need to know how many rows precede their output.
+	// renderList records buttonRange.row in absolute terms, so it needs
+	// to know how many rows precede its output.
 	rowOffset := len(lines)
-	switch m.mode {
-	case menuModeList:
-		lines = append(lines, m.renderList(rowOffset)...)
-	case menuModeConfirmQuit:
-		lines = append(lines, m.renderConfirm(rowOffset, "Quit (autosaves on exit)?", "quit")...)
-	}
+	lines = append(lines, m.renderList(rowOffset)...)
 
 	return strings.Join(lines, "\n")
 }
@@ -305,34 +219,6 @@ func (m *Menu) renderList(rowOffset int) []string {
 
 	lines = append(lines, "")
 	lines = append(lines, m.theme.Footer.Render("[esc] back to orbit · keyboard: s/l/b/t/c/h/q"))
-	return lines
-}
-
-// renderConfirm composes a confirm sub-screen body asking the player
-// to confirm the given action. label is the lowercase verb (save /
-// load / quit) shown in the divider header. Records [Yes] and [No]
-// click-target ranges in absolute coordinates given rowOffset.
-func (m *Menu) renderConfirm(rowOffset int, prompt, label string) []string {
-	var lines []string
-	lines = append(lines, m.theme.Dim.Render("─── confirm "+label+" ───"))
-	lines = append(lines, "")
-	lines = append(lines, "  "+prompt)
-	lines = append(lines, "")
-
-	const indent = "  "
-	const yesLabel = "[Yes]"
-	const noLabel = "[No]"
-	const gap = "   "
-	yesCol := len([]rune(indent))
-	noCol := yesCol + len([]rune(yesLabel)) + len([]rune(gap))
-	row := rowOffset + len(lines)
-	m.yesBtn = buttonRange{row: row, colStart: yesCol, colEnd: yesCol + len([]rune(yesLabel)), set: true}
-	m.noBtn = buttonRange{row: row, colStart: noCol, colEnd: noCol + len([]rune(noLabel)), set: true}
-	lines = append(lines,
-		indent+m.theme.Primary.Render(yesLabel)+gap+m.theme.Primary.Render(noLabel))
-
-	lines = append(lines, "")
-	lines = append(lines, m.theme.Footer.Render("[y]es / [n]o / [esc] cancel"))
 	return lines
 }
 

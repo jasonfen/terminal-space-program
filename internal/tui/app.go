@@ -2276,8 +2276,12 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		a.active = screenVAB
 		return a, nil
 	case screens.MenuActionQuit:
-		a.autosave()
-		return a, tea.Quit
+		// #474: the menu's Quit row arms the same app-level quit prompt
+		// ctrl+c does (handleQuitConfirmKey), rather than autosaving and
+		// quitting on the spot — one question, one wording, wherever the
+		// player leaves from.
+		a.quitConfirm = true
+		return a, nil
 	case screens.MenuActionCancel:
 		a.active = screenOrbit
 		return a, nil
