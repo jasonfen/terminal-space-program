@@ -228,6 +228,43 @@ func TestMenuQuitRowRaisesSameQuitPrompt(t *testing.T) {
 	}
 }
 
+// TestGuestQuitPromptHasNoDecline (#474) — a guest session can't offer
+// [n]: persistMiddleware writes SavePlayer on session unwind no matter
+// how the App exits, so declining would be a lie. [n] must be a no-op
+// (prompt stays armed, no quit); [y] is the only key that actually
+// ends the session, and it goes through the guest sink, not the local
+// autosave ring.
+func TestGuestQuitPromptHasNoDecline(t *testing.T) {
+	testStateDirs(t)
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	var wrote bool
+	a.guestSave = func(*sim.World) error { wrote = true; return nil }
+
+	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+
+	if isQuitCmd(cmd) {
+		t.Fatal("[n] quit a guest session — it must have no decline")
+	}
+	if !a.quitConfirm {
+		t.Fatal("[n] disarmed the guest quit prompt — it should be a no-op, prompt stays up")
+	}
+	if wrote {
+		t.Fatal("[n] wrote through the guest sink")
+	}
+
+	_, cmd = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	if !isQuitCmd(cmd) {
+		t.Fatal("[y] did not quit the guest session")
+	}
+	if !wrote {
+		t.Fatal("[y] did not write through the guest sink")
+	}
+}
+
 // quitPromptLine returns the rendered bottom-border row (where every
 // App-level confirm overlay rides — see overlayBottomBorder), the one
 // line the quit prompt actually occupies. Scoping assertions to this
