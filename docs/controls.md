@@ -137,7 +137,7 @@ Dvorak, and free per-key remapping aren't supported yet.
 | Key | Action |
 |---|---|
 | `Esc` | Back; on the main view, open the save / load / build / settings / controls / quit menu |
-| `Ctrl+C` | Quit immediately |
+| `Ctrl+C` | Quit — asks whether to save first ([y] save and quit, [n] quit without saving, [esc] stay). The pause menu's Quit row asks the same question |
 | `F1` or `?` | Toggle the help overlay (scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`). `?` opens the same overlay as `F1` everywhere `F1` does |
 | `F2` | Declutter: hide all eight instrument boxes and the navball together for a clean look at the orbit. Press again to restore. ENGINE and PROPELLANT stay up while an engine is lit, so fuel and a live burn are never hidden mid-burn |
 | `` ` `` | **Boss key**: instantly swap the screen for a convincing fake developer shell. Type `exit`, `logout`, or `Ctrl+D` to come back where you left off. Left out of the `F1` overlay on purpose |

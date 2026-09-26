@@ -48,13 +48,13 @@ var helpSections = []helpSection{
 		{"F1 / ?", "toggle this help"},
 		{"esc", "back / close (or save/load/build/settings/keyboard layout/help/quit menu on home)"},
 		{"F5 / F9", "quicksave / quickload"},
-		{"ctrl+c", "quit immediately"},
+		{"ctrl+c", "quit — asks to save first, [esc] stays"},
 	}},
 	// `q` quits only inside the pause menu — in flight it is radial+
 	// (Keymap.AttitudeRadialOut), so it gets a menu-scoped section of its
 	// own rather than a line in GENERAL (#423).
 	{"PAUSE MENU (esc from the map)", [][2]string{
-		{"q", "quit (confirm + autosave) — menu only; in flight q is radial+"},
+		{"q", "quit — asks to save first, same prompt as ctrl+c — menu only; in flight q is radial+"},
 	}},
 	{"CAMERA & VIEW", [][2]string{
 		{"f / F", "cycle camera focus forward / back (system → bodies → vessels; exits spectate)"},
