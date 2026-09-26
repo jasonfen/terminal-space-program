@@ -230,7 +230,9 @@ func TestQuitAutosavesToRing(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
+	// #474: ctrl+c only arms the quit prompt now; [y] is the write.
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	files := savesDirFiles(t, dir)
 	if len(files) != 1 || files[0] != "autosave-1.json" {
 		t.Fatalf("saves dir = %v, want exactly [autosave-1.json]", files)

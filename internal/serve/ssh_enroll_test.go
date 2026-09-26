@@ -90,8 +90,13 @@ func TestSSHEnrollFlow(t *testing.T) {
 		t.Fatalf("sim date did not advance (d0=%q advanced=%q)", d0, advanced)
 	}
 
-	// Quit with ctrl+c: the guest sink persists; the session ends.
+	// Quit with ctrl+c: #474 raises the quit prompt rather than
+	// quitting on the spot, and a guest has no "no" (the session
+	// persists their flight regardless) — "y" is the only key that
+	// actually ends the session, so confirm it.
 	mustWrite(t, sess, "\x03")
+	sess.waitFor(t, "[y]")
+	mustWrite(t, sess, "y")
 	deadline := time.Now().Add(10 * time.Second)
 	for !srv.store.HasPayload(fp) {
 		if time.Now().After(deadline) {

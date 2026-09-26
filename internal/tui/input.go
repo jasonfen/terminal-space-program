@@ -345,7 +345,7 @@ type Keymap struct {
 
 func DefaultKeymap() Keymap {
 	return Keymap{
-		Quit: key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit (immediate)")),
+		Quit: key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit (asks to save)")),
 		// v0.7.3.1: QuitAsk no longer has a dedicated key — Esc on
 		// the home view opens the confirm prompt instead. Binding
 		// kept with no keys so the struct field stays stable; remove
