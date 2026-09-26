@@ -183,6 +183,14 @@ type App struct {
 	// guard endFlightConfirm has (see the chat-open check above).
 	quickloadConfirm bool
 
+	// quitConfirm (#474) gates every quit path — ctrl+c and the menu's
+	// Quit row both arm it — behind one prompt with one wording: [y]
+	// saves into the autosave ring and quits, [n] quits writing
+	// nothing (refused for a guest, who can't decline — see
+	// handleQuitConfirmKey), [esc] returns to exactly where the
+	// player was. Session-only state, not persisted.
+	quitConfirm bool
+
 	// Chat input overlay (ADR 0035 S3). App-level rather than a screen
 	// so the capturingText obligation is one unconditional check — not
 	// another arm of the per-screen switch a future screen could forget.
@@ -771,18 +779,20 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = normalizeKey(a.layout, m)
 		}
 		// ctrl+c bypasses everything else (standard interrupt
-		// convention). Honored from any screen.
+		// convention) and is honored from any screen — but as of #474
+		// it raises the quit prompt rather than quitting on the spot.
+		// This is the deliberate trade Jason chose: ctrl+c stops being
+		// an instant panic key so there's always a chance to say no.
 		if key.Matches(m, a.keys.Quit) {
-			// The Saves browser freezes the clock while it's up (finding 4);
-			// that freeze is transient UI state, not a gameplay pause, so
-			// don't let a quit-from-browser persist Paused=true into the
-			// autosave — restore the pre-open state first so the reloaded
-			// session resumes exactly as it was running.
-			if a.active == screenSaves {
-				a.world.Clock.Paused = a.savesPrevPaused
-			}
-			a.autosave()
-			return a, tea.Quit
+			a.quitConfirm = true
+			return a, nil
+		}
+		// While the quit prompt is armed, every key funnels through its
+		// own y/n/esc handling — honored from any screen for the same
+		// reason the raise above is, so a stray flight key can't slip
+		// through mid-confirm.
+		if a.quitConfirm {
+			return a.handleQuitConfirmKey(m)
 		}
 		// v0.27 S2: while the size gate is up, gameplay keys are
 		// swallowed — the player can't see what a keypress would do.
@@ -1994,26 +2004,81 @@ func (a *App) loadWorldByID(id string) error {
 	return nil
 }
 
+// handleQuitConfirmKey answers the quit prompt armed by ctrl+c or the
+// menu's Quit row (#474): [y] saves into the autosave ring and quits;
+// [n] quits writing nothing at all; [esc] cancels and returns the
+// player to exactly where they were, touching nothing. A guest session
+// has no [n] — persistMiddleware writes SavePlayer on session unwind
+// regardless of how the App exits (internal/serve/serve.go), so
+// offering a decline would be a lie; the key is simply swallowed.
+// Every other key is swallowed too, so nothing slips through mid-confirm.
+func (a *App) handleQuitConfirmKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch m.String() {
+	case "y", "Y":
+		a.quitConfirm = false
+		// The Saves browser freezes the clock while it's up (finding 4);
+		// that freeze is transient UI state, not a gameplay pause, so
+		// don't let a quit-from-browser persist Paused=true into the
+		// autosave — restore the pre-open state first so the reloaded
+		// session resumes exactly as it was running.
+		if a.active == screenSaves {
+			a.world.Clock.Paused = a.savesPrevPaused
+		}
+		a.autosave()
+		return a, tea.Quit
+	case "n", "N":
+		if a.guestSave != nil {
+			return a, nil // no real "no" for a guest — see doc comment above
+		}
+		a.quitConfirm = false
+		return a, tea.Quit
+	case "esc":
+		a.quitConfirm = false
+		return a, nil
+	}
+	return a, nil
+}
+
 // autosave persists on quit into the rotating autosave ring (v0.26 /
 // ADR 0033 §E) — never the named lane, never the legacy single slot.
 // Errors are swallowed — the user is leaving and there's no surface to
 // flash a message on. Console-printable saves can be wired later if
 // needed.
+//
+// Skips a paused world (#474 follow-up): maybeAutosave's periodic lane
+// already refuses to fire on a frozen sim (nothing has changed since
+// the last snapshot), but the on-quit write never got the same guard —
+// repeated quits from a frozen sim could fill all three ring slots
+// with near-identical snapshots and evict a state worth keeping.
 func (a *App) autosave() {
-	if a.guestSave != nil {
-		_ = a.guestSave(a.world)
+	if a.world.Clock.Paused {
 		return
 	}
-	_ = save.WriteAutosave(a.world)
+	a.persistNow()
 }
 
 // PersistNow writes the world through whichever persistence surface this
 // App is wired to — the per-player sink in a guest session, the local
 // autosave ring otherwise. It exists for the serve layer's admin
 // drain-and-restart (v0.30 S4), which leaves the process via os.Exit and
-// so never reaches the quit path's autosave. Call it on the Bubble Tea
-// update goroutine: it reads the live world.
-func (a *App) PersistNow() { a.autosave() }
+// so never reaches the quit path's autosave. Deliberately bypasses
+// autosave's paused-world guard above: os.Exit gives this exactly one
+// chance to write, whatever the sim's pause state, and it must always
+// take it — a restart mid-pause must not silently stop persisting.
+// Call it on the Bubble Tea update goroutine: it reads the live world.
+func (a *App) PersistNow() { a.persistNow() }
+
+// persistNow is the unconditional write shared by autosave (once past
+// its paused-world guard) and PersistNow (which has none). Never call
+// this directly from a quit path — go through autosave so the guard
+// applies.
+func (a *App) persistNow() {
+	if a.guestSave != nil {
+		_ = a.guestSave(a.world)
+		return
+	}
+	_ = save.WriteAutosave(a.world)
+}
 
 // maybeAutosave fires the periodic autosave (v0.26 S4 / ADR 0033 §E)
 // when the player's wall-clock interval has elapsed since the last
@@ -3136,6 +3201,20 @@ func (a *App) View() string {
 			line += "  " + a.theme.Warning.Render(a.statusMsg)
 		}
 		base = overlayBottomBorder(base, a.theme.Primary.Render(line), border)
+	}
+	// quitConfirm (#474) rides the same band and wins it over every
+	// other overlay above — quitting is the highest-stakes prompt in
+	// the game, and the point of asking is defeated if a stale toast or
+	// an open chat draft could hide the question. Host and guest see
+	// different wording: a guest can't decline (persistMiddleware writes
+	// their flight on session unwind no matter how the App exits), so
+	// their prompt offers only quit and stay, never a "no".
+	if a.quitConfirm {
+		prompt := "Save before quitting? [y] save and quit  [n] quit without saving  [esc] stay"
+		if a.guestSave != nil {
+			prompt = "Quit? your flight saves automatically — [y] quit  [esc] stay"
+		}
+		base = overlayBottomBorder(base, a.theme.Alert.Render(prompt), border)
 	}
 	return base
 }
