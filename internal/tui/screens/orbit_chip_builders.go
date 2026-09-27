@@ -1698,18 +1698,29 @@ type boxCols struct {
 
 var (
 	// ENGINE: longest label1 is "throttle:" (9) -> value1 12. value1's
-	// widest common row is the throttle row ("100% idle" .. "100% ●
-	// FIRING 59m59s", ~20 cells); label2 is always "mode:" (5).
+	// widest common row is the throttle row ("100% idle" ..
+	// "100% ● FIRING T+59m59s", 22 cells measured — engineThrottleLabel's
+	// elapsed clock is readout.Countdown, which always carries a T+/T-
+	// prefix, 2 cells more than a bare duration); label2 is always
+	// "mode:" (5). At exactly that widest elapsed reading, value1(12) +
+	// 22 lands one cell short of label2(34), so a burn that crosses into
+	// double-digit minutes pushes mode: one column right rather than
+	// colliding (chipCellAt's own clamp) — measured in
+	// orbit_box_density_test.go, and unchanged from this box's
+	// pre-retune behaviour (the old shared boxValueCol=13 hit the exact
+	// same one-cell push at the same reading).
 	engineCols = boxCols{value1: 12, label2: 34, gap2: 7}
 	// PROPELLANT: longest label1 is "monoprop:" (9) -> value1 12.
 	// value1's widest row is the Δv pair ("18872 / 99999 m/s", ~18
 	// cells); label2's widest text is "Δv→circ:" (8).
 	propellantCols = boxCols{value1: 12, label2: 32, gap2: 10}
 	// GUIDANCE: longest label1 is "heading:" (8) -> value1 11. value1's
-	// widest row is hold: ("Target Prograde (TARGET)", ~24 cells, the
-	// common target-relative case. The rarer "Surface Retrograde
-	// (SURFACE)" pushes nav: right rather than colliding); label2's
-	// widest text is "orbit fpa:" (10).
+	// widest common row is hold: ("Target Prograde (TGT)", 21 cells
+	// measured, the common target-relative case — attitudeHoldLabel's
+	// frame tag is navModeLabel's abbreviated "TGT"/"SURF"/"ORBIT", not
+	// the long nav: word); the rarer "Surface Retrograde (SURF)" (25
+	// cells) still clears this pin with 1 cell to spare, no push;
+	// label2's widest text is "orbit fpa:" (10).
 	guidanceCols = boxCols{value1: 11, label2: 37, gap2: 12}
 	// NAVIGATION: longest label1 is "altitude:" (9) -> value1 12.
 	// value1's widest common row is incl:/depart: ("28.61° (min
