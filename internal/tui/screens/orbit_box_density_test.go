@@ -225,11 +225,13 @@ func TestBoxDensityValue1MatchesLongestLabel1(t *testing.T) {
 
 // TestBoxDensitySecondLabelStableAcrossPhases is the sabotage-first
 // stability guard (Jason's own ruling: a reading growing mid-burn must
-// never step the next column sideways). Sabotage-checked by hand: with
-// chipRow2 reverted to pinning label2 at "row width + 2" instead of a
-// fixed column (the shape this box replaced), the idle-vs-firing pair
-// below lands at two different columns and this test goes red; against
-// the real fixed-column chipCellAt it is green. Each pair below picks
+// never step the next column sideways). Sabotage-checked by hand:
+// with chipCellAt's pad reverted to the retired "row width + 2" shape
+// (label following the first cell instead of a fixed column), 4 of the
+// 6 cases below (ENGINE, GUIDANCE, TARGET) went red — the label landed
+// at a different column per phase, e.g. ENGINE's mode: at column 23 on
+// the pad but column 35 during a live burn. Against the real
+// fixed-column chipCellAt every case is green. Each pair below picks
 // two phases whose own first reading differs sharply in width for that
 // box.
 func TestBoxDensitySecondLabelStableAcrossPhases(t *testing.T) {
