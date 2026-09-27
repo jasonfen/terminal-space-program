@@ -80,7 +80,7 @@ func (v *OrbitView) engineThrottleLabel(w *sim.World, c *spacecraft.Spacecraft) 
 // call, not a measured one.
 func (v *OrbitView) engineTWRCell(c *spacecraft.Spacecraft) string {
 	if c == nil || c.Thrust <= 0 || c.TotalMass() <= 0 {
-		return chipRowAt(readout.LabelTWR, "—", boxValueCol)
+		return chipRowAt(readout.LabelTWR, "—", engineCols.value1)
 	}
 	g := c.Primary.GravitationalParameter() / (c.Primary.RadiusMeters() * c.Primary.RadiusMeters())
 	cur := c.Thrust * c.EffectiveThrottle() / (c.TotalMass() * g)
@@ -96,7 +96,7 @@ func (v *OrbitView) engineTWRCell(c *spacecraft.Spacecraft) string {
 	default:
 		value = fmt.Sprintf("%s (max %s)", curLabel, maxLabel)
 	}
-	return chipRowAt(readout.LabelTWR, value, boxValueCol)
+	return chipRowAt(readout.LabelTWR, value, engineCols.value1)
 }
 
 // engineNodeLine picks ENGINE's node row per its three-way precedence
@@ -108,10 +108,10 @@ func (v *OrbitView) engineTWRCell(c *spacecraft.Spacecraft) string {
 // under way the braking start hides" true without any extra state here.
 func (v *OrbitView) engineNodeLine(w *sim.World, c *spacecraft.Spacecraft) string {
 	if c == nil {
-		return chipRowAt("node:", "—", boxValueCol)
+		return chipRowAt("node:", "—", engineCols.value1)
 	}
 	if line, ok := v.engineBurnLine(w, c); ok {
-		return chipRowAt("node:", line, boxValueCol)
+		return chipRowAt("node:", line, engineCols.value1)
 	}
 	if _, descending := sim.DescentCorridorFor(c, sim.DescentPredictHorizon); descending {
 		stopDat := v.cachedDescentStop(w, c)
@@ -119,13 +119,13 @@ func (v *OrbitView) engineNodeLine(w *sim.World, c *spacecraft.Spacecraft) strin
 			line := fmt.Sprintf("%s braking burn at %s  %s", hudNodeMarker,
 				readout.Distance(stopDat.burnAt.AltitudeM),
 				readout.Countdown(secondsToDuration(stopDat.burnAt.InSec)))
-			return chipRowAt("node:", line, boxValueCol)
+			return chipRowAt("node:", line, engineCols.value1)
 		}
 	}
 	if len(c.Nodes) > 0 {
-		return chipRowAt("node:", v.engineQueuedNodeLine(w, c), boxValueCol)
+		return chipRowAt("node:", v.engineQueuedNodeLine(w, c), engineCols.value1)
 	}
-	return chipRowAt("node:", "—", boxValueCol)
+	return chipRowAt("node:", "—", engineCols.value1)
 }
 
 // engineBurnLine is engineNodeLine's live-burn branch: the active

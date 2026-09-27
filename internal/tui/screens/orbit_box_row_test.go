@@ -17,7 +17,7 @@ import (
 // any specific instrument box's own calibrated boxCols), sized wide
 // enough to fit every literal used in this file without triggering the
 // overflow-push clamp.
-var testRowCols = boxCols{label2: 34, gap2: 10, label3: 52, gap3: 6}
+var testRowCols = boxCols{value1: 13, label2: 34, gap2: 10, label3: 52, gap3: 6}
 
 // TestChipRow2AlignsSecondLabelAcrossVaryingFirstValues: the whole point
 // of a fixed second-label column is that two rows with very different
@@ -102,7 +102,7 @@ func TestChipRow3AlignsThirdLabelAcrossVaryingFirstAndSecondValues(t *testing.T)
 // the pad are single dashes today and must not gain visible width.
 func TestChipRow2EmptyLabelReturnsSingleCell(t *testing.T) {
 	got := chipRow2(testRowCols, "Ap:", "—", "", "")
-	want := chipRowAt("Ap:", "—", boxValueCol)
+	want := chipRowAt("Ap:", "—", testRowCols.value1)
 	if got != want {
 		t.Errorf("chipRow2 with empty label2 = %q, want %q (chipRowAt's own form)", got, want)
 	}
