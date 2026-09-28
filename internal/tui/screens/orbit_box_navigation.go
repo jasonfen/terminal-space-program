@@ -63,7 +63,7 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 			chipRow2(navigationCols, readout.LabelHoriz, "—", "speed:", "—"),
 			chipRow2(navigationCols, readout.LabelAp, "—", readout.LabelPe, "—"),
 			chipRow2(navigationCols, readout.LabelIncl, "—", readout.LabelPeriod, "—"),
-			chipRow3(navigationCols, readout.LabelDepart, "—", "e:", "—", "dir:", "—"),
+			chipRow2(navigationCols, readout.LabelDepart, "—", "e:", "—"),
 			chipRow2(navigationCols, readout.LabelImpact, "—", "stop:", "—"),
 			chipRowAt("plan:", "—", navigationCols.value1),
 		}
@@ -81,7 +81,7 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 
 	apCell, peCell := v.navigationApPeCells(w, c)
 	inclCell, periodCell := v.navigationInclPeriodCells(w, c)
-	departV, eV, dirV := v.navigationDepartECells(w, c)
+	departV, eV := v.navigationDepartECells(w, c)
 	impactCell, stopCell := v.navigationImpactStopCells(w, c)
 
 	// plan: row + the → annotations on Ap/Pe/incl/period (ADR 0051 slice
@@ -117,7 +117,7 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 		chipRow2(navigationCols, readout.LabelHoriz, horizLabel, "speed:", readout.Speed(c.OrbitalSpeed())),
 		chipRow2(navigationCols, readout.LabelAp, apCell, readout.LabelPe, peCell),
 		chipRow2(navigationCols, readout.LabelIncl, inclCell, readout.LabelPeriod, periodCell),
-		chipRow3(navigationCols, readout.LabelDepart, departV, "e:", eV, "dir:", dirV),
+		chipRow2(navigationCols, readout.LabelDepart, departV, "e:", eV),
 		chipRow2(navigationCols, readout.LabelImpact, impactCell, "stop:", stopCell),
 		planRow,
 	}
@@ -164,8 +164,8 @@ func (v *OrbitView) navigationDockGuestBox(w *sim.World) ([]string, bool) {
 		chipRow2(navigationCols, readout.LabelAltitude, "—", readout.LabelVert, "—"),
 		chipRow2(navigationCols, readout.LabelHoriz, "—", "speed:", readout.Speed(g.Vel.Norm())),
 		chipRow2(navigationCols, readout.LabelAp, readout.Distance(apoAlt), readout.LabelPe, peCell),
-		chipRow2(navigationCols, readout.LabelIncl, readout.Angle(el.I*180/math.Pi), readout.LabelPeriod, readout.Period(secondsToDuration(period))),
-		chipRow3(navigationCols, readout.LabelDepart, "—", "e:", "—", "dir:", "—"),
+		chipRow2(navigationCols, readout.LabelIncl, readout.Angle(el.I*180/math.Pi)+v.orbitDirectionTag(el.I), readout.LabelPeriod, readout.Period(secondsToDuration(period))),
+		chipRow2(navigationCols, readout.LabelDepart, "—", "e:", "—"),
 		chipRow2(navigationCols, readout.LabelImpact, "—", "stop:", "—"),
 		chipRowAt("plan:", "—", navigationCols.value1),
 	}, true
@@ -298,6 +298,12 @@ func (v *OrbitView) navigationApPeCells(w *sim.World, c *spacecraft.Spacecraft) 
 // heading-derived launch-window reading with its "(min N°)" floor
 // suffix. period: is the live orbit's full period, dash while Landed or
 // with no valid orbit.
+//
+// #478 A3: the live incl: reading also carries the orbit-direction tag
+// (orbitDirectionTag) that used to sit in its own dir: cell on the row
+// below, "28.61° pro" / "28.61° retro". The Landed branch's own "(min
+// N°)" reading never overlaps with this (a landed craft has no live
+// orbit direction to tag), so the two forms never collide on one cell.
 func (v *OrbitView) navigationInclPeriodCells(w *sim.World, c *spacecraft.Spacecraft) (inclCell, periodCell string) {
 	if c.Landed {
 		return v.landedInclValue(c), "—"
@@ -306,7 +312,7 @@ func (v *OrbitView) navigationInclPeriodCells(w *sim.World, c *spacecraft.Spacec
 	if !ok {
 		return "—", "—"
 	}
-	inclCell = readout.Angle(el.I * 180 / math.Pi)
+	inclCell = readout.Angle(el.I*180/math.Pi) + v.orbitDirectionTag(el.I)
 	mu := c.Primary.GravitationalParameter()
 	period := 2 * math.Pi * math.Sqrt(el.A*el.A*el.A/mu)
 	periodCell = readout.Period(secondsToDuration(period))
@@ -316,11 +322,16 @@ func (v *OrbitView) navigationInclPeriodCells(w *sim.World, c *spacecraft.Spacec
 // navigationDepartECells: depart: carries the pad's launch-window angle
 // while Landed (with its "(best N°)" suffix), or the live orbit's own
 // departure-plane angle once airborne, dash where the sweep is frozen
-// (C1) or the reference plane/normal isn't resolvable. e:/dir: are the
-// live orbit's eccentricity and prograde/retrograde direction, dash
-// while Landed or with no valid orbit (they have no pad-window
-// equivalent the way depart: does).
-func (v *OrbitView) navigationDepartECells(w *sim.World, c *spacecraft.Spacecraft) (departV, eV, dirV string) {
+// (C1) or the reference plane/normal isn't resolvable. e: is the live
+// orbit's eccentricity, dash while Landed or with no valid orbit (it has
+// no pad-window equivalent the way depart: does).
+//
+// #478 A3: this used to also return dirV, the live orbit's
+// prograde/retrograde direction, in its own third cell; that reading
+// now rides the incl: row instead (navigationInclPeriodCells), and the
+// dir: cell is gone (NAVIGATION 65 to 51 cells, the biggest single
+// saving on the right side).
+func (v *OrbitView) navigationDepartECells(w *sim.World, c *spacecraft.Spacecraft) (departV, eV string) {
 	departV = "—"
 	if c.Landed {
 		departV = v.landedDepartValue(c)
@@ -337,11 +348,10 @@ func (v *OrbitView) navigationDepartECells(w *sim.World, c *spacecraft.Spacecraf
 	}
 	el, _, _, ok := craftLiveElements(c)
 	if !ok {
-		return departV, "—", "—"
+		return departV, "—"
 	}
 	eV = fmt.Sprintf("%.4f", el.E)
-	dirV = v.orbitDirectionLabel(el.I)
-	return departV, eV, dirV
+	return departV, eV
 }
 
 // navigationImpactStopCells is the descent corridor's impact:/stop: row

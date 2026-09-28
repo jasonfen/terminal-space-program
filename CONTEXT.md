@@ -1023,7 +1023,7 @@ _Avoid_: Launch lat (the old row label), locked, minimum inclination
 **Depart** (grilled 2026-09-10, ADR 0050; placement updated by ADR
 0051):
 The `depart:` row, alongside every `incl:` row, on NAVIGATION's fifth
-row (with `e:` and `dir:`, one instrument box, Landed or in flight):
+row (with `e:`, one instrument box, Landed or in flight):
 the angle between the orbit you'd reach (or are in) and the plane the
 world beneath you travels in, e.g. Luna's own orbit around Earth for a
 Luna pad, the ecliptic for an Earth pad (Earth's orbital inclination to
@@ -1039,10 +1039,13 @@ The cell (not the row) reads `—` where the world's spin axis and its
 own orbital-plane normal sit within 0.005° of each other, so nothing
 can move: frozen on Kern, Cursor, Shell and Pipe; alive on Earth, Mars,
 Mercury, Luna, Glyph, Ember, Rust and Daemon. Under ADR 0051's two
-readings per row the row itself always exists, for `e:` and `dir:`
-regardless of what `depart:` reads, so "hide the row" (ADR 0050's
-original wording) has only one reading left: the dash. Ninth F1
-READOUT GLOSSARY entry.
+readings per row the row itself always exists, for `e:` regardless of
+what `depart:` reads, so "hide the row" (ADR 0050's original wording)
+has only one reading left: the dash. Ninth F1 READOUT GLOSSARY entry.
+`dir:` used to be this row's third cell (prograde/retrograde, which way
+the orbit runs); #478 A3 moved it onto `incl:` instead as a `pro`/
+`retro` tag and dropped the cell, since direction belongs with the
+angle it describes.
 _Avoid_: Ecliptic (the reference is the *local* world's own orbital
 plane, not always the ecliptic — false on a moon), Departure angle
 (bare), Hidden row (say Dash cell; the row is never hidden, only the
@@ -2839,10 +2842,13 @@ and points at what replaced it.
 **Instrument Box**:
 One of the eight fixed boxes named for the subsystem it reads: ENGINE
 (throttle, lit state, elapsed time, mode, TWR, the next burn), PROPELLANT
-(fuel, mass, Δv, Δv→circ, monoprop, RCS Δv), GUIDANCE (hold, nav,
+(fuel, mass, Δv, Δv→circ, monoprop, rcs), GUIDANCE (hold, nav,
 heading, trim, fpa, orbit fpa), NAVIGATION (altitude, vert, horiz,
-speed, Ap, Pe, incl, period, depart, e, dir, impact, stop, the **Plan
-row**), COMMS, TARGET, STAGES, and MISSION. A box never changes corner
+speed, Ap, Pe, incl (carrying a pro/retro tag), period, depart, e,
+impact, stop, the **Plan row**), COMMS, TARGET, STAGES, and MISSION.
+#478 dropped NAVIGATION's own `dir` row, moving direction onto `incl`
+as a tag, and shortened PROPELLANT's `RCS Δv` label to `rcs`. A box
+never changes corner
 or column and never disappears; only its rows fill or read `—` (a
 **Dash cell**). The same eight boxes, same rows, same places, in both
 the orbit map and the LAUNCH view. At or above the **Design Size** a
@@ -3016,9 +3022,13 @@ the row Warning. `Δv:` reads stage / vehicle. The F1 READOUT GLOSSARY
 `TWR`, `Ap`/`Pe`, `Δv`/`Δincl`, `T-`/`T+`, `incl (min N°)`, `depart`
 from ADR 0049/0050, plus the **Trend arrow** and **Plan arrow** (one
 shared line), `⚠` on a node, `plan`, `dir`, `speed`, `(max N)`, and
-`● ORBIT READY [C]` from ADR 0051. Five further bare codes still
+`● ORBIT READY [C]` from ADR 0051, then to 19 under #478: `dir`
+retired in favour of `pro`/`retro` (the tag that replaced its own
+`dir:` cell on `incl:`), plus two new lines, `(ORBIT/SURF/TGT)` (one
+frame spelling everywhere it's named) and `rcs` (finally given the line
+ADR 0049 always meant it to have). Four further bare codes still
 survive with no glossary line of their own: `CA:`, `e:`, `τ`, the
-AN/DN angle, `rcs`.
+AN/DN angle.
 _Avoid_: Units setting (there is none; the contract is not a
 preference), `alt` suffix, `budget`, raw seconds, decimal hours,
 thousands separators, variable-name labels (`v_vert`, `t_to_apo`),

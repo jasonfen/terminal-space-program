@@ -203,6 +203,14 @@ var helpSections = []helpSection{
 	// (max N) full-throttle wording (decision 13b/C5), and ORBIT
 	// READY's cue (decision 10, re-grill Q7: no floor number, by
 	// rule).
+	//
+	// #478 adds two more and replaces one: `dir` retires (NAVIGATION's
+	// dir: cell is gone, A3) in favour of `pro / retro`, the tag that
+	// replaced it on incl:; `(ORBIT) / (SURF) / (TGT)` documents the one
+	// spelling every frame uses everywhere it's named (hold:'s tag,
+	// nav:, the navball [MODE] button); and `rcs` finally gets the line
+	// the decision-6 comment above always meant it to have (it survived
+	// the ADR 0049 rename table but was never actually added here).
 	{"READOUT GLOSSARY", [][2]string{
 		{"fpa", "flight path angle: velocity above / below the local horizontal"},
 		{"Q", "dynamic pressure: aerodynamic stress on the airframe, in kPa"},
@@ -217,7 +225,9 @@ var helpSections = []helpSection{
 		{"→", "becomes: between a current value and a planned or resulting one, wherever it appears"},
 		{"⚠ (node)", "on a planned burn: it exceeds the stage's Δv budget"},
 		{"plan", "the world the planned burn's numbers are measured from, plus its node angles"},
-		{"dir", "prograde or retrograde: which way the orbit runs"},
+		{"pro / retro", "prograde or retrograde: which way the orbit runs, tagged on incl:"},
+		{"(ORBIT/SURF/TGT)", "the frame a held direction or nav: reads in: orbit, surface, or target-relative — one spelling everywhere it's named"},
+		{"rcs", "monoprop's own Δv, from the RCS thrusters rather than the main engine"},
 		{"speed", "inertial speed, alongside vert: and horiz:"},
 		{"(max N)", "the same figure at full throttle, when it differs from the current one"},
 		{"● ORBIT READY [C]", "apoapsis has cleared this world's orbit floor: press [C] to plant the circularising burn"},

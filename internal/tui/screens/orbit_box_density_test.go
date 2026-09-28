@@ -1,20 +1,22 @@
-// orbit_box_density_test.go (issue #476): measures the eight instrument
-// boxes across a battery of phases and keeps the per-box column pins
-// (engineCols/propellantCols/guidanceCols/navigationCols/targetCols)
-// honest against that measurement, so a future change to a reading's
-// text trips this file rather than silently drifting the column back
-// out of alignment.
+// orbit_box_density_test.go (issue #476, retuned again for #478): measures
+// the eight instrument boxes across a battery of phases and keeps the
+// per-box column pins (engineCols/propellantCols/guidanceCols/
+// navigationCols/targetCols) honest against that measurement, so a
+// future change to a reading's text trips this file rather than
+// silently drifting the column back out of alignment.
 //
-// Phases (the same eight Jason named in the issue): pad, powered
+// Phases (the same eight Jason named in the #476 issue): pad, powered
 // ascent, coasting with a plan planted, a live (manual) burn, a powered
 // descent on an airless world, docked (near-zero range/closing), no
-// target, and a target acquired. Guidance's own widest common hold:
-// reading ("Target Prograde (TGT)" — the issue's own illustrative
-// "(TARGET)" turned out to be the LONG nav: word, not the abbreviated
-// frame tag attitudeHoldLabel actually prints; measuring the real string
-// is the whole point of this file) needs a ninth, more specific fixture
-// (density fixtures below), since none of the eight on their own drive
-// AttitudeMode+NavTarget together.
+// target, and a target acquired. Guidance's own widest hold: readings
+// need three more specific fixtures beyond those eight, since none of
+// them alone drive AttitudeMode+NavMode together: "Target Prograde
+// (TGT)" (the issue's own illustrative "(TARGET)" turned out to be the
+// LONG nav: word, not the abbreviated frame tag attitudeHoldLabel
+// actually prints), "Surface Retrograde" (now "Retrograde (SURF)" per
+// #478 A2), and "Target Retrograde (TGT)" — #478's own new widest
+// possible hold: reading once "Surface " dropped off the surface case
+// (23 cells beats surface's post-A2 17).
 package screens
 
 import (
@@ -142,16 +144,34 @@ func densityGuidanceHoldTarget(t *testing.T) *sim.World {
 }
 
 // densityGuidanceHoldSurfaceRetrograde: the rarer combination GUIDANCE's
-// own doc comment calls out as the widest POSSIBLE hold: reading,
-// "Surface Retrograde (SURF)" (25 cells measured) — never remapped by
-// attitudeHoldLabel's NavTarget branch (BurnSurfaceRetrograde already
-// carries its own frame), so it renders regardless of NavMode.
+// own doc comment calls out as a wide hold: reading, "Retrograde (SURF)"
+// (17 cells measured, #478 A2 dropped the redundant "Surface " word) —
+// never remapped by attitudeHoldLabel's NavTarget branch
+// (BurnSurfaceRetrograde already carries its own frame), so it renders
+// regardless of NavMode.
 func densityGuidanceHoldSurfaceRetrograde(t *testing.T) *sim.World {
 	t.Helper()
 	w := densityCoastingWithPlan(t)
 	c := w.ActiveCraft()
 	c.AttitudeMode = spacecraft.BurnSurfaceRetrograde
 	w.NavMode = sim.NavSurface
+	return w
+}
+
+// densityGuidanceHoldTargetRetrograde: #478 A2 dropped "Surface " from
+// the surface-framed hold reading, which used to be GUIDANCE's own
+// widest possible value1 reading (25 cells); with that gone, the new
+// widest is "Target Retrograde (TGT)" (23 cells) — BurnRetrograde held
+// while NavTarget resolves a relative target, remapped by
+// attitudeHoldLabel the same way densityGuidanceHoldTarget's Prograde
+// case is, just the other axis direction, which happens to be one word
+// longer ("Retrograde" vs "Prograde").
+func densityGuidanceHoldTargetRetrograde(t *testing.T) *sim.World {
+	t.Helper()
+	w := leadTestWorld(t, 82)
+	c := w.ActiveCraft()
+	c.AttitudeMode = spacecraft.BurnRetrograde
+	w.NavMode = sim.NavTarget
 	return w
 }
 
@@ -171,6 +191,7 @@ func allDensityPhases(t *testing.T) map[string]*sim.World {
 		"target acquired":                  densityTargetAcquired(t),
 		"guidance hold surface retrograde": densityGuidanceHoldSurfaceRetrograde(t),
 		"guidance hold target":             densityGuidanceHoldTarget(t),
+		"guidance hold target retrograde":  densityGuidanceHoldTargetRetrograde(t),
 	}
 }
 
@@ -250,7 +271,7 @@ func TestBoxDensitySecondLabelStableAcrossPhases(t *testing.T) {
 		{"GUIDANCE hold/nav", v.buildGuidanceBox, 1, "nav:", "pad", "guidance hold target"},
 		{"NAVIGATION altitude/vert", v.buildNavigationBox, 1, "vert:", "pad", "powered descent airless"},
 		{"NAVIGATION depart/e/dir e:", v.buildNavigationBox, 5, "e:", "no target", "coasting with plan"},
-		{"TARGET range/closing/rel closing:", v.buildTargetBox, 1, "closing:", "docked", "target acquired"},
+		{"TARGET range/close/rel close:", v.buildTargetBox, 1, "close:", "docked", "target acquired"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

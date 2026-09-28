@@ -134,6 +134,14 @@ func (v *OrbitView) engineNodeLine(w *sim.World, c *spacecraft.Spacecraft) strin
 // retired activeBurnLines/buildNodesChip, dropping the "vessel N" tag
 // (this box is already scoped to the active craft, so it would be
 // redundant), ok is false when nothing is burning.
+//
+// #478 A1: "Δv" and "burning," both drop from the live-burn line — the
+// ▸ glyph and the trailing countdown already say it's firing, so
+// spelling that out again cost cells without saying anything new. The
+// line stays rendered in the theme's Warning colour (the same amber
+// "● FIRING" already uses on the throttle row) so the glyph and the
+// colour carry the cue together; never a literal colour, so a future
+// theme swap still lands here.
 func (v *OrbitView) engineBurnLine(w *sim.World, c *spacecraft.Spacecraft) (string, bool) {
 	if c == nil || c.ActiveBurn == nil {
 		return "", false
@@ -147,7 +155,7 @@ func (v *OrbitView) engineBurnLine(w *sim.World, c *spacecraft.Spacecraft) (stri
 	if remaining < 0 {
 		remaining = 0
 	}
-	return v.theme.Warning.Render(fmt.Sprintf("%s %s, Δv %s, burning, %s left",
+	return v.theme.Warning.Render(fmt.Sprintf("%s %s %s, %s left",
 		hudNodeMarker, ab.Mode.String(), readout.DeltaV(ab.DVRemaining), readout.Duration(secondsToDuration(remaining)))), true
 }
 

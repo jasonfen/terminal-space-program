@@ -27,7 +27,7 @@ func (v *OrbitView) buildPropellantBox(w *sim.World) []string {
 			title,
 			chipRow2(propellantCols, "fuel:", "—", "mass:", "—"),
 			chipRow2(propellantCols, readout.LabelDeltaV, "—", "Δv→circ:", "—"),
-			chipRow2(propellantCols, "monoprop:", "—", "rcs Δv:", "—"),
+			chipRow2(propellantCols, "monoprop:", "—", "rcs:", "—"),
 		}
 	}
 	fuelLabel := readout.Mass(c.Fuel)
@@ -43,7 +43,11 @@ func (v *OrbitView) buildPropellantBox(w *sim.World) []string {
 		title,
 		chipRow2(propellantCols, "fuel:", fuelLabel, "mass:", readout.Mass(c.TotalMass())),
 		chipRow2(propellantCols, readout.LabelDeltaV, deltaVReadout(c), "Δv→circ:", v.deltaVToCircLabel(c)),
-		chipRow2(propellantCols, "monoprop:", monopropLabel, "rcs Δv:", rcsLabel),
+		// #478 A5: "rcs Δv:" shortens to "rcs:" — the m/s already says
+		// what kind of number follows, the same reasoning as the node
+		// row's own Δv drop. monoprop: stays spelled out, it names a
+		// real substance.
+		chipRow2(propellantCols, "monoprop:", monopropLabel, "rcs:", rcsLabel),
 	}
 }
 

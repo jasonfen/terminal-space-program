@@ -279,7 +279,7 @@ func TestTargetChipLandedTargetShowsNoApPe(t *testing.T) {
 	if regexp.MustCompile(`\bAp:\s+[0-9]`).MatchString(joined) || regexp.MustCompile(`\bPe:\s+[0-9-]`).MatchString(joined) || regexp.MustCompile(`[^Δ]incl:\s+[0-9]`).MatchString(joined) {
 		t.Errorf("landed target's TARGET box still shows a real Ap/Pe/incl value, want dash cells:\n%s", joined)
 	}
-	for _, want := range []string{"range:", "rel", "closing:"} {
+	for _, want := range []string{"range:", "rel:", "close:"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("landed target's TARGET box missing %q:\n%s", want, joined)
 		}
@@ -366,7 +366,7 @@ func TestLandedTargetHasNoClosestApproachPrediction(t *testing.T) {
 	if regexp.MustCompile(`\bTCA:\s+[0-9T]`).MatchString(joined) || regexp.MustCompile(`\bapproach:\s+[0-9]`).MatchString(joined) {
 		t.Errorf("landed target's TARGET box still shows a real TCA/approach value (a propagated closest-approach prediction), want dash cells:\n%s", joined)
 	}
-	for _, want := range []string{"range:", "rel", "closing:"} {
+	for _, want := range []string{"range:", "rel:", "close:"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("landed target's TARGET box lost %q — only the propagated TCA/approach prediction should be gated, not the whole cell group:\n%s", want, joined)
 		}

@@ -138,7 +138,9 @@ func TestHelpGlossaryBlockContent(t *testing.T) {
 		{"→", "becomes"},
 		{"⚠ (node)", "Δv budget"},
 		{"plan", "planned burn's numbers are measured from"},
-		{"dir", "prograde or retrograde"},
+		{"pro / retro", "prograde or retrograde"},
+		{"(ORBIT/SURF/TGT)", "one spelling everywhere"},
+		{"rcs", "RCS thrusters"},
 		{"speed", "inertial speed"},
 		{"(max N)", "full throttle"},
 		{"● ORBIT READY [C]", "orbit floor"},
@@ -156,15 +158,18 @@ func TestHelpGlossaryBlockContent(t *testing.T) {
 // ADR 0050 decision 5 made this the ninth entry (`depart`); ADR 0051
 // slice 2b added eight more, one per new symbol/word the instrument
 // boxes introduced (the Ap trend arrow and → share one line with the
-// node ⚠, plan/dir/speed, (max N), and ORBIT READY), for 17. Tightened
-// from the original loose "at least 7" bound to an exact count so a
-// stray addition or removal is caught rather than silently absorbed.
+// node ⚠, plan/dir/speed, (max N), and ORBIT READY), for 17. #478
+// retired `dir` in favour of `pro / retro` (same row, new token) and
+// added two: the frame-spelling entry and the `rcs` line ADR 0049's own
+// decision-6 comment always meant to include, for 19. Tightened from
+// the original loose "at least 7" bound to an exact count so a stray
+// addition or removal is caught rather than silently absorbed.
 func TestHelpGlossarySection(t *testing.T) {
 	for _, s := range helpSections {
 		if s.header != "READOUT GLOSSARY" {
 			continue
 		}
-		const want = 17
+		const want = 19
 		if len(s.rows) != want {
 			t.Errorf("READOUT GLOSSARY has %d rows, want exactly %d", len(s.rows), want)
 		}

@@ -56,11 +56,12 @@ func TestHelpScrollsToLastSection(t *testing.T) {
 	h := NewHelp(chipTestTheme())
 	// ht bumped 20->22 when ADR 0049 decision 9 added two rows (MANUAL
 	// FLIGHT's `{ / }`, READOUT GLOSSARY's `incl (min N°)`), then 22->30
-	// when ADR 0051 slice 2b added eight more READOUT GLOSSARY rows: each
-	// bump is the same bug repeating, the glossary growing long enough to
-	// push MOUSE's "click HUD" out of a bottom-aligned window once
-	// End-scrolled.
-	const w, ht = 100, 30
+	// when ADR 0051 slice 2b added eight more READOUT GLOSSARY rows, then
+	// 30->32 when #478 added two more (the frame-spelling and rcs lines):
+	// each bump is the same bug repeating, the glossary growing long
+	// enough to push MOUSE's "click HUD" out of a bottom-aligned window
+	// once End-scrolled.
+	const w, ht = 100, 32
 
 	top := h.Render(w, ht, keylayout.QWERTY)
 	if !strings.Contains(top, "keybindings") {
