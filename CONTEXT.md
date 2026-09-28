@@ -2854,6 +2854,12 @@ or column and never disappears; only its rows fill or read `—` (a
 the orbit map and the LAUNCH view. At or above the **Design Size** a
 box never shrinks, drops, or moves; below it, **Graceful Shrink**
 governs as it always did.
+**Exception (#480):** TARGET alone disappears outright, box and slot
+both, when no target is set, rather than reading a dash cell. Safe
+only because TARGET is the last box in the right column, so nothing
+above or below it ever moves. This does not extend to any other box
+(rejected on the record for COMMS/STAGES/MISSION); see the 2026-09-28
+amendment to ADR 0051 in the planning vault.
 _Avoid_: Panel (the Navball), Chip (a Notice, below), Block, HUD block.
 
 **Slot**:

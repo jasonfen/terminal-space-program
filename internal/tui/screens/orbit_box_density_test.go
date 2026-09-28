@@ -361,3 +361,61 @@ func TestBoxDensityWidestReadingReport(t *testing.T) {
 		t.Logf("%s widest row (%d cells, phase %q): %q", b.name, widest, widestPhase, widestRow)
 	}
 }
+
+// --- right column width with TARGET absent (#480) -----------------------
+
+// rightColumnWidth measures the composed right-column width
+// assembleChips/composeChips actually right-aligns against for phase
+// world w: the widest padded content width (+2 for the border) among
+// whichever cornerTopRight boxes are ACTUALLY present this frame. With
+// no target, #480 means TARGET is not among them at all, so this
+// reflects NAVIGATION alone rather than max(NAVIGATION, TARGET) the way
+// every phase before #480 measured.
+func rightColumnWidth(t *testing.T, v *OrbitView, w *sim.World) int {
+	t.Helper()
+	widest := 0
+	for _, c := range v.assembleChips(w) {
+		if c.corner != cornerTopRight {
+			continue
+		}
+		_, contentW := padChipBlock(c.lines)
+		if bw := contentW + 2; bw > widest {
+			widest = bw
+		}
+	}
+	return widest
+}
+
+// TestBoxDensityRightColumnWidthNoTargetPhase (#480): the right
+// column's composed width is a real, different case now that TARGET
+// can be absent. In the "no target" phase, NAVIGATION alone governs the
+// right column's width (TARGET contributes nothing, since it isn't
+// placed at all); in "target acquired", TARGET is the wider box and
+// governs instead (per the #478/#480 vault record: TARGET 56 cols vs.
+// NAVIGATION 51). Sabotage-checked by hand: reverting the #480 fix (so
+// navigationBoxesInOrder always places TARGET, even with no target)
+// turns this test red, see the PR description for the pasted failure.
+func TestBoxDensityRightColumnWidthNoTargetPhase(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	v.Resize(181, 49)
+
+	noTargetW := rightColumnWidth(t, v, densityNoTarget(t))
+	navOnly := v.buildNavigationBox(densityNoTarget(t))
+	_, navContentW := padChipBlock(navOnly)
+	wantNoTarget := navContentW + 2
+	if noTargetW != wantNoTarget {
+		t.Errorf("right column width with no target = %d, want %d (NAVIGATION alone, TARGET not placed)", noTargetW, wantNoTarget)
+	}
+
+	targetW := rightColumnWidth(t, v, densityTargetAcquired(t))
+	targetOnly := v.buildTargetBox(densityTargetAcquired(t))
+	_, targetContentW := padChipBlock(targetOnly)
+	wantTargetPhase := targetContentW + 2
+	if targetW != wantTargetPhase {
+		t.Errorf("right column width with a target acquired = %d, want %d (TARGET governs)", targetW, wantTargetPhase)
+	}
+
+	if noTargetW >= targetW {
+		t.Errorf("no-target right column width (%d) should be narrower than the target-acquired width (%d): TARGET is the wider box when present", noTargetW, targetW)
+	}
+}
