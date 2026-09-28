@@ -258,7 +258,7 @@ func TestTargetChipCraftRecomputesDuringOwnBurn(t *testing.T) {
 	if !strings.Contains(out, "TCA:") || !strings.Contains(out, "recomputing") {
 		t.Errorf("mid-burn craft-target box missing 'TCA: recomputing…':\n%s", out)
 	}
-	if !strings.Contains(out, "closing:") || !strings.Contains(out, "lead:") {
+	if !strings.Contains(out, "close:") || !strings.Contains(out, "lead:") {
 		t.Errorf("mid-burn craft-target box lost its live relative-state rows:\n%s", out)
 	}
 }

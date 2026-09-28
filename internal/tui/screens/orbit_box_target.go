@@ -68,7 +68,11 @@ func (v *OrbitView) buildTargetBox(w *sim.World) []string {
 	title := v.theme.Primary.Render("TARGET") + "  " + name + titleBadge
 	return []string{
 		title,
-		chipRow3(targetCols, "range:", cells.rangeV, "closing:", cells.closingV, "rel", cells.relV),
+		// #478 A4: "closing:" -> "close:" and "rel" -> "rel:" (tighter
+		// labels, gaps re-derived in targetCols); all three readings stay
+		// (rejected: dropping rel while docked, since the box would only
+		// narrow in the phase the player is least likely to be reading it).
+		chipRow3(targetCols, "range:", cells.rangeV, "close:", cells.closingV, "rel:", cells.relV),
 		chipRow3(targetCols, readout.LabelAp, cells.apV, readout.LabelPe, cells.peV, "incl:", cells.inclV),
 		chipRow2(targetCols, readout.LabelDeltaIncl, cells.deltaInclV, "lead:", cells.leadV),
 		chipRow2(targetCols, readout.LabelTCA, cells.tcaV, "approach:", cells.approachV),

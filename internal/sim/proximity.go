@@ -46,7 +46,8 @@ type ProximityState struct {
 
 	// RangeM / VRelMS / ClosingMS are the readout triple. ClosingMS is
 	// positive while the gap is shrinking — the same sign convention the
-	// TARGET chip's "closing:" row has always used.
+	// TARGET box's "close:" row (PROXIMITY's own row keeps the "closing:"
+	// spelling, #478 A4 only shortened TARGET's) has always used.
 	RangeM    float64
 	VRelMS    float64
 	ClosingMS float64

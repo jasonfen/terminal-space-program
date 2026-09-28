@@ -250,7 +250,7 @@ func TestBoxDensitySecondLabelStableAcrossPhases(t *testing.T) {
 		{"GUIDANCE hold/nav", v.buildGuidanceBox, 1, "nav:", "pad", "guidance hold target"},
 		{"NAVIGATION altitude/vert", v.buildNavigationBox, 1, "vert:", "pad", "powered descent airless"},
 		{"NAVIGATION depart/e/dir e:", v.buildNavigationBox, 5, "e:", "no target", "coasting with plan"},
-		{"TARGET range/closing/rel closing:", v.buildTargetBox, 1, "closing:", "docked", "target acquired"},
+		{"TARGET range/close/rel close:", v.buildTargetBox, 1, "close:", "docked", "target acquired"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
