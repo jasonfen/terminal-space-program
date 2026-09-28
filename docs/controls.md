@@ -303,7 +303,9 @@ overlay carries, so you can look one up without leaving the game.
 | `→` | Becomes: between a current value and a planned or resulting one, wherever it appears |
 | `⚠` (on a node) | The planned burn exceeds the stage's Δv budget |
 | `plan` | The world the planned burn's numbers are measured from, plus its node angles |
-| `dir` | Prograde or retrograde: which way the orbit runs |
+| `pro` / `retro` | Prograde or retrograde: which way the orbit runs, tagged on `incl:` |
+| `(ORBIT/SURF/TGT)` | The frame a held direction or `nav:` reads in: orbit, surface, or target-relative, one spelling everywhere it's named |
+| `rcs` | Monoprop's own delta-v, from the RCS thrusters rather than the main engine |
 | `speed` | Inertial speed, alongside `vert:` and `horiz:` |
 | `(max N)` | The same figure at full throttle, when it differs from the current one |
 | `● ORBIT READY [C]` | Apoapsis has cleared this world's orbit floor: press `C` to plant the circularising burn |
