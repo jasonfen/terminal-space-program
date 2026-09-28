@@ -2,6 +2,19 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.44.2
+
+The readings that were setting each instrument box's width say the same things in fewer words, so the map gets the columns back (closes #478; PR `#479`; tag `v0.44.2`).
+
+- **ENGINE's node row reads `▸ Prograde 1234 m/s, 5m00s left`** during a burn, and the whole row is amber while the engine is lit. The `▸` and the running countdown already said it was firing, so `Δv` and the word `burning` are gone and the colour carries the cue alongside the glyph.
+- **NAVIGATION says which way round on the `incl:` row**, as `incl: 28.61° pro` or `retro`, and the separate `dir:` cell is gone. On a coasting frame that alone takes the box from 67 columns to 53.
+- **One spelling per flight frame, everywhere.** `hold:` used to read `Surface Retrograde (SURF)` beside `nav: SURFACE`, naming the same frame three times in one row. It now reads `hold: Retrograde (SURF)` with `nav: SURF`, and the `nav:` flash message matches, so `ORBIT`, `SURF` and `TGT` are the only forms you see.
+- **TARGET's approach row reads `range: … close: … rel: …`** with tighter gaps, keeping all three readings, which are the ones you fly the last hundred metres on.
+- **PROPELLANT's `rcs Δv:` is now `rcs:`**, since `m/s` already says what kind of number follows. `monoprop:` keeps its full name, because it names a real substance.
+- Measured on one coasting frame at 181x49: NAVIGATION 67 to 53 columns, GUIDANCE 56 to 54, and the map gap between the columns 56 to 69. With a vessel targeted, TARGET's own row becomes what sets the right column, so the gain there is smaller: the win depends on what the flight is doing.
+- The F1 readout glossary, `docs/controls.md` and `CONTEXT.md` carry the new wording, including the `pro` / `retro` tag and the frame spellings.
+- No save-schema change.
+
 ### v0.44.1
 
 Leaving the game now asks whether to save instead of writing over your autosave on the way out, and the instrument boxes give a few columns of screen back (closes #474 and #476; PRs `#475`, `#477`; tag `v0.44.1`).
