@@ -2,6 +2,16 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.44.3
+
+With nothing targeted, the TARGET box is gone rather than sitting there full of dashes, and the map has those rows back (closes #480; PR `#481`; tag `v0.44.3`).
+
+- **No target, no box.** TARGET used to draw its title and four rows of `—` whenever you were not chasing anything. Press `t` and it appears where it always sits, directly under NAVIGATION; clear the target and it goes again. Worth 7 rows and the whole right column's width, measured at 53 columns with it absent against 60 with a vessel targeted.
+- **Nothing else moves when it leaves.** NAVIGATION keeps its rows and the navball keeps its place, verified frame against frame. The notice bay notices the extra room and folds one notice fewer.
+- **TARGET is the only box that does this**, and deliberately so: it is the last box in the right column, so it can come and go without anything above it shifting. COMMS with no signal, STAGES on a single-stage vessel and MISSION with no mission all keep their slots and their dashes, because the left stack would otherwise slide under you mid-flight. This amends ADR 0051's every-box-always-present rule for TARGET alone.
+- A docked vessel has a target, so it keeps its box. Switching TARGET off in Settings still blanks its rows in place rather than removing it, and `F2` declutter is unchanged.
+- No save-schema change.
+
 ### v0.44.2
 
 The readings that were setting each instrument box's width say the same things in fewer words, so the map gets the columns back (closes #478; PR `#479`; tag `v0.44.2`).
