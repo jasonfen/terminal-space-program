@@ -2,6 +2,15 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.44.1
+
+Leaving the game now asks whether to save instead of writing over your autosave on the way out, and the instrument boxes give a few columns of screen back (closes #474 and #476; PRs `#475`, `#477`; tag `v0.44.1`).
+
+- **Quitting asks.** `ctrl+c` and the pause menu's Quit row both raise one prompt with one wording: `Save before quitting? [y] save and quit  [n] quit without saving  [esc] stay`. `[n]` writes nothing at all, `[esc]` puts you back exactly where you were, including the Saves browser's frozen clock. Before this every exit wrote into the autosave ring, and setting the autosave interval to off did not stop it, so a flight you wanted to forget could evict a snapshot you wanted to keep. A guest in a multiplayer session sees `Quit? your flight saves automatically`, with no `[n]`: the session writes their vessel on disconnect however they leave, so offering the choice there would be a lie.
+- **A node burn no longer counts its throttle clock two different ways.** ENGINE's throttle cell showed elapsed time for a manual burn and remaining time for a node burn under the same `● FIRING` glyph. The node row already carries time remaining, so the cell now keeps its clock only for a manual burn's `T+`.
+- **Each instrument box sizes its own label column** instead of every box inheriting one shared width from the longest label anywhere on the HUD. GUIDANCE loses 2 columns, TARGET 4, ENGINE, PROPELLANT and NAVIGATION 1 each; the left stack's widest box goes 58 to 56 and the right column 68 to 67. Columns stay pinned per box, so a reading that grows mid-burn still never steps the next column sideways. What sets a box's width is the widest reading it must clear, not its padding, which is why the saving is small and where the next pass has to look.
+- No save-schema change.
+
 ### v0.44.0
 
 Every flight readout now lives in one of eight fixed boxes that never move or reflow, the same set on the map and in the LAUNCH view, and you can find a launch window against another vessel while the game tells you whether waiting on the pad is worth it (ADR 0050 and ADR 0051; closes #454; PRs `#462`, `#463`, `#469`, `#470`, `#472`, `#473`; tag `v0.44.0`).
