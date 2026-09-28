@@ -65,7 +65,7 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 			chipRow2(navigationCols, readout.LabelIncl, "—", readout.LabelPeriod, "—"),
 			chipRow3(navigationCols, readout.LabelDepart, "—", "e:", "—", "dir:", "—"),
 			chipRow2(navigationCols, readout.LabelImpact, "—", "stop:", "—"),
-			chipRowAt("plan:", "—", boxValueCol),
+			chipRowAt("plan:", "—", navigationCols.value1),
 		}
 	}
 
@@ -167,7 +167,7 @@ func (v *OrbitView) navigationDockGuestBox(w *sim.World) ([]string, bool) {
 		chipRow2(navigationCols, readout.LabelIncl, readout.Angle(el.I*180/math.Pi), readout.LabelPeriod, readout.Period(secondsToDuration(period))),
 		chipRow3(navigationCols, readout.LabelDepart, "—", "e:", "—", "dir:", "—"),
 		chipRow2(navigationCols, readout.LabelImpact, "—", "stop:", "—"),
-		chipRowAt("plan:", "—", boxValueCol),
+		chipRowAt("plan:", "—", navigationCols.value1),
 	}, true
 }
 
@@ -429,7 +429,7 @@ const navigationPlanEquatorialToleranceDeg = 0.05
 // orchestrator's own assumption (told to Jason), implemented as stated.
 func (v *OrbitView) navigationPlanRow(c *spacecraft.Spacecraft, state physics.StateVector, primary bodies.CelestialBody, ok bool) string {
 	if !ok {
-		return chipRowAt("plan:", "—", boxValueCol)
+		return chipRowAt("plan:", "—", navigationCols.value1)
 	}
 	el := planElementsInPrimaryFrame(state, primary)
 	encounter := primary.ID != c.Primary.ID
@@ -440,12 +440,12 @@ func (v *OrbitView) navigationPlanRow(c *spacecraft.Spacecraft, state physics.St
 	case encounter:
 		value = primary.EnglishName + " encounter"
 	case hyperbolic:
-		return chipRowAt("plan:", primary.EnglishName+" escape", boxValueCol)
+		return chipRowAt("plan:", primary.EnglishName+" escape", navigationCols.value1)
 	default:
 		value = primary.EnglishName + " orbit"
 	}
 	if math.IsNaN(el.I) || math.IsNaN(el.Omega) {
-		return chipRowAt("plan:", value, boxValueCol)
+		return chipRowAt("plan:", value, navigationCols.value1)
 	}
 	incDeg := el.I * 180 / math.Pi
 	if incDeg < navigationPlanEquatorialToleranceDeg || incDeg > 180-navigationPlanEquatorialToleranceDeg {
@@ -455,7 +455,7 @@ func (v *OrbitView) navigationPlanRow(c *spacecraft.Spacecraft, state physics.St
 		dnDeg := math.Mod(anDeg+180, 360)
 		value += fmt.Sprintf("  AN %s  DN %s", readout.Angle(anDeg), readout.Angle(dnDeg))
 	}
-	return chipRowAt("plan:", value, boxValueCol)
+	return chipRowAt("plan:", value, navigationCols.value1)
 }
 
 // navigationStopCell renders the stop: cell's number+colour per outcome

@@ -1658,69 +1658,97 @@ func chipRowAt(label, value string, col int) string {
 	return prefix + strings.Repeat(" ", pad) + value
 }
 
-// boxValueCol is value1's column (ADR 0051 decision 4, "two quantities
-// per row"), matching the existing chipValueCol convention, shared by
-// every box (chipRowAt's own convention, unaffected by this fix).
-const boxValueCol = 13
-
 // boxCols is one instrument box's column layout for its OWN chipRow2/
-// chipRow3 calls: where the second (and third) cell's LABEL is pinned,
-// and how far that cell's own value sits after its label. Fix note (the
-// alignment bug this replaces): chipRow2/chipRow3 used to share ONE
-// column set across all eight boxes, sized to the single widest first
-// value anywhere on the HUD, every box inherited that width even when
-// its own values were much shorter (TARGET's "371.6 Mm" paid for
-// PROPELLANT's "3518 / 18872 m/s"), which is what pushed the TARGET/
-// NAVIGATION boxes wide enough to eat into the launch view's canvas and
-// hide the LUT crown glyph (TestLaunchTowerRendersAtPad). Per box
-// instead (re-grill: "per-box column sized to fit that box's widest
-// first value"): label2/label3 are pinned to a column sized for THAT
-// box's own typical first/second cell width, with at least one column
-// of daylight; an unusually wide value for that box still pushes the
-// next label right by at least one space (chipCellAt's own clamp)
-// rather than colliding, it just isn't the box's normal-case column.
+// chipRow3 calls: where value1 (the row's first quantity) is pinned,
+// where the second (and third) cell's LABEL is pinned, and how far that
+// cell's own value sits after its label. Fix note (the alignment bug
+// this replaced): chipRow2/chipRow3 used to share ONE column set across
+// all eight boxes, sized to the single widest first value anywhere on
+// the HUD, every box inherited that width even when its own values were
+// much shorter (TARGET's "371.6 Mm" paid for PROPELLANT's "3518 / 18872
+// m/s"), which is what pushed the TARGET/NAVIGATION boxes wide enough
+// to eat into the launch view's canvas and hide the LUT crown glyph
+// (TestLaunchTowerRendersAtPad). Per box instead (re-grill: "per-box
+// column sized to fit that box's widest first value"): label2/label3
+// are pinned to a column sized for THAT box's own typical first/second
+// cell width, with at least one column of daylight; an unusually wide
+// value for that box still pushes the next label right by at least one
+// space (chipCellAt's own clamp) rather than colliding, it just isn't
+// the box's normal-case column.
+//
+// value1 retune (issue #476): a shared boxValueCol=13 sized value1 to
+// the single widest LABEL1 anywhere on the HUD ("altitude:", 9 cells),
+// every box paid for that even where its own longest label1 was
+// shorter (TARGET's "range:" needs only 6). value1 is now 2 (the row's
+// own leading indent) + that box's own longest label1 + 1 cell of
+// daylight, and every label2/label3/gap2/gap3 below shifts left by
+// exactly the resulting value1 delta from 13 (gaps themselves are
+// unchanged: they size a LABEL's own text plus daylight to its value,
+// independent of value1). Measured in orbit_box_density_test.go across
+// eight phases (pad, powered ascent, coasting with a plan, a live burn,
+// a powered descent on an airless world, docked, no target, target
+// acquired): a small win, 0 to 4 cells per box, because the READINGS
+// (not the columns) set most of a box's width — see that file's
+// widest-reading table for the levers actually worth pulling next.
 type boxCols struct {
+	value1       int
 	label2, gap2 int
 	label3, gap3 int // chipRow3 only; zero when a box never uses chipRow3
 }
 
 var (
-	// ENGINE: value1 is the throttle row ("100% idle" .. "100% ● FIRING
-	// 59m59s", ~20 cells); label2 is always "mode:" (5).
-	engineCols = boxCols{label2: 35, gap2: 7}
-	// PROPELLANT: value1's widest row is the Δv pair ("18872 / 99999
-	// m/s", ~18 cells); label2's widest text is "Δv→circ:" (8).
-	propellantCols = boxCols{label2: 33, gap2: 10}
-	// GUIDANCE: value1's widest row is hold: ("Target Prograde
-	// (TARGET)", ~24 cells, the common target-relative case. The rarer
-	// "Surface Retrograde (SURFACE)" pushes nav: right rather than
-	// colliding); label2's widest text is "orbit fpa:" (10).
-	guidanceCols = boxCols{label2: 39, gap2: 12}
-	// NAVIGATION: value1's widest common row is incl:/depart: ("28.61°
-	// (min 28.61°)", ~20 cells); label2's widest text is "period:" (7).
-	// label3 (the depart:/e:/dir: row only) follows e:'s own fixed-width
-	// value (%.4f, always 6 cells) after label2's cell.
-	navigationCols = boxCols{label2: 35, gap2: 9, label3: 52, gap3: 6}
-	// TARGET: value1's widest common row is range:/Ap: (short distances,
-	// ~10 cells); label2's widest text is "approach:" (9). label3
-	// follows closing:'s own widest common value ("+3639.71 m/s", ~12
-	// cells) after label2's cell.
-	targetCols = boxCols{label2: 25, gap2: 11, label3: 50, gap3: 7}
+	// ENGINE: longest label1 is "throttle:" (9) -> value1 12. value1's
+	// widest common row is the throttle row ("100% idle" ..
+	// "100% ● FIRING T+59m59s", 22 cells measured — engineThrottleLabel's
+	// elapsed clock is readout.Countdown, which always carries a T+/T-
+	// prefix, 2 cells more than a bare duration); label2 is always
+	// "mode:" (5). At exactly that widest elapsed reading, value1(12) +
+	// 22 lands one cell short of label2(34), so a burn that crosses into
+	// double-digit minutes pushes mode: one column right rather than
+	// colliding (chipCellAt's own clamp) — measured in
+	// orbit_box_density_test.go, and unchanged from this box's
+	// pre-retune behaviour (the old shared boxValueCol=13 hit the exact
+	// same one-cell push at the same reading).
+	engineCols = boxCols{value1: 12, label2: 34, gap2: 7}
+	// PROPELLANT: longest label1 is "monoprop:" (9) -> value1 12.
+	// value1's widest row is the Δv pair ("18872 / 99999 m/s", ~18
+	// cells); label2's widest text is "Δv→circ:" (8).
+	propellantCols = boxCols{value1: 12, label2: 32, gap2: 10}
+	// GUIDANCE: longest label1 is "heading:" (8) -> value1 11. value1's
+	// widest common row is hold: ("Target Prograde (TGT)", 21 cells
+	// measured, the common target-relative case — attitudeHoldLabel's
+	// frame tag is navModeLabel's abbreviated "TGT"/"SURF"/"ORBIT", not
+	// the long nav: word); the rarer "Surface Retrograde (SURF)" (25
+	// cells) still clears this pin with 1 cell to spare, no push;
+	// label2's widest text is "orbit fpa:" (10).
+	guidanceCols = boxCols{value1: 11, label2: 37, gap2: 12}
+	// NAVIGATION: longest label1 is "altitude:" (9) -> value1 12.
+	// value1's widest common row is incl:/depart: ("28.61° (min
+	// 28.61°)", ~20 cells); label2's widest text is "period:" (7).
+	// label3 (the depart:/e:/dir: row only) follows e:'s own
+	// fixed-width value (%.4f, always 6 cells) after label2's cell.
+	navigationCols = boxCols{value1: 12, label2: 34, gap2: 9, label3: 51, gap3: 6}
+	// TARGET: longest label1 is "range:" (6) -> value1 9. value1's
+	// widest common row is range:/Ap: (short distances, ~10 cells);
+	// label2's widest text is "approach:" (9). label3 follows closing:'s
+	// own widest common value ("+3639.71 m/s", ~12 cells) after label2's
+	// cell.
+	targetCols = boxCols{value1: 9, label2: 21, gap2: 11, label3: 46, gap3: 7}
 )
 
 // chipRow2 formats a row carrying two labelled quantities (ADR 0051
-// decision 4): the first cell via chipRowAt (value1 pinned to
-// boxValueCol), the second via chipCellAt (label2 pinned to cols'
-// label2, value2 pinned cols.gap2 cells after it), so two rows in the
-// same box whose first values differ wildly in width still start their
-// second LABEL at the same screen column, which is what makes a box's
-// second cells read as one column rather than drifting per row. label2
-// == "" means this row has nothing in its second cell (a dash row with
-// no sibling quantity, e.g. ENGINE's bare node: row with only a dash
-// value): the row then reads exactly as chipRowAt's single-value form,
-// with no trailing padding.
+// decision 4): the first cell via chipRowAt (value1 pinned to cols'
+// OWN value1, issue #476), the second via chipCellAt (label2 pinned to
+// cols' label2, value2 pinned cols.gap2 cells after it), so two rows in
+// the same box whose first values differ wildly in width still start
+// their second LABEL at the same screen column, which is what makes a
+// box's second cells read as one column rather than drifting per row.
+// label2 == "" means this row has nothing in its second cell (a dash
+// row with no sibling quantity, e.g. ENGINE's bare node: row with only
+// a dash value): the row then reads exactly as chipRowAt's single-value
+// form, with no trailing padding.
 func chipRow2(cols boxCols, label1, value1, label2, value2 string) string {
-	row := chipRowAt(label1, value1, boxValueCol)
+	row := chipRowAt(label1, value1, cols.value1)
 	if label2 == "" {
 		return row
 	}
