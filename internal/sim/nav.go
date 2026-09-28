@@ -25,13 +25,17 @@ const (
 	NavTarget
 )
 
-// String returns a short HUD label.
+// String returns a short HUD label. #478 A2 (one spelling of a frame
+// everywhere): this used to spell out SURFACE/TARGET in full while
+// GUIDANCE's hold: row tagged the same frames SURF/TGT, so a single
+// glance could read the same frame two different ways on one row. Now
+// both read the abbreviated form navModeLabel already used.
 func (n NavMode) String() string {
 	switch n {
 	case NavSurface:
-		return "SURFACE"
+		return "SURF"
 	case NavTarget:
-		return "TARGET"
+		return "TGT"
 	}
 	return "ORBIT"
 }

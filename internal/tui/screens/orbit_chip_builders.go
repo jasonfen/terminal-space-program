@@ -1132,7 +1132,13 @@ func attitudeHoldLabel(w *sim.World, mode spacecraft.BurnMode) string {
 	case spacecraft.BurnTarget, spacecraft.BurnAntiTarget, spacecraft.BurnTargetPrograde, spacecraft.BurnTargetRetrograde:
 		frame = sim.NavTarget
 	}
-	return fmt.Sprintf("%s (%s)", mode.String(), navModeLabel(frame))
+	// #478 A2: the bracket tag already names the frame, so a surface-
+	// framed mode drops its own redundant "Surface " word ("Surface
+	// Retrograde (SURF)" -> "Retrograde (SURF)"). The frame was being
+	// named three times on the row otherwise: here, the tag, and (before
+	// NavMode.String()'s own A2 fix) the nav: cell beside it.
+	label := strings.TrimPrefix(mode.String(), "Surface ")
+	return fmt.Sprintf("%s (%s)", label, navModeLabel(frame))
 }
 
 // buildCommsChip surfaces the active probe's CommNet link state (ADR 0027 /
