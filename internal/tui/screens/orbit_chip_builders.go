@@ -1722,19 +1722,39 @@ var (
 	// orbit_box_density_test.go, and unchanged from this box's
 	// pre-retune behaviour (the old shared boxValueCol=13 hit the exact
 	// same one-cell push at the same reading).
+	//
+	// #478 re-check: A1 shortened the node: row's own text, but that row
+	// is a single bare value (chipRowAt, no label2 cell of its own) and
+	// never drove this pin — the throttle row above still does, untouched
+	// by A1 — so engineCols is unchanged. The box's own widest rendered
+	// row is now the queued-node overflow line ("▸ #1 ignition in 1h00m
+	// Prograde 500 m/s", 53 cells, orbit_box_engine.go's
+	// engineQueuedNodeLine), outside #478's five named readings.
 	engineCols = boxCols{value1: 12, label2: 34, gap2: 7}
 	// PROPELLANT: longest label1 is "monoprop:" (9) -> value1 12.
 	// value1's widest row is the Δv pair ("18872 / 99999 m/s", ~18
 	// cells); label2's widest text is "Δv→circ:" (8).
+	//
+	// #478 re-check: A5 renamed "rcs Δv:" to "rcs:", but label2/gap2 were
+	// never sized against that label's own text — chipCellAt pins a
+	// row's VALUE at label2+gap2 regardless of the label's own width, so
+	// the rcs: row's rendered width is unchanged by the rename. This pin
+	// stays exactly as the Δv-pair row already required it.
 	propellantCols = boxCols{value1: 12, label2: 32, gap2: 10}
-	// GUIDANCE: longest label1 is "heading:" (8) -> value1 11. value1's
-	// widest common row is hold: ("Target Prograde (TGT)", 21 cells
-	// measured, the common target-relative case — attitudeHoldLabel's
-	// frame tag is navModeLabel's abbreviated "TGT"/"SURF"/"ORBIT", not
-	// the long nav: word); the rarer "Surface Retrograde (SURF)" (25
-	// cells) still clears this pin with 1 cell to spare, no push;
-	// label2's widest text is "orbit fpa:" (10).
-	guidanceCols = boxCols{value1: 11, label2: 37, gap2: 12}
+	// GUIDANCE: longest label1 is "heading:" (8) -> value1 11.
+	//
+	// #478 A2 re-derivation: dropping "Surface " retired the old widest
+	// possible hold: reading ("Surface Retrograde (SURF)", 25 cells); the
+	// new widest is "Target Retrograde (TGT)" (23 cells, densityGuidance-
+	// HoldTargetRetrograde in orbit_box_density_test.go — one word longer
+	// than the Prograde case the #476 retune measured). value1(11) + 23
+	// lands 1 cell short of label2, so that reading still clears with no
+	// push, same margin policy as the retired surface case; label2's own
+	// widest text is "orbit fpa:" (10), unchanged, and still clears gap2
+	// with room to spare. Real effect: GUIDANCE's own widest rendered row
+	// (hold:/nav: with nav: ORBIT, the longest of the three frame words)
+	// drops from 54 to 52 cells.
+	guidanceCols = boxCols{value1: 11, label2: 35, gap2: 12}
 	// NAVIGATION: longest label1 is "altitude:" (9) -> value1 12.
 	// value1's widest common row is incl:/depart: ("28.61° (min
 	// 28.61°)", ~20 cells); label2's widest text is "period:" (7).
@@ -1743,12 +1763,30 @@ var (
 	// is chipRow2 now like every other row in this box; label3/gap3 are
 	// unused (left at 0) rather than removed from boxCols, which TARGET
 	// still needs.
+	//
+	// #478 re-check: A3's own value1 change (the pro/retro tag appended
+	// to incl:) tops out at "28.61° retro" (12 cells), well under the
+	// Landed "(min N°)" reading that already drove this pin, so value1/
+	// label2/gap2 are unchanged. The real win is structural: dropping the
+	// third cell removes an entire trailing column that used to be this
+	// box's own widest reading in an ascent with a plan (a documented
+	// 73-cell ceiling); the box's new widest rendered row is the Ap/Pe
+	// (or incl/period) plan-arrow annotation at 62 cells, a pre-existing
+	// row #478 didn't touch.
 	navigationCols = boxCols{value1: 12, label2: 34, gap2: 9}
 	// TARGET: longest label1 is "range:" (6) -> value1 9. value1's
 	// widest common row is range:/Ap: (short distances, ~10 cells);
-	// label2's widest text is "approach:" (9). label3 follows closing:'s
+	// label2's widest text is "approach:" (9). label3 follows close:'s
 	// own widest common value ("+3639.71 m/s", ~12 cells) after label2's
 	// cell.
+	//
+	// #478 re-check: A4 renamed "closing:" to "close:" and "rel" to
+	// "rel:", but (same reasoning as PROPELLANT's rcs: above) neither
+	// label2 nor label3/gap3 were ever sized against those labels' own
+	// text — label2 is sized to range:'s value, label3 to close:'s VALUE,
+	// gap3 to incl:'s label text (5, still the widest of incl:/rel:) — so
+	// this row's rendered width is unchanged by the rename. All three
+	// readings (range, close, rel) stay on the row, per the ruling.
 	targetCols = boxCols{value1: 9, label2: 21, gap2: 11, label3: 46, gap3: 7}
 )
 
