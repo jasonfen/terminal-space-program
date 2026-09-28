@@ -12,8 +12,17 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
-// TestTargetBoxNoTargetIsAllDashes: decision 2/11, with no target, the
-// title and every cell read a dash rather than the box vanishing.
+// TestTargetBoxNoTargetIsAllDashes tests buildTargetBox itself, not
+// whether its output ever reaches the screen: the builder still
+// produces the all-dash form on a no-target World, since callers that
+// need its width for clearance math (e.g. LaunchView's
+// airScaleColumnBound) call it unconditionally. Since #480, the caller
+// that assembles the visible frame (navigationBoxesInOrder) no longer
+// places this box at all when nothing is targeted — see
+// TestTargetBoxAbsentWithNoTargetPresentWhenSet in
+// orbit_target_absence_test.go for that rendered-frame guard, and the
+// 2026-09-28 amendment to ADR 0051 in the planning vault for why this
+// is safe for TARGET alone.
 func TestTargetBoxNoTargetIsAllDashes(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
 	w, err := sim.NewWorld()
