@@ -110,14 +110,28 @@ func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []bu
 		name     string
 		maxLines int
 		exempt   bool // stays through F2 Declutter while lit
+		// omitWhenAbsent, when non-nil and it returns true, drops the
+		// box's slot entirely for this frame instead of either drawing
+		// it live or blanking it in place (#480: "if there isn't a
+		// target, that chip shouldn't be there"). Only ever set for
+		// TARGET, and only takes effect while the box is Settings-
+		// enabled — a box switched off in Settings still blanks in
+		// place regardless (decision 16 composes unchanged). This
+		// deliberately does NOT generalise to COMMS/STAGES/MISSION
+		// (rejected on the record, issue #480): TARGET is safe because
+		// it is the LAST box in its column, so nothing below it ever
+		// moves; a left-stack box coming and going mid-flight would
+		// slide every box below it, which is exactly what ADR 0051's
+		// fixed slots exist to prevent.
+		omitWhenAbsent func(*sim.World) bool
 	}
 	left := []boxDef{
-		{settings.ChipEngine, v.buildEngineBox, "ENGINE", engineBoxMaxLines, true},
-		{settings.ChipPropellant, v.buildPropellantBox, "PROPELLANT", propellantBoxMaxLines, true},
-		{settings.ChipGuidance, v.buildGuidanceBox, "GUIDANCE", guidanceBoxMaxLines, false},
-		{settings.ChipComms, v.buildCommsBox, "COMMS", commsBoxMaxLines, false},
-		{settings.ChipStages, v.buildStagesBox, "STAGES", stagesBoxMaxLines, false},
-		{settings.ChipMissions, v.buildMissionBox, "MISSION", missionBoxMaxLines, false},
+		{id: settings.ChipEngine, build: v.buildEngineBox, name: "ENGINE", maxLines: engineBoxMaxLines, exempt: true},
+		{id: settings.ChipPropellant, build: v.buildPropellantBox, name: "PROPELLANT", maxLines: propellantBoxMaxLines, exempt: true},
+		{id: settings.ChipGuidance, build: v.buildGuidanceBox, name: "GUIDANCE", maxLines: guidanceBoxMaxLines},
+		{id: settings.ChipComms, build: v.buildCommsBox, name: "COMMS", maxLines: commsBoxMaxLines},
+		{id: settings.ChipStages, build: v.buildStagesBox, name: "STAGES", maxLines: stagesBoxMaxLines},
+		{id: settings.ChipMissions, build: v.buildMissionBox, name: "MISSION", maxLines: missionBoxMaxLines},
 	}
 	for i, b := range left {
 		if v.declutter && !(b.exempt && lit) {
@@ -143,15 +157,20 @@ func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []bu
 		chips = append(chips, c)
 	}
 	rightBoxes := []boxDef{
-		{settings.ChipNavigation, v.buildNavigationBox, "NAVIGATION", navigationBoxMaxLines, false},
-		{settings.ChipTarget, v.buildTargetBox, "TARGET", targetBoxMaxLines, false},
+		{id: settings.ChipNavigation, build: v.buildNavigationBox, name: "NAVIGATION", maxLines: navigationBoxMaxLines},
+		{id: settings.ChipTarget, build: v.buildTargetBox, name: "TARGET", maxLines: targetBoxMaxLines,
+			omitWhenAbsent: func(w *sim.World) bool { return w.Target.Kind == sim.TargetNone }},
 	}
 	for _, b := range rightBoxes {
 		if v.declutter {
 			continue
 		}
+		enabled := v.settings.ChipEnabled(b.id)
+		if enabled && b.omitWhenAbsent != nil && b.omitWhenAbsent(w) {
+			continue // #480: no target, no box — not even a blanked slot
+		}
 		var lines []string
-		if v.settings.ChipEnabled(b.id) {
+		if enabled {
 			lines = b.build(w)
 		} else {
 			lines = blankInstrumentBoxLines(v.theme, b.name, b.maxLines)
