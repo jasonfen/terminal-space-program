@@ -115,7 +115,7 @@ func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []bu
 		// it live or blanking it in place (#480: "if there isn't a
 		// target, that chip shouldn't be there"). Only ever set for
 		// TARGET, and only takes effect while the box is Settings-
-		// enabled — a box switched off in Settings still blanks in
+		// enabled: a box switched off in Settings still blanks in
 		// place regardless (decision 16 composes unchanged). This
 		// deliberately does NOT generalise to COMMS/STAGES/MISSION
 		// (rejected on the record, issue #480): TARGET is safe because
@@ -167,7 +167,7 @@ func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []bu
 		}
 		enabled := v.settings.ChipEnabled(b.id)
 		if enabled && b.omitWhenAbsent != nil && b.omitWhenAbsent(w) {
-			continue // #480: no target, no box — not even a blanked slot
+			continue // #480: no target, no box, not even a blanked slot
 		}
 		var lines []string
 		if enabled {

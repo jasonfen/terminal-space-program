@@ -3,7 +3,7 @@
 // rows (the ADR 0051 slot rule every OTHER box still keeps). Jason:
 // "if there isn't a target, that chip shouldn't be there." Safe only for
 // TARGET because it is the LAST box in the right column (NAVIGATION
-// above it never shifts) — see the 2026-09-28 amendment to ADR 0051 in
+// above it never shifts): see the 2026-09-28 amendment to ADR 0051 in
 // the planning vault. These guards assert on the rendered frame
 // (v.Render's output / v.chipRects), not on buildTargetBox's own return
 // value, which still produces the all-dash form for callers that need
@@ -40,7 +40,7 @@ func targetableBodyIdx(t *testing.T, w *sim.World) int {
 // TestTargetBoxAbsentWithNoTargetPresentWhenSet is the primary #480
 // guard: no TARGET box with nothing targeted, the box appears the
 // instant a target is set (the `t` key path, SetTargetBody here), and
-// it leaves again the instant the target clears — all three read off
+// it leaves again the instant the target clears, all three read off
 // the actual rendered frame.
 func TestTargetBoxAbsentWithNoTargetPresentWhenSet(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
@@ -72,7 +72,7 @@ func TestTargetBoxAbsentWithNoTargetPresentWhenSet(t *testing.T) {
 
 // TestTargetBoxAbsentInLaunchViewToo: the map and the LAUNCH view share
 // one layout (ADR 0051 decision 3), so TARGET leaves in both on the same
-// condition — this exercises LaunchView.Render directly rather than
+// condition: this exercises LaunchView.Render directly rather than
 // assuming the shared assembleChips/composeChips pipeline covers it.
 func TestTargetBoxAbsentInLaunchViewToo(t *testing.T) {
 	th := launchThemeForTest()
@@ -213,7 +213,7 @@ func TestTargetBoxSettingsOffLeavesBlankRowsRegardlessOfTarget(t *testing.T) {
 }
 
 // TestDockedVesselKeepsTargetBox: docked is not "no target" (#480's own
-// constraint) — a docked vessel has a target (the vessel it's docked
+// constraint): a docked vessel has a target (the vessel it's docked
 // to/with) and keeps its TARGET box. Uses leadTestWorld at near-zero
 // range/closing, DOCK READY territory, same fixture the box density
 // table's "docked" phase already uses.
@@ -236,7 +236,7 @@ func TestDockedVesselKeepsTargetBox(t *testing.T) {
 // TARGET for a real no-target world: with just NAVIGATION on the right
 // (bottom row 10), the bay's clamp instead pins to GUIDANCE's own
 // bottom row (17, the widest-left-box carve-out composeChips' own
-// comment documents — GUIDANCE is wider than MISSION, the box actually
+// comment documents: GUIDANCE is wider than MISSION, the box actually
 // beside the bay, and now reaches deeper than NAVIGATION alone does),
 // so the budget grows from 17 to 19: two rows reclaimed is enough for
 // one fewer notice to fold (CAPTURE PREVIEW, 7 rows, now fits).

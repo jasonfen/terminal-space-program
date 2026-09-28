@@ -394,7 +394,7 @@ func rightColumnWidth(t *testing.T, v *OrbitView, w *sim.World) int {
 // governs instead (per the #478/#480 vault record: TARGET 56 cols vs.
 // NAVIGATION 51). Sabotage-checked by hand: reverting the #480 fix (so
 // navigationBoxesInOrder always places TARGET, even with no target)
-// turns this test red — see the PR description for the pasted failure.
+// turns this test red, see the PR description for the pasted failure.
 func TestBoxDensityRightColumnWidthNoTargetPhase(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
 	v.Resize(181, 49)
