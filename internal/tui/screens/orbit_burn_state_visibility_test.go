@@ -352,9 +352,10 @@ func TestLaunchViewDeclutterTitleTag(t *testing.T) {
 // TestNodesChipHeadRowCountsToIgnitionThenBurnEnd — decision 7: the
 // head row for the next resolved node counts to BurnStart while waiting
 // ("ignition in Ns"), and once that craft's burn is live, the equivalent
-// row (now sourced from ActiveBurn) counts to BurnEnd ("burning, Ns
-// left") instead of the old bare "T-Ns" wording — same vessel/mode/Δv
-// figures either way.
+// row (now sourced from ActiveBurn) counts to BurnEnd ("Ns left",
+// #478 A1 dropped the old "burning," word since the ▸ glyph and the
+// countdown already say so) instead of the old bare "T-Ns" wording —
+// same vessel/mode/Δv figures either way.
 func TestNodesChipHeadRowCountsToIgnitionThenBurnEnd(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w, err := sim.NewWorld()
@@ -387,8 +388,8 @@ func TestNodesChipHeadRowCountsToIgnitionThenBurnEnd(t *testing.T) {
 		EndTime:     w.Clock.SimTime.Add(61 * time.Second),
 	}
 	out = strings.Join(v.buildEngineBox(w), "\n")
-	if !strings.Contains(out, "burning, 1m01s left") {
-		t.Errorf("live-burn node row should read 'burning, 1m01s left' (BurnEnd):\n%s", out)
+	if !strings.Contains(out, "1m01s left") {
+		t.Errorf("live-burn node row should read '...1m01s left' (BurnEnd):\n%s", out)
 	}
 	if strings.Contains(out, "T-61s") {
 		t.Errorf("live-burn node row still uses the old T-Ns wording:\n%s", out)

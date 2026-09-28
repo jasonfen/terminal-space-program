@@ -13,6 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -108,8 +112,12 @@ func TestEngineBoxNodeRowLiveBurnOutranksQueuedNode(t *testing.T) {
 		EndTime:     w.Clock.SimTime.Add(30 * time.Second),
 	}
 	lines := v.buildEngineBox(w)
-	if !strings.Contains(lines[3], "burning") {
-		t.Errorf("node row with a live burn AND a queued node = %q, want the burning line (live burn outranks queued)", lines[3])
+	// #478 A1: the live-burn line no longer spells out "burning"; the ▸
+	// glyph and the trailing countdown carry that cue instead. "#1" is
+	// the queued-node line's own marker, so its absence here is what
+	// proves the live burn actually won the precedence.
+	if !strings.Contains(lines[3], "left") || strings.Contains(lines[3], "#1") {
+		t.Errorf("node row with a live burn AND a queued node = %q, want the live-burn line (live burn outranks queued)", lines[3])
 	}
 	if strings.Contains(lines[3], "ignition in") {
 		t.Errorf("node row = %q, should not describe the queued node while a burn is live", lines[3])
@@ -263,5 +271,55 @@ func TestEngineThrottleLabelClockDirectionConsistent(t *testing.T) {
 	}
 	if !strings.Contains(label, "FIRING") {
 		t.Errorf("node burn throttle label = %q, want it to still read FIRING", label)
+	}
+}
+
+// TestEngineNodeRowOrangeWhileBurning (#478, Jason's own unprompted
+// ruling): the live-burn line renders in the theme's Warning colour —
+// the same amber "● FIRING" already uses on the throttle row — so the ▸
+// glyph and the colour carry the "it's firing" cue together, never a
+// literal colour at the call site.
+//
+// Colour assertions are vacuous under `go test` unless the lipgloss
+// colour profile is forced (a repo-wide trap: two other tests here have
+// already shipped asserting nothing this way), so this test forces
+// TrueColor and restores the prior profile after. Sabotage-checked by
+// hand: rendering engineBurnLine's line through a bare
+// lipgloss.NewStyle() (no Foreground) instead of v.theme.Warning goes
+// red against this test (the open escape sequence is absent from the
+// node row); the real call site, which does wrap it in v.theme.Warning,
+// is green.
+func TestEngineNodeRowOrangeWhileBurning(t *testing.T) {
+	origProfile := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	defer lipgloss.SetColorProfile(origProfile)
+
+	warn := lipgloss.NewStyle().Foreground(render.ColorWarning)
+	theme := launchThemeForTest()
+	theme.Warning = warn
+	v := NewOrbitView(theme)
+
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.ActiveBurn = &spacecraft.ActiveBurn{
+		Mode:        spacecraft.BurnPrograde,
+		DVRemaining: 1234,
+		EndTime:     w.Clock.SimTime.Add(5 * time.Minute),
+	}
+
+	nodeRow := v.buildEngineBox(w)[3]
+
+	// The open SGR sequence lipgloss emits before any styled text, with
+	// no dependency on the row's own wording (that's covered elsewhere).
+	probe := warn.Render("PROBE")
+	openSeq := strings.SplitN(probe, "PROBE", 2)[0]
+	if openSeq == "" {
+		t.Fatal("setup: forcing TrueColor did not make warn.Render emit an escape sequence")
+	}
+	if !strings.Contains(nodeRow, openSeq) {
+		t.Errorf("node row while burning = %q, want it styled in the theme's Warning colour (escape %q missing)", nodeRow, openSeq)
 	}
 }
