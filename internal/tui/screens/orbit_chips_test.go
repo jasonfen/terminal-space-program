@@ -674,12 +674,13 @@ func TestNodesChipOverflowCountIsPerCraft(t *testing.T) {
 }
 
 // TestNavigationBoxShowsDirectionIndicator, issue #63: NAVIGATION
-// carries an explicit prograde/retrograde orbit-direction readout (dir:)
-// so a genuine reversal is never confused with a projection/shading
-// artifact. Default LEO reads prograde; flipping the velocity (h sign
-// reverses → inclination crosses 90°) flips the readout to retrograde.
+// carries an explicit prograde/retrograde orbit-direction readout so a
+// genuine reversal is never confused with a projection/shading
+// artifact. Default LEO reads pro; flipping the velocity (h sign
+// reverses → inclination crosses 90°) flips the readout to retro.
 // Migrated from the retired buildOrbitMetricsChip onto buildNavigationBox
-// (ADR 0051); the label shortens from "direction:" to "dir:".
+// (ADR 0051); #478 A3 moved the tag off its own dir: cell onto incl: and
+// shortened it from "prograde"/"retrograde" to "pro"/"retro".
 func TestNavigationBoxShowsDirectionIndicator(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(120, 40)
@@ -689,11 +690,11 @@ func TestNavigationBoxShowsDirectionIndicator(t *testing.T) {
 	}
 
 	joined := strings.Join(v.buildNavigationBox(w), "\n")
-	if !strings.Contains(joined, "dir:") {
-		t.Fatalf("NAVIGATION box missing the dir: readout:\n%s", joined)
+	if strings.Contains(joined, "dir:") {
+		t.Fatalf("NAVIGATION box still carries the retired dir: cell:\n%s", joined)
 	}
-	if !strings.Contains(joined, "prograde") {
-		t.Errorf("default LEO should read prograde:\n%s", joined)
+	if !strings.Contains(joined, "incl:") || !strings.Contains(joined, " pro") {
+		t.Errorf("default LEO's incl: row should carry the pro tag:\n%s", joined)
 	}
 
 	// Reverse the orbit: negating v flips h = r×v, pushing inclination
@@ -704,8 +705,8 @@ func TestNavigationBoxShowsDirectionIndicator(t *testing.T) {
 	}
 	c.State.V = c.State.V.Scale(-1)
 	joined = strings.Join(v.buildNavigationBox(w), "\n")
-	if !strings.Contains(joined, "retrograde") {
-		t.Errorf("reversed orbit should read retrograde:\n%s", joined)
+	if !strings.Contains(joined, "retro") {
+		t.Errorf("reversed orbit should read retro:\n%s", joined)
 	}
 }
 

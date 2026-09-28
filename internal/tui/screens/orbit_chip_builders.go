@@ -1616,19 +1616,26 @@ func (v *OrbitView) buildSOIPassChip(w *sim.World) []string {
 // corner. The buildOrbitMetricsChip rows are hand-padded to this column.
 const chipValueCol = 13
 
-// orbitDirectionLabel renders the prograde/retrograde orbit-direction
-// readout for an equatorial-frame inclination (radians). i > 90° means
-// the orbit runs retrograde — against the primary's spin. This is the
-// instrument that disambiguates a genuine orbit reversal from a
-// projection / day-night-shading artifact near the disk edge (issue
-// #63): the on-screen position can mislead, but the direction label is
-// ground truth. Prograde is the unremarkable case (plain text);
-// retrograde is flagged.
-func (v *OrbitView) orbitDirectionLabel(incRad float64) string {
+// orbitDirectionTag renders NAVIGATION's prograde/retrograde
+// orbit-direction indicator for an equatorial-frame inclination
+// (radians) as a short tag trailing the incl: value ("28.61° pro" /
+// "28.61° retro"), the space included so callers can append it
+// directly. i > 90° means the orbit runs retrograde, against the
+// primary's spin: this is the instrument that disambiguates a genuine
+// orbit reversal from a projection / day-night-shading artifact near
+// the disk edge (issue #63): the on-screen position can mislead, but
+// the direction label is ground truth. Prograde is the unremarkable
+// case (plain text); retrograde is flagged.
+//
+// #478 A3: moved off its own dir: cell to sit with the angle it
+// describes, and shortened from the full "prograde"/"retrograde" words
+// to "pro"/"retro" (NAVIGATION 65 to 51 cells, the biggest single
+// saving on the right side).
+func (v *OrbitView) orbitDirectionTag(incRad float64) string {
 	if incRad > math.Pi/2 {
-		return v.theme.Alert.Render("retrograde")
+		return " " + v.theme.Alert.Render("retro")
 	}
-	return "prograde"
+	return " pro"
 }
 
 // launchChipValueCol is buildLaunchChip's own value column, one wider
@@ -1731,9 +1738,12 @@ var (
 	// NAVIGATION: longest label1 is "altitude:" (9) -> value1 12.
 	// value1's widest common row is incl:/depart: ("28.61° (min
 	// 28.61°)", ~20 cells); label2's widest text is "period:" (7).
-	// label3 (the depart:/e:/dir: row only) follows e:'s own
-	// fixed-width value (%.4f, always 6 cells) after label2's cell.
-	navigationCols = boxCols{value1: 12, label2: 34, gap2: 9, label3: 51, gap3: 6}
+	// #478 A3 dropped the depart:/e:/dir: row's third cell (direction
+	// moved onto incl: as a pro/retro tag instead), so the depart: row
+	// is chipRow2 now like every other row in this box; label3/gap3 are
+	// unused (left at 0) rather than removed from boxCols, which TARGET
+	// still needs.
+	navigationCols = boxCols{value1: 12, label2: 34, gap2: 9}
 	// TARGET: longest label1 is "range:" (6) -> value1 9. value1's
 	// widest common row is range:/Ap: (short distances, ~10 cells);
 	// label2's widest text is "approach:" (9). label3 follows closing:'s
