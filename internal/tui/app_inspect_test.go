@@ -443,6 +443,9 @@ func findTiedOwnerCell(a *App) (col, row int, ok bool) {
 func findOwnerCell(a *App, owner string) (col, row int, ok bool) {
 	for r := 2; r < a.height-1; r++ {
 		for c := 1; c < a.width-1; c++ {
+			if _, onChip := a.orbitView.HitChip(c, r); onChip {
+				continue // a chip box sits over this cell, the click would be its
+			}
 			hit := a.orbitView.HitAt(c, r)
 			if hit.Owner == owner && !hit.OwnerTied &&
 				hit.BodyID == "" && !hit.IsVessel && hit.NodeIdx == 0 {
