@@ -126,7 +126,7 @@ func TestBuildNavballPanel(t *testing.T) {
 		Dim:     lipgloss.NewStyle(),
 		Warning: lipgloss.NewStyle(),
 	})
-	g := navballGeometry(designCanvasRows)
+	g := navballGeometry(designCanvasCols, designCanvasRows)
 	disk := render.NavballString(g.diskCols, g.diskRows, 0, 0, nil)
 	panel, boxes := v.buildNavballPanel(g, disk, sim.NavOrbit, false, false)
 
@@ -200,7 +200,7 @@ func TestNavballPanelSASTag(t *testing.T) {
 		Dim:     lipgloss.NewStyle(),
 		Warning: lipgloss.NewStyle(),
 	})
-	g := navballGeometry(designCanvasRows)
+	g := navballGeometry(designCanvasCols, designCanvasRows)
 	disk := render.NavballString(g.diskCols, g.diskRows, 0, 0, nil)
 
 	man, _ := v.buildNavballPanel(g, disk, sim.NavOrbit, false /*slew*/, false)

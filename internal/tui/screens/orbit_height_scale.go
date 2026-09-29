@@ -6,6 +6,9 @@ import "github.com/jasonfen/terminal-space-program/internal/bodies"
 // minus 3 chrome rows). Height-scaled sizes are normalised to it.
 const designCanvasRows = 37
 
+// designCanvasCols is the canvas width of the Design Size (140 less the two border columns).
+const designCanvasCols = 138
+
 // heightScaledCells scales a size given in cells or pixels at the Design
 // Size (base, valid at 37 canvas rows) to a canvas canvasRows tall.
 //

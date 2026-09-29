@@ -535,7 +535,7 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 	if len(bay) > 0 {
 		navballLeft := cCols
 		if navballReserved > chipStubHeight {
-			navballLeft = cCols - navballGeometry(cRows).panelW
+			navballLeft = cCols - navballGeometry(cCols, cRows).panelW
 		}
 		// bayLeftBound is the right edge of the left-stack box the bay
 		// actually sits beside: the LAST top-left/bottom-left chip
@@ -828,7 +828,7 @@ func wrapBayLine(line string, maxWidth int) []string {
 // A2 gate review measured (the node row's own contract-mandated widening
 // was what tipped it over the edge; see impl-notes/item4-A2-migration.md).
 func (v *OrbitView) navballReservedRows(w *sim.World, cCols, cRows int) int {
-	g := navballGeometry(cRows)
+	g := navballGeometry(cCols, cRows)
 	if !w.CraftVisibleHere() || cCols < g.panelW+2 || cRows < g.panelH+2 {
 		return 1
 	}

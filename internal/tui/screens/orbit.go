@@ -2558,7 +2558,7 @@ func (v *OrbitView) drawSOIPass(w *sim.World) {
 // Extracted from orbit.Render in v0.11.4+ so the LaunchView can
 // composite the same panel in its bottom-right (sub-scope 6).
 func (v *OrbitView) composeNavballOverlay(w *sim.World, canvasStr string, cCols, cRows int, recordControls bool) string {
-	g := navballGeometry(cRows)
+	g := navballGeometry(cCols, cRows)
 	if !w.CraftVisibleHere() ||
 		cCols < g.panelW+2 || cRows < g.panelH+2 {
 		return canvasStr
