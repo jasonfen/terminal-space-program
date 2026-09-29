@@ -102,20 +102,40 @@ func navballMaxPanelRows(canvasRows int) int {
 	return canvasRows - 1 - navballFullRightStackRows()
 }
 
-// navballGeometry sizes the panel for a canvas canvasRows tall. Unchanged
-// (24x12 disk, 34x19 panel) at the Design Size; grows by heightScaledCells
-// above it, capped so the panel never reaches the rows NAVIGATION and
-// TARGET can occupy.
-func navballGeometry(canvasRows int) navballGeom {
-	return navballGeometryCapped(canvasRows, navballMaxPanelRows(canvasRows))
+// bayMinWrapWidth is the narrowest the notice bay may be squeezed to: the
+// content width of a bottom-left box (the tier's outer width less its
+// 2-cell border), so a notice keeps at least the room MISSION's wrapped
+// rows get. Derived from tierBottomLeftWidth, not a separate number.
+const bayMinWrapWidth = tierBottomLeftWidth - 2
+
+// navballMaxPanelCols is the widest panel that still leaves the bay
+// bayMinWrapWidth cells between the bottom-left tier's right edge and the
+// panel (composeChips: wrapWidth = navballLeft - bayLeftBound - 2, with
+// bayLeftBound = tierBottomLeftWidth). cCols is canvas columns, not
+// terminal columns.
+func navballMaxPanelCols(cCols int) int {
+	return cCols - tierBottomLeftWidth - 2 - bayMinWrapWidth
 }
 
-// navballGeometryCapped is navballGeometry with the panel height cap
-// passed in, so tests can drive the cap at heights the real one never
-// binds at.
-func navballGeometryCapped(canvasRows, maxPanelRows int) navballGeom {
+// navballGeometry sizes the panel for a canvas cCols wide and canvasRows
+// tall. Unchanged (24x12 disk, 34x19 panel) at the Design Size; grows by
+// heightScaledCells above it, capped so the panel never reaches the rows
+// NAVIGATION and TARGET can occupy and never squeezes the notice bay
+// below bayMinWrapWidth.
+func navballGeometry(cCols, canvasRows int) navballGeom {
+	return navballGeometryCapped(canvasRows, navballMaxPanelRows(canvasRows), navballMaxPanelCols(cCols))
+}
+
+// navballGeometryCapped is navballGeometry with the panel height and
+// width caps passed in, so tests can drive them at sizes the real ones
+// never bind at.
+func navballGeometryCapped(canvasRows, maxPanelRows, maxPanelCols int) navballGeom {
 	rows := heightScaledCells(navballBaseDiskRows, canvasRows)
 	if maxDisk := maxPanelRows - navballChromeRows - navballBodyExtra; rows > maxDisk {
+		rows = maxDisk
+	}
+	// panelW = glyph column + disk + 2 (disk padding) + 2 (border).
+	if maxDisk := (maxPanelCols - navballGlyphColW - 4) / 2; rows > maxDisk {
 		rows = maxDisk
 	}
 	if rows < navballBaseDiskRows {

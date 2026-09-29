@@ -19,17 +19,17 @@ import (
 // 181x49 -> 46, 181x70 -> 67).
 func TestNavballGeometryPinnedSizes(t *testing.T) {
 	cases := []struct {
-		canvasRows         int
-		diskCols, diskRows int
-		panelW, panelH     int
+		canvasCols, canvasRows int
+		diskCols, diskRows     int
+		panelW, panelH         int
 	}{
-		{designCanvasRows, 24, 12, 34, 19}, // 140x40: byte-for-byte today's panel
-		{38, 24, 12, 34, 19},
-		{46, 30, 15, 40, 22}, // 181x49
-		{67, 44, 22, 54, 29}, // 181x70
+		{138, designCanvasRows, 24, 12, 34, 19}, // 140x40: byte-for-byte today's panel
+		{138, 38, 24, 12, 34, 19},
+		{179, 46, 30, 15, 40, 22}, // 181x49
+		{179, 67, 44, 22, 54, 29}, // 181x70
 	}
 	for _, c := range cases {
-		g := navballGeometry(c.canvasRows)
+		g := navballGeometry(c.canvasCols, c.canvasRows)
 		if g.diskCols != c.diskCols || g.diskRows != c.diskRows || g.panelW != c.panelW || g.panelH != c.panelH {
 			t.Errorf("canvas %d rows: disk %dx%d panel %dx%d, want disk %dx%d panel %dx%d",
 				c.canvasRows, g.diskCols, g.diskRows, g.panelW, g.panelH,
@@ -41,9 +41,9 @@ func TestNavballGeometryPinnedSizes(t *testing.T) {
 // Cells are about 2:1, so the disk stays round only while cols == 2 x rows.
 // The scale is monotone, in whole cells, and never below the Design Size.
 func TestNavballGeometryShape(t *testing.T) {
-	prev := navballGeometry(designCanvasRows)
+	prev := navballGeometry(designCanvasCols, designCanvasRows)
 	for r := designCanvasRows; r <= 140; r++ {
-		g := navballGeometry(r)
+		g := navballGeometry(designCanvasCols, r)
 		if g.diskCols != 2*g.diskRows {
 			t.Fatalf("canvas %d rows: disk %dx%d is not 2:1", r, g.diskCols, g.diskRows)
 		}
@@ -64,18 +64,18 @@ func TestNavballGeometryShape(t *testing.T) {
 // composition is checked at every height in TestNavballClearsFullRightStack.
 func TestNavballGeometryCapBinds(t *testing.T) {
 	const canvasRows = 67 // would scale to a 22-row disk, 29-row panel
-	free := navballGeometry(canvasRows)
+	free := navballGeometry(designCanvasCols, canvasRows)
 	for _, max := range []int{29, 25, 22, 19} {
-		g := navballGeometryCapped(canvasRows, max)
+		g := navballGeometryCapped(canvasRows, max, 1<<30)
 		if g.panelH > max {
 			t.Errorf("cap %d: panel is %d rows tall, over the cap", max, g.panelH)
 		}
 	}
-	if g := navballGeometryCapped(canvasRows, 22); g.panelH >= free.panelH {
+	if g := navballGeometryCapped(canvasRows, 22, 1<<30); g.panelH >= free.panelH {
 		t.Errorf("a 22-row cap left the panel at %d rows (uncapped %d)", g.panelH, free.panelH)
 	}
 	// Never below the Design Size disk even when the cap is tighter still.
-	if g := navballGeometryCapped(canvasRows, 5); g.diskRows != navballBaseDiskRows {
+	if g := navballGeometryCapped(canvasRows, 5, 1<<30); g.diskRows != navballBaseDiskRows {
 		t.Errorf("tiny cap shrank the disk to %d rows", g.diskRows)
 	}
 	// The real budget is derived from the boxes' max line counts.
@@ -134,7 +134,7 @@ func TestNavballClearsFullRightStack(t *testing.T) {
 			t.Errorf("%dx%d: navball top row %d is not below TARGET's bottom row %d", sz[0], sz[1], top, target.rowEnd)
 		}
 		canvasRows := sz[1] - 3
-		g := navballGeometry(canvasRows)
+		g := navballGeometry(designCanvasCols, canvasRows)
 		if g.panelH > navballMaxPanelRows(canvasRows) {
 			t.Errorf("%dx%d: panel %d rows exceeds the budget %d", sz[0], sz[1], g.panelH, navballMaxPanelRows(canvasRows))
 		}
@@ -183,7 +183,7 @@ func TestNavballScaledHitBoxes(t *testing.T) {
 	for _, sz := range [][2]int{{140, 40}, {181, 49}, {181, 70}} {
 		v, w := navballTestView(t, sz[0], sz[1], settings.EmptyTidy)
 		_ = v.Render(w, 0, sz[0], sz[1])
-		g := navballGeometry(sz[1] - 3)
+		g := navballGeometry(sz[0]-2, sz[1]-3)
 		top := panelTopScreenRow(t, v)
 		rowsOf := map[NavballControlID][]int{}
 		for _, b := range v.navballControls {
@@ -222,7 +222,7 @@ func TestBayClearsScaledNavball(t *testing.T) {
 	for _, cRows := range []int{designCanvasRows, 46, 67} {
 		v := NewOrbitView(chipTestTheme())
 		const cCols = 179
-		navballReserved := navballGeometry(cRows).panelH + 1
+		navballReserved := navballGeometry(cCols, cRows).panelH + 1
 		chips := []builtChip{
 			{corner: cornerTopLeft, lines: []string{"ENGINE", "  a", "  b"}, priority: chipPriorityCore},
 			{corner: cornerBay, lines: []string{"SOI PASS", "  body: Moon"}},
@@ -231,7 +231,7 @@ func TestBayClearsScaledNavball(t *testing.T) {
 		if len(v.chipRects) != 2 {
 			t.Fatalf("%d rows: recorded %d rects, want 2", cRows, len(v.chipRects))
 		}
-		navballLeft := cCols - navballGeometry(cRows).panelW
+		navballLeft := cCols - navballGeometry(cCols, cRows).panelW
 		bay := v.chipRects[1]
 		if bay.colEnd >= navballLeft {
 			t.Errorf("%d rows: bay colEnd %d does not clear the navball's left edge %d", cRows, bay.colEnd, navballLeft)
@@ -246,7 +246,7 @@ func TestBayClearsScaledNavball(t *testing.T) {
 func TestNavballScaledDiskMarkersAndLabels(t *testing.T) {
 	v := NewOrbitView(Theme{Primary: lipgloss.NewStyle(), Dim: lipgloss.NewStyle(), Warning: lipgloss.NewStyle()})
 	for _, canvasRows := range []int{designCanvasRows, 46, 67} {
-		g := navballGeometry(canvasRows)
+		g := navballGeometry(designCanvasCols, canvasRows)
 		markers := []render.NavballMarker{
 			{LatDeg: 0, LonDeg: 0, Glyph: 'X'},
 			{LatDeg: 90, LonDeg: 0, Glyph: 'U'},
@@ -277,6 +277,61 @@ func TestNavballScaledDiskMarkersAndLabels(t *testing.T) {
 			if lipgloss.Width(l) != g.panelW || len(splitStyledCells(l)) != g.panelW {
 				t.Errorf("%d rows: panel row %d is %d wide, want %d", canvasRows, i, lipgloss.Width(l), g.panelW)
 			}
+		}
+	}
+}
+
+// Width cap (#482 review F4): on a tall, narrow terminal the panel used to
+// widen until the notice bay was squeezed to a cell or two. The bay keeps
+// bayMinWrapWidth however tall the terminal gets, and the panel that
+// produced it is the one every caller agrees on.
+func TestBayKeepsMinimumWidthOnTallNarrowTerminals(t *testing.T) {
+	long := strings.Repeat("word ", 30)
+	for _, sz := range [][2]int{{140, 100}, {140, 110}, {140, 130}, {160, 130}} {
+		cCols, cRows := sz[0]-2, sz[1]-3
+		v := NewOrbitView(chipTestTheme())
+		navballReserved := navballGeometry(cCols, cRows).panelH + 1
+		chips := []builtChip{
+			{corner: cornerBottomLeft, lines: []string{"MISSION", strings.Repeat("m", tierBottomLeftWidth-4)}, priority: chipPriorityCore, tier: chipTierBottomLeft},
+			{id: settings.ChipSOIPass, corner: cornerBay, lines: []string{"NOTICE", long}},
+		}
+		v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, navballReserved, 0, 0, chips)
+		var bay *chipRect
+		for i := range v.chipRects {
+			if v.chipRects[i].id == settings.ChipSOIPass {
+				bay = &v.chipRects[i]
+			}
+		}
+		if bay == nil {
+			t.Fatalf("%dx%d: bay notice not drawn", sz[0], sz[1])
+		}
+		if w := bay.colEnd - bay.colStart + 1; w < bayMinWrapWidth+2 {
+			t.Errorf("%dx%d: bay is %d cells wide, floor is %d", sz[0], sz[1], w, bayMinWrapWidth+2)
+		}
+	}
+}
+
+// The cap never binds at the sizes the scaling was tuned for.
+func TestNavballWidthCapDoesNotBindAtTunedSizes(t *testing.T) {
+	for _, sz := range [][2]int{{140, 40}, {181, 49}, {181, 70}} {
+		cCols, cRows := sz[0]-2, sz[1]-3
+		free := navballGeometryCapped(cRows, navballMaxPanelRows(cRows), 1<<30)
+		if got := navballGeometry(cCols, cRows); got != free {
+			t.Errorf("%dx%d: width cap changed the panel: %+v vs uncapped %+v", sz[0], sz[1], got, free)
+		}
+	}
+}
+
+// The launch screen's air scale sits in rows 1..airScaleRows, above the
+// navball, at or left of the right stack's column: a taller, wider panel
+// must stay clear of both bounds.
+func TestLaunchAirScaleClearOfTallNavball(t *testing.T) {
+	for _, sz := range [][2]int{{140, 110}, {140, 130}, {200, 130}, {300, 130}} {
+		cCols, cRows := sz[0]-2, sz[1]-3
+		g := navballGeometry(cCols, cRows)
+		top := cRows - g.panelH - 1
+		if top <= airScaleRows {
+			t.Errorf("%dx%d: navball top row %d overlaps the air scale rows 1..%d", sz[0], sz[1], top, airScaleRows)
 		}
 	}
 }
