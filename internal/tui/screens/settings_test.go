@@ -220,3 +220,29 @@ func TestSettingsHandleClick(t *testing.T) {
 		t.Errorf("click on divider row = %v, want None", a)
 	}
 }
+
+// The Empty readings row (ADR 0051 W6) renders the effective mode, Tidy
+// by default, and a click on it cycles.
+func TestSettingsEmptyReadingsRow(t *testing.T) {
+	s := NewSettingsScreen(Theme{})
+	const width = 80
+	out := s.Render(settings.Default(), width, 0)
+	if !strings.Contains(out, "Empty readings: ‹Tidy›") {
+		t.Errorf("default render missing Empty readings: ‹Tidy›:\n%s", out)
+	}
+	prefs := settings.Default()
+	prefs.SetEmptyReadings(settings.EmptyCompact)
+	out = s.Render(prefs, width, 0)
+	if !strings.Contains(out, "Empty readings: ‹Compact›") {
+		t.Errorf("Compact render missing its label:\n%s", out)
+	}
+	row := -1
+	for i, ln := range strings.Split(out, "\n") {
+		if strings.Contains(ln, "Empty readings:") {
+			row = i
+		}
+	}
+	if a, _ := s.HandleClick(0, row); a != SettingsActionCycleEmptyReadings {
+		t.Errorf("click Empty readings row = %v, want CycleEmptyReadings", a)
+	}
+}
