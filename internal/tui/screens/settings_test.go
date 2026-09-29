@@ -72,11 +72,15 @@ func TestSettingsCursorNavigation(t *testing.T) {
 		t.Errorf("toggle at row 0 = %q, want %q", c, settings.AllChips[0])
 	}
 
-	// up wraps from row 0 to the last row — now the autosave-interval row
-	// (v0.26 S4).
+	// up wraps from row 0 to the last row — now the Empty readings row
+	// (ADR 0051 W6); one more up lands on the autosave-interval row.
+	s.HandleKey("up")
+	if a, _ := s.HandleKey(" "); a != SettingsActionCycleEmptyReadings {
+		t.Errorf("up-wrap toggle action = %v, want CycleEmptyReadings (last row)", a)
+	}
 	s.HandleKey("up")
 	if a, _ := s.HandleKey(" "); a != SettingsActionCycleAutosave {
-		t.Errorf("up-wrap toggle action = %v, want CycleAutosave (last row)", a)
+		t.Errorf("second up toggle action = %v, want CycleAutosave", a)
 	}
 	_ = n
 }

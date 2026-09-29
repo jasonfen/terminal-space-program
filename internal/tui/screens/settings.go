@@ -45,12 +45,13 @@ func (s *SettingsScreen) Reset() { s.cursor = 0 }
 type SettingsAction int
 
 const (
-	SettingsActionNone             SettingsAction = iota // unhandled key / click
-	SettingsActionCancel                                 // esc / [Back] — return to orbit
-	SettingsActionToggle                                 // flip the returned Chip's visibility
-	SettingsActionToggleTutorial                         // flip the tutorial mission program (Slice 7)
-	SettingsActionToggleChallenges                       // flip the challenge mission program (Slice 7)
-	SettingsActionCycleAutosave                          // cycle the autosave interval (v0.26 S4 / ADR 0033 §E)
+	SettingsActionNone               SettingsAction = iota // unhandled key / click
+	SettingsActionCancel                                   // esc / [Back] — return to orbit
+	SettingsActionToggle                                   // flip the returned Chip's visibility
+	SettingsActionToggleTutorial                           // flip the tutorial mission program (Slice 7)
+	SettingsActionToggleChallenges                         // flip the challenge mission program (Slice 7)
+	SettingsActionCycleAutosave                            // cycle the autosave interval (v0.26 S4 / ADR 0033 §E)
+	SettingsActionCycleEmptyReadings                       // cycle Full / Tidy / Compact (ADR 0051 W6, #482)
 )
 
 // gameplayRows is the number of non-chip toggle rows (Tutorial, Challenges)
@@ -63,13 +64,18 @@ const gameplayRows = 2
 // occupies cursor index len(AllChips)+gameplayRows.
 const savesRows = 1
 
+// displayRows is the display-section row count below saves: the Empty
+// readings cycler (ADR 0051 W6). It occupies cursor index
+// len(AllChips)+gameplayRows+savesRows.
+const displayRows = 1
+
 // HandleKey maps a raw key string to a SettingsAction. Up/down (and
 // k/j) move the cursor with wrap-around; space / enter toggles the
 // highlighted Chip; esc backs out to orbit. On a toggle the returned
 // Chip is the highlighted one; for every other action the Chip is the
 // zero value (callers switch on the action first).
 func (s *SettingsScreen) HandleKey(key string) (SettingsAction, settings.Chip) {
-	n := len(settings.AllChips) + gameplayRows + savesRows
+	n := len(settings.AllChips) + gameplayRows + savesRows + displayRows
 	switch key {
 	case "up", "k":
 		if n > 0 {
@@ -99,6 +105,8 @@ func (s *SettingsScreen) toggleAt(i int) (SettingsAction, settings.Chip) {
 		return SettingsActionToggleChallenges, ""
 	case len(settings.AllChips) + gameplayRows:
 		return SettingsActionCycleAutosave, ""
+	case len(settings.AllChips) + gameplayRows + savesRows:
+		return SettingsActionCycleEmptyReadings, ""
 	default:
 		if i >= 0 && i < len(settings.AllChips) {
 			return SettingsActionToggle, settings.AllChips[i]
@@ -221,6 +229,26 @@ func (s *SettingsScreen) settingsBody(prefs settings.Settings) (lines []widgets.
 		add(marker+text, false, idx)
 	}
 
+	// Display section: Empty readings (ADR 0051 W6, #482), a value row
+	// like autosave: space/enter cycles Full / Tidy / Compact.
+	add("", false, -1)
+	add(s.theme.Dim.Render("─── display ───"), true, -1)
+	add("", false, -1)
+	add(s.theme.Dim.Render("  Full: every row. Tidy: no empty TARGET. Compact: no trailing dash rows."), false, -1)
+	add("", false, -1)
+	{
+		idx := len(settings.AllChips) + gameplayRows + savesRows
+		marker := "  "
+		if idx == s.cursor {
+			marker = "> "
+		}
+		text := "Empty readings: ‹" + prefs.EmptyReadingsMode().Label() + "›"
+		if idx == s.cursor {
+			text = s.theme.Primary.Render(text)
+		}
+		add(marker+text, false, idx)
+	}
+
 	return lines, rowSelectable, cursorLine
 }
 
@@ -293,7 +321,7 @@ func (s *SettingsScreen) Render(prefs settings.Settings, width, height int) stri
 	// rowBtns for off-window rows stay unset (the zero buttonRange), so a
 	// click can never land on a row that isn't drawn — mirrors saves.go's
 	// windowed-list click-target contract.
-	s.rowBtns = make([]buttonRange, len(settings.AllChips)+gameplayRows+savesRows)
+	s.rowBtns = make([]buttonRange, len(settings.AllChips)+gameplayRows+savesRows+displayRows)
 	for _, r := range rendered {
 		if r.Kind == widgets.LineContent {
 			if sel := rowSelectable[r.Index]; sel >= 0 {
