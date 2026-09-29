@@ -72,7 +72,7 @@ func TestSettingsCursorNavigation(t *testing.T) {
 		t.Errorf("toggle at row 0 = %q, want %q", c, settings.AllChips[0])
 	}
 
-	// up wraps from row 0 to the last row — now the Empty readings row
+	// up wraps from row 0 to the last row, now the Empty readings row
 	// (ADR 0051 W6); one more up lands on the autosave-interval row.
 	s.HandleKey("up")
 	if a, _ := s.HandleKey(" "); a != SettingsActionCycleEmptyReadings {
