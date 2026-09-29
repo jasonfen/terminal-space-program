@@ -1185,56 +1185,6 @@ func attitudeHoldLabel(w *sim.World, mode spacecraft.BurnMode) string {
 	return fmt.Sprintf("%s (%s)", label, navModeLabel(frame))
 }
 
-// buildCommsChip surfaces the active probe's CommNet link state (ADR 0027 /
-// C2-7): DIRECT (linked straight to a ground station), CONNECTED via N hops
-// (through relays), or NO SIGNAL. Hidden for a crewed vessel — it is never
-// command-gated — and for debris / no visible craft. assembleChips
-// force-shows it while a just-blocked command is flashing (CommBlockedFlash),
-// so the player learns why a command was refused even with the chip toggled
-// off; otherwise it honours the Settings toggle + F2 declutter like any chip.
-func (v *OrbitView) buildCommsChip(w *sim.World) []string {
-	c := w.ActiveCraft()
-	if c == nil || !w.CraftVisibleHere() {
-		return nil
-	}
-	if c.Crewed || !c.Controllable {
-		return nil // crewed craft are never gated; debris has no link to show
-	}
-	_, hops, connected := w.ActiveCommPath()
-	return v.commsChipLines(hops, connected, w.CommGraph.Reason(c.ID))
-}
-
-// commsChipLines is the pure content selector behind buildCommsChip, split
-// out so the DIRECT / CONNECTED / NO SIGNAL forms are unit-testable without a
-// live World. A connected probe reads DIRECT for a single hop (straight to a
-// station) or "CONNECTED via N hops" through relays; a disconnected probe
-// reads NO SIGNAL in the alert style plus the classified cause (#221):
-// name the cause AND the fix, and never steer at the wrong remedy — an
-// unclassified disconnect degrades to the bare form rather than guess.
-func (v *OrbitView) commsChipLines(hops int, connected bool, reason sim.CommDisconnectReason) []string {
-	if !connected {
-		lines := []string{
-			v.theme.Alert.Render("COMMS"),
-			v.theme.Alert.Render("  ⚠ NO SIGNAL"),
-		}
-		switch reason {
-		case sim.CommDisconnectBlocked:
-			lines = append(lines, v.theme.Dim.Render("  no station in view — relay needed"))
-		case sim.CommDisconnectOutOfRange:
-			lines = append(lines, v.theme.Dim.Render("  out of range — stronger antenna needed"))
-		}
-		return lines
-	}
-	status := fmt.Sprintf("CONNECTED via %d hops", hops)
-	if hops <= 1 {
-		status = "DIRECT"
-	}
-	return []string{
-		v.theme.Primary.Render("COMMS"),
-		"  " + status,
-	}
-}
-
 // buildFrameTransitionChip surfaces the next SOI / frame transition implied
 // by the planted-node chain. Returns nil when none is queued.
 func (v *OrbitView) buildFrameTransitionChip(w *sim.World) []string {

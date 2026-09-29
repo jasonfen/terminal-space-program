@@ -12,6 +12,7 @@ package screens
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
@@ -86,6 +87,13 @@ func tierReadings(t *testing.T) []tierReading {
 		w := densityCoastingWithPlan(t)
 		w.Crafts[w.ActiveCraftIdx] = spacecraft.NewFromLoadout(id)
 		add(&steady, chipTierBottomLeft, "STAGES/loadout "+id, v.buildStagesBox(w))
+	}
+
+	// Worst-case VAB builds: the VAB has no stage cap, so STAGES must hold
+	// its tier for any stack depth and any part name, the longest catalog
+	// name and an overlay-length one included (#482 review F2).
+	for _, r := range vabStagesFixtures(t) {
+		add(&steady, chipTierBottomLeft, "STAGES/"+r.source, r.lines)
 	}
 
 	// COMMS statuses, including the uncrewed NO SIGNAL alarm rows: COMMS is
@@ -205,5 +213,67 @@ func TestChipTierWidthsStableWithinAFlight(t *testing.T) {
 	}
 	if len(base) < 7 {
 		t.Fatalf("expected at least 7 tiered boxes in the baseline, got %d: %v", len(base), base)
+	}
+}
+
+type vabStagesFixture struct {
+	source string
+	lines  []string
+}
+
+// vabStagesFixtures builds STAGES rows for VAB-style stacks: every
+// catalog part's name leading, plus a 60-cell overlay-style name, at stack
+// depths from 1 to 300.
+func vabStagesFixtures(t *testing.T) []vabStagesFixture {
+	t.Helper()
+	v := NewOrbitView(launchThemeForTest())
+	names := []string{strings.Repeat("W", 60)}
+	for id, m := range spacecraft.StageCatalog {
+		_ = id
+		names = append(names, m.Name)
+	}
+	var out []vabStagesFixture
+	for _, name := range names {
+		for _, n := range []int{1, 2, 6, 9, 12, 40, 300} {
+			w := densityCoastingWithPlan(t)
+			c := w.ActiveCraft()
+			c.Stages = nil
+			for i := 0; i < n; i++ {
+				c.Stages = append(c.Stages, spacecraft.Stage{Name: name, FuelCapacity: 1, FuelMass: 1})
+			}
+			out = append(out, vabStagesFixture{fmt.Sprintf("vab %q x%d", name, n), v.buildStagesBox(w)})
+		}
+	}
+	return out
+}
+
+// TestStagesRowNeverExceedsTheTier: the row is bounded by construction
+// (truncated name, capped pips), not by luck of the fixtures.
+func TestStagesRowNeverExceedsTheTier(t *testing.T) {
+	fx := vabStagesFixtures(t)
+	if len(fx) < 100 {
+		t.Fatalf("only %d fixtures: catalog names not reaching the guard", len(fx))
+	}
+	for _, r := range fx {
+		for _, l := range r.lines {
+			if got := lipgloss.Width(l) + 2; got > tierBottomLeftWidth {
+				t.Errorf("%s is %d wide, tier is %d: %q", r.source, got, tierBottomLeftWidth, l)
+			}
+		}
+	}
+}
+
+// Today's loadouts must render exactly as before: no truncation, no
+// pip cap (their widest row is well inside the budget).
+func TestStagesRowLoadoutsUntouched(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	for _, id := range spacecraft.LoadoutOrder {
+		w := densityCoastingWithPlan(t)
+		c := spacecraft.NewFromLoadout(id)
+		w.Crafts[w.ActiveCraftIdx] = c
+		row := strings.Join(v.buildStagesBox(w), "")
+		if strings.Contains(row, "…") {
+			t.Errorf("loadout %s STAGES row was cut: %q", id, row)
+		}
 	}
 }

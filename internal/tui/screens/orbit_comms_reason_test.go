@@ -5,57 +5,83 @@ import (
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// #221: the NO SIGNAL chip names the cause instead of a bare warning —
-// the model was sound, the silence was the defect. Wording discipline
-// from the RendezvousWait work: name the cause, give the fix, never
-// steer the player at the wrong remedy.
+// #221: the NO SIGNAL alarm names the cause instead of a bare warning,
+// now on the live COMMS box (commsBoxStatusLine). Wording discipline from
+// the RendezvousWait work: name the cause, give the fix, never steer the
+// player at the wrong remedy.
 
-func TestCommsChipNoSignalNamesTheCause(t *testing.T) {
+func TestCommsBoxNoSignalNamesTheCause(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
+	probe := &spacecraft.Spacecraft{Controllable: true}
 
-	blocked := strings.Join(v.commsChipLines(0, false, sim.CommDisconnectBlocked), "\n")
-	if !strings.Contains(blocked, "NO SIGNAL") || !strings.Contains(blocked, "no station in view — relay needed") {
-		t.Errorf("blocked probe chip must advise a relay:\n%s", blocked)
+	blocked := v.commsBoxStatusLine(probe, 0, false, sim.CommDisconnectBlocked)
+	if !strings.Contains(blocked, "⚠ NO SIGNAL: needs a relay") {
+		t.Errorf("blocked probe must advise a relay: %q", blocked)
 	}
 	if strings.Contains(blocked, "antenna") {
-		t.Errorf("blocked probe chip must not steer at the antenna (bum-steer discipline):\n%s", blocked)
+		t.Errorf("blocked probe must not steer at the antenna (bum-steer discipline): %q", blocked)
 	}
 
-	ranged := strings.Join(v.commsChipLines(0, false, sim.CommDisconnectOutOfRange), "\n")
-	if !strings.Contains(ranged, "NO SIGNAL") || !strings.Contains(ranged, "out of range — stronger antenna needed") {
-		t.Errorf("out-of-range probe chip must advise the antenna:\n%s", ranged)
+	ranged := v.commsBoxStatusLine(probe, 0, false, sim.CommDisconnectOutOfRange)
+	if !strings.Contains(ranged, "⚠ NO SIGNAL: needs a stronger antenna") {
+		t.Errorf("out-of-range probe must advise the antenna: %q", ranged)
 	}
 	if strings.Contains(ranged, "relay") {
-		t.Errorf("out-of-range probe chip must not advise a relay:\n%s", ranged)
+		t.Errorf("out-of-range probe must not advise a relay: %q", ranged)
 	}
 
 	// Classification can legitimately be absent (a stale pre-#221 graph
 	// mid-tick): degrade to the bare form, never to wrong advice.
-	bare := strings.Join(v.commsChipLines(0, false, sim.CommDisconnectNone), "\n")
+	bare := v.commsBoxStatusLine(probe, 0, false, sim.CommDisconnectNone)
 	if !strings.Contains(bare, "NO SIGNAL") {
-		t.Errorf("unclassified disconnect still reads NO SIGNAL:\n%s", bare)
+		t.Errorf("unclassified disconnect still reads NO SIGNAL: %q", bare)
 	}
 	if strings.Contains(bare, "relay") || strings.Contains(bare, "antenna") {
-		t.Errorf("unclassified disconnect must not guess a remedy:\n%s", bare)
+		t.Errorf("unclassified disconnect must not guess a remedy: %q", bare)
 	}
 }
 
-func TestCommsChipConnectedFormsUnchanged(t *testing.T) {
+func TestCommsBoxConnectedForms(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	direct := strings.Join(v.commsChipLines(1, true, sim.CommDisconnectNone), "\n")
-	if !strings.Contains(direct, "DIRECT") {
-		t.Errorf("single hop reads DIRECT:\n%s", direct)
+	probe := &spacecraft.Spacecraft{Controllable: true}
+	if direct := v.commsBoxStatusLine(probe, 1, true, sim.CommDisconnectNone); !strings.Contains(direct, "DIRECT") || strings.Contains(direct, "via") {
+		t.Errorf("single hop reads DIRECT with no hop count: %q", direct)
 	}
-	hops := strings.Join(v.commsChipLines(3, true, sim.CommDisconnectNone), "\n")
-	if !strings.Contains(hops, "CONNECTED via 3 hops") {
-		t.Errorf("multi-hop form regressed:\n%s", hops)
+	if hops := v.commsBoxStatusLine(probe, 3, true, sim.CommDisconnectNone); !strings.Contains(hops, "CONNECTED via 3 hops") {
+		t.Errorf("multi-hop form regressed: %q", hops)
 	}
 }
 
-func TestCommsChipReasonLinesWidthConsistent(t *testing.T) {
+// TestCommsBoxProbeNoSignalFromWorld: an unmanned probe with no
+// connection surfaces the alarm through the world-reading builder, and
+// the box keeps its header and one row.
+func TestCommsBoxProbeNoSignalFromWorld(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	assertChipCellWidthConsistent(t, "comms blocked", v.commsChipLines(0, false, sim.CommDisconnectBlocked))
-	assertChipCellWidthConsistent(t, "comms out of range", v.commsChipLines(0, false, sim.CommDisconnectOutOfRange))
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	probe := spacecraft.NewFromLoadout("Relay-Tug")
+	probe.Primary = w.Crafts[0].Primary
+	probe.State = w.Crafts[0].State
+	probe.SystemIdx = w.Crafts[0].SystemIdx
+	w.Crafts[0] = probe
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	w.CommGraph = &sim.CommGraph{Connected: map[uint64]bool{}} // force disconnected
+	box := v.buildCommsBox(w)
+	joined := strings.Join(box, "\n")
+	if len(box) != 2 || !strings.Contains(box[0], "COMMS") || !strings.Contains(joined, "NO SIGNAL") {
+		t.Errorf("disconnected probe box should be COMMS + a NO SIGNAL row:\n%s", joined)
+	}
+}
+
+func TestCommsBoxReasonLinesWidthConsistent(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	probe := &spacecraft.Spacecraft{Controllable: true}
+	assertChipCellWidthConsistent(t, "comms blocked", []string{v.commsBoxStatusLine(probe, 0, false, sim.CommDisconnectBlocked)})
+	assertChipCellWidthConsistent(t, "comms out of range", []string{v.commsBoxStatusLine(probe, 0, false, sim.CommDisconnectOutOfRange)})
 }

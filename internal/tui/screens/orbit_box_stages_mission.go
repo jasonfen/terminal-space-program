@@ -3,6 +3,9 @@ package screens
 import (
 	"fmt"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -33,8 +36,33 @@ func (v *OrbitView) buildStagesBox(w *sim.World) []string {
 	if active == "" {
 		active = "stage 0"
 	}
-	return []string{fmt.Sprintf("%s  %s  %s", title, stagePips(c),
-		v.theme.Warning.Render(fmt.Sprintf("▸ %s (1/%d)", active, len(c.Stages))))}
+	// The row can never outgrow the bottom-left tier (W1, #482 review F2):
+	// the pips are capped, and the stage name takes whatever content
+	// width remains after the pips and the "(1/N)" count.
+	pips := stagePips(c)
+	pips = truncateCells(pips, stagePipsMax)
+	count := fmt.Sprintf(" (1/%d)", len(c.Stages))
+	fixed := lipgloss.Width("STAGES") + 2 + lipgloss.Width(pips) + 2 + lipgloss.Width("▸ ") + lipgloss.Width(count)
+	active = truncateCells(active, tierBottomLeftWidth-2-fixed)
+	return []string{fmt.Sprintf("%s  %s  %s", title, pips,
+		v.theme.Warning.Render(fmt.Sprintf("▸ %s%s", active, count)))}
+}
+
+// stagePipsMax is the STAGES pips' width cap in cells; past it the last
+// cell becomes "…". Pips run active stage first, so the cap keeps the
+// stages nearest the burn; the (1/N) count carries the total.
+const stagePipsMax = 8
+
+// truncateCells cuts s to at most n display cells, ending in "…" when it
+// had to cut. n < 1 yields "".
+func truncateCells(s string, n int) string {
+	if n < 1 {
+		return ""
+	}
+	if lipgloss.Width(s) <= n {
+		return s
+	}
+	return ansi.Truncate(s, n, "…")
 }
 
 // buildMissionBox is MISSION, the last box in the left stack, sized to
