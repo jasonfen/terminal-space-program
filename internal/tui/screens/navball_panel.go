@@ -51,26 +51,97 @@ type navballControlBox struct {
 }
 
 // navball panel geometry (KSP-style). A compact top toggle row
-// ([MODE] + RCS), then a 24×12 disk with a vertical stack of eight
-// 2-row "<glyph> LABEL" SAS buttons hugging the far left. The disk
-// is shorter than the button stack, so it's centred vertically.
+// ([MODE] + RCS), then a disk with a vertical stack of eight SAS buttons
+// hugging the far left. The disk is shorter than the button stack at the
+// Design Size, so it is centred vertically. The disk and panel scale with
+// canvas height (navballGeometry, ADR 0051 W5); the constants below are
+// the Design Size values and the parts that never scale.
 const (
-	// Doubled from the original 12×6 — the small disk made markers
-	// hard to read and the 1-cell glyph buttons hard to click.
-	navballDiskCols  = 24
-	navballDiskRows  = 12
-	navballLabelW    = 3                                      // label field, e.g. "PRO" / "T- "
-	navballBtnW      = 1 + 1 + navballLabelW                  // glyph + sep + label = 5
-	navballBtnRows   = 2                                      // each SAS button is 2 rows tall
-	navballGlyphColW = navballBtnW + 1                        // + 1 gutter to the disk = 6
-	navballBodyRows  = 8 * navballBtnRows                     // 8 buttons × 2 rows = 16
-	navballInnerW    = navballGlyphColW + navballDiskCols + 2 // = 32
-	// Panel outer size = inner + 1-cell rounded border each side.
-	navballPanelW      = navballInnerW + 2                // = 34
-	navballPanelH      = 1 + navballBodyRows + 2          // toggle + body + border = 19
-	navballDiskRegionW = navballInnerW - navballGlyphColW // = 26
-	navballDiskTopPad  = (navballBodyRows - navballDiskRows) / 2
+	// Design Size disk (140x40, canvas 37 rows). Doubled from the original
+	// 12x6: the small disk made markers hard to read and the 1-cell glyph
+	// buttons hard to click. Cells are about 2:1, so cols = 2 x rows keeps
+	// the disk round.
+	navballBaseDiskRows = 12
+	navballBaseDiskCols = 2 * navballBaseDiskRows
+	navballLabelW       = 3                     // label field, e.g. "PRO" / "T- "
+	navballBtnW         = 1 + 1 + navballLabelW // glyph + sep + label = 5
+	navballBtnRows      = 2                     // each SAS button is at least 2 rows tall
+	navballGlyphColW    = navballBtnW + 1       // + 1 gutter to the disk = 6
+	navballBaseBodyRows = 8 * navballBtnRows    // 8 buttons x 2 rows = 16
+	// Rows of body the panel keeps beyond the disk: at the Design Size the
+	// 16-row button stack around a 12-row disk.
+	navballBodyExtra = navballBaseBodyRows - navballBaseDiskRows // 4
+	// Border (2) + toggle row (1).
+	navballChromeRows = 3
 )
+
+// navballGeom is the navball panel's size at one canvas height.
+type navballGeom struct {
+	diskCols, diskRows int
+	bodyRows           int // rows below the toggle row, inside the border
+	innerW             int
+	panelW, panelH     int // outer size, border included
+	diskRegionW        int
+	diskTopPad         int
+}
+
+// navballFullRightStackRows is the height NAVIGATION + TARGET occupy at
+// their maximum line counts (the Full Empty readings setting, both boxes
+// drawn with every row), borders included, stacked from canvas row 0 with
+// chipGap between them. The navball is budgeted against this and not the
+// live boxes, so pressing t or changing Empty readings never resizes it.
+func navballFullRightStackRows() int {
+	return (navigationBoxMaxLines + 2) + chipGap + (targetBoxMaxLines + 2)
+}
+
+// navballMaxPanelRows is the tallest panel that still sits below the full
+// right stack. canvasRows is canvas rows, not terminal rows. The panel is
+// lifted one row off the bottom (the "view:" label row, see
+// composeNavballOverlay).
+func navballMaxPanelRows(canvasRows int) int {
+	return canvasRows - 1 - navballFullRightStackRows()
+}
+
+// navballGeometry sizes the panel for a canvas canvasRows tall. Unchanged
+// (24x12 disk, 34x19 panel) at the Design Size; grows by heightScaledCells
+// above it, capped so the panel never reaches the rows NAVIGATION and
+// TARGET can occupy.
+func navballGeometry(canvasRows int) navballGeom {
+	return navballGeometryCapped(canvasRows, navballMaxPanelRows(canvasRows))
+}
+
+// navballGeometryCapped is navballGeometry with the panel height cap
+// passed in, so tests can drive the cap at heights the real one never
+// binds at.
+func navballGeometryCapped(canvasRows, maxPanelRows int) navballGeom {
+	rows := heightScaledCells(navballBaseDiskRows, canvasRows)
+	if maxDisk := maxPanelRows - navballChromeRows - navballBodyExtra; rows > maxDisk {
+		rows = maxDisk
+	}
+	if rows < navballBaseDiskRows {
+		rows = navballBaseDiskRows // never below the Design Size disk
+	}
+	g := navballGeom{diskRows: rows, diskCols: 2 * rows}
+	g.bodyRows = rows + navballBodyExtra
+	g.innerW = navballGlyphColW + g.diskCols + 2
+	g.panelW = g.innerW + 2
+	g.panelH = navballChromeRows + g.bodyRows
+	g.diskRegionW = g.innerW - navballGlyphColW
+	g.diskTopPad = (g.bodyRows - g.diskRows) / 2
+	return g
+}
+
+// buttonRow reports which SAS button owns body row j, and whether j is the
+// button's first row (where its face is drawn). The eight buttons share
+// the body rows evenly, so a taller panel keeps one continuous column with
+// every row clickable. At the Design Size (16 rows) each button is exactly
+// 2 rows, as before.
+func (g navballGeom) buttonRow(j int) (button int, first bool) {
+	n := len(navballAxisRow)
+	button = j * n / g.bodyRows
+	first = j == 0 || (j-1)*n/g.bodyRows != button
+	return button, first
+}
 
 // axisButton is one vertical SAS button: a marker glyph + a short
 // text label. The glyph mirrors the on-ball marker (KSP convention)
@@ -127,13 +198,13 @@ func sasTagLabel(instantSAS bool) string {
 // position to get absolute hit boxes.
 //
 // disk is the already-rendered NavballString (navballDiskCols ×
-// navballDiskRows). mode drives the [MODE] button label; rcsActive
+// g.diskRows). mode drives the [MODE] button label; rcsActive
 // colours the RCS toggle (Warning when on, Dim when off).
 //
-// Every assembled line is exactly navballInnerW cells wide so the
+// Every assembled line is exactly g.innerW cells wide so the
 // caller's splitStyledCells / overlayStyledBlock splice stays
 // aligned (the historical right-border-drop invariant).
-func (v *OrbitView) buildNavballPanel(disk string, mode sim.NavMode, instantSAS, rcsActive bool) (string, []navballControlBox) {
+func (v *OrbitView) buildNavballPanel(g navballGeom, disk string, mode sim.NavMode, instantSAS, rcsActive bool) (string, []navballControlBox) {
 	pad := func(s string, w int) string {
 		n := lipgloss.Width(s)
 		if n >= w {
@@ -178,8 +249,8 @@ func (v *OrbitView) buildNavballPanel(disk string, mode sim.NavMode, instantSAS,
 	// modeLabel hugs inner col 0; rcsLabel ends flush at innerW;
 	// sasLabel sits centred between, clamped off both neighbours so
 	// the three never collide on a wide [ORBIT] mode label.
-	rcsStart := navballInnerW - rw
-	sasStart := (navballInnerW - sw) / 2
+	rcsStart := g.innerW - rw
+	sasStart := (g.innerW - sw) / 2
 	if sasStart < mw+1 {
 		sasStart = mw + 1
 	}
@@ -216,7 +287,7 @@ func (v *OrbitView) buildNavballPanel(disk string, mode sim.NavMode, instantSAS,
 	)
 	toggleLine := pad(btnStyle.Render(modeLabel)+
 		strings.Repeat(" ", gap1)+sasStyle.Render(sasLabel)+
-		strings.Repeat(" ", gap2)+rcsStyle.Render(rcsLabel), navballInnerW)
+		strings.Repeat(" ", gap2)+rcsStyle.Render(rcsLabel), g.innerW)
 	lines := []string{toggleLine}
 
 	// Body: navballBodyRows rows. Left column = a stack of SAS
@@ -228,11 +299,11 @@ func (v *OrbitView) buildNavballPanel(disk string, mode sim.NavMode, instantSAS,
 	// pair, the rest blank — but every row of the pair gets a hit
 	// box (same id) so the whole 2-row block is clickable.
 	diskLines := strings.Split(disk, "\n")
-	for j := 0; j < navballBodyRows; j++ {
-		bi := j / navballBtnRows
+	for j := 0; j < g.bodyRows; j++ {
+		bi, first := g.buttonRow(j)
 		b := navballAxisRow[bi]
 		face := strings.Repeat(" ", navballBtnW)
-		if j%navballBtnRows == 0 { // top row of the pair carries the face
+		if first { // top row of the button carries the face
 			label := b.label
 			if len(label) < navballLabelW {
 				label += strings.Repeat(" ", navballLabelW-len(label))
@@ -240,9 +311,9 @@ func (v *OrbitView) buildNavballPanel(disk string, mode sim.NavMode, instantSAS,
 			face = lipgloss.NewStyle().Foreground(b.color).Render(string(b.glyph)) +
 				" " + btnStyle.Render(label) // 1 + 1 + navballLabelW = navballBtnW
 		}
-		region := strings.Repeat(" ", navballDiskRegionW)
-		if di := j - navballDiskTopPad; di >= 0 && di < navballDiskRows && di < len(diskLines) {
-			region = center(diskLines[di], navballDiskRegionW)
+		region := strings.Repeat(" ", g.diskRegionW)
+		if di := j - g.diskTopPad; di >= 0 && di < g.diskRows && di < len(diskLines) {
+			region = center(diskLines[di], g.diskRegionW)
 		}
 		lines = append(lines, face+" "+region) // btnW + gutter + regionW = innerW
 		boxes = append(boxes, navballControlBox{
@@ -360,6 +431,6 @@ func overlayStyledBlock(base []string, block string, atRow, atCol, baseCols int)
 // navballPanelMarkers is a thin pass-through kept here so the panel's
 // data dependency on sim is colocated with its rendering. It exists
 // to make the Render() call site read as panel-scoped.
-func navballPanelDisk(w *sim.World, subLat, subLon float64) string {
-	return render.NavballString(navballDiskCols, navballDiskRows, subLat, subLon, w.NavballMarkers())
+func navballPanelDisk(g navballGeom, w *sim.World, subLat, subLon float64) string {
+	return render.NavballString(g.diskCols, g.diskRows, subLat, subLon, w.NavballMarkers())
 }

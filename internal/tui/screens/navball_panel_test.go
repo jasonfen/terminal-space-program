@@ -117,7 +117,7 @@ func TestOverlayPreservesBaseStyling(t *testing.T) {
 
 // buildNavballPanel produces a bordered block of the declared size:
 // no "NAVBALL" label, a [MODE]+RCS toggle row, and the eight SAS
-// glyphs down the left. Every row must be exactly navballPanelW
+// glyphs down the left. Every row must be exactly g.panelW
 // cells (the splice-alignment invariant) and a hit box recorded for
 // each control (Mode + RCS + 8 glyphs).
 func TestBuildNavballPanel(t *testing.T) {
@@ -126,8 +126,9 @@ func TestBuildNavballPanel(t *testing.T) {
 		Dim:     lipgloss.NewStyle(),
 		Warning: lipgloss.NewStyle(),
 	})
-	disk := render.NavballString(navballDiskCols, navballDiskRows, 0, 0, nil)
-	panel, boxes := v.buildNavballPanel(disk, sim.NavOrbit, false, false)
+	g := navballGeometry(designCanvasRows)
+	disk := render.NavballString(g.diskCols, g.diskRows, 0, 0, nil)
+	panel, boxes := v.buildNavballPanel(g, disk, sim.NavOrbit, false, false)
 
 	plain := stripANSI(panel)
 	if strings.Contains(plain, "NAVBALL") {
@@ -147,17 +148,17 @@ func TestBuildNavballPanel(t *testing.T) {
 		}
 	}
 	rows := strings.Split(panel, "\n")
-	if len(rows) != navballPanelH {
-		t.Errorf("panel height = %d, want %d", len(rows), navballPanelH)
+	if len(rows) != g.panelH {
+		t.Errorf("panel height = %d, want %d", len(rows), g.panelH)
 	}
 	for i, r := range rows {
-		if w := lipgloss.Width(r); w != navballPanelW {
-			t.Errorf("panel row %d width = %d, want %d", i, w, navballPanelW)
+		if w := lipgloss.Width(r); w != g.panelW {
+			t.Errorf("panel row %d width = %d, want %d", i, w, g.panelW)
 		}
 		// Definitive splice guard: split must yield exactly one cell
 		// per display column (the right-border-drop regression).
-		if c := len(splitStyledCells(r)); c != navballPanelW {
-			t.Errorf("panel row %d splits to %d cells, want %d", i, c, navballPanelW)
+		if c := len(splitStyledCells(r)); c != g.panelW {
+			t.Errorf("panel row %d splits to %d cells, want %d", i, c, g.panelW)
 		}
 	}
 	// Mode + SAS + RCS + navballBtnRows hit-rows per axis button
@@ -199,13 +200,14 @@ func TestNavballPanelSASTag(t *testing.T) {
 		Dim:     lipgloss.NewStyle(),
 		Warning: lipgloss.NewStyle(),
 	})
-	disk := render.NavballString(navballDiskCols, navballDiskRows, 0, 0, nil)
+	g := navballGeometry(designCanvasRows)
+	disk := render.NavballString(g.diskCols, g.diskRows, 0, 0, nil)
 
-	man, _ := v.buildNavballPanel(disk, sim.NavOrbit, false /*slew*/, false)
+	man, _ := v.buildNavballPanel(g, disk, sim.NavOrbit, false /*slew*/, false)
 	if p := stripANSI(man); !strings.Contains(p, "[MAN]") || strings.Contains(p, "[AUT]") {
 		t.Errorf("slew model should show [MAN], not [AUT]:\n%s", p)
 	}
-	aut, _ := v.buildNavballPanel(disk, sim.NavOrbit, true /*instant*/, false)
+	aut, _ := v.buildNavballPanel(g, disk, sim.NavOrbit, true /*instant*/, false)
 	if p := stripANSI(aut); !strings.Contains(p, "[AUT]") || strings.Contains(p, "[MAN]") {
 		t.Errorf("instant model should show [AUT], not [MAN]:\n%s", p)
 	}

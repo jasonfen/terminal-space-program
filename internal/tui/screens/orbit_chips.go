@@ -377,9 +377,9 @@ func layoutChipsBySide(chips []builtChip, cRows, navballReserved int) (forms []c
 
 	// Right budget excludes the navball's own rows entirely but does NOT
 	// double the "view:" label reservation on top of that: the navball's
-	// placement (composeNavballOverlay: atRow = cRows-navballPanelH-1)
+	// placement (composeNavballOverlay: atRow = cRows-panelH-1)
 	// already sits one row shy of the bottom, so navballReserved
-	// (navballPanelH+1) already accounts for the label row on the right.
+	// (panelH+1) already accounts for the label row on the right.
 	// At the exact Playable Floor with the navball showing this leaves
 	// exactly one spare row — see chipStubHeight.
 	leftBudget := cRows - 1
@@ -535,7 +535,7 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 	if len(bay) > 0 {
 		navballLeft := cCols
 		if navballReserved > chipStubHeight {
-			navballLeft = cCols - navballPanelW
+			navballLeft = cCols - navballGeometry(cRows).panelW
 		}
 		// bayLeftBound is the right edge of the left-stack box the bay
 		// actually sits beside: the LAST top-left/bottom-left chip
@@ -828,13 +828,14 @@ func wrapBayLine(line string, maxWidth int) []string {
 // A2 gate review measured (the node row's own contract-mandated widening
 // was what tipped it over the edge; see impl-notes/item4-A2-migration.md).
 func (v *OrbitView) navballReservedRows(w *sim.World, cCols, cRows int) int {
-	if !w.CraftVisibleHere() || cCols < navballPanelW+2 || cRows < navballPanelH+2 {
+	g := navballGeometry(cRows)
+	if !w.CraftVisibleHere() || cCols < g.panelW+2 || cRows < g.panelH+2 {
 		return 1
 	}
 	if _, _, ok := w.NavballSubObserver(); !ok {
 		return 1
 	}
-	return navballPanelH + 1
+	return g.panelH + 1
 }
 
 // HitChip resolves a screen-space click against the Chips composited onto
