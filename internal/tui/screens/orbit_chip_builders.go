@@ -104,6 +104,7 @@ func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []bu
 		return chips
 	}
 	lit := engineLit(w.ActiveCraft())
+	mode := v.settings.EmptyReadingsMode()
 	type boxDef struct {
 		id       settings.Chip
 		build    func(*sim.World) []string
@@ -140,6 +141,9 @@ func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []bu
 		var lines []string
 		if v.settings.ChipEnabled(b.id) {
 			lines = b.build(w)
+			if mode == settings.EmptyCompact {
+				lines = foldTrailingDashRows(lines)
+			}
 		} else {
 			lines = blankInstrumentBoxLines(v.theme, b.name, b.maxLines)
 		}
@@ -164,17 +168,28 @@ func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []bu
 		{id: settings.ChipTarget, build: v.buildTargetBox, name: "TARGET", maxLines: targetBoxMaxLines,
 			omitWhenAbsent: func(w *sim.World) bool { return w.Target.Kind == sim.TargetNone }},
 	}
+	targetOmitted := v.settings.ChipEnabled(settings.ChipTarget) && mode != settings.EmptyFull &&
+		w.Target.Kind == sim.TargetNone
 	for _, b := range rightBoxes {
 		if v.declutter {
 			continue
 		}
 		enabled := v.settings.ChipEnabled(b.id)
-		if enabled && b.omitWhenAbsent != nil && b.omitWhenAbsent(w) {
+		if enabled && mode != settings.EmptyFull && b.omitWhenAbsent != nil && b.omitWhenAbsent(w) {
 			continue // #480: no target, no box, not even a blanked slot
 		}
 		var lines []string
 		if enabled {
 			lines = b.build(w)
+			// Empty readings (ADR 0051 W6): Compact drops every box's
+			// trailing dash rows; Tidy folds NAVIGATION's only while
+			// TARGET is absent (omitted, so nothing sits below to shift).
+			// A switched-off TARGET still occupies a blank slot below
+			// NAVIGATION, so that case keeps every row.
+			if mode == settings.EmptyCompact ||
+				(mode == settings.EmptyTidy && b.id == settings.ChipNavigation && targetOmitted) {
+				lines = foldTrailingDashRows(lines)
+			}
 		} else {
 			lines = blankInstrumentBoxLines(v.theme, b.name, b.maxLines)
 		}

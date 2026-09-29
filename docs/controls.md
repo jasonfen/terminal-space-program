@@ -273,6 +273,7 @@ Click only; no dragging, no scroll-to-zoom.
 |---|---|
 | `[»Burn]` (top-right) | Toggle auto-warp to the next burn (same as `G`). Shows `[■Burn]` while running, dimmed with no burn planned |
 | `[Menu]` (top-right) | Save / load / build / settings / keyboard layout / help / quit menu |
+| Settings → **Empty readings** | What the instrument boxes do with boxes and rows that have nothing to say. **Full**: every box and row always drawn, dashes and all, TARGET included. **Tidy** (default): no TARGET box while nothing is targeted, and NAVIGATION drops its trailing dash rows while TARGET is absent. **Compact**: Tidy, plus every box drops its trailing dash rows. Rows fold from the bottom of a box only; box widths never change |
 | `[Missions]` (top-right) | Mission ladder (same as `M`). Flight School is on unless switched off; the Challenge ladder stays opt-in — enable it in `[Menu]` → Settings |
 | A body | Follow it with the camera, and inspect it |
 | A vessel | Follow it with the camera, and inspect it |

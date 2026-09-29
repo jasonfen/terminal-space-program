@@ -165,7 +165,67 @@ type Settings struct {
 	// Read through AutosaveInterval / AutosaveIntervalMinutes rather
 	// than dereferencing directly.
 	AutosaveIntervalMin *int `json:"autosaveIntervalMin,omitempty"`
+
+	// EmptyReadings is the Empty readings choice (ADR 0051 W6, #482):
+	// what the instrument boxes do with boxes and rows that have nothing
+	// to say. Stored as a raw string so a hand-edited or newer-build value
+	// never fails the load; read through EmptyReadingsMode, which maps an
+	// absent or unknown value to the Tidy default.
+	EmptyReadings string `json:"emptyReadings,omitempty"`
 }
+
+// EmptyReadingsMode is the three-way Empty readings choice.
+type EmptyReadingsMode string
+
+const (
+	// EmptyFull draws every box and every row, dashes and all.
+	EmptyFull EmptyReadingsMode = "full"
+	// EmptyTidy (the default) drops TARGET with no target and folds
+	// NAVIGATION's trailing dash rows while TARGET is absent.
+	EmptyTidy EmptyReadingsMode = "tidy"
+	// EmptyCompact is Tidy plus every box dropping its trailing dash rows.
+	EmptyCompact EmptyReadingsMode = "compact"
+)
+
+// EmptyReadingsSteps is the Settings row's cycle order.
+var EmptyReadingsSteps = []EmptyReadingsMode{EmptyFull, EmptyTidy, EmptyCompact}
+
+// Label is the Settings row's display text.
+func (m EmptyReadingsMode) Label() string {
+	switch m {
+	case EmptyFull:
+		return "Full"
+	case EmptyCompact:
+		return "Compact"
+	}
+	return "Tidy"
+}
+
+// EmptyReadingsMode returns the effective choice: Tidy when the field is
+// absent, empty or holds anything unrecognised.
+func (s Settings) EmptyReadingsMode() EmptyReadingsMode {
+	switch EmptyReadingsMode(s.EmptyReadings) {
+	case EmptyFull:
+		return EmptyFull
+	case EmptyCompact:
+		return EmptyCompact
+	}
+	return EmptyTidy
+}
+
+// NextEmptyReadings returns the step after cur (Full, Tidy, Compact,
+// wrapping), treating an unrecognised cur as Tidy.
+func NextEmptyReadings(cur EmptyReadingsMode) EmptyReadingsMode {
+	for i, m := range EmptyReadingsSteps {
+		if m == cur {
+			return EmptyReadingsSteps[(i+1)%len(EmptyReadingsSteps)]
+		}
+	}
+	return EmptyCompact // unknown reads as Tidy, whose next step is Compact
+}
+
+// SetEmptyReadings records an explicit choice, persisted verbatim.
+func (s *Settings) SetEmptyReadings(m EmptyReadingsMode) { s.EmptyReadings = string(m) }
 
 // DefaultAutosaveIntervalMin is the periodic-autosave default (real
 // minutes) when the player hasn't set one — ADR 0033 §E's 5 minutes.

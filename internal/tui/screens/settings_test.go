@@ -72,11 +72,15 @@ func TestSettingsCursorNavigation(t *testing.T) {
 		t.Errorf("toggle at row 0 = %q, want %q", c, settings.AllChips[0])
 	}
 
-	// up wraps from row 0 to the last row — now the autosave-interval row
-	// (v0.26 S4).
+	// up wraps from row 0 to the last row, now the Empty readings row
+	// (ADR 0051 W6); one more up lands on the autosave-interval row.
+	s.HandleKey("up")
+	if a, _ := s.HandleKey(" "); a != SettingsActionCycleEmptyReadings {
+		t.Errorf("up-wrap toggle action = %v, want CycleEmptyReadings (last row)", a)
+	}
 	s.HandleKey("up")
 	if a, _ := s.HandleKey(" "); a != SettingsActionCycleAutosave {
-		t.Errorf("up-wrap toggle action = %v, want CycleAutosave (last row)", a)
+		t.Errorf("second up toggle action = %v, want CycleAutosave", a)
 	}
 	_ = n
 }
@@ -214,5 +218,31 @@ func TestSettingsHandleClick(t *testing.T) {
 	// A click in dead space (the divider row) is a no-op.
 	if a, _ := s.HandleClick(0, 1); a != SettingsActionNone {
 		t.Errorf("click on divider row = %v, want None", a)
+	}
+}
+
+// The Empty readings row (ADR 0051 W6) renders the effective mode, Tidy
+// by default, and a click on it cycles.
+func TestSettingsEmptyReadingsRow(t *testing.T) {
+	s := NewSettingsScreen(Theme{})
+	const width = 80
+	out := s.Render(settings.Default(), width, 0)
+	if !strings.Contains(out, "Empty readings: ‹Tidy›") {
+		t.Errorf("default render missing Empty readings: ‹Tidy›:\n%s", out)
+	}
+	prefs := settings.Default()
+	prefs.SetEmptyReadings(settings.EmptyCompact)
+	out = s.Render(prefs, width, 0)
+	if !strings.Contains(out, "Empty readings: ‹Compact›") {
+		t.Errorf("Compact render missing its label:\n%s", out)
+	}
+	row := -1
+	for i, ln := range strings.Split(out, "\n") {
+		if strings.Contains(ln, "Empty readings:") {
+			row = i
+		}
+	}
+	if a, _ := s.HandleClick(0, row); a != SettingsActionCycleEmptyReadings {
+		t.Errorf("click Empty readings row = %v, want CycleEmptyReadings", a)
 	}
 }

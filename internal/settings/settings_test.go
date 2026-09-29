@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -484,5 +485,55 @@ func TestOrbitMetricsNotToggleable(t *testing.T) {
 		if c == Chip("orbitMetrics") {
 			t.Errorf("orbitMetrics must not be a toggleable Chip (it is always-on)")
 		}
+	}
+}
+
+func TestEmptyReadingsDefaultsToTidy(t *testing.T) {
+	for _, raw := range []string{"", "bogus", "TIDY", "Full "} {
+		s := Settings{EmptyReadings: raw}
+		if got := s.EmptyReadingsMode(); got != EmptyTidy {
+			t.Errorf("EmptyReadings=%q -> %q, want tidy", raw, got)
+		}
+	}
+	if Default().EmptyReadingsMode() != EmptyTidy {
+		t.Error("Default() must read Tidy")
+	}
+}
+
+func TestEmptyReadingsCycleAndRoundTrip(t *testing.T) {
+	m := EmptyFull
+	var seen []EmptyReadingsMode
+	for i := 0; i < 4; i++ {
+		seen = append(seen, m)
+		m = NextEmptyReadings(m)
+	}
+	if seen[0] != EmptyFull || seen[1] != EmptyTidy || seen[2] != EmptyCompact || seen[3] != EmptyFull {
+		t.Errorf("cycle = %v, want full, tidy, compact, full", seen)
+	}
+	if NextEmptyReadings("bogus") != EmptyCompact {
+		t.Error("unknown reads as Tidy, so next is Compact")
+	}
+
+	p := withConfigRoot(t, "")
+	s := Default()
+	s.SetEmptyReadings(EmptyCompact)
+	if err := Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	raw, _ := os.ReadFile(p)
+	if !strings.Contains(string(raw), `"emptyReadings": "compact"`) && !strings.Contains(string(raw), `"emptyReadings":"compact"`) {
+		t.Errorf("settings.json missing emptyReadings key: %s", raw)
+	}
+	got, _ := Load()
+	if got.EmptyReadingsMode() != EmptyCompact {
+		t.Errorf("round-trip = %q, want compact", got.EmptyReadingsMode())
+	}
+	// An unknown value on disk loads as Tidy.
+	if err := os.WriteFile(p, []byte(`{"emptyReadings":"nonsense"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = Load()
+	if got.EmptyReadingsMode() != EmptyTidy {
+		t.Errorf("unknown on disk = %q, want tidy", got.EmptyReadingsMode())
 	}
 }

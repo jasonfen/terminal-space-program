@@ -753,6 +753,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.toggleMissionProgram(false)
 			case screens.SettingsActionCycleAutosave:
 				a.cycleAutosaveInterval()
+			case screens.SettingsActionCycleEmptyReadings:
+				a.cycleEmptyReadings()
 			case screens.SettingsActionCancel:
 				a.active = screenOrbit
 			}
@@ -966,6 +968,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.toggleMissionProgram(false)
 			case screens.SettingsActionCycleAutosave:
 				a.cycleAutosaveInterval()
+			case screens.SettingsActionCycleEmptyReadings:
+				a.cycleEmptyReadings()
 			case screens.SettingsActionCancel:
 				a.active = screenOrbit
 			}
@@ -2917,6 +2921,18 @@ func (a *App) toggleMissionProgram(tutorial bool) {
 func (a *App) cycleAutosaveInterval() {
 	s := a.orbitView.Settings()
 	s.SetAutosaveIntervalMin(settings.NextAutosaveIntervalMin(s.AutosaveIntervalMinutes()))
+	a.orbitView.SetSettings(s)
+	if err := settings.Save(s); err != nil {
+		a.flash(fmt.Sprintf("settings save failed: %v", err))
+	}
+}
+
+// cycleEmptyReadings advances Empty readings (Full, Tidy, Compact) and
+// persists it to settings.json (ADR 0051 W6, #482), mirroring
+// cycleAutosaveInterval. The orbit view reads it live from its Settings.
+func (a *App) cycleEmptyReadings() {
+	s := a.orbitView.Settings()
+	s.SetEmptyReadings(settings.NextEmptyReadings(s.EmptyReadingsMode()))
 	a.orbitView.SetSettings(s)
 	if err := settings.Save(s); err != nil {
 		a.flash(fmt.Sprintf("settings save failed: %v", err))
