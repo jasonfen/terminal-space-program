@@ -143,7 +143,10 @@ func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []bu
 		} else {
 			lines = blankInstrumentBoxLines(v.theme, b.name, b.maxLines)
 		}
-		c := builtChip{id: b.id, corner: cornerTopLeft, lines: lines, priority: chipPriorityCore}
+		c := builtChip{id: b.id, corner: cornerTopLeft, lines: lines, priority: chipPriorityCore, tier: chipTierTopLeft}
+		if i >= 3 { // COMMS, STAGES, MISSION share the narrower edge
+			c.tier = chipTierBottomLeft
+		}
 		if i == 0 {
 			// ENGINE folded in the retired NODES chip's node row
 			// (decision 1); keep its click routing alive by reusing
@@ -175,7 +178,7 @@ func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []bu
 		} else {
 			lines = blankInstrumentBoxLines(v.theme, b.name, b.maxLines)
 		}
-		chips = append(chips, builtChip{id: b.id, corner: cornerTopRight, lines: lines, priority: chipPriorityCore})
+		chips = append(chips, builtChip{id: b.id, corner: cornerTopRight, lines: lines, priority: chipPriorityCore, tier: chipTierRight})
 	}
 	return chips
 }
@@ -1045,10 +1048,17 @@ func wrapChipText(s string, width int) []string {
 
 func (v *OrbitView) missionChipLines(flash string, flashing bool, m *missions.Mission, relayCount int) []string {
 	if flashing {
-		return []string{
-			v.theme.Alert.Render("MISSION"),
-			v.theme.Alert.Render("  ✗ " + flash),
+		// Wrapped like the tutorial hint below so a long mission name plus
+		// its reason never sets the bottom tier's width (W1, #482).
+		lines := []string{v.theme.Alert.Render("MISSION")}
+		for i, row := range wrapChipText(flash, missionChipWrapWidth) {
+			prefix := "    "
+			if i == 0 {
+				prefix = "  ✗ "
+			}
+			lines = append(lines, v.theme.Alert.Render(prefix+row))
 		}
+		return lines
 	}
 	if m == nil {
 		return nil

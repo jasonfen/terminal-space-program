@@ -80,6 +80,9 @@ type builtChip struct {
 	id     settings.Chip
 	corner chipCorner
 	lines  []string
+	// tier is the shared-width group an instrument box draws in (W1);
+	// chipTierNone for everything else. See orbit_chip_tiers.go.
+	tier chipTier
 	// compact is this chip's Compact Form (ADR 0046 / CONTEXT.md "Graceful
 	// Shrink"): title plus one or two key rows, chosen per chip by its
 	// builder (see the compact-builder comments in orbit_chip_builders.go
@@ -514,9 +517,9 @@ func (v *OrbitView) composeChips(canvasStr string, cCols, cRows, navballReserved
 			if cl == nil {
 				cl = chip.lines
 			}
-			place(chip.id, chip.corner, cl, true)
+			place(chip.id, chip.corner, tierPad(cl, chip.tier), true)
 		default:
-			place(chip.id, chip.corner, chip.lines, true)
+			place(chip.id, chip.corner, tierPad(chip.lines, chip.tier), true)
 		}
 	}
 
