@@ -132,12 +132,6 @@ func (s *SettingsScreen) HandleClick(col, row int) (SettingsAction, settings.Chi
 	return SettingsActionNone, ""
 }
 
-// settingsRowsBudget is settingsScreen's ceiling on the windowed body's row
-// count, mirroring spawn.go's craftTypeRowBudget (#373 / ADR 0046's
-// Consequences section) — shrunk further by Render when height is tight,
-// never below 1.
-const settingsRowsBudget = 12
-
 // settingsBody flattens the screen's body — the chips / gameplay / saves
 // sections, each a pinnable widgets.WindowLine header followed by its rows
 // (blank lines and descriptions included, exactly as Render used to emit
@@ -289,9 +283,16 @@ func (s *SettingsScreen) Render(prefs settings.Settings, width, height int) stri
 	const fixedLines = 3
 	budget := 0 // widgets.Window treats <=0 as "show everything"
 	if height > 0 {
+		// The window is sized from the terminal, not a fixed row cap: at
+		// the 140x40 design size the whole body fits, so no row (the
+		// display section's Empty readings, last of all) hides behind
+		// scrolling. A shorter terminal still windows around the cursor.
 		budget = height - fixedLines
-		if budget > settingsRowsBudget {
-			budget = settingsRowsBudget
+		if len(body) > budget {
+			// Windowing: widgets.Window adds up to 3 pin/"more" lines on
+			// top of budget; reserve them so the markers survive the
+			// safety net below and the player can see rows are hidden.
+			budget -= 3
 		}
 		if budget < 1 {
 			budget = 1

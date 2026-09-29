@@ -246,3 +246,36 @@ func TestSettingsEmptyReadingsRow(t *testing.T) {
 		t.Errorf("click Empty readings row = %v, want CycleEmptyReadings", a)
 	}
 }
+
+// F6 of the #482 review: the window used to be capped at 12 body rows
+// whatever the terminal height, so the Empty readings row (the last line)
+// was only reachable by scrolling. At the 140x40 design size the whole
+// body fits, so all of it must draw with no "more" markers.
+func TestSettingsShowsEveryRowAtDesignSize(t *testing.T) {
+	s := NewSettingsScreen(chipTestTheme())
+	out := s.Render(settings.Default(), 140, 40)
+	for _, want := range []string{"Empty readings", "Autosave interval", "Tutorial", "SOI pass"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("140x40 settings screen is missing %q (window too small):\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "more") {
+		t.Errorf("140x40 settings screen still scrolls (a 'more' marker is drawn):\n%s", out)
+	}
+	if n := len(strings.Split(out, "\n")); n > 40 {
+		t.Errorf("settings screen is %d lines, taller than the 40-row terminal", n)
+	}
+}
+
+// A short terminal must still window: never taller than the terminal, and
+// the cursor's row stays on screen.
+func TestSettingsWindowsOnAShortTerminal(t *testing.T) {
+	s := NewSettingsScreen(chipTestTheme())
+	out := s.Render(settings.Default(), 140, 16)
+	if n := len(strings.Split(out, "\n")); n > 16 {
+		t.Errorf("settings screen is %d lines on a 16-row terminal", n)
+	}
+	if !strings.Contains(out, "> [x] Engine") {
+		t.Errorf("cursor row not on screen on a short terminal:\n%s", out)
+	}
+}
