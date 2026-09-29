@@ -85,8 +85,12 @@ func TestEngineBoxNodeRowOverBudgetIsBareGlyph(t *testing.T) {
 		t.Fatal("setup: expected this absurd Δv to be over budget")
 	}
 	lines := v.buildEngineBox(w)
-	if !strings.Contains(lines[3], "⚠") {
-		t.Errorf("node row for an over-budget node = %q, want the ⚠ glyph", lines[3])
+	// #482 F1: the ⚠ moved from the node row to ENGINE's title row.
+	if !strings.Contains(lines[0], "⚠") {
+		t.Errorf("ENGINE title for an over-budget node = %q, want the ⚠ glyph", lines[0])
+	}
+	if strings.Contains(lines[3], "⚠") {
+		t.Errorf("node row = %q, the ⚠ lives on the title row now", lines[3])
 	}
 	if strings.Contains(lines[3], "exceeds budget") {
 		t.Errorf("node row = %q, the words must move to the glossary/planner, not print inline (re-grill Q4)", lines[3])
@@ -167,8 +171,8 @@ func TestEngineBoxNodeRowOverflowCount(t *testing.T) {
 		{DV: 100, TriggerTime: w.Clock.SimTime.Add(10 * time.Minute), Mode: spacecraft.BurnPrograde},
 	}
 	lines := v.buildEngineBox(w)
-	if strings.Contains(lines[3], "[m]") {
-		t.Errorf("node row with a single queued node = %q, should not carry an overflow count", lines[3])
+	if strings.Contains(lines[0], "[m]") {
+		t.Errorf("ENGINE title with a single queued node = %q, should not carry an overflow count", lines[0])
 	}
 
 	// Two queued nodes: "+1 [m]".
@@ -176,8 +180,8 @@ func TestEngineBoxNodeRowOverflowCount(t *testing.T) {
 		DV: 80, TriggerTime: w.Clock.SimTime.Add(30 * time.Minute), Mode: spacecraft.BurnPrograde,
 	})
 	lines = v.buildEngineBox(w)
-	if !strings.Contains(lines[3], "+1 [m]") {
-		t.Errorf("node row with two queued nodes = %q, want the overflow count +1 [m]", lines[3])
+	if !strings.Contains(lines[0], "+1 [m]") || strings.Contains(lines[3], "[m]") {
+		t.Errorf("two queued nodes: title %q, node row %q, want +1 [m] on the title only", lines[0], lines[3])
 	}
 }
 
@@ -226,12 +230,11 @@ func TestEngineNavigationNoOverlapWithQueuedNodes(t *testing.T) {
 	assertNoChipRectOverlaps(t, v.chipRects)
 
 	engineLines := v.buildEngineBox(w)
-	nodeLine := engineLines[3]
-	if !strings.Contains(nodeLine, "[m]") {
-		t.Fatalf("setup: expected ENGINE's node row to carry the overflow indicator: %q", nodeLine)
+	if !strings.Contains(engineLines[0], "+2 [m]") {
+		t.Fatalf("setup: expected ENGINE's title row to carry the overflow indicator: %q", engineLines[0])
 	}
-	if !strings.HasSuffix(strings.TrimRight(nodeLine, " "), ")") && !strings.HasSuffix(strings.TrimRight(nodeLine, " "), "]") {
-		t.Errorf("ENGINE node row does not end cleanly: %q", nodeLine)
+	if strings.Contains(engineLines[3], "[m]") {
+		t.Errorf("ENGINE node row still carries the overflow count: %q", engineLines[3])
 	}
 	_ = out
 }

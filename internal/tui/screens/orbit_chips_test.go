@@ -611,16 +611,16 @@ func TestEngineNodeRowOverflowCountWhenMultipleNodesQueued(t *testing.T) {
 		{Mode: spacecraft.BurnPrograde, DV: 42, TriggerTime: w.Clock.SimTime.Add(time.Minute)},
 	}
 	lines := v.buildEngineBox(w)
-	if strings.Contains(lines[3], "[m]") {
-		t.Errorf("a single queued node must not carry an overflow count:\n%s", lines[3])
+	if strings.Contains(lines[0], "[m]") {
+		t.Errorf("a single queued node must not carry an overflow count:\n%s", lines[0])
 	}
 
 	c.Nodes = append(c.Nodes, spacecraft.ManeuverNode{
 		Mode: spacecraft.BurnRetrograde, DV: 7, TriggerTime: w.Clock.SimTime.Add(2 * time.Minute),
 	})
 	lines = v.buildEngineBox(w)
-	if !strings.Contains(lines[3], "+1 [m]") {
-		t.Errorf("2 queued nodes must show a +1 [m] overflow count on ENGINE's node row:\n%s", lines[3])
+	if !strings.Contains(lines[0], "+1 [m]") {
+		t.Errorf("2 queued nodes must show a +1 [m] overflow count on ENGINE's title row:\n%s", lines[0])
 	}
 }
 
