@@ -177,3 +177,23 @@ func TestEmptyReadingsFoldedRowsAreFullRowsVerbatim(t *testing.T) {
 		}
 	}
 }
+
+// F3 of the #482 review: on the launch pad GUIDANCE's last row is
+// `fpa: — orbit fpa: —`, and "orbit fpa:" is a two-word label the first
+// isDashRow did not know, so Compact left that one dash row standing.
+func TestEmptyReadingsCompactFoldsGuidanceOnThePad(t *testing.T) {
+	w := densityPad(t)
+	v := emptyReadingsView(settings.EmptyCompact)
+	gd, ok := boxLines(v, w, settings.ChipGuidance)
+	if !ok {
+		t.Fatal("GUIDANCE not placed on the pad")
+	}
+	if len(gd) != guidanceBoxMaxLines-1 {
+		t.Errorf("Compact pad: GUIDANCE lines = %d, want %d (fpa/orbit fpa row folded): %q", len(gd), guidanceBoxMaxLines-1, gd)
+	}
+	for _, c := range v.assembleChips(w) {
+		if len(c.lines) > 1 && isDashRow(c.lines[len(c.lines)-1]) {
+			t.Errorf("Compact pad: box %q still ends in a dash row %q", c.id, c.lines[len(c.lines)-1])
+		}
+	}
+}
