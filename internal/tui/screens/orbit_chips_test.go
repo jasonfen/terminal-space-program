@@ -159,7 +159,7 @@ func TestComposeChipsBudgetProtectsCriticalChipFromOverflow(t *testing.T) {
 
 // TestComposeChipsBudgetDropsBehindStubAboveNavball (#334, reworked for
 // #422/ADR 0046): at 80x24 with the navball showing,
-// navballReservedRows(w, cCols, 21) returns navballPanelH+1 = 20, leaving
+// navballReservedRows(w, cCols, 21) returns the panel height + 1 = 20, leaving
 // the whole right side exactly ONE spare row (chipStubHeight) — the real
 // geometry at the Playable Floor whenever the navball renders (19 rows)
 // alongside the label row. A lone chip needs at least 3 rows (its own
@@ -171,7 +171,7 @@ func TestComposeChipsBudgetProtectsCriticalChipFromOverflow(t *testing.T) {
 func TestComposeChipsBudgetDropsBehindStubAboveNavball(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	const cCols, cRows = 78, 21
-	const navballReserved = navballPanelH + 1 // == 20, matches navballReservedRows at this size
+	navballReserved := navballGeometry(cRows).panelH + 1 // as navballReservedRows returns
 
 	chips := []builtChip{
 		{id: settings.ChipNodes, corner: cornerBottomRight, lines: []string{
@@ -1085,7 +1085,7 @@ func TestComposeChipsBayNewestAtBottom(t *testing.T) {
 func TestComposeChipsBayCentredBetweenLeftStackAndNavball(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	const cCols, cRows = 140, 38
-	const navballReserved = navballPanelH + 1
+	navballReserved := navballGeometry(cRows).panelH + 1 // as navballReservedRows returns
 	leftEdge := 0
 	chips := []builtChip{
 		{corner: cornerTopLeft, lines: []string{"ENGINE", "  a", "  b"}, priority: chipPriorityCore},
@@ -1097,7 +1097,7 @@ func TestComposeChipsBayCentredBetweenLeftStackAndNavball(t *testing.T) {
 	}
 	leftEdge = v.chipRects[0].colEnd + 1
 	bay := v.chipRects[1]
-	navballLeft := cCols - navballPanelW
+	navballLeft := cCols - navballGeometry(cRows).panelW
 	if bay.colStart <= leftEdge {
 		t.Errorf("bay colStart %d does not clear the left stack's right edge %d", bay.colStart, leftEdge)
 	}
@@ -1189,8 +1189,8 @@ func TestComposeChipsBayWrapsWidePickerLine(t *testing.T) {
 
 	leftStack := realisticBayLeftStack()
 	chips := append(append([]builtChip{}, leftStack...), builtChip{corner: cornerBay, lines: pickerLines})
-	const navballReserved = navballPanelH + 1 // navball showing, as at 140x40 in real play
-	navballLeft := cCols - navballPanelW
+	navballReserved := navballGeometry(cRows).panelH + 1 // as navballReservedRows returns
+	navballLeft := cCols - navballGeometry(cRows).panelW
 
 	v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, navballReserved, 0, 0, chips)
 	if len(v.chipRects) != len(leftStack)+1 {
@@ -1449,7 +1449,7 @@ func TestGracefulShrinkNoOverlapAtCoreSizes(t *testing.T) {
 		t.Run(fmt.Sprintf("%dx%d", sz.w, sz.h), func(t *testing.T) {
 			v := NewOrbitView(chipTestTheme())
 			cCols, cRows := canvasDimsFor(sz.w, sz.h)
-			navballReserved := navballPanelH + 1
+			navballReserved := navballGeometry(cRows).panelH + 1
 			v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, navballReserved, 1, 2, realisticChipSet(true))
 			assertNoChipRectOverlaps(t, v.chipRects)
 		})
@@ -1468,7 +1468,7 @@ func TestGracefulShrinkReproducesForcedNodesVsOrbitCollision(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	const termW, termH = 104, 25 // canvas rows = 22, matching the dump's geometry
 	cCols, cRows := canvasDimsFor(termW, termH)
-	navballReserved := navballPanelH + 1
+	navballReserved := navballGeometry(cRows).panelH + 1
 	v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, navballReserved, 1, 2, realisticChipSet(true))
 	assertNoChipRectOverlaps(t, v.chipRects)
 }

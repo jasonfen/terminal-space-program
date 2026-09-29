@@ -2558,8 +2558,9 @@ func (v *OrbitView) drawSOIPass(w *sim.World) {
 // Extracted from orbit.Render in v0.11.4+ so the LaunchView can
 // composite the same panel in its bottom-right (sub-scope 6).
 func (v *OrbitView) composeNavballOverlay(w *sim.World, canvasStr string, cCols, cRows int, recordControls bool) string {
+	g := navballGeometry(cRows)
 	if !w.CraftVisibleHere() ||
-		cCols < navballPanelW+2 || cRows < navballPanelH+2 {
+		cCols < g.panelW+2 || cRows < g.panelH+2 {
 		return canvasStr
 	}
 	rawLat, rawLon, ok := w.NavballSubObserver()
@@ -2567,10 +2568,10 @@ func (v *OrbitView) composeNavballOverlay(w *sim.World, canvasStr string, cCols,
 		return canvasStr
 	}
 	subLat, subLon := v.stickyNavballSubObserver(rawLat, rawLon)
-	disk := navballPanelDisk(w, subLat, subLon)
-	panel, boxes := v.buildNavballPanel(disk, w.NavMode, w.InstantSAS, w.RCSActive())
-	atCol := cCols - navballPanelW
-	atRow := cRows - navballPanelH - 1
+	disk := navballPanelDisk(g, w, subLat, subLon)
+	panel, boxes := v.buildNavballPanel(g, disk, w.NavMode, w.InstantSAS, w.RCSActive())
+	atCol := cCols - g.panelW
+	atRow := cRows - g.panelH - 1
 	lines := strings.Split(canvasStr, "\n")
 	lines = overlayStyledBlock(lines, panel, atRow, atCol, cCols)
 	out := strings.Join(lines, "\n")
