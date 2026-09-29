@@ -28,11 +28,10 @@ type tierReading struct {
 	source string
 }
 
-// tierReadings returns every reading fixture, steady ones first. The
-// second slice holds the known over-wide transient readings (see
-// TestChipTierKnownOverwideReadings).
-func tierReadings(t *testing.T) (steady, overwide []tierReading) {
+// tierReadings returns every reading fixture, transient alarms included.
+func tierReadings(t *testing.T) []tierReading {
 	t.Helper()
+	var steady []tierReading
 	v := NewOrbitView(launchThemeForTest())
 	add := func(dst *[]tierReading, tier chipTier, source string, lines []string) {
 		for _, l := range lines {
@@ -89,9 +88,8 @@ func tierReadings(t *testing.T) (steady, overwide []tierReading) {
 		add(&steady, chipTierBottomLeft, "STAGES/loadout "+id, v.buildStagesBox(w))
 	}
 
-	// COMMS statuses. Connected and crewed/uncontrollable "no signal" are
-	// steady; the uncrewed NO SIGNAL alarm rows are the known over-wide
-	// transients.
+	// COMMS statuses, including the uncrewed NO SIGNAL alarm rows: COMMS is
+	// pinned at one row, so they must fit the tier rather than wrap.
 	c := spacecraft.NewFromLoadout(spacecraft.LoadoutOrder[0])
 	add(&steady, chipTierBottomLeft, "COMMS connected", []string{v.commsBoxStatusLine(c, 3, true, 0)})
 	add(&steady, chipTierBottomLeft, "COMMS direct", []string{v.commsBoxStatusLine(c, 1, true, 0)})
@@ -99,9 +97,9 @@ func tierReadings(t *testing.T) (steady, overwide []tierReading) {
 	add(&steady, chipTierBottomLeft, "COMMS crewed no signal", []string{v.commsBoxStatusLine(c, 0, false, 0)})
 	c.Crewed, c.Controllable = false, true
 	for _, reason := range []sim.CommDisconnectReason{0, sim.CommDisconnectBlocked, sim.CommDisconnectOutOfRange} {
-		add(&overwide, chipTierBottomLeft, fmt.Sprintf("COMMS uncrewed alarm reason %d", reason), []string{v.commsBoxStatusLine(c, 0, false, reason)})
+		add(&steady, chipTierBottomLeft, fmt.Sprintf("COMMS uncrewed alarm reason %d", reason), []string{v.commsBoxStatusLine(c, 0, false, reason)})
 	}
-	return steady, overwide
+	return steady
 }
 
 func widestPerTier(rs []tierReading) map[chipTier]tierReading {
@@ -115,7 +113,7 @@ func widestPerTier(rs []tierReading) map[chipTier]tierReading {
 }
 
 func TestChipTierWidthsAreDerivedFromFixtures(t *testing.T) {
-	steady, _ := tierReadings(t)
+	steady := tierReadings(t)
 	widest := widestPerTier(steady)
 	for _, tier := range []chipTier{chipTierTopLeft, chipTierBottomLeft, chipTierRight} {
 		got := widest[tier]
@@ -126,25 +124,6 @@ func TestChipTierWidthsAreDerivedFromFixtures(t *testing.T) {
 		if pin := tier.outerWidth(); pin != got.width {
 			t.Errorf("tier %d pinned at %d but its widest steady reading is %d (%s)", tier, pin, got.width, got.source)
 		}
-	}
-}
-
-// TestChipTierKnownOverwideReadings records the uncrewed COMMS NO SIGNAL
-// alarm rows, which are wider than the bottom tier (they would pin it at
-// 54 instead of 46, so COMMS's two-word status would sit in a box as wide
-// as GUIDANCE). tierPad never cuts a row, so those frames grow the box;
-// this test keeps the list honest (a row that fits stops being listed).
-func TestChipTierKnownOverwideReadings(t *testing.T) {
-	_, overwide := tierReadings(t)
-	over := 0
-	for _, r := range overwide {
-		if r.width > r.tier.outerWidth() {
-			over++
-			t.Logf("known over-wide: %d > %d, %s", r.width, r.tier.outerWidth(), r.source)
-		}
-	}
-	if over == 0 {
-		t.Errorf("no listed reading exceeds its tier any more: fold them into the steady set")
 	}
 }
 
