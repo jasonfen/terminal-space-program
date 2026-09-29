@@ -1721,9 +1721,8 @@ var (
 	// is a single bare value (chipRowAt, no label2 cell of its own) and
 	// never drove this pin — the throttle row above still does, untouched
 	// by A1 — so engineCols is unchanged. The box's own widest rendered
-	// row is now the queued-node overflow line ("▸ #1 ignition in 1h00m
-	// Prograde 500 m/s", 53 cells, orbit_box_engine.go's
-	// engineQueuedNodeLine), outside #478's five named readings.
+	// row is the node: row (orbit_box_engine.go), bounded by the top-left tier
+	// pin and guarded by engineWorstCaseFixtures in orbit_chip_tiers_test.go.
 	engineCols = boxCols{value1: 12, label2: 34, gap2: 7}
 	// PROPELLANT: longest label1 is "monoprop:" (9) -> value1 12.
 	// value1's widest row is the Δv pair ("18872 / 99999 m/s", ~18

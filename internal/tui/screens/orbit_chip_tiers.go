@@ -29,12 +29,14 @@ const (
 // failing in BOTH directions: a longer reading fails the guard rather
 // than poking past the edge, and a shortened one fails it so the pin is
 // retuned rather than left stale. Set by:
-//   - top-left 55: ENGINE with a node planted
+//   - top-left 56: ENGINE's STALLED live-burn row in a frame mode
+//     ("▸ Surf Retrograde, Δv 12345 m/s  ⚠ STALLED"); the queued-node
+//     rows are shorter since "⚠" and "+N [m]" moved to the title row
 //   - bottom-left 46: MISSION's wrapped tutorial rows (wrap width 40 plus
 //     the 4-cell indent, 44 content)
 //   - right 64: NAVIGATION with a plan planted
 const (
-	tierTopLeftWidth    = 55
+	tierTopLeftWidth    = 56
 	tierBottomLeftWidth = 46
 	tierRightWidth      = 64
 )

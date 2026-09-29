@@ -2,6 +2,9 @@ package screens
 
 import (
 	"fmt"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -26,6 +29,7 @@ import (
 func (v *OrbitView) buildEngineBox(w *sim.World) []string {
 	title := v.theme.Primary.Render("ENGINE") + v.vesselBurnBadge(w)
 	c := w.ActiveCraft()
+	title = v.engineTitleWithQueue(title, w, c)
 	if c == nil {
 		return []string{
 			title,
@@ -40,6 +44,37 @@ func (v *OrbitView) buildEngineBox(w *sim.World) []string {
 		v.engineTWRCell(c),
 		v.engineNodeLine(w, c),
 	}
+}
+
+// engineTitleWithQueue right-aligns the queued node's over-budget "⚠" and
+// the "+N [m]" overflow count on the title row (#482 review F1): they
+// used to trail the node row, where a 4-digit Retrograde node over budget
+// with several queued grew the box past its tier. The title row has the
+// room, so nothing here can widen the box. Shown only while the node row
+// is describing a queued node (no live burn, no braking start), i.e. the
+// same conditions the old trailing suffix appeared under.
+func (v *OrbitView) engineTitleWithQueue(title string, w *sim.World, c *spacecraft.Spacecraft) string {
+	if c == nil || v.engineNodeBranch(w, c) != nodeBranchQueued {
+		return title
+	}
+	suffix := ""
+	if _, isOver := c.Nodes[0].OverBudget(c); isOver {
+		suffix = v.theme.Alert.Render("⚠")
+	}
+	if len(c.Nodes) > 1 {
+		if suffix != "" {
+			suffix += " "
+		}
+		suffix += v.theme.Dim.Render(fmt.Sprintf("+%d [m]", len(c.Nodes)-1))
+	}
+	if suffix == "" {
+		return title
+	}
+	pad := tierTopLeftWidth - 2 - lipgloss.Width(title) - lipgloss.Width(suffix)
+	if pad < 2 {
+		pad = 2
+	}
+	return title + strings.Repeat(" ", pad) + suffix
 }
 
 // engineThrottleLabel renders the throttle row's value: the commanded
@@ -110,22 +145,59 @@ func (v *OrbitView) engineNodeLine(w *sim.World, c *spacecraft.Spacecraft) strin
 	if c == nil {
 		return chipRowAt("node:", "—", engineCols.value1)
 	}
-	if line, ok := v.engineBurnLine(w, c); ok {
+	switch v.engineNodeBranch(w, c) {
+	case nodeBranchBurn:
+		line, _ := v.engineBurnLine(w, c)
 		return chipRowAt("node:", line, engineCols.value1)
-	}
-	if _, descending := sim.DescentCorridorFor(c, sim.DescentPredictHorizon); descending {
+	case nodeBranchBraking:
 		stopDat := v.cachedDescentStop(w, c)
-		if stopDat.hasBurnAt {
-			line := fmt.Sprintf("%s braking burn at %s  %s", hudNodeMarker,
-				readout.Distance(stopDat.burnAt.AltitudeM),
-				readout.Countdown(secondsToDuration(stopDat.burnAt.InSec)))
-			return chipRowAt("node:", line, engineCols.value1)
-		}
-	}
-	if len(c.Nodes) > 0 {
+		line := fmt.Sprintf("%s braking burn at %s  %s", hudNodeMarker,
+			readout.Distance(stopDat.burnAt.AltitudeM),
+			readout.Countdown(secondsToDuration(stopDat.burnAt.InSec)))
+		return chipRowAt("node:", line, engineCols.value1)
+	case nodeBranchQueued:
 		return chipRowAt("node:", v.engineQueuedNodeLine(w, c), engineCols.value1)
 	}
 	return chipRowAt("node:", "—", engineCols.value1)
+}
+
+// nodeBranch names which of the node row's four states is showing.
+type nodeBranch int
+
+const (
+	nodeBranchDash nodeBranch = iota
+	nodeBranchBurn
+	nodeBranchBraking
+	nodeBranchQueued
+)
+
+// engineNodeBranch is the ONE place the precedence lives, shared by the
+// node row and the title row's queue suffix so they can never disagree.
+func (v *OrbitView) engineNodeBranch(w *sim.World, c *spacecraft.Spacecraft) nodeBranch {
+	if c == nil {
+		return nodeBranchDash
+	}
+	if c.ActiveBurn != nil {
+		return nodeBranchBurn
+	}
+	if _, descending := sim.DescentCorridorFor(c, sim.DescentPredictHorizon); descending {
+		if v.cachedDescentStop(w, c).hasBurnAt {
+			return nodeBranchBraking
+		}
+	}
+	if len(c.Nodes) > 0 {
+		return nodeBranchQueued
+	}
+	return nodeBranchDash
+}
+
+// nodeModeLabel is the burn mode as the node row spells it: "Surface" and
+// "Target" abbreviate to "Surf" / "Tgt" here only (#482 review F1, the
+// row is width-pinned); every other surface keeps BurnMode.String().
+func nodeModeLabel(m spacecraft.BurnMode) string {
+	s := m.String()
+	s = strings.Replace(s, "Surface", "Surf", 1)
+	return strings.Replace(s, "Target", "Tgt", 1)
 }
 
 // engineBurnLine is engineNodeLine's live-burn branch: the active
@@ -148,50 +220,40 @@ func (v *OrbitView) engineBurnLine(w *sim.World, c *spacecraft.Spacecraft) (stri
 	}
 	ab := c.ActiveBurn
 	if c.BurnStalled() {
-		return v.theme.Warning.Render(fmt.Sprintf("%s %s, Δv %s  ⚠ STALLED (x to cancel)",
-			hudNodeMarker, ab.Mode.String(), readout.DeltaV(ab.DVRemaining))), true
+		return v.theme.Warning.Render(fmt.Sprintf("%s %s, Δv %s  ⚠ STALLED",
+			hudNodeMarker, nodeModeLabel(ab.Mode), readout.DeltaV(ab.DVRemaining))), true
 	}
 	remaining := ab.EndTime.Sub(w.Clock.SimTime).Seconds()
 	if remaining < 0 {
 		remaining = 0
 	}
 	return v.theme.Warning.Render(fmt.Sprintf("%s %s %s, %s left",
-		hudNodeMarker, ab.Mode.String(), readout.DeltaV(ab.DVRemaining), readout.Duration(secondsToDuration(remaining)))), true
+		hudNodeMarker, nodeModeLabel(ab.Mode), readout.DeltaV(ab.DVRemaining), readout.Duration(secondsToDuration(remaining)))), true
 }
 
 // engineQueuedNodeLine is engineNodeLine's queued-node branch: the
-// active craft's first planted node (c.Nodes[0]), with an overflow count
-// when more are queued. Adapted from the retired nextQueuedNodeLine, with
-// two changes for this box: no per-craft label (always this vessel's own
-// node, so "#1" is unambiguous without a "c%d#%d" prefix) and the
-// over-budget suffix shortens to a bare "⚠" in the Alert colour
-// (re-grill Q4) instead of "exceeds budget by <Δv>", the words move to
-// the F1 glossary and stay in the planner's own list (slice 2b / #maneuver.go).
-//
-// The overflow count itself is the short "+N [m]" form (review finding
-// 1, 2026-09-25), not "(+N more → [m])": at two or more queued nodes the
-// longer form pushed this row to 72 cells, wide enough that ENGINE's box
-// (74 with its border) overlapped NAVIGATION's own widest coast row (68)
-// inside the 138-column canvas. The short form still names the count and
-// still points at [m] for the full queue; it costs 9 fewer cells, enough
-// to clear NAVIGATION in every measured phase (68 in a coast, up to 73 in
-// an ascent with a plan).
+// active craft's first planted node (c.Nodes[0]). Filler words are cut
+// ("in 1h00m", not "#1 ignition in 1h00m"; "next approach"), frame modes
+// abbreviate (nodeModeLabel), and the over-budget "⚠" and the "+N [m]"
+// queued count live on ENGINE's title row (engineTitleWithQueue), so the
+// row stays inside the top-left tier (#482 review F1, ADR 0051 W1).
 func (v *OrbitView) engineQueuedNodeLine(w *sim.World, c *spacecraft.Spacecraft) string {
 	n := c.Nodes[0]
-	over := ""
-	if _, isOver := n.OverBudget(c); isOver {
-		over = "  " + v.theme.Alert.Render("⚠")
-	}
-	count := ""
-	if len(c.Nodes) > 1 {
-		count = v.theme.Dim.Render(fmt.Sprintf("  +%d [m]", len(c.Nodes)-1))
-	}
 	if !n.IsResolved() {
-		return fmt.Sprintf("%s #1 %s  %s  %s", hudNodeMarker, n.Event.String(), n.Mode.String(), readout.DeltaV(n.DV)) + over + count
+		return fmt.Sprintf("%s %s  %s  %s", hudNodeMarker, nodeEventLabel(n.Event), nodeModeLabel(n.Mode), readout.DeltaV(n.DV))
 	}
 	dt := n.BurnStart().Sub(w.Clock.SimTime)
 	if dt < 0 {
 		dt = 0
 	}
-	return fmt.Sprintf("%s #1 ignition in %s  %s  %s", hudNodeMarker, readout.Duration(dt), n.Mode.String(), readout.DeltaV(n.DV)) + over + count
+	return fmt.Sprintf("%s in %s  %s  %s", hudNodeMarker, readout.Duration(dt), nodeModeLabel(n.Mode), readout.DeltaV(n.DV))
+}
+
+// nodeEventLabel is the trigger event as the node row spells it: the
+// long "next closest approach" shortens to "next approach" here only.
+func nodeEventLabel(e spacecraft.TriggerEvent) string {
+	if e == spacecraft.TriggerNextClosestApproach {
+		return "next approach"
+	}
+	return e.String()
 }

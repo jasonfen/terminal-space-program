@@ -359,7 +359,7 @@ the cursor there, PROJECTED ORBIT shows the form's own draft instead, labelled
 as such. A node whose Δv is more than the vessel can currently afford still
 plants (you may be about to refuel, stage, or dock a tug), but its row
 carries a `⚠ exceeds budget by …` marker so it never comes as a surprise
-(the map's ENGINE box shows the same thing as a bare `⚠` on its node row,
+(the map's ENGINE box shows the same thing as a bare `⚠` on its title row, beside the `+N [m]` queued count,
 with the words in the F1 readout glossary).
 
 Below PLANNED NODES, **QUICK PLANS** lists the same six one-key planners as

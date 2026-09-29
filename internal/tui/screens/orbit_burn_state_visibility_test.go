@@ -374,8 +374,8 @@ func TestNodesChipHeadRowCountsToIgnitionThenBurnEnd(t *testing.T) {
 	})
 
 	out := strings.Join(v.buildEngineBox(w), "\n")
-	if !strings.Contains(out, "ignition in 30s") {
-		t.Errorf("waiting node row should read 'ignition in 30s' (BurnStart, not TriggerTime):\n%s", out)
+	if !strings.Contains(out, "▸ in 30s") {
+		t.Errorf("waiting node row should read '▸ in 30s' (BurnStart, not TriggerTime):\n%s", out)
 	}
 	if strings.Contains(out, "T-66s") || strings.Contains(out, "T+66s") {
 		t.Errorf("waiting node row still counts to TriggerTime:\n%s", out)
@@ -420,10 +420,10 @@ func TestNodesChipHeadRowClampsOverdueIgnitionToZero(t *testing.T) {
 	})
 
 	out := strings.Join(v.buildEngineBox(w), "\n")
-	if !strings.Contains(out, "ignition in 0s") {
-		t.Errorf("overdue-but-unfired node row should clamp to 'ignition in 0s':\n%s", out)
+	if !strings.Contains(out, "▸ in 0s") {
+		t.Errorf("overdue-but-unfired node row should clamp to '▸ in 0s':\n%s", out)
 	}
-	if strings.Contains(out, "ignition in -") {
+	if strings.Contains(out, "in -") {
 		t.Errorf("node row printed a raw negative duration:\n%s", out)
 	}
 }

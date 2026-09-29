@@ -12,8 +12,10 @@ package screens
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -21,6 +23,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 type tierReading struct {
@@ -87,6 +90,11 @@ func tierReadings(t *testing.T) []tierReading {
 		w := densityCoastingWithPlan(t)
 		w.Crafts[w.ActiveCraftIdx] = spacecraft.NewFromLoadout(id)
 		add(&steady, chipTierBottomLeft, "STAGES/loadout "+id, v.buildStagesBox(w))
+	}
+
+	// ENGINE's node row and title, every branch at its worst (F1).
+	for _, r := range engineWorstCaseFixtures(t) {
+		add(&steady, chipTierTopLeft, "ENGINE/"+r.source, r.lines)
 	}
 
 	// Worst-case VAB builds: the VAB has no stage cap, so STAGES must hold
@@ -274,6 +282,129 @@ func TestStagesRowLoadoutsUntouched(t *testing.T) {
 		row := strings.Join(v.buildStagesBox(w), "")
 		if strings.Contains(row, "…") {
 			t.Errorf("loadout %s STAGES row was cut: %q", id, row)
+		}
+	}
+}
+
+// engineWorstCaseFixtures drives the REAL ENGINE builder through every
+// node-row branch at its widest (#482 review F1): every BurnMode (frame
+// modes included) x every trigger event (closest approach with the target-relative modes only) x 3-, 4- and 5-digit Δv x
+// within / over budget x 1, 2 and 11 queued nodes x the longest
+// readout.Duration forms, resolved and unresolved; every live-burn mode,
+// STALLED included; and braking-burn descents. ENGINE's title row rides
+// along in each set, so the ⚠ / +N [m] suffix is measured too.
+func engineWorstCaseFixtures(t *testing.T) []vabStagesFixture {
+	t.Helper()
+	v := NewOrbitView(launchThemeForTest())
+	var modes []spacecraft.BurnMode
+	for m := spacecraft.BurnMode(0); m.String() != "?"; m++ {
+		modes = append(modes, m)
+	}
+	events := []spacecraft.TriggerEvent{
+		spacecraft.TriggerNextPeri, spacecraft.TriggerNextApo, spacecraft.TriggerNextAN,
+		spacecraft.TriggerNextDN, spacecraft.TriggerNextClosestApproach,
+	}
+	var out []vabStagesFixture
+	pad := regexp.MustCompile(` {3,}`)
+	add := func(source string, lines []string) {
+		// The title row right-aligns its suffix to the pin, so its drawn
+		// width is the pin by construction; measure its intrinsic width
+		// (title, a 2-cell gap, suffix) or the guard would go circular.
+		lines = append([]string(nil), lines...)
+		lines[0] = pad.ReplaceAllString(lines[0], "  ")
+		out = append(out, vabStagesFixture{source, lines})
+	}
+
+	w := densityCoastingWithPlan(t)
+	c := w.ActiveCraft()
+	base := c.Nodes[0]
+	queue := func(n spacecraft.ManeuverNode, count int) {
+		c.Nodes = nil
+		for i := 0; i < count; i++ {
+			c.Nodes = append(c.Nodes, n)
+		}
+	}
+	durs := []time.Duration{45 * time.Minute, 72*time.Hour + 45*time.Minute, 365*24*time.Hour + 23*time.Hour}
+	for _, m := range modes {
+		for _, dv := range []float64{500, 1200, 12345} {
+			for _, count := range []int{1, 2, 11} {
+				for _, d := range durs {
+					n := base
+					n.Mode, n.DV, n.TriggerTime = m, dv, w.Clock.SimTime.Add(d)
+					queue(n, count)
+					add(fmt.Sprintf("resolved %s dv=%.0f x%d in %s", m, dv, count, d), v.buildEngineBox(w))
+				}
+				for _, e := range events {
+					// The planner only offers closest approach with the
+					// target-relative modes (IsTargetRelativeMode).
+					if e == spacecraft.TriggerNextClosestApproach && !spacecraft.IsTargetRelativeMode(m) {
+						continue
+					}
+					n := base
+					n.Mode, n.DV, n.Event, n.TriggerTime = m, dv, e, time.Time{}
+					queue(n, count)
+					add(fmt.Sprintf("unresolved %s %s dv=%.0f x%d", e, m, dv, count), v.buildEngineBox(w))
+				}
+			}
+		}
+	}
+
+	lw := densityLiveBurn(t)
+	lc := lw.ActiveCraft()
+	for _, m := range modes {
+		for _, dv := range []float64{1234, 12345} {
+			for _, d := range durs {
+				lc.ActiveBurn.Mode, lc.ActiveBurn.DVRemaining = m, dv
+				lc.ActiveBurn.EndTime = lw.Clock.SimTime.Add(d)
+				add(fmt.Sprintf("live %s dv=%.0f %s", m, dv, d), v.buildEngineBox(lw))
+			}
+		}
+	}
+	for i := range lc.Stages {
+		lc.Stages[i].FuelMass = 0
+	}
+	if !lc.BurnStalled() {
+		t.Fatal("setup: draining the stages should stall the live burn")
+	}
+	for _, m := range modes {
+		lc.ActiveBurn.Mode, lc.ActiveBurn.DVRemaining = m, 12345
+		add("STALLED "+m.String(), v.buildEngineBox(lw))
+	}
+
+	for _, alt := range []float64{20_000, 60_000} {
+		bw := descendingMoonCraft(t, alt, 120)
+		if v.cachedDescentStop(bw, bw.ActiveCraft()).hasBurnAt {
+			add(fmt.Sprintf("braking descent from %.0f m", alt), v.buildEngineBox(bw))
+			bw.ActiveCraft().Nodes = []spacecraft.ManeuverNode{base, base, base}
+			add(fmt.Sprintf("braking descent from %.0f m with a queue", alt), v.buildEngineBox(bw))
+		}
+	}
+	// Extreme braking readouts through the same format (the fixtures only
+	// reach a few of them).
+	for _, tc := range []struct{ alt, sec float64 }{{4000, 300}, {999999, 360000}} {
+		line := fmt.Sprintf("%s braking burn at %s  %s", hudNodeMarker, readout.Distance(tc.alt), readout.Countdown(secondsToDuration(tc.sec)))
+		add(fmt.Sprintf("braking synth alt=%.0f in=%.0fs", tc.alt, tc.sec), []string{chipRowAt("node:", line, engineCols.value1)})
+	}
+	return out
+}
+
+// TestEngineWorstCaseFixturesReachEveryBranch keeps the enumeration
+// honest: if a builder change stops a branch from rendering, the guard
+// would silently measure the dash row instead.
+func TestEngineWorstCaseFixturesReachEveryBranch(t *testing.T) {
+	joined := map[string]bool{}
+	for _, r := range engineWorstCaseFixtures(t) {
+		for _, l := range r.lines {
+			for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "braking burn", "+10 [m]", "⚠", "Surf ", "Tgt "} {
+				if strings.Contains(l, want) {
+					joined[want] = true
+				}
+			}
+		}
+	}
+	for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "braking burn", "+10 [m]", "⚠", "Surf ", "Tgt "} {
+		if !joined[want] {
+			t.Errorf("worst-case ENGINE fixtures never rendered %q", want)
 		}
 	}
 }
