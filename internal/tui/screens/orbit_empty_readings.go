@@ -3,6 +3,8 @@ package screens
 import (
 	"regexp"
 	"strings"
+
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // orbit_empty_readings.go: the Empty readings setting's row folding (ADR
@@ -12,10 +14,25 @@ import (
 
 var ansiSeq = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
+// multiWordLabels are the row labels that contain a space, so tokenising
+// on whitespace would split them and leave a word that does not end in
+// ":". Every label a builder passes to chipRow* must appear here if it has
+// a space; TestMultiWordLabelsListIsComplete reads the source to prove it.
+var multiWordLabels = []string{
+	readout.LabelOrbitFPA, // "orbit fpa:"
+	readout.LabelRelSpeed, // "rel speed:"
+	"τ in:",               // rendezvous row (orbit_chip_builders.go)
+}
+
 // isDashRow reports whether a rendered box row carries no reading: at
-// least one "—" value and nothing else but labels (tokens ending in ":").
+// least one "—" value and nothing else but labels (tokens ending in ":",
+// plus the two-word labels in multiWordLabels).
 func isDashRow(line string) bool {
-	toks := strings.Fields(ansiSeq.ReplaceAllString(line, ""))
+	line = ansiSeq.ReplaceAllString(line, "")
+	for _, l := range multiWordLabels {
+		line = strings.ReplaceAll(line, l, "")
+	}
+	toks := strings.Fields(line)
 	dashes := 0
 	for _, t := range toks {
 		switch {

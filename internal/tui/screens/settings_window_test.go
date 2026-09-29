@@ -41,19 +41,18 @@ func TestSettingsFitsAndKeepsCursorVisibleAt104x24(t *testing.T) {
 }
 
 // TestSettingsWindowActuallyHidesRowsAtFloor confirms the body is really
-// windowed (not just short) at the floor: far fewer chip rows render than
-// settings.AllChips holds.
+// windowed (not just short) at the floor: the 35-line body does not fit
+// 24 rows, so the display section's row (last of all) must be off-screen.
+// (The window is sized from the terminal height; it used to be capped at
+// 12 body rows, which this test measured as "far fewer chip labels".)
 func TestSettingsWindowActuallyHidesRowsAtFloor(t *testing.T) {
 	s := NewSettingsScreen(Theme{})
 	out := s.Render(settings.Default(), 104, 24)
-	shown := 0
-	for _, c := range settings.AllChips {
-		if strings.Contains(out, c.Label()) {
-			shown++
-		}
+	if strings.Contains(out, "Empty readings") {
+		t.Errorf("24-row render shows the last body row; the window is not windowing:\n%s", out)
 	}
-	if shown >= len(settings.AllChips) {
-		t.Errorf("windowed render shows %d of %d chip labels, want far fewer:\n%s", shown, len(settings.AllChips), out)
+	if !strings.Contains(out, "more") {
+		t.Errorf("24-row render hides rows but draws no 'more' marker:\n%s", out)
 	}
 }
 

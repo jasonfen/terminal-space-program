@@ -4,6 +4,11 @@
 package screens
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -175,5 +180,112 @@ func TestEmptyReadingsFoldedRowsAreFullRowsVerbatim(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// F3 of the #482 review: on the launch pad GUIDANCE's last row is
+// `fpa: — orbit fpa: —`, and "orbit fpa:" is a two-word label the first
+// isDashRow did not know, so Compact left that one dash row standing.
+func TestEmptyReadingsCompactFoldsGuidanceOnThePad(t *testing.T) {
+	w := densityPad(t)
+	v := emptyReadingsView(settings.EmptyCompact)
+	gd, ok := boxLines(v, w, settings.ChipGuidance)
+	if !ok {
+		t.Fatal("GUIDANCE not placed on the pad")
+	}
+	if len(gd) != guidanceBoxMaxLines-1 {
+		t.Errorf("Compact pad: GUIDANCE lines = %d, want %d (fpa/orbit fpa row folded): %q", len(gd), guidanceBoxMaxLines-1, gd)
+	}
+	for _, c := range v.assembleChips(w) {
+		if len(c.lines) > 1 && isDashRow(c.lines[len(c.lines)-1]) {
+			t.Errorf("Compact pad: box %q still ends in a dash row %q", c.id, c.lines[len(c.lines)-1])
+		}
+	}
+}
+
+// TestMultiWordLabelsListIsComplete reads the builders' source and checks
+// that every row label containing a space, whether a string literal or a
+// readout.Label* constant passed to chipRow / chipRowAt / chipRow2 /
+// chipRow3 / chipCellAt, is listed in multiWordLabels. A new two-word label
+// that is not listed would silently survive Compact (the F3 bug).
+func TestMultiWordLabelsListIsComplete(t *testing.T) {
+	listed := map[string]bool{}
+	for _, l := range multiWordLabels {
+		listed[l] = true
+	}
+	fset := token.NewFileSet()
+	// readout.Label* constant values.
+	consts := map[string]string{}
+	rf, err := parser.ParseFile(fset, "../readout/readout.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range rf.Decls {
+		gd, ok := d.(*ast.GenDecl)
+		if !ok || gd.Tok != token.CONST {
+			continue
+		}
+		for _, sp := range gd.Specs {
+			vs, ok := sp.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, n := range vs.Names {
+				if bl, ok := vs.Values[i].(*ast.BasicLit); ok && strings.HasPrefix(n.Name, "Label") {
+					v, _ := strconv.Unquote(bl.Value)
+					consts[n.Name] = v
+					if strings.Contains(v, " ") && !listed[v] {
+						t.Errorf("readout.%s = %q has a space but is not in multiWordLabels", n.Name, v)
+					}
+				}
+			}
+		}
+	}
+	labelArgs := map[string][]int{"chipRow": {0}, "chipRowAt": {0}, "chipRow2": {1, 3}, "chipRow3": {1, 3, 5}, "chipCellAt": {1}}
+	files, _ := filepath.Glob("*.go")
+	seen := 0
+	for _, f := range files {
+		if strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		af, err := parser.ParseFile(fset, f, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(af, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			id, ok := call.Fun.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			for _, i := range labelArgs[id.Name] {
+				if i >= len(call.Args) {
+					continue
+				}
+				var v string
+				switch a := call.Args[i].(type) {
+				case *ast.BasicLit:
+					v, _ = strconv.Unquote(a.Value)
+				case *ast.SelectorExpr:
+					if x, ok := a.X.(*ast.Ident); ok && x.Name == "readout" {
+						v = consts[a.Sel.Name]
+					}
+				}
+				if v == "" {
+					continue
+				}
+				seen++
+				if strings.Contains(v, " ") && !listed[v] {
+					t.Errorf("%s: label %q has a space but is not in multiWordLabels", fset.Position(call.Pos()), v)
+				}
+			}
+			return true
+		})
+	}
+	if seen < 50 {
+		t.Errorf("guard inspected only %d label arguments; the walk is broken", seen)
 	}
 }
