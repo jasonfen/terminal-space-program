@@ -723,7 +723,15 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// active SOI-pass encounter wants the wide framing, so skip it.
 		if b, ok := w.FocusedBody(); ok && !w.FocusIsEncounterFramed() {
 			if br := b.RadiusMeters(); br > 0 {
-				minScale := float64(render.BodyTextureMinRadius) / br
+				// W2 (ADR 0051): a planet with moons (fit to its SOI, so
+				// sub-pixel) gets a floor that grows with canvas height,
+				// unchanged at the Design Size. A terminal body already
+				// fit to 8x its radius keeps the fixed floor.
+				floorPx := render.BodyTextureMinRadius
+				if bodyHasChildren(w.System().Bodies, b) {
+					floorPx = heightScaledCells(floorPx, v.canvas.Rows())
+				}
+				minScale := float64(floorPx) / br
 				if v.canvas.Scale() < minScale {
 					v.canvas.SetScale(minScale)
 				}
