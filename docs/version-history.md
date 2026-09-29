@@ -2,6 +2,17 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.45.0
+
+The instrument boxes line up and hold their width for the whole flight, a taller terminal draws the planet and the navball bigger, and a new Settings line decides what empty readings do (closes #482; PRs `#483`, `#484`, `#485`, `#486`, review fixes `#487`, `#488`, `#489`, `#490`; tag `v0.45.0`).
+
+- **Two straight edges down the left, one on the right.** ENGINE, PROPELLANT and GUIDANCE share one width (56), COMMS, STAGES and MISSION a narrower one (46), NAVIGATION and TARGET one more (64). Planting a node, pressing `t` or starting a burn changes numbers, never outlines. A guard test re-derives every width from the readings each box can draw, so a longer reading fails a test rather than poking past the edge.
+- **ENGINE's node row is shorter.** It reads `▸ in 12m04s  Retrograde  3120 m/s`: `ignition in` is now `in`, `#1` is gone, `next closest approach` is `next approach`, and Surface and Target modes read `Surf` and `Tgt` on this row only. The over-budget `⚠` and the `+2 [m]` queued count moved up beside the ENGINE title.
+- **NO SIGNAL names the fix.** An uncrewed vessel out of contact reads `⚠ NO SIGNAL: needs a relay` or `needs a stronger antenna`. STAGES shortens a long stage name with `…` on big VAB builds, and a mission failure message wraps instead of widening MISSION.
+- **Bigger on a taller terminal.** Earth, and any planet with moons, draws larger as the terminal gets taller (about 1.25x at 181x49); the Moon already did. The navball grows with height too (30x15 disk at 181x49), stays bottom-right, and never reaches the rows NAVIGATION and TARGET can use. At 140x40 both are exactly as before.
+- **Settings: Empty readings, Full / Tidy / Compact.** Tidy (the default) is the v0.44.3 screen plus NAVIGATION folding its empty `impact:` / `plan:` rows while nothing is targeted. Full always draws every box and row, TARGET included. Compact also drops every box's trailing empty rows. Rows only ever fold from the bottom of a box, and widths are the same under all three. The Settings screen now shows every row at 140x40 without scrolling.
+- No save-schema change; the setting lives in `settings.json`.
+
 ### v0.44.3
 
 With nothing targeted, the TARGET box is gone rather than sitting there full of dashes, and the map has those rows back (closes #480; PR `#481`; tag `v0.44.3`).
