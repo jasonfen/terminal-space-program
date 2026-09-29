@@ -1743,9 +1743,9 @@ connectivity is restored).
 **Disconnect Reason** (v0.32 / #221, ADR 0027 amendment):
 The classification carried beside a disconnected probe's `Connected:
 false` in the **CommGraph** — *blocked* (the network is in link range
-but no unoccluded path exists → "no station in view — relay needed")
-or *out of range* (nothing in range at all → "out of range — stronger
-antenna needed"). Exactly two reasons by design: the minimum set that
+but no unoccluded path exists → "needs a relay")
+or *out of range* (nothing in range at all → "needs a stronger
+antenna"; both named by the fix since #482 pinned COMMS's width). Exactly two reasons by design: the minimum set that
 is never actively wrong advice. The comms chip renders the reason
 under `⚠ NO SIGNAL`; an unclassified disconnect renders the bare form
 rather than guess. The finer diagnosis (no antenna fitted, relay chain

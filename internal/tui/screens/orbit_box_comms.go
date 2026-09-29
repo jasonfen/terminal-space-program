@@ -51,9 +51,9 @@ func (v *OrbitView) commsBoxStatusLine(c *spacecraft.Spacecraft, hops int, conne
 	line := "⚠ NO SIGNAL"
 	switch reason {
 	case sim.CommDisconnectBlocked:
-		line += ": no station in view, relay needed"
+		line += ": needs a relay"
 	case sim.CommDisconnectOutOfRange:
-		line += ": out of range, stronger antenna needed"
+		line += ": needs a stronger antenna"
 	}
 	return "  " + v.theme.Alert.Render(line)
 }

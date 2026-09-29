@@ -1275,6 +1275,9 @@ func (v *LaunchView) airScaleColumnBound(w *sim.World, cCols int) int {
 			widest = bw
 		}
 	}
+	if w := chipTierRight.outerWidth(); w > widest { // composeChips draws the pair at the tier width (W1)
+		widest = w
+	}
 	bound := cCols - widest - 1 // one column of clearance, matching the ADR's own "one column clear"
 	if bound < 1 {
 		bound = 1
@@ -1303,6 +1306,9 @@ func (v *LaunchView) airScaleLabelLeftBound(w *sim.World) int {
 		if bw := contentW + 2; bw > widest {
 			widest = bw
 		}
+	}
+	if w := chipTierTopLeft.outerWidth(); w > widest { // composeChips draws the top three at the tier width (W1)
+		widest = w
 	}
 	return widest + 1
 }
