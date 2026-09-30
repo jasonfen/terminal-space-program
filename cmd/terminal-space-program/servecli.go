@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/jasonfen/terminal-space-program/internal/serve"
 	"github.com/jasonfen/terminal-space-program/internal/sessiondir"
 )
@@ -49,7 +50,17 @@ func serveCLI(args []string, dir string, stdout, stderr io.Writer) int {
 	default:
 		return usage()
 	}
-	store, err := sessiondir.Open(dir)
+	// roster only reads: open without creating the dir or running the
+	// legacy-dedupe repair, so inspecting never writes.
+	var (
+		store *sessiondir.Store
+		err   error
+	)
+	if args[0] == "roster" {
+		store, err = sessiondir.OpenReadOnly(dir)
+	} else {
+		store, err = sessiondir.Open(dir)
+	}
 	if err != nil {
 		return fail(err)
 	}
@@ -68,12 +79,12 @@ func serveCLI(args []string, dir string, stdout, stderr io.Writer) int {
 		}
 		w := 6
 		for _, p := range m.Roster {
-			if len(p.Handle) > w {
-				w = len(p.Handle)
+			if hw := lipgloss.Width(p.Handle); hw > w {
+				w = hw
 			}
 		}
 		for _, p := range m.Roster {
-			fmt.Fprintf(stdout, "%s  %s\n", p.Handle+strings.Repeat(" ", w-len(p.Handle)), p.Role)
+			fmt.Fprintf(stdout, "%s  %s\n", p.Handle+strings.Repeat(" ", w-lipgloss.Width(p.Handle)), p.Role)
 		}
 	case "promote", "demote":
 		m, err := store.Meta()

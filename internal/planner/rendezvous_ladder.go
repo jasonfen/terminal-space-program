@@ -426,19 +426,7 @@ func rendezvousLadderCore(moverState, holderState orbital.Vec3State, primary bod
 	// eccentric holder it mis-times arrival by a large fraction of the
 	// orbit. Below the circular threshold the true anomaly is undefined
 	// and the sweep IS exact, so it stays as the fallback.
-	t0 := dPhi0 / (2 * math.Pi) * pHolder
-	if hEl.E >= 1e-9 {
-		nuNow := orbital.TrueAnomalyFromState(holderState.R, holderState.V, mu, hEl)
-		nuAim := math.Mod(nuNow+dPhi0, 2*math.Pi)
-		if dt := orbital.TimeToTrueAnomaly(nuNow, nuAim, hEl.A, hEl.E, mu); dt > 0 {
-			// TimeToTrueAnomaly returns a full period for "already
-			// there"; a zero phase offset means the holder is at r0 now.
-			if dPhi0 == 0 {
-				dt = 0
-			}
-			t0 = dt
-		}
-	}
+	t0 := holderTimeToPhase(holderState, hEl, mu, dPhi0, pHolder)
 
 	rows := make([]RendezvousBurnOption, 0, len(rendezvousCandidateLaps))
 	for _, n := range rendezvousCandidateLaps {
@@ -613,4 +601,30 @@ func orbitSafetyGate(preR, preV, postR, postV orbital.Vec3, primary bodies.Celes
 		return false
 	}
 	return true
+}
+
+// rendezvousPhaseEps is the angular tolerance (rad) inside which the
+// holder counts as already at r0. Float noise in the atan2 angle can land
+// a co-located holder a hair either side of zero; the "hair behind" side
+// normalises to ~2π, which would read as one full period of waiting.
+const rendezvousPhaseEps = 1e-9
+
+// holderTimeToPhase is the time for the holder to sweep dPhi0 (radians,
+// in [0, 2π), in its own rotation sense) to reach r0. A phase within
+// rendezvousPhaseEps of 0 or of 2π means "already there": zero, never a
+// period. Eccentric holders use Kepler time-of-flight (#413); below the
+// circular threshold the uniform sweep is exact.
+func holderTimeToPhase(holderState orbital.Vec3State, hEl orbital.Elements, mu, dPhi0, pHolder float64) float64 {
+	if dPhi0 < rendezvousPhaseEps || dPhi0 > 2*math.Pi-rendezvousPhaseEps {
+		return 0
+	}
+	t0 := dPhi0 / (2 * math.Pi) * pHolder
+	if hEl.E >= 1e-9 {
+		nuNow := orbital.TrueAnomalyFromState(holderState.R, holderState.V, mu, hEl)
+		nuAim := math.Mod(nuNow+dPhi0, 2*math.Pi)
+		if dt := orbital.TimeToTrueAnomaly(nuNow, nuAim, hEl.A, hEl.E, mu); dt > 0 {
+			t0 = dt
+		}
+	}
+	return t0
 }

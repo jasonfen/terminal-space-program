@@ -2,9 +2,15 @@ package main
 
 import (
 	"bytes"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/jasonfen/terminal-space-program/internal/sessiondir"
 )
 
@@ -140,4 +146,72 @@ func TestServeCLIUsageAndInvite(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "invite minted for newbie") {
 		t.Errorf("invite: exit %d out %q", code, out)
 	}
+}
+
+// Handles may be non-ASCII; the role column must start at the same
+// display column on every row (pad by display width, not bytes).
+func TestServeCLIRosterAlignsNonASCIIHandles(t *testing.T) {
+	dir, st := seedStore(t)
+	for i, h := range []string{"José", "日本語"} {
+		inv, err := st.MintInvite(h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.Enroll(inv.Code, "SHA256:u"+string(rune('a'+i)), h); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, out, errs := runCLI(dir, "roster")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errs)
+	}
+	col := -1
+	for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
+		f := strings.Fields(line)
+		role := f[len(f)-1]
+		prefix := strings.TrimSuffix(line, role)
+		got := lipgloss.Width(prefix)
+		if col == -1 {
+			col = got
+		} else if got != col {
+			t.Errorf("role column at %d on %q, want %d\n%s", got, line, col, out)
+		}
+	}
+}
+
+// A read-only command must not write: a missing session dir is reported
+// (not created), and an existing one is left byte-for-byte untouched.
+func TestServeCLIRosterIsReadOnly(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "nope")
+	code, _, errs := runCLI(missing, "roster")
+	if code == 0 || !strings.Contains(errs, "no session") {
+		t.Errorf("missing dir: exit %d, stderr %q; want failure saying no session", code, errs)
+	}
+	if _, err := os.Stat(missing); err == nil {
+		t.Error("roster created the session dir")
+	}
+
+	dir, _ := seedStore(t)
+	before := dirListing(t, dir)
+	if code, _, errs := runCLI(dir, "roster"); code != 0 {
+		t.Fatalf("exit %d: %s", code, errs)
+	}
+	if after := dirListing(t, dir); after != before {
+		t.Errorf("roster changed the session dir:\nbefore %s\nafter  %s", before, after)
+	}
+}
+
+func dirListing(t *testing.T, dir string) string {
+	t.Helper()
+	var out []string
+	filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		fi, _ := d.Info()
+		out = append(out, fmt.Sprintf("%s:%d:%d", p, fi.Size(), fi.ModTime().UnixNano()))
+		return nil
+	})
+	sort.Strings(out)
+	return strings.Join(out, " ")
 }

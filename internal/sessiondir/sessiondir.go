@@ -181,6 +181,24 @@ type Meta struct {
 type Store struct {
 	dir string
 	mu  sync.Mutex
+	// readOnly stores never create the dir, the lock file, or rewrite
+	// session.json; built by OpenReadOnly for inspection commands.
+	readOnly bool
+}
+
+// OpenReadOnly opens an existing session dir for reading only: it does
+// not create the directory, does not initialise session.json, and does
+// not run the legacy handle-collision repair. A missing session is an
+// error naming the path. Use Meta on the result; mutators are not safe
+// on a read-only store.
+func OpenReadOnly(dir string) (*Store, error) {
+	if _, err := os.Stat(filepath.Join(dir, "session.json")); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("sessiondir: no session at %s (nothing has been served or invited yet)", dir)
+		}
+		return nil, fmt.Errorf("sessiondir: %w", err)
+	}
+	return &Store{dir: dir, readOnly: true}, nil
 }
 
 // DefaultDir is $XDG_STATE_HOME/terminal-space-program/session
@@ -209,8 +227,7 @@ func Open(dir string) (*Store, error) {
 		return nil, fmt.Errorf("sessiondir: %w", err)
 	}
 	s := &Store{dir: dir}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock()()
 	if _, err := os.Stat(s.metaPath()); errors.Is(err, os.ErrNotExist) {
 		hash, err := bodies.CatalogHash()
 		if err != nil {
@@ -356,8 +373,7 @@ func dedupeRosterHandles(roster []Player, invites []Invite) []handleRename {
 // once, even if the process restarts between the read and the next
 // mutation.
 func (s *Store) ConsumePendingNote(fingerprint string) (string, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock()()
 	m, err := s.readMeta()
 	if err != nil {
 		return "", err
@@ -376,8 +392,7 @@ func (s *Store) metaPath() string { return filepath.Join(s.dir, "session.json") 
 
 // Meta returns a fresh read of session.json.
 func (s *Store) Meta() (Meta, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock()()
 	return s.readMeta()
 }
 
@@ -452,8 +467,7 @@ func migrateMetaV2ToV3(m *Meta) {
 // guest resumes docked-as-guest. Re-reads under the lock so a concurrent
 // roster edit isn't clobbered.
 func (s *Store) SetDocks(docks []DockLink) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock()()
 	m, err := s.readMeta()
 	if err != nil {
 		return err
@@ -483,8 +497,7 @@ func (s *Store) writeMeta(m Meta) error {
 // the Host role on first --serve (idempotent — an existing host entry
 // is returned untouched, so a renamed handle survives restarts).
 func (s *Store) EnsureHost(handle string) (Player, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock()()
 	m, err := s.readMeta()
 	if err != nil {
 		return Player{}, err
@@ -515,8 +528,7 @@ func (s *Store) MintInvite(handle string) (Invite, error) {
 	if handle == "" {
 		return Invite{}, errors.New("sessiondir: invite needs a handle")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock()()
 	m, err := s.readMeta()
 	if err != nil {
 		return Invite{}, err
@@ -565,8 +577,7 @@ func mintCode() (string, error) {
 // Peek validates an invite code without consuming it — the enroll
 // flow shows the pre-bound handle for editing before committing.
 func (s *Store) Peek(code string) (Invite, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock()()
 	m, err := s.readMeta()
 	if err != nil {
 		return Invite{}, err
@@ -589,8 +600,7 @@ func (s *Store) Enroll(code, fingerprint, handle string) (Player, error) {
 	if handle == "" {
 		return Player{}, errors.New("sessiondir: handle can't be empty")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock()()
 	m, err := s.readMeta()
 	if err != nil {
 		return Player{}, err
@@ -656,8 +666,7 @@ func normalizeCode(c string) string {
 // RevokeInvite deletes an unredeemed code. ErrUnknownInvite when the
 // code doesn't exist (already redeemed, already revoked, or a typo).
 func (s *Store) RevokeInvite(code string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock()()
 	m, err := s.readMeta()
 	if err != nil {
 		return err
@@ -680,8 +689,7 @@ func (s *Store) RemovePlayer(fingerprint string) error {
 	if fingerprint == HostFingerprint {
 		return errors.New("sessiondir: can't remove the host")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock()()
 	m, err := s.readMeta()
 	if err != nil {
 		return err
@@ -799,8 +807,7 @@ func (s *Store) setRole(fingerprint, role string) error {
 	if fingerprint == HostFingerprint {
 		return errors.New("sessiondir: can't change the host's role")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock()()
 	m, err := s.readMeta()
 	if err != nil {
 		return err

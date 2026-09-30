@@ -76,8 +76,7 @@ type FleetResetEntry struct {
 // It refuses — before touching anything — a roster too large to keep
 // FleetResetMinSeparationM between neighbours.
 func (s *Store) ResetFleet(epoch time.Time) ([]FleetResetEntry, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	defer s.lock()()
 	m, err := s.readMeta()
 	if err != nil {
 		return nil, err

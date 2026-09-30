@@ -509,3 +509,32 @@ func TestRendezvousLadder_IterateSelfConsistent(t *testing.T) {
 		}
 	}
 }
+
+// A holder already at r0 must wait ~0, however the atan2 angle lands:
+// exactly 0, a hair above, or a hair below (which normalises to ~2π and
+// used to read as one full period of waiting).
+func TestHolderTimeToPhaseWrapAroundIsNotAPeriodLate(t *testing.T) {
+	mu := muEarth
+	rp, ra := 6.771e6, 12.0e6
+	e := (ra - rp) / (ra + rp)
+	k := math.Sqrt(1 + e)
+	for _, nuFrac := range []float64{0, 0.3, 0.5, 0.9} {
+		base := eccentricStateAtRadius(rp, 0, k, mu)
+		period := orbitalPeriod(physics.StateVector{R: base.R, V: base.V}, mu)
+		sv, ok := physics.KeplerStep(physics.StateVector{R: base.R, V: base.V}, mu, nuFrac*period)
+		if !ok {
+			t.Fatal("KeplerStep")
+		}
+		h := orbital.Vec3State{R: sv.R, V: sv.V}
+		hEl := orbital.ElementsFromState(h.R, h.V, mu)
+		for _, dPhi := range []float64{0, 1e-12, 2*math.Pi - 1e-12} {
+			if got := holderTimeToPhase(h, hEl, mu, dPhi, period); got > 1 {
+				t.Errorf("nu=%.1f of period, dPhi0=%g: t0 = %.1f s, want ~0 (period %.0f s)", nuFrac, dPhi, got, period)
+			}
+		}
+		// A real quarter-turn must still take real time.
+		if got := holderTimeToPhase(h, hEl, mu, math.Pi/2, period); got <= 1 || got >= period {
+			t.Errorf("quarter-turn t0 = %.1f s, want within (1, %.0f)", got, period)
+		}
+	}
+}
