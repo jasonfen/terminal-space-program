@@ -18,7 +18,7 @@ import (
 // rendezvousPickerOrbitCycle is the ←/→ walk order ("their orbit / your
 // orbit / the crossing", per ADR 0045 §2's own acceptance wording) —
 // deliberately NOT planner.RendezvousOrbit's enum order (RendezvousCrossing is
-// iota 0 there, for unrelated reasons: see rendezvous.go). "their orbit" is
+// iota 0 there, for unrelated reasons: see planner/rendezvous_ladder.go). "their orbit" is
 // the picker's opening Place (rendezvousKDefaultPlace, sim package), so it
 // leads the cycle here too.
 var rendezvousPickerOrbitCycle = [...]planner.RendezvousOrbit{

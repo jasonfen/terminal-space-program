@@ -132,7 +132,7 @@ type RendezvousAdvisory struct {
 //
 // ADR 0045 §2 / #398 explored removing the Step 0 shape-mismatch gate
 // on the theory that the Rendezvous Planner (planner.RecommendRendezvousLadder,
-// rendezvous.go) now covers a shape-mismatched pair with a genuine solve
+// rendezvous_ladder.go) now covers a shape-mismatched pair with a genuine solve
 // instead of a lossy axis projection. That removal did NOT ship (PR
 // #405 review): the test meant to justify it compared the solver's own
 // predicted closest approach against a "flight" propagated with the
@@ -170,10 +170,10 @@ func RecommendRendezvousNudge(
 	// another diverging position-only burn.
 	//
 	// ADR 0045 §2 / #398 tried to remove this gate on the theory that the
-	// Rendezvous Planner (rendezvous.go) now covers the shape-mismatch case
+	// Rendezvous Planner (rendezvous_ladder.go) now covers the shape-mismatch case
 	// with a genuine solve instead of a lossy axis projection. That
 	// removal is REVERTED (PR #405 review): the test written to justify
-	// it (rendezvous.go's TestRendezvousLadder_IterateSelfConsistent) checks
+	// it (rendezvous_ladder.go's TestRendezvousLadder_IterateSelfConsistent) checks
 	// the solver's own predicted CA against a "flight" propagated with
 	// the SAME analytic model the solver used to predict it — prediction
 	// and flight are the same equations run twice, so they cannot

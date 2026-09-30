@@ -2407,47 +2407,54 @@ the current tooling.
 _Avoid_: Approach (too generic — also covers planetary flybys),
 Intercept (military / kinetic connotation), Catch (informal only).
 
-**Rendezvous Planner** (ADR 0045 S2/S5/S6, #398/#399; renamed from
-"Meeting Planner" in ADR 0051 slice 3, 2026-09-15):
+**Rendezvous Planner** (ADR 0045 S2/S5/S6, #398/#399):
 The map's escalation path when `K`'s own single-burn **Nudge** can't
 close the gap: too far apart in phase, but the two orbits' *shapes*
 already match (a **Shape-Match Gate** pass). Opens as the `RENDEZVOUS
 PLAN` picker, a **Notice** that holds keyboard focus (it never folds or
 shrinks while open); the help overlay's own section is `RENDEZVOUS
 PLANNER`. Distinct from `K`'s direct nudge, which plants immediately
-with no picker when the gap is already small. Player-facing wording
-only: internal identifiers (`MeetingPlace`, `RecommendMeetingLadder`,
-`ErrMeetingSizeMismatch`, `OpenMeetingPicker`) kept the `Meeting*` name
-and were not renamed.
-_Avoid_: Meeting Planner, Meeting Plan, Meeting Place (all retired
-player-facing wording; keep the internal Go identifiers as they are).
+with no picker when the gap is already small. Code and player text use
+the same word: `planner.RendezvousOrbit`, `RecommendRendezvousLadder`,
+`ErrRendezvousSizeMismatch`, `OpenRendezvousPicker`.
+_Avoid_: Meeting Planner, Meeting Plan (retired: the term is Rendezvous
+throughout, including code, saves and the wire).
 
-**Meeting Place** (ADR 0045 §2, `planner.MeetingPlace`):
-Which craft's orbit the **Rendezvous Planner**'s meeting point lives
+**Rendezvous Orbit** (ADR 0045 §2, `planner.RendezvousOrbit`):
+Which craft's orbit the **Rendezvous Planner**'s rendezvous point lives
 on: **"their orbit"** (the target holds, the active craft burns to
 arrive), **"your orbit"** (the active craft holds, the burn is for the
 *partner*, so planting it on a remote craft is out of scope), or
 **"the crossing"** (the two current, unburned courses' own natural
-intersection, which refuses today, `ErrMeetingCrossingNotImplemented`;
+intersection, which refuses today, `ErrRendezvousCrossingNotImplemented`;
 a solver existed briefly, PR #412, and was reverted rather than fixed
 forward after it planted burns that only matched at one instant). The
 picker's `←`/`→` walk these three.
-_Avoid_: Meeting point (ambiguous with **Closest Approach**), Rally
-point.
+_Avoid_: Meeting Place (retired), Meeting point (ambiguous with
+**Closest Approach**), Rally point.
+
+**Rendezvous Burn** (ADR 0045 §2, `sim.PlanRendezvousBurn`):
+The single node a **Lap Ladder** row plants: a burn on the mover that
+puts it at the **Rendezvous Orbit**'s point at the row's arrival time.
+Tagged `sim.AdvisoryKeyRendezvousBurn` so a repeat press replaces its own
+node, and carries its plan (arrival, orbit label, lap count) so Engage can
+commit to the plan's own arrival. Persisted since save schema v12 as
+`rendezvous_arrival_sec` / `rendezvous_orbit_label` / `rendezvous_laps`
+(v11 saves migrate).
+_Avoid_: Meeting Burn (retired).
 
 **Lap Ladder** (ADR 0045 §2):
-The picker's `↑`/`↓` list of **Meeting Burn** options, one row per lap
+The picker's `↑`/`↓` list of **Rendezvous Burn** options, one row per lap
 count, cheaper (lower Δv) with more laps and a longer wait, the same
 "waiting is cheap, Δv is dear" trade **Arrival Speed** documents for
 the ordinary Nudge. An unaffordable or otherwise unsafe row still
-shows, dimmed, with its reason (`ErrMeetingUnaffordable`,
-`ErrRendezvousUnsafePeriapsis`, `ErrMeetingNoSolution`), rather than
+shows, dimmed, with its reason (`ErrRendezvousUnaffordable`,
+`ErrRendezvousUnsafePeriapsis`, `ErrRendezvousNoSolution`), rather than
 being hidden, so the trade stays visible even when it isn't legal
 right now. Refused outright, structurally, when the mover's current
 orbital radius sits outside the holder's periapsis-to-apoapsis range:
-`ErrMeetingSizeMismatch`, surfaced as `radius outside target's
-apsides: plan a transfer [H] first` (reworded from "Meeting Place"
-wording in ADR 0051 slice 3).
+`ErrRendezvousSizeMismatch`, surfaced as `radius outside target's
+apsides: plan a transfer [H] first`.
 _Avoid_: Meeting Ladder, Burn ladder (bare).
 
 **Rendezvous Advisory**:
@@ -2640,7 +2647,7 @@ that the Vessel can afford**, the ADR 0047 consequence: an over-budget
 plan is allowed but earns no credit), *Fly It* (warp to or fire the burn,
 climb above 700 km), *Off the Pad* (spawn on the launchpad, throttle up,
 stage, pitch east above 10 km, plan and fly the circularising burn), and
-*Meet & Dock* (spawn a partner in orbit, target it, plant the meeting
+*Meet & Dock* (spawn a partner in orbit, target it, plant the rendezvous
 burn, dock). Each rung's Objectives carry the instruction as text, one
 step per Objective; that is the tutorial teaching, not the instrument
 coaching ADR 0048 ruled out. Passing the last rung shows a **Sendoff**

@@ -41,7 +41,7 @@ var (
 	//
 	// ADR 0045 §2 / #398 proposed retiring ErrRendezvousShapeMismatch
 	// alongside the planner-side gate it names, on the theory that the
-	// Rendezvous Planner (rendezvous.go) now covers a shape-mismatched pair.
+	// Rendezvous Planner (planner/rendezvous_ladder.go) now covers a shape-mismatched pair.
 	// That removal did not ship (PR #405 review — see
 	// RecommendRendezvousNudge's doc comment for why); this sentinel and
 	// the gate behind it stay.

@@ -378,7 +378,7 @@ func TestRecommendRendezvousLadder_NonCoplanarRefused(t *testing.T) {
 // fire at TriggerTime = now + a slew lead — not at tCA. The two times
 // coincide only by chance, so the planted burn routinely missed by
 // megametres (see ErrRendezvousCrossingNotImplemented's doc comment for
-// the measured numbers, and internal/sim/rendezvous_test.go for the
+// the measured numbers, and internal/sim/rendezvous_burn_test.go for the
 // sim-layer regression test against the actual plant path). Reverted
 // rather than fixed forward: RendezvousCrossing now refuses
 // unconditionally — ErrRendezvousNoCrossing when no natural crossing
