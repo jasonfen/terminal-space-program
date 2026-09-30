@@ -1,6 +1,8 @@
 package relay
 
 import (
+	"time"
+
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
@@ -36,18 +38,32 @@ import (
 // held for, never cancelled. A nil map means no owner is live (the safe
 // default for callers with no liveness source).
 //
+// now is the viewer's wall clock, the reference for extrapolating each
+// report's SubspaceTime (#417); the zero time, or an unstamped report,
+// reads the report verbatim.
+//
 // away is the serve layer's per-owner Away verdict (#253): reports carry
 // what a peer's WORLD is doing, not whether anyone is at its controls, so
 // the caller supplies Server.isAway's answer and it rides the peer as
 // standing state. Orthogonal to live — an away session is still live
 // (that is the Reprieve), so its arm survives while Away marks it
 // unattended. nil means nobody is away (solo / tests).
-func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]string, viewerFP string, live, away map[string]bool) []sim.CoWarpPeer {
+func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]string, viewerFP string, live, away map[string]bool, now time.Time) []sim.CoWarpPeer {
 	sysName := w.System().Name
 	viewerT := w.Clock.SimTime
 	var out []sim.CoWarpPeer
 	for _, rep := range reports {
-		dt := viewerT.Sub(rep.SubspaceTime).Seconds()
+		// Current at read (#417): the report's clock is one heartbeat old
+		// at worst, and a steady coast sends nothing in between, so
+		// project it forward by the peer's own rate. Every consumer below
+		// (the Kepler gap, the same-subspace gate, the pacing lead) then
+		// reads a value that means "now" instead of each compensating for
+		// Heartbeat*EffWarp of staleness itself.
+		peerT := rep.SubspaceTime
+		if !rep.ReportedAt.IsZero() && !now.IsZero() {
+			peerT = sim.ExtrapolateSubspaceTime(rep.SubspaceTime, rep.EffWarp, rep.Paused, now.Sub(rep.ReportedAt))
+		}
+		dt := viewerT.Sub(peerT).Seconds()
 		var crafts []sim.CoWarpCraft
 		for _, cs := range rep.Crafts {
 			if cs.Landed || cs.System != sysName {
@@ -71,7 +87,7 @@ func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]str
 		p := sim.CoWarpPeer{
 			Owner:        rep.Owner,
 			Handle:       handles[rep.Owner],
-			SubspaceTime: rep.SubspaceTime,
+			SubspaceTime: peerT,
 			EffWarp:      rep.EffWarp,
 			Crafts:       crafts,
 			Paused:       rep.Paused,

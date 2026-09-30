@@ -39,7 +39,7 @@ func TestSeatAndRateCrossTheWire(t *testing.T) {
 	}
 
 	live := map[string]bool{ownerA: true}
-	peers := CoWarpPeersFrom(wB, reports, map[string]string{ownerA: "alice"}, ownerB, live, nil)
+	peers := CoWarpPeersFrom(wB, reports, map[string]string{ownerA: "alice"}, ownerB, live, nil, time.Time{})
 	if len(peers) != 1 {
 		t.Fatalf("peers = %d, want alice", len(peers))
 	}
