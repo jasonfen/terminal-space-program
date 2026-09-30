@@ -288,13 +288,13 @@ func TestManeuverQuickPlansBlockListsAllSix(t *testing.T) {
 			t.Errorf("QUICK PLANS block missing %s:\n%s", key, out)
 		}
 	}
-	// A fresh world has no target and no body selected — H and P must
+	// A fresh world has no target — H and P must
 	// show their reasons.
 	if !strings.Contains(out, "no target — press t to aim at a body") {
 		t.Errorf("H's no-target reason missing:\n%s", out)
 	}
-	if !strings.Contains(out, "no body selected") {
-		t.Errorf("P's no-body-selected reason missing:\n%s", out)
+	if !strings.Contains(out, "no target, press t to aim at a planet") {
+		t.Errorf("P's no-target reason missing:\n%s", out)
 	}
 }
 

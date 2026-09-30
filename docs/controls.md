@@ -53,7 +53,7 @@ To go somewhere, say the Moon:
 
 1. Press `t` to pick a **target**. Keep tapping until the target readout shows
    the Moon. (`h` / `l` move a separate map cursor used by the body info
-   screen and the porkchop plot; they don't set your travel target. The arrow
+   screen; they don't set your travel target. The arrow
    keys **pan** the map.)
 2. Press `H` to plan the trip. Because the Moon orbits the same planet you do,
    the planner works out two ways to get there, plans the cheaper one, and
@@ -205,7 +205,7 @@ which engine is armed, the pulse size, RCS fuel, and how much Δv it's worth.
 
 Two different things point at bodies. The **target** (`t` / `T`) is what you
 plan trips to and what the target readout describes. The **map cursor**
-(`h` / `l`) feeds the body info screen (`i`) and the porkchop plot (`P`) and
+(`h` / `l`) feeds the body info screen (`i`) and
 does not affect your travel target.
 
 | Key | Action |
@@ -222,7 +222,7 @@ does not affect your travel target.
 | `I` | Plan a burn to match your target's orbital tilt (or to level out to the equator with no target) |
 | `C` | Plan a circularising burn at the top of your orbit; pairs with the ORBIT READY cue on launch. Refused if the top of your orbit is inside the atmosphere or you're on an escape trajectory |
 | `K` | Close in on a target vessel. Close and near-matched → plants a small nudge directly, using the closest-approach numbers in the target readout. Too far apart in phase → opens the [Rendezvous Planner](#rendezvous-planner-k) instead of refusing. Your planes differ → names `I` instead of planting anything. Needs a vessel target sharing your planet |
-| `P` | [Porkchop plot](#porkchop-plot-p) for the body under the map cursor (not your `t` target). Other planets only; moon targets point you back to `H` |
+| `P` | [Porkchop plot](#porkchop-plot-p) to your `t` target planet. Refuses with no target, a vessel target, or a body in your own system (your planet, its moons, or the planet your moon orbits): those are `H` trips |
 | `R` | Refine the plan: recompute the transfer from where you are now and update the arrival |
 
 ### Vessels, staging, and docking

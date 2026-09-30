@@ -94,7 +94,7 @@ var helpSections = []helpSection{
 		{";", "NavMode cycle: Orbit → Surface → Target (skips Target when none is set)"},
 	}},
 	{"NAVIGATION", [][2]string{
-		{"l", "move the body cursor next (info / porkchop — not [t] target)"},
+		{"l", "move the body cursor next (info only, not [t] target)"},
 		{"h", "move the body cursor previous"},
 		{"tab", "switch star system"},
 		{"i", "body info screen"},
@@ -115,7 +115,7 @@ var helpSections = []helpSection{
 		{"C", "plant circularize burn at next apoapsis; also works inside the planner"},
 		{"K", "close on target vessel: plant nudge, or open the Rendezvous Planner if too far in phase; also works inside the planner"},
 		{"R", "refine plan (re-Lambert the arrival); also works inside the planner"},
-		{"P", "porkchop plot for the body under the cursor; also works inside the planner"},
+		{"P", "porkchop plot to your TARGET planet; also works inside the planner"},
 		{"o", "porkchop: transfer options (nRev / direction / branch)"},
 		{"n / r / b", "porkchop options: cycle nRev / retrograde / short-vs-long"},
 		{"click cell", "porkchop: select a (dep, tof) cell — enter plants it"},

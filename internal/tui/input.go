@@ -386,7 +386,7 @@ func DefaultKeymap() Keymap {
 		PlanIncl:        key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "plant plane match (body / vessel / equatorial)")),
 		PlanCircularize: key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "plant circularize burn at next apoapsis")),
 		PlanRendezvous:  key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "plant rendezvous nudge to target vessel")),
-		Porkchop:        key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "porkchop plot for selected body")),
+		Porkchop:        key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "porkchop plot to target planet")),
 		Save:            key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "quicksave")),
 		Load:            key.NewBinding(key.WithKeys("f9"), key.WithHelp("F9", "quickload")),
 		RefinePlan:      key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refine plan (re-Lambert arrival)")),

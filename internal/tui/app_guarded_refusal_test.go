@@ -262,18 +262,20 @@ func TestPorkchopRefusesReasons(t *testing.T) {
 		}
 	})
 
-	t.Run("no body selected", func(t *testing.T) {
+	t.Run("no target", func(t *testing.T) {
 		a, err := New(nil)
 		if err != nil {
 			t.Fatalf("New: %v", err)
 		}
 		a.active = screenOrbit
-		a.selectedBody = 0
+		a.world.ClearTarget()
+		a.selectedBody = 2 // a cursor on a body must not stand in for a target
 
 		pressKey(a, 'P')
 
-		if a.statusMsg != "porkchop: no body selected" {
-			t.Errorf("statusMsg = %q, want %q", a.statusMsg, "porkchop: no body selected")
+		want := "porkchop: no target, press t to aim at a planet"
+		if a.statusMsg != want {
+			t.Errorf("statusMsg = %q, want %q", a.statusMsg, want)
 		}
 		if a.active != screenOrbit {
 			t.Errorf("active screen changed to %v on a refused [P]", a.active)
