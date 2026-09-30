@@ -62,7 +62,7 @@ arms — a standing agreement with no plan yet. They get a persistent
 prompt on their main screen (`y` joins), and from that moment your warps
 are rate-locked. Once there's a committed encounter, warping runs the
 pair all the way to it, planted burns firing en route; the `RENDEZVOUS`
-block names the meeting place when one was planted (their orbit / your
+block names the rendezvous orbit when one was planted (their orbit / your
 orbit / the crossing) and how many laps.
 
 Either side cancels with `/`, and only with `/`: the manual warp keys and the

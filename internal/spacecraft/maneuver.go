@@ -172,40 +172,40 @@ type ManeuverNode struct {
 	// precedent as ID / TargetCraftID / PlaneChangeRad / BurnDirUnit —
 	// no save-schema migration needed.
 	AdvisoryKey string `json:",omitempty"`
-	// MeetingArrivalSec / MeetingPlaceLabel / MeetingLaps (ADR 0045 S7,
-	// #400) are set only on a planted Meeting Burn (AdvisoryKey ==
-	// "meeting-burn", internal/sim's AdvisoryKeyMeetingBurn — spacecraft
+	// RendezvousArrivalSec / RendezvousOrbitLabel / RendezvousLaps (ADR 0045 S7,
+	// #400) are set only on a planted Rendezvous Burn (AdvisoryKey ==
+	// "rendezvous-burn", internal/sim's AdvisoryKeyRendezvousBurn — spacecraft
 	// can't reference that constant, it lives in the sim package one layer
-	// up) — the sim layer's own copy of the Meeting Planner row it
+	// up) — the sim layer's own copy of the Rendezvous Planner row it
 	// plants, carried on the node so a LATER Engage press can commit to
-	// the plan's own arrival directly (rendezvousCommitFromPlantedMeetingNode)
+	// the plan's own arrival directly (rendezvousCommitFromPlantedBurnNode)
 	// instead of re-searching within the 4h horizon rendezvousCommitFromPlantedNode
-	// (the plain trim-nudge sibling) still does: a multi-lap meeting can
+	// (the plain trim-nudge sibling) still does: a multi-lap rendezvous can
 	// land its arrival well past that window (ADR 0045 §5 — "the 4h
 	// window bounds a search, not a plan").
 	//
-	// MeetingArrivalSec is seconds from THIS NODE'S OWN TriggerTime to the
-	// meeting instant, so the absolute arrival is recovered as
-	// TriggerTime.Add(MeetingArrivalSec) with no extra state. It is
-	// planner.MeetingBurnOption.TArrival from a ladder row solved AT the
+	// RendezvousArrivalSec is seconds from THIS NODE'S OWN TriggerTime to the
+	// rendezvous instant, so the absolute arrival is recovered as
+	// TriggerTime.Add(RendezvousArrivalSec) with no extra state. It is
+	// planner.RendezvousBurnOption.TArrival from a ladder row solved AT the
 	// (Kepler-propagated) state the craft will actually be in at
 	// TriggerTime — not the row solved at plant time re-anchored by
 	// subtracting the lead buffer (the plant-time row's own TArrival
-	// isn't relative to TriggerTime; PlanMeetingBurn re-solves the whole
+	// isn't relative to TriggerTime; PlanRendezvousBurn re-solves the whole
 	// ladder from the TriggerTime state instead, see its own doc
-	// comment). MeetingPlaceLabel is planner.MeetingPlace.String() ("their
+	// comment). RendezvousOrbitLabel is planner.RendezvousOrbit.String() ("their
 	// orbit" / "your orbit" / "the crossing") — a plain string, not the
-	// planner.MeetingPlace enum itself, again because spacecraft cannot
+	// planner.RendezvousOrbit enum itself, again because spacecraft cannot
 	// import planner (sibling packages, ADR — see axisLabelToBurnMode's
 	// doc comment in internal/sim/rendezvous.go for the mirror-image
-	// constraint). MeetingLaps is the chosen Lap Ladder row's lap count.
+	// constraint). RendezvousLaps is the chosen Lap Ladder row's lap count.
 	//
-	// All three are zero for every node but a planted Meeting Burn.
+	// All three are zero for every node but a planted Rendezvous Burn.
 	// Additive, same zero-value-omitempty precedent as PlaneChangeRad /
 	// BurnDirUnit / AdvisoryKey above — no save-schema migration.
-	MeetingArrivalSec float64 `json:",omitempty"`
-	MeetingPlaceLabel string  `json:",omitempty"`
-	MeetingLaps       int     `json:",omitempty"`
+	RendezvousArrivalSec float64 `json:",omitempty"`
+	RendezvousOrbitLabel string  `json:",omitempty"`
+	RendezvousLaps       int     `json:",omitempty"`
 	// RefusalNoticed (#294 review finding 2) mirrors ActiveBurn's field of
 	// the same name: marks that World has already stamped
 	// LastNodeTargetRefusal for this node refusing to fire (target-

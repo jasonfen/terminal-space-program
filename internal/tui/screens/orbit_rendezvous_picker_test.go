@@ -11,18 +11,18 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
-// meetingPickerTestLadder is a synthetic Lap Ladder for chip-rendering
+// rendezvousPickerTestLadder is a synthetic Lap Ladder for chip-rendering
 // tests — deliberately NOT the real solver's own numbers (that's
-// internal/sim's job, e.g. TestPlanRendezvousOrOpenMeeting_PhaseMismatch_OpensPicker,
-// which asserts against whatever RecommendMeetingLadder actually
+// internal/sim's job, e.g. TestPlanRendezvousOrOpenPicker_PhaseMismatch_OpensPicker,
+// which asserts against whatever RecommendRendezvousLadder actually
 // returns). This file only exercises the rendering plumbing: does the
 // picker draw the right rows for a given state, does it survive an
 // 80×24 canvas, does padding stay ANSI-safe.
-func meetingPickerTestLadder() planner.MeetingLadder {
-	return planner.MeetingLadder{
-		Place:    planner.MeetingTheirOrbit,
+func rendezvousPickerTestLadder() planner.RendezvousLadder {
+	return planner.RendezvousLadder{
+		Place:    planner.RendezvousTheirOrbit,
 		MoverIsA: true,
-		Rows: []planner.MeetingBurnOption{
+		Rows: []planner.RendezvousBurnOption{
 			{Laps: 2, Ok: true, DV: 696.6, TArrival: 15587, ArrivalSpeed: 12.5},
 			{Laps: 3, Ok: true, DV: 509.4, TArrival: 21255, ArrivalSpeed: 9.1},
 			{Laps: 5, Ok: false, Reason: "unaffordable", TArrival: 32592},
@@ -32,23 +32,23 @@ func meetingPickerTestLadder() planner.MeetingLadder {
 	}
 }
 
-func TestMeetingPickerChip_NilWhenClosed(t *testing.T) {
+func TestRendezvousPickerChip_NilWhenClosed(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	if chip := v.buildMeetingPickerChip(); chip != nil {
+	if chip := v.buildRendezvousPickerChip(); chip != nil {
 		t.Errorf("chip rendered while closed:\n%s", strings.Join(chip, "\n"))
 	}
 }
 
-// TestMeetingPickerChip_Content pins the row shape: header, Place
+// TestRendezvousPickerChip_Content pins the row shape: header, Place
 // walker, every row's laps/wait/Δv (or its refusal reason when
 // !Ok — ADR 0045 §2: "unaffordable rows render as unavailable rather
 // than being hidden"), and the selected row's arrival speed.
-func TestMeetingPickerChip_Content(t *testing.T) {
+func TestRendezvousPickerChip_Content(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	ladder := meetingPickerTestLadder()
-	v.OpenMeetingPicker(planner.MeetingTheirOrbit, ladder, nil)
+	ladder := rendezvousPickerTestLadder()
+	v.OpenRendezvousPicker(planner.RendezvousTheirOrbit, ladder, nil)
 
-	joined := strings.Join(v.buildMeetingPickerChip(), "\n")
+	joined := strings.Join(v.buildRendezvousPickerChip(), "\n")
 	for _, want := range []string{
 		"RENDEZVOUS PLAN",
 		"their orbit",
@@ -62,7 +62,7 @@ func TestMeetingPickerChip_Content(t *testing.T) {
 	}
 	// The Δv figures render verbatim from the ladder — not the ADR
 	// mockup's illustrative numbers (630/250/60) and not hardcoded here
-	// beyond what meetingPickerTestLadder itself declares.
+	// beyond what rendezvousPickerTestLadder itself declares.
 	for _, want := range []string{"697 m/s", "509 m/s", "177 m/s", "91.80 m/s"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("chip missing Δv %q:\n%s", want, joined)
@@ -70,109 +70,109 @@ func TestMeetingPickerChip_Content(t *testing.T) {
 	}
 }
 
-// TestMeetingPickerChip_LadderErrShowsRefusal — #407: a per-Place
-// structural refusal (e.g. ErrMeetingSizeMismatch) must render as a
+// TestRendezvousPickerChip_LadderErrShowsRefusal — #407: a per-Place
+// structural refusal (e.g. ErrRendezvousSizeMismatch) must render as a
 // clear one-line refusal, not a blank or broken chip.
-func TestMeetingPickerChip_LadderErrShowsRefusal(t *testing.T) {
+func TestRendezvousPickerChip_LadderErrShowsRefusal(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	v.OpenMeetingPicker(planner.MeetingYourOrbit, planner.MeetingLadder{}, sim.ErrMeetingSizeMismatch)
+	v.OpenRendezvousPicker(planner.RendezvousYourOrbit, planner.RendezvousLadder{}, sim.ErrRendezvousSizeMismatch)
 
-	joined := strings.Join(v.buildMeetingPickerChip(), "\n")
+	joined := strings.Join(v.buildRendezvousPickerChip(), "\n")
 	if !strings.Contains(joined, "your orbit") {
 		t.Errorf("chip missing the selected Place:\n%s", joined)
 	}
-	if !strings.Contains(joined, sim.ErrMeetingSizeMismatch.Error()) {
+	if !strings.Contains(joined, sim.ErrRendezvousSizeMismatch.Error()) {
 		t.Errorf("chip missing the structural refusal text:\n%s", joined)
 	}
 }
 
-// TestMeetingPickerNav_LeftRightCyclesPlace_WrapsBothWays pins the ←/→
+// TestRendezvousPickerNav_LeftRightCyclesPlace_WrapsBothWays pins the ←/→
 // walk order (their orbit / your orbit / the crossing) and that it wraps
 // at both ends rather than clamping.
-func TestMeetingPickerNav_LeftRightCyclesPlace_WrapsBothWays(t *testing.T) {
+func TestRendezvousPickerNav_LeftRightCyclesPlace_WrapsBothWays(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	v.OpenMeetingPicker(planner.MeetingTheirOrbit, meetingPickerTestLadder(), nil)
+	v.OpenRendezvousPicker(planner.RendezvousTheirOrbit, rendezvousPickerTestLadder(), nil)
 
-	if got := v.MeetingPickerPlace(); got != planner.MeetingTheirOrbit {
-		t.Fatalf("initial Place = %v, want MeetingTheirOrbit", got)
+	if got := v.RendezvousPickerOrbit(); got != planner.RendezvousTheirOrbit {
+		t.Fatalf("initial Place = %v, want RendezvousTheirOrbit", got)
 	}
-	v.MeetingPickerRight()
-	if got := v.MeetingPickerPlace(); got != planner.MeetingYourOrbit {
-		t.Errorf("after 1 right: Place = %v, want MeetingYourOrbit", got)
+	v.RendezvousPickerRight()
+	if got := v.RendezvousPickerOrbit(); got != planner.RendezvousYourOrbit {
+		t.Errorf("after 1 right: Place = %v, want RendezvousYourOrbit", got)
 	}
-	v.MeetingPickerRight()
-	if got := v.MeetingPickerPlace(); got != planner.MeetingCrossing {
-		t.Errorf("after 2 right: Place = %v, want MeetingCrossing", got)
+	v.RendezvousPickerRight()
+	if got := v.RendezvousPickerOrbit(); got != planner.RendezvousCrossing {
+		t.Errorf("after 2 right: Place = %v, want RendezvousCrossing", got)
 	}
-	v.MeetingPickerRight()
-	if got := v.MeetingPickerPlace(); got != planner.MeetingTheirOrbit {
-		t.Errorf("right from the last Place did not wrap: got %v, want MeetingTheirOrbit", got)
+	v.RendezvousPickerRight()
+	if got := v.RendezvousPickerOrbit(); got != planner.RendezvousTheirOrbit {
+		t.Errorf("right from the last Place did not wrap: got %v, want RendezvousTheirOrbit", got)
 	}
-	v.MeetingPickerLeft()
-	if got := v.MeetingPickerPlace(); got != planner.MeetingCrossing {
-		t.Errorf("left from the first Place did not wrap backward: got %v, want MeetingCrossing", got)
+	v.RendezvousPickerLeft()
+	if got := v.RendezvousPickerOrbit(); got != planner.RendezvousCrossing {
+		t.Errorf("left from the first Place did not wrap backward: got %v, want RendezvousCrossing", got)
 	}
 }
 
-// TestMeetingPickerNav_PlaceChangeClearsStaleLadder — App must recompute
-// and push the new Place's ladder via SetMeetingPickerLadder; until then
+// TestRendezvousPickerNav_PlaceChangeClearsStaleLadder — App must recompute
+// and push the new Place's ladder via SetRendezvousPickerLadder; until then
 // the chip must show the NEW Place's header with no stale rows from the
-// OLD Place (see MeetingPickerLeft/Right's own doc comment).
-func TestMeetingPickerNav_PlaceChangeClearsStaleLadder(t *testing.T) {
+// OLD Place (see RendezvousPickerLeft/Right's own doc comment).
+func TestRendezvousPickerNav_PlaceChangeClearsStaleLadder(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	v.OpenMeetingPicker(planner.MeetingTheirOrbit, meetingPickerTestLadder(), nil)
-	if _, ok := v.MeetingPickerSelectedLaps(); !ok {
+	v.OpenRendezvousPicker(planner.RendezvousTheirOrbit, rendezvousPickerTestLadder(), nil)
+	if _, ok := v.RendezvousPickerSelectedLaps(); !ok {
 		t.Fatalf("setup: expected a selected row before cycling Place")
 	}
 
-	v.MeetingPickerRight()
+	v.RendezvousPickerRight()
 
-	if _, ok := v.MeetingPickerSelectedLaps(); ok {
+	if _, ok := v.RendezvousPickerSelectedLaps(); ok {
 		t.Errorf("stale ladder rows survived a Place change before the App recomputed")
 	}
-	joined := strings.Join(v.buildMeetingPickerChip(), "\n")
+	joined := strings.Join(v.buildRendezvousPickerChip(), "\n")
 	if strings.Contains(joined, "2 laps") {
 		t.Errorf("chip still shows the OLD Place's rows after cycling:\n%s", joined)
 	}
 }
 
-// TestMeetingPickerNav_SetLadderIgnoresStalePlace guards
-// SetMeetingPickerLadder's own no-op contract: a ladder computed for a
+// TestRendezvousPickerNav_SetLadderIgnoresStalePlace guards
+// SetRendezvousPickerLadder's own no-op contract: a ladder computed for a
 // Place the picker has since moved away from (or a picker that's since
 // closed) must never overwrite the current selection.
-func TestMeetingPickerNav_SetLadderIgnoresStalePlace(t *testing.T) {
+func TestRendezvousPickerNav_SetLadderIgnoresStalePlace(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	v.OpenMeetingPicker(planner.MeetingTheirOrbit, meetingPickerTestLadder(), nil)
-	v.MeetingPickerRight() // now on MeetingYourOrbit, ladder cleared
+	v.OpenRendezvousPicker(planner.RendezvousTheirOrbit, rendezvousPickerTestLadder(), nil)
+	v.RendezvousPickerRight() // now on RendezvousYourOrbit, ladder cleared
 
 	// A stale computation for the Place we've since left.
-	v.SetMeetingPickerLadder(planner.MeetingTheirOrbit, meetingPickerTestLadder(), nil)
+	v.SetRendezvousPickerLadder(planner.RendezvousTheirOrbit, rendezvousPickerTestLadder(), nil)
 
-	if _, ok := v.MeetingPickerSelectedLaps(); ok {
+	if _, ok := v.RendezvousPickerSelectedLaps(); ok {
 		t.Errorf("a stale ladder for an abandoned Place was applied")
 	}
-	if got := v.MeetingPickerPlace(); got != planner.MeetingYourOrbit {
-		t.Errorf("Place changed via a stale SetMeetingPickerLadder call: got %v", got)
+	if got := v.RendezvousPickerOrbit(); got != planner.RendezvousYourOrbit {
+		t.Errorf("Place changed via a stale SetRendezvousPickerLadder call: got %v", got)
 	}
 }
 
-// TestMeetingPickerNav_UpDownClamp — MeetingPickerUp/Down clamp at the
+// TestRendezvousPickerNav_UpDownClamp — RendezvousPickerUp/Down clamp at the
 // ladder's ends rather than wrapping (a short fixed list; wrapping ↑ from
 // the top row back to the bottom would read as a jump, not a walk).
-func TestMeetingPickerNav_UpDownClamp(t *testing.T) {
+func TestRendezvousPickerNav_UpDownClamp(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	ladder := meetingPickerTestLadder()
-	v.OpenMeetingPicker(planner.MeetingTheirOrbit, ladder, nil)
+	ladder := rendezvousPickerTestLadder()
+	v.OpenRendezvousPicker(planner.RendezvousTheirOrbit, ladder, nil)
 
-	v.MeetingPickerUp() // already at row 0 (or the first Ok row) — must not go negative
-	if _, ok := v.MeetingPickerSelectedLaps(); !ok {
+	v.RendezvousPickerUp() // already at row 0 (or the first Ok row) — must not go negative
+	if _, ok := v.RendezvousPickerSelectedLaps(); !ok {
 		t.Fatalf("Up from the top left no row selected")
 	}
 
 	for i := 0; i < len(ladder.Rows)+2; i++ {
-		v.MeetingPickerDown()
+		v.RendezvousPickerDown()
 	}
-	laps, ok := v.MeetingPickerSelectedLaps()
+	laps, ok := v.RendezvousPickerSelectedLaps()
 	if !ok {
 		t.Fatalf("Down past the end left no row selected")
 	}
@@ -181,7 +181,7 @@ func TestMeetingPickerNav_UpDownClamp(t *testing.T) {
 	}
 }
 
-// TestMeetingPickerChip_CellWidthConsistent guards the same chip →
+// TestRendezvousPickerChip_CellWidthConsistent guards the same chip →
 // canvas contract every other chip builder is checked against
 // (assertChipCellWidthConsistent, orbit_chips_test.go): every line the
 // builder emits must measure identically via lipgloss.Width and
@@ -189,7 +189,7 @@ func TestMeetingPickerNav_UpDownClamp(t *testing.T) {
 // no-op), so an ANSI-styled row can't silently widen the overlay. Forces
 // termenv.TrueColor so DefaultTheme-shaped colors actually emit ANSI
 // here rather than degrading to no-color in a non-TTY test binary.
-func TestMeetingPickerChip_CellWidthConsistent(t *testing.T) {
+func TestRendezvousPickerChip_CellWidthConsistent(t *testing.T) {
 	ambient := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(ambient) })
@@ -204,23 +204,23 @@ func TestMeetingPickerChip_CellWidthConsistent(t *testing.T) {
 		Title:   lipgloss.NewStyle(),
 	}
 	v := NewOrbitView(th)
-	v.OpenMeetingPicker(planner.MeetingTheirOrbit, meetingPickerTestLadder(), nil)
-	v.MeetingPickerDown() // move selection so the highlighted (styled) row isn't just row 0
+	v.OpenRendezvousPicker(planner.RendezvousTheirOrbit, rendezvousPickerTestLadder(), nil)
+	v.RendezvousPickerDown() // move selection so the highlighted (styled) row isn't just row 0
 
-	lines := v.buildMeetingPickerChip()
+	lines := v.buildRendezvousPickerChip()
 	if len(lines) == 0 {
 		t.Fatal("chip is empty while open")
 	}
 	if !containsANSI(strings.Join(lines, "\n")) {
 		t.Fatal("test setup broken: expected a real theme + TrueColor to produce ANSI-colored chip lines")
 	}
-	assertChipCellWidthConsistent(t, "meeting picker chip", lines)
+	assertChipCellWidthConsistent(t, "rendezvous picker chip", lines)
 }
 
-// meetingPickerRenderWorld returns a minimal World for the full-canvas
+// rendezvousPickerRenderWorld returns a minimal World for the full-canvas
 // render test below — the picker's own state is pushed in directly via
-// OpenMeetingPicker, so this doesn't need a rendezvous-specific fixture.
-func meetingPickerRenderWorld(t *testing.T) *sim.World {
+// OpenRendezvousPicker, so this doesn't need a rendezvous-specific fixture.
+func rendezvousPickerRenderWorld(t *testing.T) *sim.World {
 	t.Helper()
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -229,7 +229,7 @@ func meetingPickerRenderWorld(t *testing.T) *sim.World {
 	return w
 }
 
-// TestMeetingPickerChip_Render80x24 is #399's own named trap #2: the
+// TestRendezvousPickerChip_Render80x24 is #399's own named trap #2: the
 // chip must render (and stay legible — non-empty, chip content present,
 // no panic) at the SMALL terminal, not just a wide one. Production
 // --serve runs a 104×24 tmux; 80×24 is narrower still and was the floor
@@ -238,7 +238,7 @@ func meetingPickerRenderWorld(t *testing.T) *sim.World {
 // ADR 0051 REGRESSION, flagged rather than silently worked around: the
 // eight instrument boxes are Core priority (never dropped, no Compact
 // Form of their own, that gap is real, not yet built) and at 80x24
-// they now consume enough of the left column that MEETING PLAN's
+// they now consume enough of the left column that RENDEZVOUS PLAN's
 // neverShrink body can render PAST the canvas's bottom edge, where it is
 // silently clipped exactly like the pre-#328 DOCKED bug (only the title
 // row survives; the ladder body does not). This test is moved to the
@@ -249,11 +249,11 @@ func meetingPickerRenderWorld(t *testing.T) *sim.World {
 // instruments as today" below the floor implies they should have one)
 // or a stacker change that lets a neverShrink modal evict Core content
 // below the floor, flagged for the maintainer, not fixed here.
-func TestMeetingPickerChip_Render80x24(t *testing.T) {
+func TestRendezvousPickerChip_Render80x24(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(DesignWidth, DesignHeight)
-	w := meetingPickerRenderWorld(t)
-	v.OpenMeetingPicker(planner.MeetingTheirOrbit, meetingPickerTestLadder(), nil)
+	w := rendezvousPickerRenderWorld(t)
+	v.OpenRendezvousPicker(planner.RendezvousTheirOrbit, rendezvousPickerTestLadder(), nil)
 
 	out := v.Render(w, 0, DesignWidth, DesignHeight)
 
@@ -266,20 +266,20 @@ func TestMeetingPickerChip_Render80x24(t *testing.T) {
 	// above already guards the ANSI-padding trap; this is the belt-and-
 	// suspenders check that the picker doesn't independently blow past a
 	// sane width at the narrow floor.
-	for _, line := range v.buildMeetingPickerChip() {
+	for _, line := range v.buildRendezvousPickerChip() {
 		if w := lipgloss.Width(line); w > 40 {
-			t.Errorf("meeting picker chip line implausibly wide (%d cols) at 80×24: %q", w, line)
+			t.Errorf("rendezvous picker chip line implausibly wide (%d cols) at 80×24: %q", w, line)
 		}
 	}
 	if !strings.Contains(out, "RENDEZVOUS PLAN") {
 		t.Errorf("RENDEZVOUS PLAN chip missing from an 80×24 render:\n%s", out)
 	}
 	if !strings.Contains(out, "their orbit") {
-		t.Errorf("Meeting Place missing from an 80×24 render:\n%s", out)
+		t.Errorf("Rendezvous Orbit missing from an 80×24 render:\n%s", out)
 	}
 }
 
-// TestMeetingPickerChip_Render80x24_Golden pins the chip block
+// TestRendezvousPickerChip_Render80x24_Golden pins the chip block
 // line-for-line at 80×24 under the plain (no-ANSI) test theme, so an
 // accidental layout change shows up here as a diff.
 //
@@ -291,23 +291,23 @@ func TestMeetingPickerChip_Render80x24(t *testing.T) {
 // therefore spans one- and two-digit lap counts and includes a refusal
 // row, which are the shapes that actually vary the layout.
 //
-// Alignment specifically is pinned by TestMeetingPickerChip_LadderColumnsAlign,
+// Alignment specifically is pinned by TestRendezvousPickerChip_LadderColumnsAlign,
 // which asserts the property rather than the bytes; this test catches
 // everything else, including changes that keep columns aligned but move
 // them.
-func TestMeetingPickerChip_Render80x24_Golden(t *testing.T) {
+func TestRendezvousPickerChip_Render80x24_Golden(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	w := meetingPickerRenderWorld(t)
-	ladder := planner.MeetingLadder{
-		Place:    planner.MeetingTheirOrbit,
+	w := rendezvousPickerRenderWorld(t)
+	ladder := planner.RendezvousLadder{
+		Place:    planner.RendezvousTheirOrbit,
 		MoverIsA: true,
-		Rows: []planner.MeetingBurnOption{
+		Rows: []planner.RendezvousBurnOption{
 			{Laps: 2, Ok: true, DV: 696.6, TArrival: 15587, ArrivalSpeed: 12.5},
 			{Laps: 5, Ok: false, Reason: "unaffordable", TArrival: 32592},
 			{Laps: 20, Ok: true, DV: 91.8, TArrival: 117614, ArrivalSpeed: 2.0},
 		},
 	}
-	v.OpenMeetingPicker(planner.MeetingTheirOrbit, ladder, nil)
+	v.OpenRendezvousPicker(planner.RendezvousTheirOrbit, ladder, nil)
 
 	want := strings.Join([]string{
 		"RENDEZVOUS PLAN",
@@ -318,7 +318,7 @@ func TestMeetingPickerChip_Render80x24_Golden(t *testing.T) {
 		"  arriving ~12.50 m/s",
 	}, "\n")
 
-	got := strings.Join(v.buildMeetingPickerChip(), "\n")
+	got := strings.Join(v.buildRendezvousPickerChip(), "\n")
 	if got != want {
 		t.Errorf("chip block changed.\ngot:\n%s\n\nwant:\n%s", got, want)
 	}
@@ -329,7 +329,7 @@ func TestMeetingPickerChip_Render80x24_Golden(t *testing.T) {
 	}
 }
 
-// TestMeetingPickerChip_LadderColumnsAlign pins the ladder's internal
+// TestRendezvousPickerChip_LadderColumnsAlign pins the ladder's internal
 // column alignment, which nothing else in this file covers: the block
 // is rectangular because padChipBlock pads every line to the widest,
 // and assertChipCellWidthConsistent only checks ANSI/glyph width
@@ -337,13 +337,13 @@ func TestMeetingPickerChip_Render80x24_Golden(t *testing.T) {
 // both. The lap count is the field that varies in width (2 vs 10 vs
 // 20), and an unwidthed "%d laps" shifts every following column on the
 // two-digit rows. The fixture deliberately spans both.
-func TestMeetingPickerChip_LadderColumnsAlign(t *testing.T) {
+func TestRendezvousPickerChip_LadderColumnsAlign(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	v.OpenMeetingPicker(planner.MeetingTheirOrbit, meetingPickerTestLadder(), nil)
+	v.OpenRendezvousPicker(planner.RendezvousTheirOrbit, rendezvousPickerTestLadder(), nil)
 
 	lapsAt, dvAt := -1, -1
 	rows := 0
-	for _, l := range v.buildMeetingPickerChip() {
+	for _, l := range v.buildRendezvousPickerChip() {
 		i := strings.Index(l, " laps")
 		if i < 0 {
 			continue

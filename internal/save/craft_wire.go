@@ -134,9 +134,9 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 			BurnDirUnit:       vec3From(n.BurnDirUnit),
 			AdvisoryKey:       n.AdvisoryKey,
 			TargetGhostOwner:  n.TargetGhostOwner,
-			MeetingArrivalSec: n.MeetingArrivalSec,
-			MeetingPlaceLabel: n.MeetingPlaceLabel,
-			MeetingLaps:       n.MeetingLaps,
+			RendezvousArrivalSec: n.RendezvousArrivalSec,
+			RendezvousOrbitLabel: n.RendezvousOrbitLabel,
+			RendezvousLaps:       n.RendezvousLaps,
 		})
 	}
 	if c.ActiveBurn != nil {
@@ -371,9 +371,9 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			BurnDirUnit:       vec3To(n.BurnDirUnit),
 			AdvisoryKey:       n.AdvisoryKey,
 			TargetGhostOwner:  n.TargetGhostOwner, // #294 review finding 5
-			MeetingArrivalSec: n.MeetingArrivalSec,
-			MeetingPlaceLabel: n.MeetingPlaceLabel,
-			MeetingLaps:       n.MeetingLaps,
+			RendezvousArrivalSec: n.RendezvousArrivalSec,
+			RendezvousOrbitLabel: n.RendezvousOrbitLabel,
+			RendezvousLaps:       n.RendezvousLaps,
 		})
 	}
 	if wc.ActiveBurn != nil {

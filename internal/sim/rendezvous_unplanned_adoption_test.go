@@ -12,9 +12,9 @@ import (
 // yet") agreement was stuck permanently — refreshRendezvousInvite never
 // surfaces a fresh invite while w.RendezvousArm is non-nil, and nothing
 // on the accepter's side ever writes arm.Tau once the arm exists
-// (PlanMeetingBurn only touches the arm-holder's own arm). So when the
-// INITIATOR later plants a Meeting Burn and re-Engages — the exact flow
-// the chip itself prompts for ("no plan yet — pick a Meeting Place [K],
+// (PlanRendezvousBurn only touches the arm-holder's own arm). So when the
+// INITIATOR later plants a Rendezvous Burn and re-Engages — the exact flow
+// the chip itself prompts for ("no plan yet — pick a Rendezvous Orbit [K],
 // then Engage to commit") — the accepter's own arm never adopted it and
 // the coast never started for them.
 //
@@ -40,15 +40,15 @@ func TestUnplannedAgreement_AccepterAdoptsInitiatorsLaterPlan(t *testing.T) {
 		t.Fatal("precondition: coast must not start before a plan lands")
 	}
 
-	// The initiator plants a Meeting Burn and re-Engages: their relayed
-	// report now carries a real, future τ + committed CA + a Meeting
+	// The initiator plants a Rendezvous Burn and re-Engages: their relayed
+	// report now carries a real, future τ + committed CA + a Rendezvous
 	// Place. Nothing about the ACCEPTER's own seat or arm identity
 	// changes — only the partner's report.
 	committedTau := w.Clock.SimTime.Add(3 * time.Hour)
 	peer.RendezvousTau = committedTau
 	peer.RendezvousCA = 750
-	peer.RendezvousMeetingPlace = "LEO node"
-	peer.RendezvousMeetingLaps = 2
+	peer.RendezvousOrbit = "LEO node"
+	peer.RendezvousLaps = 2
 
 	w.DriveRendezvousWarp([]CoWarpPeer{peer})
 
@@ -64,8 +64,8 @@ func TestUnplannedAgreement_AccepterAdoptsInitiatorsLaterPlan(t *testing.T) {
 	if w.RendezvousArm.CommittedCA != 750 {
 		t.Errorf("arm.CommittedCA = %v, want 750 (adopted from partner)", w.RendezvousArm.CommittedCA)
 	}
-	if w.RendezvousArm.MeetingPlaceLabel != "LEO node" || w.RendezvousArm.MeetingLaps != 2 {
-		t.Errorf("Meeting Place not adopted: label=%q laps=%d", w.RendezvousArm.MeetingPlaceLabel, w.RendezvousArm.MeetingLaps)
+	if w.RendezvousArm.RendezvousOrbitLabel != "LEO node" || w.RendezvousArm.RendezvousLaps != 2 {
+		t.Errorf("Rendezvous Orbit not adopted: label=%q laps=%d", w.RendezvousArm.RendezvousOrbitLabel, w.RendezvousArm.RendezvousLaps)
 	}
 	if w.RendezvousArm.Initiator {
 		t.Error("adoption flipped the seat — accepter must stay accepter (ADR 0037 seat split)")

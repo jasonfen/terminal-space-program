@@ -401,7 +401,7 @@ open, so it never shrinks or gets tucked away). It opens when `K`'s small
 nudge isn't enough to close on your target (too far apart in phase) but your
 planes already match. Pick where to meet: on their orbit, on yours, or at
 the natural crossing of your current courses; then pick a lap count on the
-**Lap Ladder** for that meeting place, more laps for less Δv but a longer
+**Lap Ladder** for that rendezvous orbit, more laps for less Δv but a longer
 wait. Unaffordable or unsafe rows still show, dimmed, with the reason,
 rather than being hidden.
 

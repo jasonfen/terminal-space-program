@@ -9,26 +9,26 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
-// This file is the Meeting Planner picker's UI half (ADR 0045 S6, #399):
-// a walkable chip on the orbit map — ←/→ walks the Meeting Place, ↑/↓
+// This file is the Rendezvous Planner picker's UI half (ADR 0045 S6, #399):
+// a walkable chip on the orbit map — ←/→ walks the Rendezvous Orbit, ↑/↓
 // walks the Lap Ladder, Enter plants, Esc closes. tui.App owns every call
-// into World (RecommendMeetingLadder / PlanMeetingBurn); this file is pure
+// into World (RecommendRendezvousLadder / PlanRendezvousBurn); this file is pure
 // navigation state plus the chip's rendered lines.
 
-// meetingPickerPlaceCycle is the ←/→ walk order ("their orbit / your
+// rendezvousPickerOrbitCycle is the ←/→ walk order ("their orbit / your
 // orbit / the crossing", per ADR 0045 §2's own acceptance wording) —
-// deliberately NOT planner.MeetingPlace's enum order (MeetingCrossing is
-// iota 0 there, for unrelated reasons: see meeting.go). "their orbit" is
+// deliberately NOT planner.RendezvousOrbit's enum order (RendezvousCrossing is
+// iota 0 there, for unrelated reasons: see rendezvous.go). "their orbit" is
 // the picker's opening Place (rendezvousKDefaultPlace, sim package), so it
 // leads the cycle here too.
-var meetingPickerPlaceCycle = [...]planner.MeetingPlace{
-	planner.MeetingTheirOrbit,
-	planner.MeetingYourOrbit,
-	planner.MeetingCrossing,
+var rendezvousPickerOrbitCycle = [...]planner.RendezvousOrbit{
+	planner.RendezvousTheirOrbit,
+	planner.RendezvousYourOrbit,
+	planner.RendezvousCrossing,
 }
 
-func meetingPickerPlaceCycleIndex(p planner.MeetingPlace) int {
-	for i, c := range meetingPickerPlaceCycle {
+func rendezvousPickerOrbitCycleIndex(p planner.RendezvousOrbit) int {
+	for i, c := range rendezvousPickerOrbitCycle {
 		if c == p {
 			return i
 		}
@@ -36,36 +36,36 @@ func meetingPickerPlaceCycleIndex(p planner.MeetingPlace) int {
 	return 0
 }
 
-// meetingPickerState is the picker's UI navigation state: which Place is
+// rendezvousPickerState is the picker's UI navigation state: which Place is
 // selected, which Lap Ladder row, and the most recently computed ladder
-// for that Place (App recomputes and pushes it in via SetMeetingPickerLadder
-// whenever Place changes — RecommendMeetingLadder needs the live World,
+// for that Place (App recomputes and pushes it in via SetRendezvousPickerLadder
+// whenever Place changes — RecommendRendezvousLadder needs the live World,
 // which this package-internal state deliberately does not hold).
-type meetingPickerState struct {
+type rendezvousPickerState struct {
 	open      bool
-	place     planner.MeetingPlace
+	place     planner.RendezvousOrbit
 	rowIdx    int
-	ladder    planner.MeetingLadder
+	ladder    planner.RendezvousLadder
 	ladderErr error
 }
 
-// OpenMeetingPicker opens the picker at the given Place with its already-
+// OpenRendezvousPicker opens the picker at the given Place with its already-
 // computed ladder (or structural ladderErr — #407: a per-Place refusal
 // like "orbits differ too much in size" is shown, not hidden). Row
 // selection starts at the first Ok row when one exists, else row 0, so
 // Enter on first open lands on a plantable row whenever the ladder has
 // one.
-func (v *OrbitView) OpenMeetingPicker(place planner.MeetingPlace, ladder planner.MeetingLadder, ladderErr error) {
-	v.meetingPicker = meetingPickerState{
+func (v *OrbitView) OpenRendezvousPicker(place planner.RendezvousOrbit, ladder planner.RendezvousLadder, ladderErr error) {
+	v.rendezvousPicker = rendezvousPickerState{
 		open:      true,
 		place:     place,
 		ladder:    ladder,
 		ladderErr: ladderErr,
-		rowIdx:    meetingPickerFirstOkRow(ladder),
+		rowIdx:    rendezvousPickerFirstOkRow(ladder),
 	}
 }
 
-func meetingPickerFirstOkRow(ladder planner.MeetingLadder) int {
+func rendezvousPickerFirstOkRow(ladder planner.RendezvousLadder) int {
 	for i, row := range ladder.Rows {
 		if row.Ok {
 			return i
@@ -74,105 +74,105 @@ func meetingPickerFirstOkRow(ladder planner.MeetingLadder) int {
 	return 0
 }
 
-// CloseMeetingPicker closes the picker without planting anything —
+// CloseRendezvousPicker closes the picker without planting anything —
 // Esc's contract (ADR 0045 §2 acceptance: "Esc plants nothing").
-func (v *OrbitView) CloseMeetingPicker() {
-	v.meetingPicker = meetingPickerState{}
+func (v *OrbitView) CloseRendezvousPicker() {
+	v.rendezvousPicker = rendezvousPickerState{}
 }
 
-// MeetingPickerOpen reports whether the picker is currently up. Used by
+// RendezvousPickerOpen reports whether the picker is currently up. Used by
 // tui.App both to gate the ←/→/↑/↓/Enter/Esc key intercept (so those keys
 // never fall through to camera pan / flight controls while the picker has
 // them) and to join capturingText() (the boss key / keyboard-layout
 // normalization must not fire while this surface holds input either).
-func (v *OrbitView) MeetingPickerOpen() bool {
-	return v.meetingPicker.open
+func (v *OrbitView) RendezvousPickerOpen() bool {
+	return v.rendezvousPicker.open
 }
 
-// MeetingPickerPlace returns the picker's currently selected Meeting
-// Place. Only meaningful while MeetingPickerOpen().
-func (v *OrbitView) MeetingPickerPlace() planner.MeetingPlace {
-	return v.meetingPicker.place
+// RendezvousPickerOrbit returns the picker's currently selected Rendezvous
+// Place. Only meaningful while RendezvousPickerOpen().
+func (v *OrbitView) RendezvousPickerOrbit() planner.RendezvousOrbit {
+	return v.rendezvousPicker.place
 }
 
-// MeetingPickerLeft / MeetingPickerRight walk the Meeting Place cycle
+// RendezvousPickerLeft / RendezvousPickerRight walk the Rendezvous Orbit cycle
 // (their orbit / your orbit / the crossing) and clear the stale ladder —
-// tui.App must follow with SetMeetingPickerLadder once it has recomputed
+// tui.App must follow with SetRendezvousPickerLadder once it has recomputed
 // against the live World for the new Place; until then the chip shows the
 // new Place's header with no rows rather than the OLD Place's rows under
 // the NEW Place's label (a silent lie a re-render could otherwise let
 // slip through for one frame).
-func (v *OrbitView) MeetingPickerLeft() {
-	v.meetingPickerCyclePlace(-1)
+func (v *OrbitView) RendezvousPickerLeft() {
+	v.rendezvousPickerCyclePlace(-1)
 }
 
-func (v *OrbitView) MeetingPickerRight() {
-	v.meetingPickerCyclePlace(1)
+func (v *OrbitView) RendezvousPickerRight() {
+	v.rendezvousPickerCyclePlace(1)
 }
 
-func (v *OrbitView) meetingPickerCyclePlace(delta int) {
-	if !v.meetingPicker.open {
+func (v *OrbitView) rendezvousPickerCyclePlace(delta int) {
+	if !v.rendezvousPicker.open {
 		return
 	}
-	n := len(meetingPickerPlaceCycle)
-	i := meetingPickerPlaceCycleIndex(v.meetingPicker.place)
+	n := len(rendezvousPickerOrbitCycle)
+	i := rendezvousPickerOrbitCycleIndex(v.rendezvousPicker.place)
 	i = (i + delta + n) % n
-	v.meetingPicker.place = meetingPickerPlaceCycle[i]
-	v.meetingPicker.ladder = planner.MeetingLadder{}
-	v.meetingPicker.ladderErr = nil
-	v.meetingPicker.rowIdx = 0
+	v.rendezvousPicker.place = rendezvousPickerOrbitCycle[i]
+	v.rendezvousPicker.ladder = planner.RendezvousLadder{}
+	v.rendezvousPicker.ladderErr = nil
+	v.rendezvousPicker.rowIdx = 0
 }
 
-// SetMeetingPickerLadder pushes a freshly computed ladder for the
+// SetRendezvousPickerLadder pushes a freshly computed ladder for the
 // picker's CURRENT Place (a no-op if the picker has since closed or
 // moved to a different Place than the one this ladder was computed for —
 // a stale async-feeling result must never overwrite a newer selection).
-func (v *OrbitView) SetMeetingPickerLadder(place planner.MeetingPlace, ladder planner.MeetingLadder, ladderErr error) {
-	if !v.meetingPicker.open || v.meetingPicker.place != place {
+func (v *OrbitView) SetRendezvousPickerLadder(place planner.RendezvousOrbit, ladder planner.RendezvousLadder, ladderErr error) {
+	if !v.rendezvousPicker.open || v.rendezvousPicker.place != place {
 		return
 	}
-	v.meetingPicker.ladder = ladder
-	v.meetingPicker.ladderErr = ladderErr
-	v.meetingPicker.rowIdx = meetingPickerFirstOkRow(ladder)
+	v.rendezvousPicker.ladder = ladder
+	v.rendezvousPicker.ladderErr = ladderErr
+	v.rendezvousPicker.rowIdx = rendezvousPickerFirstOkRow(ladder)
 }
 
-// MeetingPickerUp / MeetingPickerDown walk the Lap Ladder rows. Clamped,
+// RendezvousPickerUp / RendezvousPickerDown walk the Lap Ladder rows. Clamped,
 // not wrapping — the ladder is a short fixed list (2/3/5/10/20 laps, see
-// planner.meetingCandidateLaps) and wrapping ↑ from the top row back to
+// planner.rendezvousCandidateLaps) and wrapping ↑ from the top row back to
 // the bottom reads as a jump, not a walk.
-func (v *OrbitView) MeetingPickerUp() {
-	if v.meetingPicker.rowIdx > 0 {
-		v.meetingPicker.rowIdx--
+func (v *OrbitView) RendezvousPickerUp() {
+	if v.rendezvousPicker.rowIdx > 0 {
+		v.rendezvousPicker.rowIdx--
 	}
 }
 
-func (v *OrbitView) MeetingPickerDown() {
-	if v.meetingPicker.rowIdx < len(v.meetingPicker.ladder.Rows)-1 {
-		v.meetingPicker.rowIdx++
+func (v *OrbitView) RendezvousPickerDown() {
+	if v.rendezvousPicker.rowIdx < len(v.rendezvousPicker.ladder.Rows)-1 {
+		v.rendezvousPicker.rowIdx++
 	}
 }
 
-// MeetingPickerSelectedLaps returns the lap count of the currently
+// RendezvousPickerSelectedLaps returns the lap count of the currently
 // highlighted row. ok=false when the ladder has no rows at all (a
 // structural ladderErr, #407) — Enter is then a no-op, not a plant of
 // row zero of an empty slice.
-func (v *OrbitView) MeetingPickerSelectedLaps() (int, bool) {
-	rows := v.meetingPicker.ladder.Rows
-	if v.meetingPicker.rowIdx < 0 || v.meetingPicker.rowIdx >= len(rows) {
+func (v *OrbitView) RendezvousPickerSelectedLaps() (int, bool) {
+	rows := v.rendezvousPicker.ladder.Rows
+	if v.rendezvousPicker.rowIdx < 0 || v.rendezvousPicker.rowIdx >= len(rows) {
 		return 0, false
 	}
-	return rows[v.meetingPicker.rowIdx].Laps, true
+	return rows[v.rendezvousPicker.rowIdx].Laps, true
 }
 
-// buildMeetingPickerChip renders the picker's chip content — nil when
+// buildRendezvousPickerChip renders the picker's chip content — nil when
 // closed, so it composes into assembleChips exactly like any other
 // contextual builder. Unaffordable / unsafe / no-solution rows render
 // dimmed with their own reason rather than being hidden (ADR 0045 §2:
 // "the trade stays visible"). Arrival speed rides along as a plain info
 // row for the SELECTED row only, matching K's own trim-rung ArrivalSpeed
 // convention — information, never a gate.
-func (v *OrbitView) buildMeetingPickerChip() []string {
-	mp := v.meetingPicker
+func (v *OrbitView) buildRendezvousPickerChip() []string {
+	mp := v.rendezvousPicker
 	if !mp.open {
 		return nil
 	}
@@ -196,7 +196,7 @@ func (v *OrbitView) buildMeetingPickerChip() []string {
 			// number back out and right-align it to a fixed field so the
 			// "m/s" column stays aligned across rows regardless of how
 			// many digits the contract's own precision rule gives a
-			// particular row's figure (TestMeetingPickerChip_LadderColumnsAlign).
+			// particular row's figure (TestRendezvousPickerChip_LadderColumnsAlign).
 			dvNum, dvUnit, _ := strings.Cut(readout.DeltaV(row.DV), " ")
 			body = fmt.Sprintf("%s %2d laps   %-8s %5s %s", marker, row.Laps, wait, dvNum, dvUnit)
 		} else {
@@ -216,9 +216,9 @@ func (v *OrbitView) buildMeetingPickerChip() []string {
 	return lines
 }
 
-func (mp meetingPickerState) selectedRow() (planner.MeetingBurnOption, bool) {
+func (mp rendezvousPickerState) selectedRow() (planner.RendezvousBurnOption, bool) {
 	if mp.rowIdx < 0 || mp.rowIdx >= len(mp.ladder.Rows) {
-		return planner.MeetingBurnOption{}, false
+		return planner.RendezvousBurnOption{}, false
 	}
 	return mp.ladder.Rows[mp.rowIdx], true
 }

@@ -20,7 +20,7 @@ import (
 // the 4h window bounds a search, not the agreement) — forming the
 // agreed-no-plan state rather than the old outright refusal. The
 // commit's own gates are unchanged: this still isn't a real committed
-// encounter, so Tau stays zero and there is no Meeting Place to name.
+// encounter, so Tau stays zero and there is no Rendezvous Orbit to name.
 func TestEngageRendezvousSmallLagFormsUnplannedAgreement(t *testing.T) {
 	a, err := New(nil)
 	if err != nil {
@@ -48,7 +48,7 @@ func TestEngageRendezvousSmallLagFormsUnplannedAgreement(t *testing.T) {
 	if !app.world.RendezvousArm.Tau.IsZero() {
 		t.Errorf("Tau = %v, want zero — no node was planted and the current-course search doesn't close inside 4h", app.world.RendezvousArm.Tau)
 	}
-	if app.world.RendezvousArm.MeetingPlaceLabel != "" {
-		t.Errorf("MeetingPlaceLabel = %q, want empty — nothing was planted to name a Place from", app.world.RendezvousArm.MeetingPlaceLabel)
+	if app.world.RendezvousArm.RendezvousOrbitLabel != "" {
+		t.Errorf("RendezvousOrbitLabel = %q, want empty — nothing was planted to name a Place from", app.world.RendezvousArm.RendezvousOrbitLabel)
 	}
 }

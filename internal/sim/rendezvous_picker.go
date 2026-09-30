@@ -9,18 +9,18 @@ import (
 // ADR 0045 S6 (#399): K's modal decision. Before this slice K either
 // planted the trim-rung nudge (PlanRendezvousNudge) or refused outright —
 // a phase-mismatched pair that Δv couldn't nudge its way out of dead-ended
-// at a refusal naming a tool (the Meeting Planner) the pilot had no key to
+// at a refusal naming a tool (the Rendezvous Planner) the pilot had no key to
 // reach (#277). This file is the orchestration that makes K modal: still
-// plant directly when the trim rung works, open the Meeting Planner picker
+// plant directly when the trim rung works, open the Rendezvous Planner picker
 // instead of refusing when it doesn't.
 
-// rendezvousKDefaultPlace is the MeetingPlace the picker opens on — "their
+// rendezvousKDefaultPlace is the RendezvousOrbit the picker opens on — "their
 // orbit" (ADR 0045 §2's own mockup): the active craft is the mover, which
 // matches K's existing "I burn, they hold" trim-rung intuition more
 // closely than either alternative.
-const rendezvousKDefaultPlace = planner.MeetingTheirOrbit
+const rendezvousKDefaultPlace = planner.RendezvousTheirOrbit
 
-// RendezvousKOutcome is PlanRendezvousOrOpenMeeting's result. Exactly one
+// RendezvousKOutcome is PlanRendezvousOrOpenPicker's result. Exactly one
 // of Planted / OpenPicker is meaningful on success (err == nil); a non-nil
 // err means K refused outright and neither rung fired.
 type RendezvousKOutcome struct {
@@ -30,23 +30,23 @@ type RendezvousKOutcome struct {
 	Planted *planner.RendezvousAdvisory
 
 	// OpenPicker is true when the trim rung had nothing plantable but the
-	// pair is coplanar, so the meeting rung opens instead of refusing.
+	// pair is coplanar, so the rendezvous rung opens instead of refusing.
 	// Place/Ladder/LadderErr are the picker's initial state (the default
 	// Place); LadderErr carries a per-place structural refusal
-	// (ErrMeetingSizeMismatch / ErrMeetingNoCrossing, #407) the picker
+	// (ErrRendezvousSizeMismatch / ErrRendezvousNoCrossing, #407) the picker
 	// itself must show rather than render a blank/broken chip — nothing is
 	// planted yet, the picker is read-only until Enter, and ←/→ can still
 	// try a different Place.
 	OpenPicker bool
-	Place      planner.MeetingPlace
-	Ladder     planner.MeetingLadder
+	Place      planner.RendezvousOrbit
+	Ladder     planner.RendezvousLadder
 	LadderErr  error
 }
 
 // rendezvousKStructuralRefusal reports whether err means there is nothing
 // for EITHER rung to work with, so K refuses outright rather than opening
 // the picker: no craft, no target bound, a different primary, or already
-// inside DOCK READY range. The Meeting Planner shares the identical first
+// inside DOCK READY range. The Rendezvous Planner shares the identical first
 // three gates (it would just repeat the same refusal, less directly) and
 // has no "already docked" gate of its own to repeat the fourth — a docked
 // pair has nowhere to "meet".
@@ -61,14 +61,14 @@ func rendezvousKStructuralRefusal(err error) bool {
 	return false
 }
 
-// PlanRendezvousOrOpenMeeting is K's modal decision (ADR 0045 S6, #399): a
+// PlanRendezvousOrOpenPicker is K's modal decision (ADR 0045 S6, #399): a
 // close, near-matched pair still plants the trim-rung nudge directly,
 // exactly as PlanRendezvousNudge always has; a pair too far apart in phase
-// no longer refuses — it opens the Meeting Planner picker instead, closing
+// no longer refuses — it opens the Rendezvous Planner picker instead, closing
 // #277's dead end by construction (K can no longer point at a tool the
 // pilot has to go find on their own).
 //
-// K walks exactly two rungs — meeting and trim (ADR 0045 §2) — never a
+// K walks exactly two rungs — rendezvous and trim (ADR 0045 §2) — never a
 // plane change. The plane-mismatch check runs FIRST, ahead of even
 // attempting the trim-rung plant, so a diverged-plane pair is named
 // ("your planes differ — match theirs [I] first") and nothing is ever
@@ -79,19 +79,19 @@ func rendezvousKStructuralRefusal(err error) bool {
 // (PlanVesselPlaneMatch, #397) is the tool built for that job; K names it
 // instead of doing a smaller, less deliberate version of the same thing.
 //
-// The plane check reuses RecommendMeetingLadder's own coplanar gate — the
-// same physical check the Meeting Planner needs anyway (ErrMeetingPlaneMismatch),
+// The plane check reuses RecommendRendezvousLadder's own coplanar gate — the
+// same physical check the Rendezvous Planner needs anyway (ErrRendezvousPlaneMismatch),
 // not a second implementation of it — computed once, for the default
 // Place, since coplanarity doesn't depend on which of the three Places is
 // chosen.
-func (w *World) PlanRendezvousOrOpenMeeting() (RendezvousKOutcome, error) {
-	ladder, lerr := w.RecommendMeetingLadder(rendezvousKDefaultPlace)
+func (w *World) PlanRendezvousOrOpenPicker() (RendezvousKOutcome, error) {
+	ladder, lerr := w.RecommendRendezvousLadder(rendezvousKDefaultPlace)
 	switch {
 	case errors.Is(lerr, ErrRendezvousNoCraft), errors.Is(lerr, ErrRendezvousNoTarget), errors.Is(lerr, ErrRendezvousDifferentPrimaries):
 		// Nothing for either rung to work with — same refusal
 		// PlanRendezvousNudge would give for the identical gate.
 		return RendezvousKOutcome{}, lerr
-	case errors.Is(lerr, ErrMeetingPlaneMismatch):
+	case errors.Is(lerr, ErrRendezvousPlaneMismatch):
 		return RendezvousKOutcome{}, lerr
 	}
 
@@ -104,7 +104,7 @@ func (w *World) PlanRendezvousOrOpenMeeting() (RendezvousKOutcome, error) {
 	}
 	// Phase mismatch, shape mismatch, burn-too-large, or unsafe-periapsis:
 	// the trim rung has nothing to plant, but the pair is coplanar (the
-	// gate above already ruled out a plane mismatch) — open the meeting
+	// gate above already ruled out a plane mismatch) — open the rendezvous
 	// rung instead of refusing.
 	return RendezvousKOutcome{OpenPicker: true, Place: rendezvousKDefaultPlace, Ladder: ladder, LadderErr: lerr}, nil
 }

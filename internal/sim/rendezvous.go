@@ -23,7 +23,7 @@ var (
 	// item-3 UX batch review finding 3: the "how do I fix this" clause
 	// lives on the sentinel itself (not a special case at one call
 	// site) so every caller — [K] rendezvous, [I] plane-match, the
-	// Meeting Planner's structural refusal — names the fix for free.
+	// Rendezvous Planner's structural refusal — names the fix for free.
 	ErrRendezvousNoTarget           = transferError("no vessel target — [t] to target it")
 	ErrRendezvousDifferentPrimaries = transferError("target around a different primary")
 	ErrRendezvousAlreadyDocked      = transferError("already in DOCK READY range")
@@ -41,7 +41,7 @@ var (
 	//
 	// ADR 0045 §2 / #398 proposed retiring ErrRendezvousShapeMismatch
 	// alongside the planner-side gate it names, on the theory that the
-	// Meeting Planner (meeting.go) now covers a shape-mismatched pair.
+	// Rendezvous Planner (rendezvous.go) now covers a shape-mismatched pair.
 	// That removal did not ship (PR #405 review — see
 	// RecommendRendezvousNudge's doc comment for why); this sentinel and
 	// the gate behind it stay.
@@ -266,8 +266,8 @@ func (w *World) RendezvousNeedsBurnToClose(ca float64) bool {
 
 // RendezvousPlan is RendezvousCommitWithPlan's result (ADR 0045 S7,
 // #400): everything Engage needs to form the agreement — the same τ/CA
-// RendezvousCommit returns, plus the Meeting Place + lap count when the
-// commit's source was a planted Meeting Burn node. MeetingPlaceLabel is
+// RendezvousCommit returns, plus the Rendezvous Orbit + lap count when the
+// commit's source was a planted Rendezvous Burn node. RendezvousOrbitLabel is
 // "" whenever the source was the trim-rung nudge or the current-course
 // search — neither has a Place to name. A zero Tau (Tau.IsZero()) means
 // "agreed, no plan yet": Engage no longer refuses on this (see
@@ -276,11 +276,11 @@ func (w *World) RendezvousNeedsBurnToClose(ca float64) bool {
 type RendezvousPlan struct {
 	Tau               time.Time
 	CommittedCA       float64
-	MeetingPlaceLabel string
-	MeetingLaps       int
+	RendezvousOrbitLabel string
+	RendezvousLaps       int
 }
 
-// RendezvousCommitWithPlan is RendezvousCommit's meeting-aware sibling
+// RendezvousCommitWithPlan is RendezvousCommit's rendezvous-aware sibling
 // (ADR 0045 S7, #400): the SAME structural gates and the SAME two
 // (now three) search sources, but it never refuses on "no encounter
 // found" — only on a genuinely structural failure (no active craft, no
@@ -302,13 +302,13 @@ type RendezvousPlan struct {
 //
 //  1. A PLANTED rendezvous nudge (K's trim rung) — unchanged from
 //     RendezvousCommit's old Source 1, see rendezvousCommitFromPlantedNode.
-//  2. A PLANTED Meeting Burn node (K's meeting rung / the picker's Enter,
-//     PlanMeetingBurn) — new in this slice. Tried second, after the trim
+//  2. A PLANTED Rendezvous Burn node (K's rendezvous rung / the picker's Enter,
+//     PlanRendezvousBurn) — new in this slice. Tried second, after the trim
 //     rung: the two AdvisoryKeys never collide (K plants exactly one of
-//     them per press, PlanRendezvousOrOpenMeeting's whole point), so in
+//     them per press, PlanRendezvousOrOpenPicker's whole point), so in
 //     practice at most one of Source 1/2 ever has anything to find: this
 //     ordering is precedence for the rare case both somehow exist, not a
-//     load-bearing choice. See rendezvousCommitFromPlantedMeetingNode for
+//     load-bearing choice. See rendezvousCommitFromPlantedBurnNode for
 //     why this source does NOT re-search within the 4h horizon the way
 //     Source 1 does.
 //  3. The current-course fallback (no burn assumed) — unchanged from
@@ -359,13 +359,13 @@ func (w *World) RendezvousCommitWithPlan() (RendezvousPlan, bool) {
 		}
 	}
 
-	// Source 2: a planted Meeting Burn node (ADR 0045 S7, #400).
-	if node, nok := plantedAdvisoryNode(active, AdvisoryKeyMeetingBurn, w.Target.CraftID, w.Target.GhostOwner); nok {
-		if t, c, cok := w.rendezvousCommitFromPlantedMeetingNode(active, node, rT, vT, mu); cok {
+	// Source 2: a planted Rendezvous Burn node (ADR 0045 S7, #400).
+	if node, nok := plantedAdvisoryNode(active, AdvisoryKeyRendezvousBurn, w.Target.CraftID, w.Target.GhostOwner); nok {
+		if t, c, cok := w.rendezvousCommitFromPlantedBurnNode(active, node, rT, vT, mu); cok {
 			return RendezvousPlan{
 				Tau: t, CommittedCA: c,
-				MeetingPlaceLabel: node.MeetingPlaceLabel,
-				MeetingLaps:       node.MeetingLaps,
+				RendezvousOrbitLabel: node.RendezvousOrbitLabel,
+				RendezvousLaps:       node.RendezvousLaps,
 			}, true
 		}
 	}
@@ -472,9 +472,9 @@ func (w *World) rendezvousCommitFromPlantedNode(active *spacecraft.Spacecraft, n
 	return node.TriggerTime.Add(time.Duration(tCA * float64(time.Second))), distCA, true
 }
 
-// rendezvousCommitFromPlantedMeetingNode computes the encounter a planted
-// Meeting Burn node (AdvisoryKeyMeetingBurn) actually leads to — the
-// meeting-aware sibling of rendezvousCommitFromPlantedNode just above,
+// rendezvousCommitFromPlantedBurnNode computes the encounter a planted
+// Rendezvous Burn node (AdvisoryKeyRendezvousBurn) actually leads to — the
+// rendezvous-aware sibling of rendezvousCommitFromPlantedNode just above,
 // called only from RendezvousCommitWithPlan's Source 2 (ADR 0045 S7,
 // #400). Shares its sibling's first two steps (Kepler-propagate the
 // target's current relative state to the node's TriggerTime, then apply
@@ -482,8 +482,8 @@ func (w *World) rendezvousCommitFromPlantedNode(active *spacecraft.Spacecraft, n
 // postBurnStateWithTarget) but then DIVERGES: instead of running
 // NextClosestApproach over rendezvousCommitHorizonSec, it propagates BOTH
 // the post-burn mover and the (unburned) holder straight to
-// node.MeetingArrivalSec past TriggerTime — no SEARCH. The Meeting
-// Planner's tangential solve (planner.meetingLadderCore) already aimed
+// node.RendezvousArrivalSec past TriggerTime — no SEARCH. The Rendezvous
+// Planner's tangential solve (planner.rendezvousLadderCore) already aimed
 // this exact burn at this exact instant; re-searching within the 4h
 // window the way the trim-rung sibling does would miss any wait longer
 // than that window entirely, which is the ordinary case for more than a
@@ -492,12 +492,12 @@ func (w *World) rendezvousCommitFromPlantedNode(active *spacecraft.Spacecraft, n
 //
 // ok=false for the same reasons as the sibling (past-due node, a
 // degenerate Kepler step, an SOI crossing before the burn fires, an
-// unresolvable direction), plus a node with no MeetingArrivalSec — a
-// non-Meeting-Burn node reaching this by construction error, or a node
+// unresolvable direction), plus a node with no RendezvousArrivalSec — a
+// non-Rendezvous-Burn node reaching this by construction error, or a node
 // planted before ADR 0045 S7 added the field — treated as "no plan
 // info", not zero wait.
-func (w *World) rendezvousCommitFromPlantedMeetingNode(active *spacecraft.Spacecraft, node spacecraft.ManeuverNode, rT, vT orbital.Vec3, mu float64) (time.Time, float64, bool) {
-	if node.MeetingArrivalSec <= 0 {
+func (w *World) rendezvousCommitFromPlantedBurnNode(active *spacecraft.Spacecraft, node spacecraft.ManeuverNode, rT, vT orbital.Vec3, mu float64) (time.Time, float64, bool) {
+	if node.RendezvousArrivalSec <= 0 {
 		return time.Time{}, 0, false
 	}
 	dt := node.TriggerTime.Sub(w.Clock.SimTime).Seconds()
@@ -512,12 +512,12 @@ func (w *World) rendezvousCommitFromPlantedMeetingNode(active *spacecraft.Spacec
 	if !pok || primaryID != active.Primary.ID {
 		return time.Time{}, 0, false
 	}
-	moverArr, mok := physics.KeplerStep(postState, mu, node.MeetingArrivalSec)
-	holderArr, hok := physics.KeplerStep(targetState, mu, node.MeetingArrivalSec)
+	moverArr, mok := physics.KeplerStep(postState, mu, node.RendezvousArrivalSec)
+	holderArr, hok := physics.KeplerStep(targetState, mu, node.RendezvousArrivalSec)
 	if !mok || !hok {
 		return time.Time{}, 0, false
 	}
-	arrival := node.TriggerTime.Add(time.Duration(node.MeetingArrivalSec * float64(time.Second)))
+	arrival := node.TriggerTime.Add(time.Duration(node.RendezvousArrivalSec * float64(time.Second)))
 	dist := moverArr.R.Sub(holderArr.R).Norm()
 	return arrival, dist, true
 }
