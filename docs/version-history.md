@@ -2,6 +2,14 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.45.1
+
+Rendezvous is the word again: the planner, its HUD row, its messages and the docs no longer say "meeting" anywhere (PR `#491`; tag `v0.45.1`).
+
+- **What changed on screen.** The plan row reads `rendezvous: their orbit, 3 laps`, a planted plan flashes `rendezvous burn planted: …`, and the planner's refusals and Lap Ladder reasons read `rendezvous: …` / `no rendezvous solution`. The picker's three choices (their orbit, your orbit, the crossing) are now called the **Rendezvous Orbit**, and the burn it plants the **Rendezvous Burn**.
+- **Saves move to schema 12.** Older saves migrate on load with nothing lost, including a planted rendezvous burn and the Meet & Dock challenge's progress.
+- **Multiplayer.** The plan a player agreed to travels under new names; a build from before this one is still understood for one release.
+
 ### v0.45.0
 
 The instrument boxes line up and hold their width for the whole flight, a taller terminal draws the planet and the navball bigger, and a new Settings line decides what empty readings do (closes #482; PRs `#483`, `#484`, `#485`, `#486`, review fixes `#487`, `#488`, `#489`, `#490`; tag `v0.45.0`).
