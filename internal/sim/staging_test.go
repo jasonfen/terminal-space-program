@@ -490,3 +490,38 @@ func TestStageActivePreservesAttitudeOnDroppedStage(t *testing.T) {
 			jett.CurrentAttitudeDir, parentCmd)
 	}
 }
+
+// TestJettisonedStagesDoNotRedock (#467): two stages shed in quick
+// succession both spawn stagingSeparationM behind the active vessel with the
+// same push, so they sit inside both docking gates of EACH OTHER. With no
+// re-arm latch between shed stages, checkDocking fused them into a composite
+// ("docked with S-IVB-1, now 1 vessel, 3 components" in lunar orbit).
+func TestJettisonedStagesDoNotRedock(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	saturn := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
+	saturn.Primary = w.Crafts[0].Primary
+	saturn.State = w.Crafts[0].State
+	w.Crafts[0] = saturn
+	w.ActiveCraftIdx = 0
+	crewTendActive(w)
+
+	for n := 0; n < 2; n++ {
+		if _, _, err := w.StageActive(0); err != nil {
+			t.Fatalf("StageActive #%d: %v", n+1, err)
+		}
+	}
+	if len(w.Crafts) != 3 {
+		t.Fatalf("post-stage slate count: got %d, want 3", len(w.Crafts))
+	}
+	for k := 0; k < 3; k++ {
+		if _, _, docked := w.checkDocking(); docked {
+			t.Fatalf("tick %d: shed stages re-docked; slate now %d vessels", k, len(w.Crafts))
+		}
+	}
+	if len(w.Crafts) != 3 {
+		t.Errorf("slate count after checkDocking: got %d, want 3", len(w.Crafts))
+	}
+}
