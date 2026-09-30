@@ -117,3 +117,29 @@ func TestTitleChipMorphsToAutoWhenEngaged(t *testing.T) {
 // (TestCompactDuration, pre-ADR-0049) now lives on internal/tui/readout's
 // own TestDuration: compactDuration is deleted, every screens/ call site
 // routes through readout.Duration instead (ADR 0049 stage A2).
+
+// TestAutoWarpFormFitsWarpField (R4 #3): the AUTO form must fit the fixed
+// warp field even for a node years away, where readout.Duration alone
+// would emit "11574d05h" and push the title bar.
+func TestAutoWarpFormFitsWarpField(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	for _, days := range []int{3, 400, 1500, 30000} {
+		w.ClearNodes()
+		w.PlanNode(sim.ManeuverNode{TriggerTime: w.Clock.SimTime.Add(time.Duration(days) * 24 * time.Hour), DV: 10, Mode: spacecraft.BurnPrograde})
+		if !w.EngageAutoWarp() {
+			t.Fatalf("engage failed at %d days", days)
+		}
+		txt := warpRateText(w)
+		if !strings.HasPrefix(txt, "AUTO") {
+			t.Fatalf("not AUTO form at %d days: %q", days, txt)
+		}
+		// Worst-case rate digits: swap the effective rate for 100000x.
+		worst := strings.Replace(txt, strings.Fields(txt)[1], "→100000x", 1)
+		if got := lipgloss.Width(worst); got > warpFieldWidth {
+			t.Errorf("%d days: %q is %d cells, field is %d", days, worst, got, warpFieldWidth)
+		}
+	}
+}

@@ -1615,7 +1615,14 @@ func (v *OrbitView) declutterTagText() (plain, rendered string) {
 func warpRateText(w *sim.World) string {
 	if secs, ok := w.AutoWarpSecondsToTarget(); ok {
 		dur := time.Duration(secs * float64(time.Second))
-		return fmt.Sprintf("AUTO →%.0fx  %s", w.EffectiveWarp(), readout.Duration(dur))
+		// R4 #3: Duration is days-and-hours with no upper unit, so a node
+		// years out would outgrow warpFieldWidth. Past 999 days the exact
+		// figure is noise; cap it.
+		eta := readout.Duration(dur)
+		if dur >= 1000*24*time.Hour {
+			eta = ">999d"
+		}
+		return fmt.Sprintf("AUTO →%.0fx  %s", w.EffectiveWarp(), eta)
 	}
 	reqWarp := w.Clock.Warp()
 	if eff := w.EffectiveWarp(); eff < reqWarp {
@@ -1627,7 +1634,8 @@ func warpRateText(w *sim.World) string {
 // warpFieldWidth is the fixed cell width reserved for the warp readout in
 // a title bar (#499). The widest common forms ("warp 100000x→100000x",
 // "AUTO →100000x  3d05h") are 20 cells; two more leave room for a
-// three-digit day count. Anything longer overflows rather than truncates.
+// three-digit day count. warpRateText caps the AUTO countdown at ">999d"
+// so the widest real form (22 cells) always fits.
 const warpFieldWidth = 22
 
 // warpField is warpRateText right-padded with spaces to warpFieldWidth
