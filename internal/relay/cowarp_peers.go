@@ -39,8 +39,9 @@ import (
 // default for callers with no liveness source).
 //
 // now is the viewer's wall clock, the reference for extrapolating each
-// report's SubspaceTime (#417); the zero time, or an unstamped report,
-// reads the report verbatim.
+// report's SubspaceTime (#417); the zero time, an unstamped report, or an
+// owner that is not live (a frozen report from a dead session) reads the
+// report verbatim.
 //
 // away is the serve layer's per-owner Away verdict (#253): reports carry
 // what a peer's WORLD is doing, not whether anyone is at its controls, so
@@ -55,15 +56,13 @@ func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]str
 	for _, rep := range reports {
 		// Current at read (#417): the report's clock is one heartbeat old
 		// at worst, and a steady coast sends nothing in between, so
-		// project it forward by the peer's own rate. Every consumer below
-		// (the Kepler gap, the same-subspace gate, the pacing lead) then
-		// reads a value that means "now" instead of each compensating for
-		// Heartbeat*EffWarp of staleness itself.
-		peerT := rep.SubspaceTime
-		if !rep.ReportedAt.IsZero() && !now.IsZero() {
-			peerT = sim.ExtrapolateSubspaceTime(rep.SubspaceTime, rep.EffWarp, rep.Paused, now.Sub(rep.ReportedAt))
-		}
-		dt := viewerT.Sub(peerT).Seconds()
+		// project it forward by the peer's own rate (live owners only).
+		// The same-subspace gate and the pacing lead then read a value
+		// that means "now". The craft states are NOT moved by this: they
+		// are the state at rep.SubspaceTime, so the Kepler step below
+		// runs from the report instant, not from peerT.
+		peerT := PeerClock(rep, live[rep.Owner], now)
+		dt := viewerT.Sub(rep.SubspaceTime).Seconds()
 		var crafts []sim.CoWarpCraft
 		for _, cs := range rep.Crafts {
 			if cs.Landed || cs.System != sysName {
@@ -121,4 +120,17 @@ func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]str
 		out = append(out, p)
 	}
 	return out
+}
+
+// PeerClock is a report's subspace clock made current at wall time now
+// (#417): extrapolated by the reporter's EffWarp since ReportedAt, for a
+// live owner only. A dead or offline owner's report is frozen, so the
+// verbatim clock is the honest one; an unstamped report or a zero now also
+// reads verbatim. Every consumer that shows or compares a peer's clock
+// (co-warp peers, Sync target, Session screen) should read through this.
+func PeerClock(rep CraftReport, live bool, now time.Time) time.Time {
+	if !live || rep.ReportedAt.IsZero() || now.IsZero() {
+		return rep.SubspaceTime
+	}
+	return sim.ExtrapolateSubspaceTime(rep.SubspaceTime, rep.EffWarp, rep.Paused, now.Sub(rep.ReportedAt))
 }
