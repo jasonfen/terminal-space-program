@@ -80,7 +80,10 @@ import (
 // its advisory_key value ("meeting-burn" becomes "rendezvous-burn"), when
 // the vocabulary settled on rendezvous; migrateV11PayloadToV12 rewrites
 // an old envelope's nodes, values unchanged.
-const SchemaVersion = 12
+// v13 refreshes Flight School's tut-launch ladder in saves (#525: the
+// lift-off rung moved from [space] to [b] and a staging rung was added);
+// migrateV12PayloadToV13 rebuilds it from the catalog keeping progress.
+const SchemaVersion = 13
 
 // File is the on-disk envelope.
 //
@@ -671,6 +674,11 @@ func Load(path string) (*sim.World, error) {
 	// meeting_*; fold an old envelope's values into the new fields.
 	if f.Version < 12 {
 		migrateV11PayloadToV12(&f.Payload)
+	}
+	// schema v13: tut-launch's ladder changed (#525); rebuild it from the
+	// catalog, keeping each rung's status.
+	if f.Version < 13 {
+		migrateV12PayloadToV13(&f.Payload)
 	}
 	return worldFromPayload(f.Payload, systems)
 }
