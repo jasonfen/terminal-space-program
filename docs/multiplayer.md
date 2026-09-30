@@ -11,6 +11,8 @@ every key on the session roster.
 ```bash
 terminal-space-program --serve                 # play AND accept guests (port 23234)
 terminal-space-program serve invite dave       # mint a one-time invite code
+terminal-space-program serve promote dave      # make a guest an admin (demote to undo)
+terminal-space-program serve roster             # list handles and roles
 ssh -p 23234 your-host                         # guests join from any terminal
 ```
 
