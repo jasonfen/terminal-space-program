@@ -99,12 +99,14 @@ A good first attempt:
    the start.
 2. `z` for full throttle, `b` to light the engine. The first stage lifts off
    at a thrust-to-weight ratio of about 1.24.
-3. Around 3 km up, tap `>` a couple of times to tip ~5° east each. The rocket
-   starts building sideways speed.
-4. As your ground speed passes ~100 m/s, press `w` to have the autopilot point
-   along your velocity, and `?` to clear the manual tip. From here the rocket
-   tracks its own motion and gravity rounds the climb into orbit for you.
-5. Press `space` to drop the empty first stage. You keep flying the upper
+3. Above 10 km, pitch east with `W` (Flight School's turn) and hold it
+   through the climb: it points the rocket along your motion relative to the
+   ground. To start bending over sooner, tap `>` a couple of times to tip
+   ~5° east each; the rocket starts building sideways speed.
+4. As your ground speed passes ~100 m/s, keep `W` on so the rocket tracks its
+   own motion and gravity rounds the climb into orbit for you. If you tipped
+   it with `>`, press `|` to clear the pitch trim.
+5. When the first stage runs dry, press `space` to drop it. You keep flying the upper
    stage and the stage list advances. Keep burning, drop the next stage, then
    the last one.
 6. Watch the projected high point climb. When it clears Earth's orbit floor

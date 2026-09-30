@@ -2655,7 +2655,7 @@ Target), *Plan a Burn* (open the planner; plant a transfer **to the Moon
 that the Vessel can afford**, the ADR 0047 consequence: an over-budget
 plan is allowed but earns no credit), *Fly It* (warp to or fire the burn,
 climb above 700 km), *Off the Pad* (spawn on the launchpad, throttle up,
-stage, pitch east above 10 km, plan and fly the circularising burn), and
+light the engine, pitch east above 10 km, stage when the first stage runs dry, plan and fly the circularising burn), and
 *Docking* (spawn a partner in orbit, target it, plant the rendezvous
 burn, dock). Each rung's Objectives carry the instruction as text, one
 step per Objective; that is the tutorial teaching, not the instrument

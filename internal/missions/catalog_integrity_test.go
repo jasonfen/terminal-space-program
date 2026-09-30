@@ -26,7 +26,7 @@ func TestEmbeddedCatalogIntegrity(t *testing.T) {
 		ActionThrottleDown: true, ActionOpenManeuver: true, ActionPlanTransfer: true,
 		ActionPlanCircularize: true, ActionPlanIncl: true, ActionPlanRendezvous: true,
 		ActionRefinePlan: true, ActionClearNodes: true, ActionToggleBurn: true,
-		ActionStage: true, ActionCycleTarget: true, ActionClearTarget: true,
+		ActionStage: true, ActionIgnite: true, ActionCycleTarget: true, ActionClearTarget: true,
 		ActionCycleView: true, ActionCycleNavMode: true, ActionAutoWarp: true,
 		ActionSpawnCraft: true, ActionUndock: true, ActionTranspose: true,
 		// Cycle 3 (ADR 0028) deploy verb — authored into the ladder by cycle 3.

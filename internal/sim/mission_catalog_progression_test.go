@@ -107,16 +107,17 @@ func TestEmbeddedTutorialProgression(t *testing.T) {
 		t.Fatalf("tut-fly = %v after climbing above 700 km, want Passed", got)
 	}
 
-	// tut-launch unlocks: spawn on the pad, throttle up, stage (liftoff),
-	// pitch east above 10 km, plan the circularising burn, then make orbit.
+	// tut-launch unlocks: spawn on the pad, throttle up, ignite (liftoff),
+	// pitch east above 10 km, stage, plan the circularising burn, then make orbit.
 	c.OnPad = true
 	step(missions.ActionSpawnCraft)
 	step(missions.ActionThrottleFull)
-	step(missions.ActionStage)
+	step(missions.ActionIgnite)
 	c.OnPad = false // liftoff clears OnPad in real play (maneuver.go)
 
 	setCircularAltitude(c, 15_000) // above the 10 km floor
 	w.evaluateMissions()
+	step(missions.ActionStage) // first stage runs dry
 	if got := statusByID("tut-launch"); got == missions.Passed {
 		t.Fatalf("tut-launch passed before the circularising burn, want still InProgress")
 	}

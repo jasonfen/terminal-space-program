@@ -121,6 +121,7 @@ const (
 	ActionClearNodes      Action = "clear_nodes"
 	ActionToggleBurn      Action = "toggle_burn"
 	ActionStage           Action = "stage"
+	ActionIgnite          Action = "ignite" // the manual burn actually lit (b on the pad is lift-off); #519
 	ActionCycleTarget     Action = "cycle_target"
 	ActionClearTarget     Action = "clear_target"
 	ActionCycleView       Action = "cycle_view"
