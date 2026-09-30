@@ -1086,9 +1086,11 @@ func (v *OrbitView) missionChipLines(flash string, flashing bool, m *missions.Mi
 		return []string{header}
 	}
 	passed, total := m.Progress()
+	// The N/M counter counts the mission's objectives, so it rides the
+	// title line rather than the current objective's row (#505).
 	lines := []string{
-		header,
-		fmt.Sprintf("  %s %s  %d/%d", hudNodeMarker, obj.Label(), passed, total),
+		header + fmt.Sprintf("  %d/%d", passed, total),
+		fmt.Sprintf("  %s %s", hudNodeMarker, obj.Label()),
 	}
 	// #426: a relay_coverage objective's raw progress ("0/1" — one countable
 	// deploy-and-verify goal) doesn't tell the player how close the live

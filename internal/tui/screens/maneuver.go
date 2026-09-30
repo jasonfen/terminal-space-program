@@ -800,7 +800,7 @@ func (m *Maneuver) Render(w *sim.World, cols, rows, selectedBody int) string {
 	// Mirror the orbit screen's bottom-right view-mode label so the
 	// player can tell which projection the preview is in without
 	// flipping back to the orbit screen. v0.7.4+.
-	viewLabel := "view: " + w.ViewMode.String()
+	viewLabel := "view: " + w.ViewMode.Label()
 	labelCol := m.canvas.Cols() - len([]rune(viewLabel)) - 1
 	if labelCol < 0 {
 		labelCol = 0
@@ -869,7 +869,13 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 	// keep the event name and parenthesize the countdown.
 	fireAt := sim.AllTriggerEvents[m.fireAtIdx]
 	fireAtLabel := fireAt.String()
-	if !m.loadedTriggerTime.IsZero() {
+	if m.loadedTriggerTime.IsZero() {
+		// A fresh plan has no schedule yet and commits as "fire now";
+		// the bare "T+" the event prints is a prefix, not a value (#505).
+		if fireAt == sim.TriggerAbsolute {
+			fireAtLabel = "now"
+		}
+	} else {
 		countdown := readout.Countdown(m.loadedTriggerTime.Sub(w.Clock.SimTime))
 		if fireAt == sim.TriggerAbsolute {
 			fireAtLabel = countdown

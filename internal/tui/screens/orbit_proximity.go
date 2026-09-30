@@ -145,7 +145,7 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 	// any of them at 80×24, and an unlabelled frame is a frame whose
 	// orientation the player has to guess. This row is the one place
 	// nothing composites over.
-	label := "view: proximity"
+	label := "view: Proximity"
 	if sceneOK {
 		label += " — " + st.TargetName + "   →+V prograde  ↓" + proximityPrimaryName(w)
 	}

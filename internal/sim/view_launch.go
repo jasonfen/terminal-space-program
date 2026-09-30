@@ -165,7 +165,7 @@ type LaunchReleaseEvent struct {
 // from the active-switch handler's "end" branch (ADR 0021 D retired
 // the per-tick apoapsis-floor auto-release that used to call this).
 func (w *World) releaseLaunchSession() {
-	w.LastLaunchReleaseEvent = &LaunchReleaseEvent{PrevView: w.PrevViewMode.String()}
+	w.LastLaunchReleaseEvent = &LaunchReleaseEvent{PrevView: w.PrevViewMode.Label()}
 	w.ViewMode = w.PrevViewMode
 	w.LaunchSessionActive = false
 	w.LaunchT0 = time.Time{}

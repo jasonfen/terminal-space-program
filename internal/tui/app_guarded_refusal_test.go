@@ -411,7 +411,7 @@ func TestTiltWorksInTiltedView(t *testing.T) {
 
 	a.Update(tea.KeyMsg{Type: tea.KeyShiftUp})
 
-	if !strings.HasPrefix(a.statusMsg, "view: tilted") {
-		t.Errorf("statusMsg = %q, want a %q-prefixed tilt readout", a.statusMsg, "view: tilted")
+	if !strings.HasPrefix(a.statusMsg, "view: Tilted") {
+		t.Errorf("statusMsg = %q, want a %q-prefixed tilt readout", a.statusMsg, "view: Tilted")
 	}
 }
