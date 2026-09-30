@@ -81,7 +81,7 @@ type World struct {
 
 	// LastLaunchReleaseEvent records the most recent ViewLaunch
 	// switch-end release so the App can surface an
-	// `"ORBIT READY — returning to <prev view>"` toast. Cleared by
+	// `"launch view off, back on the <prev view> view"` toast. Cleared by
 	// app.go after the message fires; same pattern as LastDockEvent.
 	// v0.11.0+ (the apoapsis-floor auto-release that also stamped
 	// this was retired by ADR 0021 D).

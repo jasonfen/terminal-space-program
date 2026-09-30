@@ -1543,6 +1543,11 @@ func (v *OrbitView) buildSOIPassChip(w *sim.World) []string {
 	if c == nil || !w.CraftVisibleHere() {
 		return nil
 	}
+	// #464: a wreck has no encounter to report (perilune 0 m / TCA T+0s is
+	// noise), the same Crashed gate ADR 0051 rule C puts on TARGET's cells.
+	if c.Crashed {
+		return nil
+	}
 	arc := v.cachedSOIPass(w)
 
 	// The body the chip names: the planned pass when present (the path the
