@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -3001,8 +3000,7 @@ func (a *App) flashStatus(op string, err error) {
 		a.flash(fmt.Sprintf("%s failed: %v", op, err))
 		return
 	}
-	dir, _ := save.SavesDir()
-	a.flash(fmt.Sprintf("%s ok — %s", op, filepath.Join(dir, save.QuicksaveID)))
+	a.flash(fmt.Sprintf("%s ok: %s", op, save.QuicksaveID))
 }
 
 // handlePlanRendezvousKey is K's modal body (ADR 0045 S6, #399), called

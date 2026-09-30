@@ -483,3 +483,48 @@ func TestSavesListWindowsToHeight(t *testing.T) {
 		t.Error("cursor row 10 has no click target")
 	}
 }
+
+// TestSavesInGameColumnCarriesTime (#503): the IN-GAME column shows the
+// sim date AND time, so two saves on the same sim day are distinguishable.
+func TestSavesInGameColumnCarriesTime(t *testing.T) {
+	infos := savesFixture()
+	infos[0].Meta.InGameEpoch = time.Date(2000, 3, 14, 7, 45, 0, 0, time.UTC)
+	sc := NewSavesScreen(savesTheme())
+	sc.Open(SavesModeLoad, infos, "default")
+	out := sc.Render(140, 40)
+	if !strings.Contains(out, "2000-03-14 07:45") {
+		t.Errorf("in-game column missing date+time\n%s", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "Apollo run") && !strings.Contains(line, "Kern Stack") {
+			t.Errorf("row wrapped or truncated the vessel: %q", line)
+		}
+	}
+}
+
+// TestAutosaveBadgeOrderMatchesSort (#503): badge numbers follow the
+// order the list is shown in (1 = newest shown), not the ring slot.
+func TestAutosaveBadgeOrderMatchesSort(t *testing.T) {
+	mk := func(id string, hour int) save.SaveInfo {
+		return save.SaveInfo{ID: id, Lane: save.LaneAutosave, Meta: save.Meta{
+			SavedAt:     time.Date(2026, 7, 11, hour, 0, 0, 0, time.UTC),
+			InGameEpoch: time.Date(2000, 1, 1, hour, 0, 0, 0, time.UTC),
+		}}
+	}
+	// Newest first, as save.List returns: slot 3, then 1, then 2.
+	infos := []save.SaveInfo{mk("autosave-3.json", 12), mk("autosave-1.json", 11), mk("autosave-2.json", 10)}
+	sc := NewSavesScreen(savesTheme())
+	sc.Open(SavesModeLoad, infos, "default")
+	out := sc.Render(140, 40)
+	i1 := strings.Index(out, "[AUTOSAVE 1]")
+	i2 := strings.Index(out, "[AUTOSAVE 2]")
+	i3 := strings.Index(out, "[AUTOSAVE 3]")
+	if i1 < 0 || i2 < 0 || i3 < 0 || !(i1 < i2 && i2 < i3) {
+		t.Errorf("badges not 1,2,3 top to bottom: %d %d %d\n%s", i1, i2, i3, out)
+	}
+	// The newest row is slot 3's file but must read AUTOSAVE 1.
+	sc.cursor = 0
+	if got := sc.displayName(infos[0]); got != "[AUTOSAVE 1]" {
+		t.Errorf("newest autosave badge = %q, want [AUTOSAVE 1]", got)
+	}
+}

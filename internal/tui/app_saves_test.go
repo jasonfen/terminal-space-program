@@ -245,3 +245,20 @@ func TestQuitAutosavesToRing(t *testing.T) {
 		t.Errorf("quit wrote the legacy save.json (stat err = %v); autosave must use the ring", err)
 	}
 }
+
+// TestQuicksaveFlashIsBasename (#503): the F5 toast names the save file,
+// never a filesystem path.
+func TestQuicksaveFlashIsBasename(t *testing.T) {
+	testStateDirs(t)
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyF5})
+	if strings.ContainsRune(a.statusMsg, '/') {
+		t.Errorf("statusMsg carries a path: %q", a.statusMsg)
+	}
+	if !strings.HasPrefix(a.statusMsg, "save ok") || !strings.Contains(a.statusMsg, save.QuicksaveID) {
+		t.Errorf("statusMsg = %q, want `save ok` naming %s", a.statusMsg, save.QuicksaveID)
+	}
+}

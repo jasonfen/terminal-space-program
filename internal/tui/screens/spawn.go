@@ -957,8 +957,11 @@ func (s *SpawnCraft) craftTypeLines() (lines []widgets.WindowLine, cursorLine in
 		if idx == s.loadoutIdx {
 			cursorLine = len(lines)
 		}
-		lines = append(lines, widgets.WindowLine{Text: s.craftRow(idx,
-			fmt.Sprintf("✎ %s  saved design  — %d stages", d.Name(), len(d.Loadout.Parts)))})
+		row := fmt.Sprintf("✎ %s  saved design  — %d parts", d.Name(), len(d.Loadout.Parts))
+		if ds := s.designStagesAt(idx - s.visibleCatalogCount() - 1); len(ds) > 0 {
+			row = fmt.Sprintf("✎ %s  saved design  — %s", d.Name(), stagesSummary(ds))
+		}
+		lines = append(lines, widgets.WindowLine{Text: s.craftRow(idx, row)})
 		idx++
 	}
 	return lines, cursorLine
@@ -1005,6 +1008,9 @@ func (s *SpawnCraft) Render(width, height int) string {
 	// Designs) are windowed below via craftTypeLines/widgets.Window rather
 	// than emitted inline — see craftTypeRowsFor's doc comment.
 	head = append(head, s.fieldHeader(0, "VESSEL TYPE"))
+	// The system's Δv-to-orbit, stated once for the whole list (#504); it
+	// used to trail every row, where it read as that vessel's figure.
+	head = append(head, "  "+s.theme.Dim.Render(scaleHint(s.systemScale.Normalize())))
 	if s.showAll {
 		head = append(head, "  "+s.theme.Dim.Render(
 			"showing all systems' vessels — [f] filter to this system"))
@@ -1473,13 +1479,22 @@ func crewTag(l spacecraft.Loadout) string {
 // real-fleet craft can still be spawned in a stripped-back System (it
 // will simply be over-powered) and vice-versa.
 func propulsionSummary(l spacecraft.Loadout) string {
-	dry := spacecraft.SumDryMass(l.Stages)
-	fuel := spacecraft.SumFuelMass(l.Stages)
-	bottomThrust := l.Thrust()
-	bottomIsp := l.Isp()
+	return stagesSummary(l.Stages)
+}
+
+// stagesSummary is propulsionSummary over a bare stage stack, so a saved
+// design's row (whose stages are resolved and cached at Reset) reads in
+// the same style as a catalog row (#504).
+func stagesSummary(stages []spacecraft.Stage) string {
+	dry := spacecraft.SumDryMass(stages)
+	fuel := spacecraft.SumFuelMass(stages)
+	var bottomThrust, bottomIsp float64
+	if len(stages) > 0 {
+		bottomThrust, bottomIsp = stages[0].Thrust, stages[0].Isp
+	}
 	stageNote := ""
-	if len(l.Stages) > 1 {
-		stageNote = fmt.Sprintf(" (%d stages)", len(l.Stages))
+	if len(stages) > 1 {
+		stageNote = fmt.Sprintf(" (%d stages)", len(stages))
 	}
 	var summary string
 	if bottomThrust == 0 {
@@ -1488,19 +1503,27 @@ func propulsionSummary(l spacecraft.Loadout) string {
 		summary = fmt.Sprintf("dry %.0fkg, fuel %.0fkg%s, %.0fkN @ Isp %.0fs",
 			dry, fuel, stageNote, bottomThrust/1000, bottomIsp)
 	}
-	return summary + " · " + scaleHint(l.Scale())
+	return summary
 }
 
-// scaleHint maps a normalized ScaleClass to its spawn-form "best for"
-// line. The Δv-to-orbit figures come from ADR 0014: ~9.4 km/s for the
+// designStagesAt returns the cached resolved stages of saved design i.
+func (s *SpawnCraft) designStagesAt(i int) []spacecraft.Stage {
+	if i < 0 || i >= len(s.designStages) {
+		return nil
+	}
+	return s.designStages[i]
+}
+
+// scaleHint maps a normalized ScaleClass to the spawn list's header line
+// (the system's Δv to orbit). The Δv-to-orbit figures come from ADR 0014: ~9.4 km/s for the
 // real (Sol) fleet, ~3.4 km/s for the stripped-back (Lumen) fleet. An
 // unrecognized tag falls through to the real-scale wording so a future
 // overlay class never renders blank.
 func scaleHint(scale bodies.ScaleClass) string {
 	switch scale {
 	case bodies.ScaleStrippedBack:
-		return "stripped-back scale, ~3.4 km/s to orbit"
+		return "this system: stripped-back scale, ~3.4 km/s to orbit"
 	default:
-		return "real scale, ~9.4 km/s to orbit"
+		return "this system: real scale, ~9.4 km/s to orbit"
 	}
 }

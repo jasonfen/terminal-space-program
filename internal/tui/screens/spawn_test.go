@@ -8,29 +8,23 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// TestPropulsionSummaryScaleHint — ADR 0014 Slice D. propulsionSummary
-// appends a spawn-form scale hint driven by the loadout's Scale() tag:
-// real fleet reads ~9.4 km/s to orbit, the stripped-back fleet ~3.4 km/s.
-// An unset ScaleClass normalizes to real (it must not read stripped-back).
-// This is a display hint only — it never gates which craft can spawn.
-func TestPropulsionSummaryScaleHint(t *testing.T) {
-	real := spacecraft.Loadout{ScaleClass: bodies.ScaleReal}
-	if got := propulsionSummary(real); !strings.Contains(got, "real scale") ||
-		!strings.Contains(got, "9.4 km/s") {
-		t.Errorf("real-scale hint missing: %q", got)
+// TestScaleHintNamesTheSystemFigure: scaleHint is the spawn list HEADER's
+// system-level line (#504; it used to be appended to every row via
+// propulsionSummary). Real reads ~9.4 km/s, stripped-back ~3.4 km/s, and an
+// unset ScaleClass normalizes to real. propulsionSummary itself carries no
+// system figure.
+func TestScaleHintNamesTheSystemFigure(t *testing.T) {
+	if got := scaleHint(bodies.ScaleReal); !strings.Contains(got, "9.4 km/s") {
+		t.Errorf("real hint: %q", got)
 	}
-
-	stripped := spacecraft.Loadout{ScaleClass: bodies.ScaleStrippedBack}
-	if got := propulsionSummary(stripped); !strings.Contains(got, "stripped-back scale") ||
-		!strings.Contains(got, "3.4 km/s") {
-		t.Errorf("stripped-back hint missing: %q", got)
+	if got := scaleHint(bodies.ScaleStrippedBack); !strings.Contains(got, "3.4 km/s") {
+		t.Errorf("stripped-back hint: %q", got)
 	}
-
-	// Unset ScaleClass normalizes to real, not stripped-back.
-	unset := spacecraft.Loadout{}
-	if got := propulsionSummary(unset); !strings.Contains(got, "real scale") ||
-		strings.Contains(got, "stripped-back") {
+	if got := scaleHint(""); !strings.Contains(got, "9.4 km/s") || strings.Contains(got, "stripped-back") {
 		t.Errorf("unset ScaleClass should read real-scale: %q", got)
+	}
+	if got := propulsionSummary(spacecraft.Loadout{ScaleClass: bodies.ScaleReal}); strings.Contains(got, "km/s") {
+		t.Errorf("propulsionSummary still carries the system figure: %q", got)
 	}
 }
 
@@ -314,4 +308,47 @@ func TestSpawnRenderShowsStackEditor(t *testing.T) {
 	if !strings.Contains(s.Render(80, 0), picked) {
 		t.Errorf("rendered stack does not list the added part %q", picked)
 	}
+}
+
+// TestSpawnRowsDropSystemDvSuffixHeaderCarriesIt (#504): the system's
+// Δv-to-orbit is a property of the system, so it appears once in the list
+// header and never at the end of each vessel row.
+func TestSpawnRowsDropSystemDvSuffixHeaderCarriesIt(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(nil, "", nil, bodies.ScaleReal, nil)
+	out := s.Render(140, 60)
+	if n := strings.Count(out, "km/s to orbit"); n != 1 {
+		t.Fatalf("want the Δv-to-orbit figure exactly once (header), got %d\n%s", n, out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "km/s to orbit") && strings.Contains(line, "Isp") {
+			t.Errorf("vessel row still carries the system figure: %q", line)
+		}
+	}
+}
+
+// TestSpawnSavedDesignRowCarriesMassAndThrust (#504): a saved-design row
+// reads like a catalog row: dry/fuel mass and thrust @ Isp.
+func TestSpawnSavedDesignRowCarriesMassAndThrust(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(nil, "", []spacecraft.Design{
+		{Loadout: spacecraft.LoadoutDef{ID: "d1", Name: "Probe Hopper", Parts: []spacecraft.PartRef{{PartID: "x"}}}},
+	}, bodies.ScaleReal, nil)
+	// Unresolvable design parts yield no stages; inject resolved ones.
+	s.designStages = [][]spacecraft.Stage{{{DryMass: 500, FuelMass: 1500, Thrust: 20000, Isp: 300}}}
+	for !s.IsDesignSelected() {
+		s.HandleKey("right")
+	}
+	out := s.Render(140, 60)
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "Probe Hopper") {
+			for _, want := range []string{"dry 500kg", "fuel 1500kg", "20kN @ Isp 300s"} {
+				if !strings.Contains(line, want) {
+					t.Errorf("design row missing %q: %q", want, line)
+				}
+			}
+			return
+		}
+	}
+	t.Fatalf("design row not rendered\n%s", out)
 }
