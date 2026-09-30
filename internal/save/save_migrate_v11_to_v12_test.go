@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -107,5 +108,21 @@ func TestMigrateV11ToV12RendezvousBurn(t *testing.T) {
 func TestSchemaVersionBumpedToV12(t *testing.T) {
 	if save.SchemaVersion != 12 {
 		t.Errorf("SchemaVersion = %d, want 12", save.SchemaVersion)
+	}
+}
+
+// TestMigrateV11ToV12ObjectiveName - an in-progress Meet & Dock challenge
+// saved under v11 keeps its state but picks up the renamed objective.
+func TestMigrateV11ToV12ObjectiveName(t *testing.T) {
+	p := &save.Payload{Missions: []missions.Mission{{
+		ID:         "x",
+		Objectives: []missions.Objective{{Name: "Plant the meeting burn"}, {Name: "Target it"}},
+	}}}
+	save.MigrateV11PayloadToV12ForTest(p)
+	if got := p.Missions[0].Objectives[0].Name; got != "Plant the rendezvous burn" {
+		t.Errorf("objective name = %q", got)
+	}
+	if got := p.Missions[0].Objectives[1].Name; got != "Target it" {
+		t.Errorf("unrelated objective renamed to %q", got)
 	}
 }

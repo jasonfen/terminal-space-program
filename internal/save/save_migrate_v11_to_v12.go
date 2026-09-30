@@ -5,6 +5,7 @@
 //	meeting_place_label -> rendezvous_orbit_label
 //	meeting_laps        -> rendezvous_laps
 //	advisory_key "meeting-burn" -> "rendezvous-burn" (a value, not a key)
+//	mission objective name "Plant the meeting burn" -> "Plant the rendezvous burn"
 //
 // Values are unchanged. The typed Node decodes the old keys into the
 // V11Meeting* shadow fields (a plain json.Unmarshal of a v11 envelope
@@ -51,4 +52,16 @@ func migrateV11PayloadToV12(p *Payload) {
 	for i := range p.Crafts {
 		p.Crafts[i].FoldLegacyMeetingKeys()
 	}
+	// The Meet & Dock challenge's fourth objective was named "Plant the
+	// meeting burn"; saves persist objective names, so an in-progress
+	// mission would keep showing the old wording.
+	for i := range p.Missions {
+		for j := range p.Missions[i].Objectives {
+			if o := &p.Missions[i].Objectives[j]; o.Name == legacyMeetingObjectiveName {
+				o.Name = "Plant the rendezvous burn"
+			}
+		}
+	}
 }
+
+const legacyMeetingObjectiveName = "Plant the meeting burn"
