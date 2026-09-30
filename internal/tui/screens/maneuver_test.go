@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -527,5 +528,25 @@ func TestManeuverPlannedNodeRowsNotDimmed(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("test setup broken: no PLANNED NODES row contains \"55.00 m/s\"")
+	}
+}
+
+// TestFreshPlanFireAtReadsNow (#505): a new plan has no trigger time yet,
+// and its fire-at row used to read a bare "T+".
+func TestFreshPlanFireAtReadsNow(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	m := NewManeuver(Theme{})
+	m.ResetEditing()
+	out := m.Render(w, 120, 40, 0)
+	if !regexp.MustCompile(`fire at:\s+now`).MatchString(out) {
+		t.Errorf("fresh plan should read `fire at: now`:\n%s", out)
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "fire at:") && strings.HasSuffix(strings.TrimSpace(line), "T+") {
+			t.Errorf("bare T+ survives: %q", line)
+		}
 	}
 }

@@ -1,6 +1,9 @@
 package sim
 
-import "math"
+import (
+	"math"
+	"strings"
+)
 
 // ViewMode selects the canvas projection — which world axes map to
 // canvas X+ and Y+. v0.6.4+. World-level state so the orbit screen
@@ -117,6 +120,16 @@ func (m ViewMode) String() string {
 		return "proximity"
 	}
 	return "?"
+}
+
+// Label is the player-facing name of the view mode: String() title-cased.
+// Display layers use this; String() stays the lowercase identifier.
+func (m ViewMode) Label() string {
+	s := m.String()
+	if s == "" || s == "?" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
 }
 
 // AllViewModes enumerates EVERY ViewMode value, Launch and Proximity

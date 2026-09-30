@@ -437,7 +437,7 @@ func TestViewTiltedLandedFallback(t *testing.T) {
 	v := NewOrbitView(th)
 	v.Resize(120, 40)
 	out := v.Render(w, 0, 120, 40)
-	if !strings.Contains(out, "view: tilted") {
+	if !strings.Contains(out, "view: Tilted") {
 		t.Errorf("Landed + ViewTilted should still render the tilted label; render:\n%s", out)
 	}
 }
@@ -482,7 +482,7 @@ func TestLaunchAnchorGuard(t *testing.T) {
 
 // TestViewTiltedIsDefaultRenderedLabel (v0.10.6+): a freshly
 // constructed World opens in ViewTilted, so the bottom-left view
-// label reads "view: tilted" at the spec'd 25° default (no
+// label reads "view: Tilted" at the spec'd 25° default (no
 // degrees segment until θ is nudged off-default).
 func TestViewTiltedIsDefaultRenderedLabel(t *testing.T) {
 	th := Theme{
@@ -501,17 +501,17 @@ func TestViewTiltedIsDefaultRenderedLabel(t *testing.T) {
 	}
 	v.Resize(160, 40)
 	out := v.Render(w, 0, 160, 40)
-	if !strings.Contains(out, "view: tilted") {
-		t.Errorf("expected `view: tilted` overlay (default ViewTilted, 25°); render:\n%s", out)
+	if !strings.Contains(out, "view: Tilted") {
+		t.Errorf("expected `view: Tilted` overlay (default ViewTilted, 25°); render:\n%s", out)
 	}
-	if strings.Contains(out, "view: tilted 25°") {
+	if strings.Contains(out, "view: Tilted 25°") {
 		t.Errorf("at-default tilt should drop the degrees segment, got literal 25°; render:\n%s", out)
 	}
 }
 
 // TestViewTiltedHUDDegreesAfterNudge (v0.10.6+): nudging θ off the
 // 25° default surfaces the degrees segment in the HUD label —
-// "view: tilted 30°". Catches a regression where the off-default
+// "view: Tilted 30°". Catches a regression where the off-default
 // branch fails to fire (sloppy float comparison).
 func TestViewTiltedHUDDegreesAfterNudge(t *testing.T) {
 	th := Theme{
@@ -531,8 +531,8 @@ func TestViewTiltedHUDDegreesAfterNudge(t *testing.T) {
 	w.NudgeViewTiltTheta(sim.ViewTiltThetaStep) // 25 → 30
 	v.Resize(160, 40)
 	out := v.Render(w, 0, 160, 40)
-	if !strings.Contains(out, "view: tilted 30°") {
-		t.Errorf("expected `view: tilted 30°` after one shift+↑ nudge; render:\n%s", out)
+	if !strings.Contains(out, "view: Tilted 30°") {
+		t.Errorf("expected `view: Tilted 30°` after one shift+↑ nudge; render:\n%s", out)
 	}
 }
 

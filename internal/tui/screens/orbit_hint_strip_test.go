@@ -100,7 +100,7 @@ func TestHintStripDoesNotOverlapNavballOrBottomLeftChip(t *testing.T) {
 
 // TestHintStripStartsAfterViewLabel confirms the strip is placed strictly
 // after the "view:" label ends (never overwrites it) by checking the
-// longer "view: tilted N°/anchor" form still leaves the full Hint Strip
+// longer "view: Tilted N°/anchor" form still leaves the full Hint Strip
 // intact right after it, at the Design Size.
 func TestHintStripStartsAfterViewLabel(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
@@ -111,7 +111,7 @@ func TestHintStripStartsAfterViewLabel(t *testing.T) {
 	}
 	w.ViewMode = sim.ViewTilted
 	out := stripANSI(v.Render(w, 0, 140, 40))
-	if !strings.Contains(out, "view: tilted") {
+	if !strings.Contains(out, "view: Tilted") {
 		t.Errorf("expected the tilted view label:\n%s", out)
 	}
 	if !strings.Contains(out, hintStripText) {

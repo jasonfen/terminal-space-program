@@ -1471,7 +1471,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// v0.9.6-polish moved it left so it no longer sits under the
 	// bottom-right navball panel. It's immediately followed on the same
 	// row by the Hint Strip (paintHintStrip, below).
-	viewLabel := "view: " + w.ViewMode.String()
+	viewLabel := "view: " + w.ViewMode.Label()
 	if w.ViewMode == sim.ViewTilted {
 		// v0.10.6+: surface θ in degrees when the player has nudged it
 		// off the default via shift+↑/↓. Plain "view: tilted" stays
@@ -1487,9 +1487,9 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		_, anchored := sim.LaunchAnchorPhi(w.ActiveCraft(), el, ok)
 		switch {
 		case anchored:
-			viewLabel = fmt.Sprintf("view: tilted %g°/anchor", w.ViewTilt.Theta)
+			viewLabel = fmt.Sprintf("view: Tilted %g°/anchor", w.ViewTilt.Theta)
 		case w.ViewTilt.Theta != sim.DefaultViewTilt().Theta:
-			viewLabel = fmt.Sprintf("view: tilted %g°", w.ViewTilt.Theta)
+			viewLabel = fmt.Sprintf("view: Tilted %g°", w.ViewTilt.Theta)
 		}
 	}
 	// decision 6 (grilled 2026-09-06): "declutter is named in two places

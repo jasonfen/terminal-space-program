@@ -234,7 +234,7 @@ func TestProximityRendersAt80x24(t *testing.T) {
 	// of this test suite's namesake ADR, not a regression. What must
 	// still hold: the chip itself (and its one load-bearing number,
 	// range) is never silently lost.
-	for _, want := range []string{"PROXIMITY", "range:", "view: proximity", "+V", "Earth"} {
+	for _, want := range []string{"PROXIMITY", "range:", "view: Proximity", "+V", "Earth"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("frame is missing %q\n%s", want, out)
 		}

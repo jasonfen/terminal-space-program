@@ -255,3 +255,27 @@ func TestMissionChipHintWrapsInsteadOfWideningTheBox(t *testing.T) {
 		t.Fatalf("full form should wrap the long hint across multiple rows, got %d lines:\n%s", len(full), strings.Join(full, "\n"))
 	}
 }
+
+// TestMissionChipCounterSitsOnTitleLine (#505): the N/M objective counter
+// belongs to the mission, so it rides the title line, not the objective row.
+func TestMissionChipCounterSitsOnTitleLine(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	m := &missions.Mission{
+		ID:   "m1",
+		Name: "Circularize",
+		Objectives: []missions.Objective{
+			{Kind: missions.KindReachAltitude, Name: "reach 100 km", Status: missions.Passed},
+			{Kind: missions.KindCircularize, Name: "circular orbit"},
+		},
+	}
+	lines := v.missionChipLines("", false, m, 0)
+	if len(lines) != 2 {
+		t.Fatalf("chip = %d lines, want 2", len(lines))
+	}
+	if !strings.Contains(lines[0], "1/2") {
+		t.Errorf("title line %q lacks the 1/2 counter", lines[0])
+	}
+	if strings.Contains(lines[1], "1/2") {
+		t.Errorf("objective row %q still carries the counter", lines[1])
+	}
+}

@@ -161,7 +161,7 @@ func TestManualLaunchToggleFlashNamesOnlyTheView(t *testing.T) {
 	if strings.Contains(strings.ToUpper(a.statusMsg), "ORBIT READY") {
 		t.Errorf("manual [V] flashed %q, must not claim ORBIT READY", a.statusMsg)
 	}
-	if !strings.Contains(a.statusMsg, "top") {
-		t.Errorf("manual [V] flash %q should name the view returned to (top)", a.statusMsg)
+	if !strings.Contains(a.statusMsg, "Top") {
+		t.Errorf("manual [V] flash %q should name the view returned to (Top)", a.statusMsg)
 	}
 }

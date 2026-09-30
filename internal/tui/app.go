@@ -1885,7 +1885,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				delta = -sim.ViewTiltThetaStep
 			}
 			theta := a.world.NudgeViewTiltTheta(delta)
-			a.flash(fmt.Sprintf("view: tilted %g°", theta))
+			a.flash(fmt.Sprintf("view: Tilted %g°", theta))
 			return a, nil
 		case key.Matches(m, a.keys.YawLeft), key.Matches(m, a.keys.YawRight):
 			// ADR 0021 G: nudge ViewTilted's yaw φ ±5°, wrapping at

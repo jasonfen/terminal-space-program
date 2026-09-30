@@ -110,8 +110,8 @@ func TestReleaseLaunchSessionStampsToastEvent(t *testing.T) {
 	if w.LastLaunchReleaseEvent == nil {
 		t.Fatal("LastLaunchReleaseEvent = nil, want stamped on release")
 	}
-	if got := w.LastLaunchReleaseEvent.PrevView; got != "top" {
-		t.Errorf("PrevView label = %q, want %q", got, "top")
+	if got := w.LastLaunchReleaseEvent.PrevView; got != "Top" {
+		t.Errorf("PrevView label = %q, want %q", got, "Top")
 	}
 }
 

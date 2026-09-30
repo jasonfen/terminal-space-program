@@ -1,6 +1,9 @@
 package sim
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // TestCycleViewModeWraps: starts at the zero-value (ViewTilted,
 // v0.10.6+) and cycles forward through Tilted → Top → Right →
@@ -107,5 +110,23 @@ func TestNudgeViewTiltPhiWraps(t *testing.T) {
 	w.ViewTilt.Phi = 355
 	if got := w.NudgeViewTiltPhi(ViewTiltPhiStep); got != 0 {
 		t.Errorf("Phi = %v, want 0 (355 + 5 normalizes to 0, not 360)", got)
+	}
+}
+
+// TestViewModeLabelIsTitleCased (#505): the name shown to the player is
+// title-cased; String() stays lowercase because it is an identifier.
+func TestViewModeLabelIsTitleCased(t *testing.T) {
+	want := map[ViewMode]string{
+		ViewTilted: "Tilted", ViewTop: "Top", ViewRight: "Right",
+		ViewBottom: "Bottom", ViewLeft: "Left", ViewOrbitFlat: "Orbit-flat",
+		ViewLaunch: "Launch", ViewProximity: "Proximity",
+	}
+	for _, m := range AllViewModes {
+		if got := m.Label(); got != want[m] {
+			t.Errorf("ViewMode(%d).Label() = %q, want %q", m, got, want[m])
+		}
+		if m.String() != strings.ToLower(m.String()) {
+			t.Errorf("String() must stay lowercase, got %q", m.String())
+		}
 	}
 }
