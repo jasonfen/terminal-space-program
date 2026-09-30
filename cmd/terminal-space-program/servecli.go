@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -61,7 +60,7 @@ func serveCLI(args []string, dir string, stdout, stderr io.Writer) int {
 			return fail(err)
 		}
 		fmt.Fprintf(stdout, "invite minted for %s: %s\n", inv.Handle, inv.Code)
-		fmt.Fprintf(stdout, "one-time — they join with:  ssh -p %d <your-host>\n", serve.DefaultPort)
+		fmt.Fprintf(stdout, "one-time, they join with:  ssh -p %d <your-host>\n", serve.DefaultPort)
 	case "roster":
 		m, err := store.Meta()
 		if err != nil {
@@ -120,5 +119,5 @@ func resolveHandle(roster []sessiondir.Player, handle string) (sessiondir.Player
 	case 1:
 		return hits[0], nil
 	}
-	return sessiondir.Player{}, errors.New(fmt.Sprintf("handle %q is ambiguous: %d players match, refusing to guess", handle, len(hits)))
+	return sessiondir.Player{}, fmt.Errorf("handle %q is ambiguous: %d players match, refusing to guess", handle, len(hits))
 }
