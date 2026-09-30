@@ -177,3 +177,19 @@ func TestHelpGlossarySection(t *testing.T) {
 	}
 	t.Fatal("no READOUT GLOSSARY section in helpSections")
 }
+
+// TestHelpDeclutterRowNamesInstrumentBoxes: since ADR 0051 (v0.44.0) F2
+// hides all eight instrument boxes and the navball; there is no "core
+// column" that stays. The only exception is ENGINE and PROPELLANT while
+// an engine is lit (docs/controls.md says the same).
+func TestHelpDeclutterRowNamesInstrumentBoxes(t *testing.T) {
+	_, desc := helpRow(t, "F2")
+	if strings.Contains(desc, "core column") || strings.Contains(desc, "chips") {
+		t.Errorf("F2 row still describes the pre-ADR-0051 chips/core column: %q", desc)
+	}
+	for _, want := range []string{"instrument boxes", "navball", "ENGINE", "PROPELLANT"} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("F2 row omits %q: %q", want, desc)
+		}
+	}
+}

@@ -1961,6 +1961,15 @@ through the braking burns and the creep across the gate. There is no
 distance tripwire — a pilot who swings 100 km wide is still
 rendezvousing, and the lock holds while they fly back. Prerequisite:
 same Subspace — a diverged pair **Syncs** first.
+If, when the pair Engages, neither a planted node nor the current-course
+search finds an encounter, the Agreement still forms, with **no plan
+yet** (ADR 0045 S7, #400): the pair is coupled (ordinary min-wins
+warp) but Auto-Warp has no TCA to coast toward. The initiator is told to
+pick a Rendezvous with `K` and Engage again to commit it (the new arm
+replaces the empty one); the accepter holds for the initiator's call and
+adopts the committed waypoint when it relays. The RENDEZVOUS readout names
+this state as its own ("no plan yet"), distinct from the Terminal Phase,
+which is a demotion from a real coast.
 _Avoid_: Rendezvous request / handshake (there is no offer/accept step),
 Co-Sync (conflates with **Sync**), Warp lock (the standing on-screen
 surface is the **Time Lock** line).
