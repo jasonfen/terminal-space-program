@@ -27,7 +27,7 @@ func TestInviteCarriesTheInitiatorsCraftAcrossTheSeam(t *testing.T) {
 	}
 	NewReporter(store, ownerB).Tick(wB, time.Now())
 
-	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live(ownerB), nil)
+	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live(ownerB), nil, time.Time{})
 	if len(peers) != 1 {
 		t.Fatalf("got %d peers, want 1", len(peers))
 	}

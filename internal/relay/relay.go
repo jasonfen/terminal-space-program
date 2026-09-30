@@ -44,6 +44,13 @@ type CraftReport struct {
 	SubspaceTime time.Time    `json:"subspace_time"`
 	Crafts       []CraftState `json:"crafts"`
 
+	// ReportedAt is the WALL-clock instant the reporter sent this report
+	// (#417). SubspaceTime is the reporter's sim clock AT that instant;
+	// consumers that need the clock NOW extrapolate it by EffWarp times
+	// the wall time since ReportedAt (sim.ExtrapolateSubspaceTime). Zero
+	// (omitted) means unstamped: read SubspaceTime verbatim.
+	ReportedAt time.Time `json:"reported_at,omitempty"`
+
 	// ActiveCraftID names which of Crafts the reporter is actually
 	// flying (#288). Without it a consumer can only read a fixed slot,
 	// which told partners a four-craft pilot was at the Sun for a whole

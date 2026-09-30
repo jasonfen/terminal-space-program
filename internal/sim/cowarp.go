@@ -780,3 +780,35 @@ func (w *World) refreshRendezvousDegrade(peers []CoWarpPeer) {
 		arm.degradeBaseCA, arm.degradeBaseAt = caAtTau, w.Clock.SimTime
 	}
 }
+
+// PeerExtrapolationMaxWall bounds how much wall time ExtrapolateSubspaceTime
+// will project a report forward. A live coasting reporter re-reports at
+// least every relay.Heartbeat (5 s wall; sim cannot import relay), so two
+// heartbeats is the longest a LIVE report can honestly be ahead of its
+// last word. Past that the reporter is silent (disconnected, frozen
+// report, or asleep), and extrapolating a dead clock forever would
+// invent progress nobody made.
+const PeerExtrapolationMaxWall = 10 * time.Second
+
+// ExtrapolateSubspaceTime returns a peer's subspace time made current:
+// reported + effWarp * wallElapsed (#417). A report is only as fresh as
+// the reporter's last heartbeat, and during a steady coast the
+// reporter sends nothing in between (elements Kepler-constant, EffWarp
+// constant), so the clock it described keeps running at effWarp the
+// whole time. Reading the verbatim value makes every consumer compensate
+// for up to Heartbeat*effWarp sim-seconds of staleness on its own.
+//
+// Conservative by construction, never overshooting: a paused peer or one
+// reporting a non-positive rate does not advance; a rate CHANGE or pause
+// forces an immediate re-report (effWarpChanged, lastPaused), so the
+// rate extrapolated here is the rate the peer ran since it was sent;
+// wallElapsed is clamped to [0, PeerExtrapolationMaxWall].
+func ExtrapolateSubspaceTime(reported time.Time, effWarp float64, paused bool, wallElapsed time.Duration) time.Time {
+	if paused || effWarp <= 0 || wallElapsed <= 0 {
+		return reported
+	}
+	if wallElapsed > PeerExtrapolationMaxWall {
+		wallElapsed = PeerExtrapolationMaxWall
+	}
+	return reported.Add(time.Duration(wallElapsed.Seconds() * effWarp * float64(time.Second)))
+}

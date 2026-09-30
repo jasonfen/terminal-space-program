@@ -763,39 +763,22 @@ func (w *World) holdRendezvousLeader(partner *CoWarpPeer) {
 		w.RendezvousHold = true
 		return
 	}
-	// Finding 3 (batch review) / finding 1 (#412 review): relay reports
-	// are always at least one report cycle stale, so `ahead` is positive
-	// on essentially every coasting tick even when nothing is genuinely
-	// diverging. The staleness this deadband must absorb is bounded in
-	// WALL-clock terms (relay.Reporter.Tick's Heartbeat — sim can't
-	// import relay, see rendezvousPaceHeartbeatSec), not sim-clock terms:
-	// a report that is one Heartbeat old is behind by up to Heartbeat
-	// WALL-seconds of the PARTNER's own coast, which is
-	// Heartbeat*partner.EffWarp SIM-seconds — 25-50s at 10x, 250-500s at
-	// 100x. A flat sim-second deadband (the original #412 fix) is inert
-	// at any warp above ~1x: it clears almost immediately, `ahead` keeps
-	// climbing on pure staleness, and once it passes
-	// rendezvousPaceCeilingSec the ramp below asymptotically collapses
-	// the leader's rate to a dead stop — the #279 stall #395 shipped to
-	// kill, reintroduced by staleness alone rather than genuine
-	// divergence. Scaling the deadband by partner.EffWarp (the source of
-	// the staleness) fixes that, but a binary gate isn't enough on its
-	// own: once `ahead` clears the (now warp-scaled) gate, feeding the
-	// RAW ahead into rendezvousPaceMaxWarp still measures against the
-	// same fixed rendezvousPaceCeilingSec, and raw ahead already carries
-	// the whole staleness term — at 100x that alone is 2-5x the ceiling,
-	// so the ramp saturates at 0 immediately past the gate. Subtracting
-	// the deadband before ramping treats it as a baseline offset: the
-	// ramp measures genuine excess beyond plausible staleness, so the
-	// ceiling stays meaningful at any warp instead of being swallowed by
-	// the same staleness the gate was just built to absorb. Floored at
-	// rendezvousWaypointMinLead so a report with EffWarp 0 (a degenerate
-	// or held partner not yet reflected in Paused) keeps the original
-	// minimum deadband rather than collapsing to zero tolerance.
-	deadband := partner.EffWarp * rendezvousPaceHeartbeatSec
-	if deadband < rendezvousWaypointMinLead.Seconds() {
-		deadband = rendezvousWaypointMinLead.Seconds()
-	}
+	// Finding 3 (batch review): `ahead` is positive on essentially every
+	// coasting tick even when nothing is genuinely diverging, from the
+	// sliver of a tick between the two sides' clocks. That residue is
+	// what this constant deadband absorbs.
+	//
+	// It used to have to absorb far more (#412 review, finding 1, fixed
+	// by #414 scaling the deadband by partner.EffWarp): the partner's
+	// SubspaceTime was a whole relay.Heartbeat old, i.e. up to
+	// Heartbeat*EffWarp sim-seconds behind, and a flat deadband let that
+	// staleness drive the ramp to 0 (the #279 dead-0x stall). #417 moved
+	// the compensation to the source: relay.CoWarpPeersFrom extrapolates
+	// the peer's clock by its own rate since the report
+	// (ExtrapolateSubspaceTime), so `partner.SubspaceTime` here already
+	// means "now" and `ahead` means what it says. Scaling the deadband by
+	// the partner's rate on top of that would forgive real divergence.
+	deadband := rendezvousWaypointMinLead.Seconds()
 	if ahead <= deadband {
 		return
 	}
@@ -804,17 +787,6 @@ func (w *World) holdRendezvousLeader(partner *CoWarpPeer) {
 		w.RendezvousPaceWarp = warp
 	}
 }
-
-// rendezvousPaceHeartbeatSec mirrors relay.Heartbeat (internal/relay/
-// reporter.go), the maximum WALL-clock interval between a live coasting
-// reporter's reports. sim cannot import relay (relay imports sim; the
-// dependency graph only runs one way — see CLAUDE.md's "Architecture"),
-// so the value is duplicated here rather than shared. Used by
-// holdRendezvousLeader to size the staleness deadband: a partner's
-// SubspaceTime is stale by up to this many WALL-seconds, which at that
-// partner's own EffWarp is this many wall-seconds times EffWarp of SIM-
-// second staleness in `ahead` — not a genuine divergence.
-const rendezvousPaceHeartbeatSec = 5.0
 
 // rendezvousPaceMaxWarp is the paced ramp itself (#395, ADR 0045 S2, in
 // the same clamp family as clampedWarp's node/Auto-Warp approach terms):

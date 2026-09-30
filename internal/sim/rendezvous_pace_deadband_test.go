@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -39,6 +40,22 @@ type throttledPeerHarness struct {
 
 	reported     CoWarpPeer // last relayed snapshot of B seen by A
 	wallSinceRep float64    // wall-seconds since `reported` was refreshed
+
+	// noExtrapolate reads `reported` verbatim, the pre-#417 behaviour of
+	// relay.CoWarpPeersFrom. Default false: A reads B's clock made current
+	// through sim.ExtrapolateSubspaceTime, exactly as production does.
+	noExtrapolate bool
+}
+
+// peerView is what A's pacing actually reads: the last report, with its
+// clock projected forward by the wall time since it was sent (#417).
+func (h *throttledPeerHarness) peerView() CoWarpPeer {
+	p := h.reported
+	if !h.noExtrapolate {
+		p.SubspaceTime = ExtrapolateSubspaceTime(p.SubspaceTime, p.EffWarp, p.Paused,
+			time.Duration(h.wallSinceRep*float64(time.Second)))
+	}
+	return p
 }
 
 func newThrottledPeerHarness(t *testing.T, tauFromNow time.Duration) *throttledPeerHarness {
@@ -111,7 +128,7 @@ func (h *throttledPeerHarness) step() {
 	}
 
 	h.a.Tick()
-	h.a.DriveRendezvousWarp([]CoWarpPeer{h.reported})
+	h.a.DriveRendezvousWarp([]CoWarpPeer{h.peerView()})
 }
 
 // TestRendezvousPaceDeadbandStallsAtHighWarp is the finding-1 regression
@@ -165,5 +182,76 @@ func TestRendezvousPaceDeadbandStallsAtHighWarp(t *testing.T) {
 		t.Errorf("A's clock went dead on %d/%d ticks (%.0f%%) from pure report staleness "+
 			"(B never paused, never genuinely diverging) — the #279 stall #395 was meant to kill "+
 			"(want <= %.0f%%)", deadTicks, ticks, deadFraction*100, maxDeadFraction*100)
+	}
+}
+
+// withTopWarp caps the warp ladder for one test so the coast's steady
+// rate is the named factor instead of the subspace-step cap's 1200x, then
+// restores it. Not parallel-safe, like every test that edits package state.
+func withTopWarp(t *testing.T, top float64) {
+	t.Helper()
+	orig := WarpFactors
+	var capped []float64
+	for _, f := range orig {
+		if f <= top {
+			capped = append(capped, f)
+		}
+	}
+	WarpFactors = capped
+	t.Cleanup(func() { WarpFactors = orig })
+}
+
+// runThrottled ticks the throttled harness and returns the fraction of
+// ticks on which A's clock did not advance, plus the steady rate.
+func runThrottled(t *testing.T, top float64, noExtrapolate bool, ticks int) (dead float64, steady float64) {
+	t.Helper()
+	withTopWarp(t, top)
+	h := newThrottledPeerHarness(t, 200*time.Hour)
+	h.noExtrapolate = noExtrapolate
+	h.reported = h.peerFromB()
+	steady = h.a.EffectiveWarp()
+	deadTicks := 0
+	for i := 0; i < ticks; i++ {
+		before := h.a.Clock.SimTime
+		h.step()
+		if h.a.Clock.SimTime.Equal(before) {
+			deadTicks++
+		}
+	}
+	return float64(deadTicks) / float64(ticks), steady
+}
+
+// #417 done-criterion: with the peer clock current at read and the
+// deadband back to a small constant, dead-0x ticks stay at 0% at 100x and
+// 1000x on the heartbeat-throttled harness.
+func TestPeerClockCurrentNoDeadTicksAt100xAnd1000x(t *testing.T) {
+	for _, top := range []float64{100, 1000} {
+		t.Run(fmt.Sprintf("%gx", top), func(t *testing.T) {
+			dead, steady := runThrottled(t, top, false, 300)
+			t.Logf("top=%gx steady=%.0fx dead ticks=%.1f%%", top, steady, dead*100)
+			if steady < top {
+				t.Fatalf("precondition: steady rate %.0fx, want %gx", steady, top)
+			}
+			if dead > 0.05 {
+				t.Errorf("A's clock dead on %.1f%% of ticks, want <= 5%% (peer clock should be current at read)", dead*100)
+			}
+		})
+	}
+}
+
+// Proves the throttled harness can return a positive (a negative result
+// means nothing until the instrument has shown it can fail): read the
+// peer's report verbatim, as CoWarpPeersFrom did before #417, and with the
+// constant deadband the leader's clock goes dead on a large share of
+// ticks. Measured 48% at 100x and 75% at 1000x.
+func TestThrottledHarnessSeesStaleReadStall(t *testing.T) {
+	for _, top := range []float64{100, 1000} {
+		t.Run(fmt.Sprintf("%gx", top), func(t *testing.T) {
+			dead, _ := runThrottled(t, top, true, 300)
+			t.Logf("verbatim stale read: dead ticks=%.1f%%", dead*100)
+			if dead < 0.2 {
+				t.Errorf("dead ticks %.1f%% with a stale read and a constant deadband, want >= 20%%: the harness no longer reproduces staleness", dead*100)
+			}
+		})
 	}
 }

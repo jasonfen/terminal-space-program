@@ -138,6 +138,7 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 	r.store.Report(CraftReport{
 		Owner:            r.Owner,
 		SubspaceTime:     w.Clock.SimTime,
+		ReportedAt:       now,
 		Crafts:           states,
 		ActiveCraftID:    activeID,
 		EffWarp:          effWarp,

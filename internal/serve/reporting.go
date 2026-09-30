@@ -590,7 +590,7 @@ func (m *reportingModel) refreshSession(now time.Time) {
 		}
 		away[r.Owner] = m.srv.isAway(r.Owner)
 	}
-	peers := relay.CoWarpPeersFrom(w, others, handles, m.owner, live, away)
+	peers := relay.CoWarpPeersFrom(w, others, handles, m.owner, live, away, time.Now())
 	// Rendezvous Warp (v0.29 S1): start or cancel the shared coast to the
 	// committed encounter from this tick's mutual-arm state, before the
 	// clamp reads the couple. Arrival + arm bookkeeping live in the sim.

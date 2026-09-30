@@ -33,7 +33,7 @@ func TestRendezvousOrbitThroughSeam(t *testing.T) {
 	NewReporter(store, ownerB).Tick(wB, time.Now())
 
 	// A adapts B's report — the Rendezvous Orbit rides alongside τ/CA.
-	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live(ownerB), nil)
+	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live(ownerB), nil, time.Time{})
 	if len(peers) != 1 {
 		t.Fatalf("got %d peers, want 1", len(peers))
 	}
