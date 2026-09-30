@@ -52,10 +52,15 @@ func migrateV11PayloadToV12(p *Payload) {
 	for i := range p.Crafts {
 		p.Crafts[i].FoldLegacyMeetingKeys()
 	}
-	// The Meet & Dock challenge's fourth objective was named "Plant the
-	// meeting burn"; saves persist objective names, so an in-progress
-	// mission would keep showing the old wording.
+	// Two docking missions were renamed with the wording: the Flight
+	// School rung "Flight School: Meet & Dock" and the challenge
+	// "Rendezvous & Dock", and the rung's fourth objective was "Plant the
+	// meeting burn". Saves persist whole missions, so an in-progress one
+	// would keep showing the old wording.
 	for i := range p.Missions {
+		if n, ok := renamedMissionNames[p.Missions[i].Name]; ok {
+			p.Missions[i].Name = n
+		}
 		for j := range p.Missions[i].Objectives {
 			if o := &p.Missions[i].Objectives[j]; o.Name == legacyMeetingObjectiveName {
 				o.Name = "Plant the rendezvous burn"
@@ -65,3 +70,8 @@ func migrateV11PayloadToV12(p *Payload) {
 }
 
 const legacyMeetingObjectiveName = "Plant the meeting burn"
+
+var renamedMissionNames = map[string]string{
+	"Flight School: Meet & Dock": "Flight School: Docking",
+	"Rendezvous & Dock":          "Dock Two Vessels",
+}

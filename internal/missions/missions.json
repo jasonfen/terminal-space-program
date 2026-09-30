@@ -107,7 +107,7 @@
     },
     {
       "id": "tut-dock",
-      "name": "Flight School: Meet & Dock",
+      "name": "Flight School: Docking",
       "description": "Rendezvous with a partner vessel and dock.",
       "program": "tutorial",
       "requires": ["tut-launch"],
@@ -210,7 +210,7 @@
     },
     {
       "id": "chal-dock",
-      "name": "Rendezvous & Dock",
+      "name": "Dock Two Vessels",
       "description": "Bring two vessels together and dock them.",
       "program": "challenge",
       "objectives": [

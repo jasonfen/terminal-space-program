@@ -4,11 +4,12 @@ Newest first. One headline per release, then the concrete changes and the issues
 
 ### v0.45.1
 
-Rendezvous is the word again: the planner, its HUD row, its messages and the docs no longer say "meeting" anywhere (PR `#491`; tag `v0.45.1`).
+Rendezvous is the word again: the planner, its HUD row, its messages and the docs no longer say "meeting" anywhere (PRs `#491`, `#492`; tag `v0.45.1`).
 
 - **What changed on screen.** The plan row reads `rendezvous: their orbit, 3 laps`, a planted plan flashes `rendezvous burn planted: …`, and the planner's refusals and Lap Ladder reasons read `rendezvous: …` / `no rendezvous solution`. The picker's three choices (their orbit, your orbit, the crossing) are now called the **Rendezvous Orbit**, and the burn it plants the **Rendezvous Burn**.
-- **Saves move to schema 12.** Older saves migrate on load with nothing lost, including a planted rendezvous burn and the Meet & Dock challenge's progress.
+- **Saves move to schema 12.** Older saves migrate on load with nothing lost, including a planted rendezvous burn and progress on either docking mission.
 - **Multiplayer.** The plan a player agreed to travels under new names; a build from before this one is still understood for one release.
+- **The two docking missions are renamed.** The Flight School rung is now `Flight School: Docking` and the challenge `Dock Two Vessels`; `w` on a roster row now reads "agree to rendezvous with them".
 
 ### v0.45.0
 
