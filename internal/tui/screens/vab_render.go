@@ -525,7 +525,12 @@ func (v *VAB) renderVehicleColumn(w, h int) []string {
 		return lines
 	}
 	rows := v.stackRows()
-	var body []string // scrollable rows; cursorLine indexes the cursor's row
+	var body []string     // scrollable rows; cursorLine indexes the cursor's row
+	var blockStart []bool // parallel to body: true where a stage block begins (dock seam or header)
+	push := func(line string, starts bool) {
+		body = append(body, line)
+		blockStart = append(blockStart, starts)
+	}
 	cursorLine := 0
 	for idx, r := range rows {
 		cursorOn := idx == v.stackCursor
@@ -537,16 +542,18 @@ func (v *VAB) renderVehicleColumn(w, h int) []string {
 			// A dock seam below the stage above (i+1) sits between it and this
 			// stage — render the divider just before this header (top-down).
 			if up := r.stageIdx + 1; up < len(v.stages) && v.stages[up].dockSeamBelow {
-				body = append(body, v.theme.Warning.Render(truncWidth("── dock seam (Undock to release) ──", w)))
+				push(v.theme.Warning.Render(truncWidth("── dock seam (Undock to release) ──", w)), true)
 				if cursorOn {
-					cursorLine = len(body)
+					cursorLine = len(body) - 1
 				}
+				push(v.stageHeaderLine(r.stageIdx, stats, sel, cursorOn, w), false)
+			} else {
+				push(v.stageHeaderLine(r.stageIdx, stats, sel, cursorOn, w), true)
 			}
-			body = append(body, v.stageHeaderLine(r.stageIdx, stats, sel, cursorOn, w))
 		} else {
 			groups := v.rowGroups(r.stageIdx)
 			if r.group < len(groups) {
-				body = append(body, v.groupLine(groups[r.group], sel, cursorOn, w))
+				push(v.groupLine(groups[r.group], sel, cursorOn, w), false)
 			}
 		}
 	}
@@ -555,16 +562,41 @@ func (v *VAB) renderVehicleColumn(w, h int) []string {
 		tail = append(tail, v.theme.Warning.Render(truncWidth("⚠ "+warn, w)))
 	}
 	if h > 0 {
-		body = v.windowRows(body, cursorLine, h-len(lines)-len(tail), w)
+		body = v.windowRows(body, blockStart, cursorLine, h-len(lines)-len(tail), w)
 	}
 	lines = append(lines, body...)
 	return append(lines, tail...)
 }
 
+// snapToBlock nudges a window start onto a stage-block boundary so the first
+// visible row is a stage header, not an orphaned component (R4 #5). It
+// prefers moving up to the owning header, then down to the next header, and
+// at the very bottom the window may come up a row or two short. When neither
+// keeps the cursor visible it leaves the start alone (cursor wins).
+func snapToBlock(blockStart []bool, start, cursor, size, total int) int {
+	if start <= 0 || start >= len(blockStart) || blockStart[start] {
+		return start
+	}
+	for b := start - 1; b >= 0; b-- {
+		if blockStart[b] {
+			if b+size <= total && cursor < b+size {
+				return b
+			}
+			break
+		}
+	}
+	for b := start + 1; b < len(blockStart) && b <= cursor; b++ {
+		if blockStart[b] {
+			return b
+		}
+	}
+	return start
+}
+
 // windowRows shows at most n of rows, scrolled so cursorLine stays visible,
 // with a dim "↑/↓ N more" row on each clipped side (the cue rows count against
 // n). Rows pass through untouched when they already fit.
-func (v *VAB) windowRows(rows []string, cursorLine, n, w int) []string {
+func (v *VAB) windowRows(rows []string, blockStart []bool, cursorLine, n, w int) []string {
 	if n < 3 || len(rows) <= n {
 		return rows
 	}
@@ -572,7 +604,8 @@ func (v *VAB) windowRows(rows []string, cursorLine, n, w int) []string {
 	for _, cues := range []int{0, 1, 2} {
 		size := n - cues
 		start := clampI(cursorLine-size/2, 0, len(rows)-size)
-		end := start + size
+		start = snapToBlock(blockStart, start, cursorLine, size, len(rows))
+		end := clampI(start+size, 0, len(rows))
 		up, down := start > 0, end < len(rows)
 		if need := btoi(up) + btoi(down); need > cues {
 			continue
@@ -749,6 +782,9 @@ func (v *VAB) stageLabel(vs vabStage) string {
 	}
 	if len(vs.components) == 0 {
 		return "(empty)"
+	}
+	if len(vs.components) == 1 {
+		return "1 component"
 	}
 	return fmt.Sprintf("%d components", len(vs.components))
 }
