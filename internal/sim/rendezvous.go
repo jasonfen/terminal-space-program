@@ -274,8 +274,8 @@ func (w *World) RendezvousNeedsBurnToClose(ca float64) bool {
 // RendezvousCommitWithPlan's doc comment) — it commits the agreement
 // with nothing to chase.
 type RendezvousPlan struct {
-	Tau               time.Time
-	CommittedCA       float64
+	Tau                  time.Time
+	CommittedCA          float64
 	RendezvousOrbitLabel string
 	RendezvousLaps       int
 }

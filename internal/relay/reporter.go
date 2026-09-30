@@ -50,11 +50,11 @@ type Reporter struct {
 	// SAME τ (unlikely, but not provably impossible: two different
 	// Rendezvous Orbits can coincide on arrival time) must still propagate
 	// promptly, not wait for the heartbeat.
-	lastRzOrbit string
-	lastPaused         bool    // last-reported pause state — the partner's hold-the-leader keys on it (v0.29 review)
-	lastRzRate         float64 // last-reported seat rate (ADR 0037 §2) — the partner clamps to it, so a change must not wait for the heartbeat
-	lastRzSeat         bool    // last-reported initiator seat — cheap, and a re-arm can flip it
-	lastActiveID       uint64  // last-reported active craft (#288) — a switch moves no orbit, so nothing else would trigger a report
+	lastRzOrbit  string
+	lastPaused   bool    // last-reported pause state — the partner's hold-the-leader keys on it (v0.29 review)
+	lastRzRate   float64 // last-reported seat rate (ADR 0037 §2) — the partner clamps to it, so a change must not wait for the heartbeat
+	lastRzSeat   bool    // last-reported initiator seat — cheap, and a re-arm can flip it
+	lastActiveID uint64  // last-reported active craft (#288) — a switch moves no orbit, so nothing else would trigger a report
 }
 
 // effWarpRelTol is the relative change in Effective warp that forces a

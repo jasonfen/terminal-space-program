@@ -10,22 +10,16 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// TestRoundtripRendezvousBurnFields (ADR 0045 S7, #400) — a planted Rendezvous
-// Burn node's RendezvousArrivalSec / RendezvousOrbitLabel / RendezvousLaps must
-// survive a save/load round-trip so a reloaded save's node still carries
-// what RendezvousCommitWithPlan needs to commit to its arrival directly.
-// Additive zero-value-omitempty, same precedent as AdvisoryKey
-// (TestRoundtripAdvisoryKey) and BurnDirUnit: no schema bump for THIS
-// feature — an ordinary node with none of these set round-trips as the
-// zero value, and save.SchemaVersion is asserted unchanged from the
-// value this test was written against so a bump elsewhere doesn't
-// silently make this test's own claim stale. Updated 10 -> 11: ADR 0049
-// decision 8 (#453) bumped SchemaVersion for an unrelated reason
-// (Craft.HeadingTrim), confirmed here to still hold no bump was needed
-// for the rendezvous-burn fields themselves.
+// TestRoundtripRendezvousBurnFields (ADR 0045 S7, #400) - a planted
+// Rendezvous Burn node's RendezvousArrivalSec / RendezvousOrbitLabel /
+// RendezvousLaps must survive a save/load round-trip at the current schema
+// so a reloaded save's node still carries what RendezvousCommitWithPlan
+// needs to commit to its arrival directly. An ordinary node with none of
+// these set round-trips as the zero value. The v11 -> v12 rename of the
+// persisted keys is pinned separately in TestMigrateV11ToV12RendezvousBurn.
 func TestRoundtripRendezvousBurnFields(t *testing.T) {
-	if save.SchemaVersion != 11 {
-		t.Fatalf("save.SchemaVersion = %d, want 11 — ADR 0045 S7 (#400) claims no schema bump was needed for rendezvous-burn fields; if one landed since for THAT reason, update this pin and confirm the claim still holds", save.SchemaVersion)
+	if save.SchemaVersion != 12 {
+		t.Fatalf("save.SchemaVersion = %d, want 12 - this test round-trips the v12 key names (rendezvous_*); a later bump should re-confirm they are unchanged", save.SchemaVersion)
 	}
 
 	w, err := sim.NewWorld()
@@ -35,10 +29,10 @@ func TestRoundtripRendezvousBurnFields(t *testing.T) {
 	base := w.Clock.SimTime
 	w.ActiveCraft().Nodes = []sim.ManeuverNode{
 		{
-			TriggerTime:       base.Add(time.Minute),
-			DV:                10,
-			Mode:              spacecraft.BurnVector,
-			AdvisoryKey:       "rendezvous-burn",
+			TriggerTime:          base.Add(time.Minute),
+			DV:                   10,
+			Mode:                 spacecraft.BurnVector,
+			AdvisoryKey:          sim.AdvisoryKeyRendezvousBurn,
 			RendezvousArrivalSec: 8 * 3600,
 			RendezvousOrbitLabel: "their orbit",
 			RendezvousLaps:       5,
