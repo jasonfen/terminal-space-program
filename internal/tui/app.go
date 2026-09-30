@@ -1616,8 +1616,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.handleAttitudeIntent(sim.IntentRadialIn)
 			return a, nil
 		case key.Matches(m, a.keys.ToggleBurn):
+			wasBurning := a.world.ActiveCraft() != nil && a.world.ActiveCraft().ManualBurn != nil
 			a.world.ToggleManualBurn()
 			a.world.RecordAction(missions.ActionToggleBurn) // ADR 0025 §7
+			// Ignite only when the engine actually lit (not on a cut, and
+			// not when throttle/fuel/command refused it): Flight School's
+			// lift-off rung waits on it (#519).
+			if c := a.world.ActiveCraft(); c != nil && !wasBurning && c.ManualBurn != nil {
+				a.world.RecordAction(missions.ActionIgnite)
+			}
 			return a, nil
 		case key.Matches(m, a.keys.CycleEngine):
 			a.world.CycleEngineMode()

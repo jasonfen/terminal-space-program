@@ -80,16 +80,22 @@
           "params": { "action": "throttle_full" }
         },
         {
-          "name": "Stage to lift off",
-          "description": "Press [space] to drop the clamps and light the engine.",
+          "name": "Light the engine",
+          "description": "Press [b] to light the engine and lift off.",
           "kind": "event",
-          "params": { "action": "stage" }
+          "params": { "action": "ignite" }
         },
         {
           "name": "Pitch east",
           "description": "Above 10 km, pitch east with [W] and hold it through the turn.",
           "kind": "reach_altitude",
           "params": { "primary_id": "earth", "min_altitude_m": 10000 }
+        },
+        {
+          "name": "Stage when the tank runs dry",
+          "description": "When the first stage runs dry, press [space] to drop it and keep flying.",
+          "kind": "event",
+          "params": { "action": "stage" }
         },
         {
           "name": "Plan the circularising burn",
