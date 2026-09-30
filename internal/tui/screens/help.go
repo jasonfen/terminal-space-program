@@ -309,7 +309,9 @@ func (h *Help) footer() string {
 	case h.scroll < h.maxScroll:
 		marker = "▼  "
 	}
-	return h.theme.Footer.Render(marker + "[↑/↓ PgUp/PgDn] scroll   [F1/esc] close")
+	// #498: the more-above / more-below cue is the only sign that rows
+	// exist off-screen, so it gets Primary rather than the dim Footer gray.
+	return h.theme.Primary.Render(marker) + h.theme.Footer.Render("[↑/↓ PgUp/PgDn] scroll   [F1/esc] close")
 }
 
 // HandleKey scrolls the body. Called by the app while the help screen is

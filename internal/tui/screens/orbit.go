@@ -1624,6 +1624,24 @@ func warpRateText(w *sim.World) string {
 	return fmt.Sprintf("warp %.0fx", reqWarp)
 }
 
+// warpFieldWidth is the fixed cell width reserved for the warp readout in
+// a title bar (#499). The widest common forms ("warp 100000x→100000x",
+// "AUTO →100000x  3d05h") are 20 cells; two more leave room for a
+// three-digit day count. Anything longer overflows rather than truncates.
+const warpFieldWidth = 22
+
+// warpField is warpRateText right-padded with spaces to warpFieldWidth
+// display cells, so the title bar elements beside it do not slide when the
+// warp rate gains or loses a digit. Pads by lipgloss.Width, never by byte
+// count (the → glyph is multi-byte).
+func warpField(w *sim.World) string {
+	t := warpRateText(w)
+	if gap := warpFieldWidth - lipgloss.Width(t); gap > 0 {
+		t += strings.Repeat(" ", gap)
+	}
+	return t
+}
+
 func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols int) string {
 	left := fmt.Sprintf("terminal-space-program — %s — %s", version.Version, systemName)
 	// v0.13: the "focus:" readout moved here from the canvas top-left
@@ -1647,11 +1665,9 @@ func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols in
 	// driver and the live rate, not the untouched Selected Warp. The chip
 	// stays emoji-free (single-width runes only) so the rune-counted
 	// button hit-tests below stay aligned.
-	clockChip := "T+" + w.Clock.SimTime.Format("2006-01-02") + "  " + warpRateText(w)
-	clockChipRendered := v.theme.Dim.Render(clockChip)
-	if w.AutoWarpEngaged() {
-		clockChipRendered = v.theme.Primary.Render(clockChip)
-	}
+	clockChip := "T+" + w.Clock.SimTime.Format("2006-01-02") + "  " + warpField(w)
+	// #498: the clock and warp rate are read constantly; Primary, not Dim.
+	clockChipRendered := v.theme.Primary.Render(clockChip)
 	pauseChipPlain := ""
 	pauseChipRendered := ""
 	if w.Clock.Paused {

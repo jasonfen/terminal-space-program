@@ -264,15 +264,13 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	if v.hudSource != nil {
 		declutterPlain, declutterRendered = v.hudSource.declutterTagText()
 	}
-	titleRight := warpRateText(w) + declutterPlain + "  " + burnLabel
+	titleRight := warpField(w) + declutterPlain + "  " + burnLabel
 	titlePad := totalCols - lipgloss.Width(titleLeft) - lipgloss.Width(titleRight)
 	if titlePad < 1 {
 		titlePad = 1
 	}
-	warpRendered := v.theme.Dim.Render(warpRateText(w))
-	if w.AutoWarpEngaged() {
-		warpRendered = v.theme.Primary.Render(warpRateText(w))
-	}
+	// #498: read constantly, so Primary rather than Dim.
+	warpRendered := v.theme.Primary.Render(warpField(w))
 	burnRendered := v.theme.Primary.Render(burnLabel)
 	switch {
 	case w.AutoWarpEngaged():
