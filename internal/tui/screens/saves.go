@@ -235,7 +235,7 @@ func (sc *SavesScreen) HandleKey(msg tea.KeyMsg) SavesCommand {
 		// Delete works on every lane — reserved lanes are managed but
 		// deletable (§F); the confirm gate covers the destructiveness.
 		if info, ok := sc.entryAt(sc.cursor); ok {
-			sc.pendingID, sc.pendingName = info.ID, displaySaveName(info)
+			sc.pendingID, sc.pendingName = info.ID, sc.displayName(info)
 			sc.state = savesStateConfirmDelete
 		}
 	case "r", "R":
@@ -243,7 +243,7 @@ func (sc *SavesScreen) HandleKey(msg tea.KeyMsg) SavesCommand {
 		// disabled on the reserved lanes (§F) — they carry no player
 		// name by design.
 		if info, ok := sc.entryAt(sc.cursor); ok && info.Lane == save.LaneNamed && !info.Unreadable {
-			sc.pendingID, sc.pendingName = info.ID, displaySaveName(info)
+			sc.pendingID, sc.pendingName = info.ID, sc.displayName(info)
 			sc.beginNaming(savesStateRename, info.Meta.Name)
 		}
 	}
@@ -298,7 +298,7 @@ func (sc *SavesScreen) activateCursor() SavesCommand {
 		// in place; it's listed only so it's visible and deletable (§C).
 		return SavesCommand{}
 	}
-	sc.pendingID, sc.pendingName = info.ID, displaySaveName(info)
+	sc.pendingID, sc.pendingName = info.ID, sc.displayName(info)
 	if sc.mode == SavesModeSave {
 		if info.Lane != save.LaneNamed {
 			return SavesCommand{} // reserved lanes: loadable + deletable only (§F)
@@ -339,7 +339,7 @@ func (sc *SavesScreen) beginNaming(state savesState, prefill string) {
 // player-facing Meta.Name for named saves ("(unnamed)" for a Meta-less
 // legacy file), and a lane badge for the reserved quicksave/autosave
 // lanes — which carry no player name by design (§D).
-func displaySaveName(info save.SaveInfo) string {
+func displaySaveName(info save.SaveInfo, autosaveRank int) string {
 	if info.Unreadable {
 		// Kept within the name column (savesColName=26) so it isn't
 		// ellipsised: "unreadable (newer version)" is exactly 26.
@@ -352,9 +352,9 @@ func displaySaveName(info save.SaveInfo) string {
 	case save.LaneQuicksave:
 		return "[QUICKSAVE]"
 	case save.LaneAutosave:
-		// "autosave-2.json" → "[AUTOSAVE 2]"
-		n := strings.TrimSuffix(strings.TrimPrefix(info.ID, "autosave-"), ".json")
-		return "[AUTOSAVE " + n + "]"
+		// Numbered by list position (1 = newest shown), not by the
+		// ring-slot file name, so the badge agrees with the sort (#503).
+		return fmt.Sprintf("[AUTOSAVE %d]", autosaveRank)
 	}
 	if info.Meta.Name == "" {
 		return "(unnamed)"
@@ -362,15 +362,16 @@ func displaySaveName(info save.SaveInfo) string {
 	return info.Meta.Name
 }
 
-// formatInGameDate renders Meta.InGameEpoch with the same layout the
-// orbit HUD's clock chip inlines (SimTime.Format("2006-01-02")); a
+// formatInGameDate renders Meta.InGameEpoch as sim date and time (the
+// orbit HUD's clock chip shows the date; the time tells two saves on the
+// same sim day apart, #503); a
 // zero epoch (Meta-less legacy header, imported save) renders blank —
 // the date is unknowable without hydrating the Payload.
 func formatInGameDate(t time.Time) string {
 	if t.IsZero() {
 		return ""
 	}
-	return t.Format("2006-01-02")
+	return t.Format("2006-01-02 15:04")
 }
 
 // formatSavedAt renders the wall-clock write time in the player's
@@ -382,12 +383,12 @@ func formatSavedAt(t time.Time) string {
 	return t.Local().Format("2006-01-02 15:04")
 }
 
-// Column layout: marker(2) + name(26) + savedat(18) + ingame(12) + vessel,
+// Column layout: marker(2) + name(26) + savedat(18) + ingame(18) + vessel,
 // each column followed by savesColGap so adjacent cells never fuse.
 const (
 	savesColName    = 26
 	savesColSavedAt = 18
-	savesColInGame  = 12
+	savesColInGame  = 18
 	savesColGap     = "  " // explicit inter-column gap (finding 8)
 )
 
@@ -487,7 +488,7 @@ func (sc *SavesScreen) Render(width, height int) string {
 		rows = append(rows, savesRow{body: "＋ New save…"})
 	}
 	for _, info := range sc.entries {
-		body := padCell(displaySaveName(info), savesColName) +
+		body := padCell(sc.displayName(info), savesColName) +
 			padCell(formatSavedAt(info.Meta.SavedAt), savesColSavedAt) +
 			padCell(formatInGameDate(info.Meta.InGameEpoch), savesColInGame) +
 			info.Meta.ActiveVesselName
@@ -581,4 +582,22 @@ func (sc *SavesScreen) appendConfirm(lines []string, prompt string) []string {
 	lines = append(lines, "")
 	lines = append(lines, sc.theme.Footer.Render("[y]es / [n]o / [esc] cancel"))
 	return lines
+}
+
+// displayName is displaySaveName with the autosave badge numbered by the
+// entry's position among the autosaves in the order the list is shown
+// (1 = the top autosave row), not by its ring-slot file name (#503).
+func (sc *SavesScreen) displayName(info save.SaveInfo) string {
+	rank := 0
+	if info.Lane == save.LaneAutosave {
+		for _, e := range sc.entries {
+			if e.Lane == save.LaneAutosave {
+				rank++
+			}
+			if e.ID == info.ID {
+				break
+			}
+		}
+	}
+	return displaySaveName(info, rank)
 }
