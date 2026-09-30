@@ -52,7 +52,10 @@ func serveCLI(args []string, dir string, stdout, stderr io.Writer) int {
 	}
 	// roster only reads: open without creating the dir or running the
 	// legacy-dedupe repair, so inspecting never writes.
-	var store *sessiondir.Store
+	var (
+		store *sessiondir.Store
+		err   error
+	)
 	if args[0] == "roster" {
 		store, err = sessiondir.OpenReadOnly(dir)
 	} else {
