@@ -2,6 +2,7 @@ package planner
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"testing"
 
@@ -85,104 +86,70 @@ func TestRecommendRendezvousLadder_TheirOrbit_PhaseOffsetConverges(t *testing.T)
 //
 // Reproduces the reviewer's measured scenario: a mildly eccentric
 // holder (e in roughly [0.002, 0.01], built the same way as
-// TestRecommendRendezvousLadder_EccentricHolder_UnachievableRefused's own
-// fixture family — a co-orbital pair offset by a small fraction of a
-// period) a small fraction of a period ahead of the mover, at the 500 km
-// LEO calibration radius (r0mag≈6.871e6 m). At the old 1% bound
-// (≈68,710 m) every row here reported Ok=true with AchievableCA in
-// 12,717-49,422 m; this asserts those specific measured geometries are
-// no longer Ok=true at rendezvousAchievableCATolFrac's current (tighter)
-// value.
-func TestRecommendRendezvousLadder_TensOfKm_NotOk(t *testing.T) {
-	r := rendezvousCalibrationRadius
-	mu := muEarth
-
-	cases := []struct {
-		k     float64
-		fracP float64
-	}{
-		{1.005, 1.0 / 64},
-		{1.008, 1.0 / 64},
-		{1.01, 1.0 / 64},
-		{1.01, 1.0 / 128},
-	}
-	for _, c := range cases {
-		target := eccentricStateAtRadius(r, 0, c.k, mu)
-		period := orbitalPeriod(physics.StateVector{R: target.R, V: target.V}, mu)
-		svB, ok := physics.KeplerStep(physics.StateVector{R: target.R, V: target.V}, mu, period*c.fracP)
-		if !ok {
-			t.Fatalf("setup: KeplerStep failed for k=%.3f fracP=%.5f", c.k, c.fracP)
-		}
-		chaser := orbital.Vec3State{R: svB.R, V: svB.V}
-
-		ladder, err := RecommendRendezvousLadder(chaser, target, bodies.CelestialBody{}, mu, RendezvousTheirOrbit, 4*3600, -1)
-		if err != nil {
-			t.Fatalf("k=%.3f fracP=%.5f: err: %v", c.k, c.fracP, err)
-		}
-		for _, row := range ladder.Rows {
-			if row.AchievableCA <= 0 {
-				continue // convergence-failure row, not a pricing row
-			}
-			if row.AchievableCA < 10_000 {
-				continue // below the reviewer's flagged tens-of-km range — not what this test targets
-			}
-			if row.Ok {
-				t.Errorf("k=%.3f fracP=%.5f laps=%d: Ok=true with AchievableCA=%.0f m (tens of km) — must not read as a rendezvous",
-					c.k, c.fracP, row.Laps, row.AchievableCA)
-			}
-		}
-	}
-}
-
-// TestRecommendRendezvousLadder_EccentricHolder_UnachievableRefused —
-// review Finding 1: "Ok never consults AchievableCA." rendezvousLadderCore's
-// t0 derivation sweeps the holder at a uniform angular rate, exact only
-// for a circular holder; on an eccentric one the model is wrong and the
-// row it prices doesn't actually deliver a rendezvous, yet every other gate
-// (r0 in [holderPeri, holderApo], periapsis safety, affordability) still
-// passes because both craft sit on the SAME eccentric orbit.
+// TestRendezvousLadderEccentricHolderSolves (#413): two vessels phasing
+// on the SAME eccentric orbit (perigee 6771 km / apogee 12000 km,
+// e≈0.28) get real rows instead of a refusal. The holder's timing comes
+// from Kepler's equation, not a uniform angular sweep (exact only for a
+// circle); the 0.1% tolerance gate stays untouched as the backstop.
 //
-// Reproduces the reviewer's exact measured scenario: a periapsis 6771 km
-// / apoapsis 12000 km orbit (e≈0.28), two co-orbital craft 1/6 period
-// apart (built by Kepler-stepping one craft's own state forward P/6 —
-// the literal "co-orbital, offset in time" geometry, not just a linear
-// phase offset). Before the fix every row here reported Ok=true with
-// AchievableCA≈6,563,744 m against r0mag≈6.77e6 m (a ~97%-of-orbit
-// miss); this asserts no row is allowed to claim Ok=true when its own
-// propagated check misses this badly.
-func TestRecommendRendezvousLadder_EccentricHolder_UnachievableRefused(t *testing.T) {
+// Asserting a row exists is not enough (ADR 0045's history is full of
+// harnesses that checked the wrong thing): each Ok row's advertised
+// burn is re-applied to the mover here, both vessels are propagated
+// independently to TArrival, and the separation must land inside the
+// tolerance. Phase offsets and start points cover perigee, apogee and
+// mid-orbit, and both Places (mover A / mover B).
+func TestRendezvousLadderEccentricHolderSolves(t *testing.T) {
 	mu := muEarth
 	rp := 6.771e6
 	ra := 12.000e6
 	e := (ra - rp) / (ra + rp)
 	k := math.Sqrt(1 + e) // eccentricStateAtRadius's periapsis-speed multiplier for this e
 
-	stateA := eccentricStateAtRadius(rp, 0, k, mu)
-	period := orbitalPeriod(physics.StateVector{R: stateA.R, V: stateA.V}, mu)
-	svB, ok := physics.KeplerStep(physics.StateVector{R: stateA.R, V: stateA.V}, mu, period/6)
-	if !ok {
-		t.Fatalf("setup: KeplerStep failed advancing the co-orbital partner by P/6")
-	}
-	stateB := orbital.Vec3State{R: svB.R, V: svB.V}
-
-	ladder, err := RecommendRendezvousLadder(stateA, stateB, bodies.CelestialBody{}, mu, RendezvousTheirOrbit, 4*3600, -1)
-	if err != nil {
-		t.Fatalf("RecommendRendezvousLadder err: %v", err)
-	}
-	if len(ladder.Rows) == 0 {
-		t.Fatalf("expected rows")
-	}
-	for _, row := range ladder.Rows {
-		if row.Ok {
-			t.Errorf("laps=%d: Ok=true with AchievableCA=%.0f m (r0≈%.0f m) — a %.0f%% miss must not be offered as a rendezvous",
-				row.Laps, row.AchievableCA, rp, 100*row.AchievableCA/rp)
+	base := eccentricStateAtRadius(rp, 0, k, mu)
+	period := orbitalPeriod(physics.StateVector{R: base.R, V: base.V}, mu)
+	step := func(s orbital.Vec3State, dt float64) orbital.Vec3State {
+		sv, ok := physics.KeplerStep(physics.StateVector{R: s.R, V: s.V}, mu, dt)
+		if !ok {
+			t.Fatalf("setup: KeplerStep failed dt=%.1f", dt)
 		}
-		// The row is still RETURNED with its real numbers (ADR 0045 §2:
-		// "unaffordable rows are shown but not plantable") — only Ok
-		// flips, AchievableCA itself must stay the honest propagated
-		// value, not get hidden or zeroed.
-		if row.AchievableCA <= 0 {
-			t.Errorf("laps=%d: AchievableCA=%.0f, want the real (large) propagated miss, not zeroed", row.Laps, row.AchievableCA)
+		return orbital.Vec3State{R: sv.R, V: sv.V}
+	}
+
+	for _, startFrac := range []float64{0, 0.25, 0.5, 0.8} {
+		for _, gapFrac := range []float64{1.0 / 6, 1.0 / 3, 0.5, 5.0 / 6} {
+			stateA := step(base, startFrac*period)
+			stateB := step(stateA, gapFrac*period)
+			for _, place := range []RendezvousOrbit{RendezvousTheirOrbit, RendezvousYourOrbit} {
+				name := fmt.Sprintf("start=%.2f gap=%.3f %s", startFrac, gapFrac, place)
+				ladder, err := RecommendRendezvousLadder(stateA, stateB, bodies.CelestialBody{}, mu, place, 4*3600, -1)
+				if err != nil {
+					t.Fatalf("%s: err: %v", name, err)
+				}
+				mover, holder := stateA, stateB
+				if !ladder.MoverIsA {
+					mover, holder = stateB, stateA
+				}
+				okRows := 0
+				for _, row := range ladder.Rows {
+					if !row.Ok {
+						continue
+					}
+					okRows++
+					// Independent propagation of the ADVERTISED burn.
+					v0 := mover.V
+					burned := orbital.Vec3State{R: mover.R, V: v0.Add(row.BurnDir.Scale(row.DV))}
+					m := step(burned, row.TArrival)
+					h := step(holder, row.TArrival)
+					ca := m.R.Sub(h.R).Norm()
+					if ca > rendezvousAchievableCATolFrac*mover.R.Norm() {
+						t.Errorf("%s laps=%d: advertised row Ok but re-propagated separation = %.0f m (> %.0f m)",
+							name, row.Laps, ca, rendezvousAchievableCATolFrac*mover.R.Norm())
+					}
+				}
+				if okRows == 0 {
+					t.Errorf("%s: no Ok rows on a same-orbit eccentric pair; rows=%+v", name, ladder.Rows)
+				}
+			}
 		}
 	}
 }

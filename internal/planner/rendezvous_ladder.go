@@ -125,10 +125,10 @@ const rendezvousPlaneTolDeg = 1.0
 
 // rendezvousAchievableCATolFrac gates Ok on the row's own AchievableCA
 // (review finding: "Ok never consults AchievableCA"). rendezvousLadderCore
-// models the holder as sweeping at a uniform angular rate to derive t0
-// — exact for a circular holder, a first-order approximation for an
-// eccentric one (see rendezvousLadderCore's doc comment) — so a row can
-// pass every other gate (r0 in [holderPeri, holderApo], periapsis
+// times the holder with Kepler's equation (exact for a same-orbit
+// holder, circular or eccentric; #413) but still only aims at r0's
+// direction, so a holder on a DIFFERENT orbit that crosses r0's radius
+// elsewhere can pass every other gate (r0 in [holderPeri, holderApo], periapsis
 // safety, affordability) while the burn it actually prices misses the
 // holder by a large fraction of the orbit. AchievableCA is already the
 // row's own propagate-and-check number (both craft advanced via
@@ -139,8 +139,8 @@ const rendezvousPlaneTolDeg = 1.0
 // a genuinely circular holder produces (TestRecommendRendezvousLadder_
 // TheirOrbit_PhaseOffsetConverges asserts <5 km on a 6.87e6 m orbit,
 // several orders of magnitude under this bound) but far tighter than
-// the miss an eccentric holder's uniform-sweep approximation actually
-// produces: measured on a perigee 6771 km / apogee 12000 km orbit
+// the miss the pre-#413 uniform-sweep holder model produced on an
+// eccentric orbit: measured on a perigee 6771 km / apogee 12000 km orbit
 // (e≈0.28) with two co-orbital craft 1/6 period apart, every row's
 // AchievableCA came out ≈6,563,744 m against r0mag≈6.77e6 m — 97% of
 // r0mag, not a rounding error.
@@ -157,9 +157,8 @@ const rendezvousPlaneTolDeg = 1.0
 // clears every one of those four measured values while still passing
 // every row this package's own tests expect to succeed — none of them
 // exercise an eccentric HOLDER on a geometry meant to stay Ok=true
-// (the only eccentric-holder case, TestRecommendRendezvousLadder_
-// EccentricHolder_UnachievableRefused, expects total refusal at a
-// ~97%-of-r0mag miss, far outside either bound).
+// (the only eccentric-holder case, TestRendezvousLadderEccentricHolderSolves,
+// now expects Ok rows whose re-propagated miss sits inside this bound).
 const rendezvousAchievableCATolFrac = 0.001
 
 var (
@@ -342,11 +341,9 @@ func rendezvousCoplanar(stateA, stateB orbital.Vec3State) bool {
 // orbit (any Keplerian orbit revisits every one of its points every
 // period, apsis or not), so the mover returns to r0 EXACTLY at
 // t = N·P'(Δv) for any lap count N. The holder, meanwhile, is treated
-// as sweeping its current orbit at a fixed angular rate (exact for a
-// circular holder; a first-order approximation for a mildly eccentric
-// one — this slice's fixtures and acceptance criteria are all
-// matched/near-matched circular-ish orbits, so this isn't exercised
-// off that domain) and reaches r0's angular position at
+// as reaching r0's angular position after a Kepler time-of-flight t0
+// (true to eccentric to mean anomaly, so an eccentric holder is timed
+// exactly; #413) and every P_holder after that, i.e.
 // t = t0 + m·P_holder for m = 0, 1, 2, .... Solving
 // N·P'(Δv) = t0 + m·P_holder for Δv (monotonic in Δv — bisection, see
 // solveTangentialSpeedForPeriod) gives the single burn that lands
@@ -422,7 +419,26 @@ func rendezvousLadderCore(moverState, holderState orbital.Vec3State, primary bod
 	if dPhi0 < 0 {
 		dPhi0 += 2 * math.Pi
 	}
+	// Holder timing is a real Kepler time-of-flight (#413): the holder's
+	// angle to r0 is a true-anomaly difference, so convert true anomaly
+	// to eccentric to mean anomaly and divide by mean motion. A uniform
+	// angular sweep (dPhi0/2π · P) is exact only for a circle; on an
+	// eccentric holder it mis-times arrival by a large fraction of the
+	// orbit. Below the circular threshold the true anomaly is undefined
+	// and the sweep IS exact, so it stays as the fallback.
 	t0 := dPhi0 / (2 * math.Pi) * pHolder
+	if hEl.E >= 1e-9 {
+		nuNow := orbital.TrueAnomalyFromState(holderState.R, holderState.V, mu, hEl)
+		nuAim := math.Mod(nuNow+dPhi0, 2*math.Pi)
+		if dt := orbital.TimeToTrueAnomaly(nuNow, nuAim, hEl.A, hEl.E, mu); dt > 0 {
+			// TimeToTrueAnomaly returns a full period for "already
+			// there"; a zero phase offset means the holder is at r0 now.
+			if dPhi0 == 0 {
+				dt = 0
+			}
+			t0 = dt
+		}
+	}
 
 	rows := make([]RendezvousBurnOption, 0, len(rendezvousCandidateLaps))
 	for _, n := range rendezvousCandidateLaps {
@@ -508,8 +524,8 @@ func rendezvousLadderCore(moverState, holderState orbital.Vec3State, primary bod
 		case !chosenAchievable:
 			// The row's own propagate-and-check (AchievableCA) landed
 			// outside rendezvousAchievableCATolFrac of r0mag — the
-			// uniform-angular-rate holder model (see this function's
-			// doc comment) doesn't hold for this geometry, so the
+			// holder never passes through r0 at the aimed time (e.g. a
+			// different orbit), so the
 			// solved burn doesn't actually deliver a rendezvous. Same
 			// reason text as the "no bracket converged at all" case
 			// above: both mean "this lap count has no usable rendezvous
