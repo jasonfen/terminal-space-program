@@ -130,7 +130,7 @@ func TestEmbeddedTutorialProgression(t *testing.T) {
 	}
 
 	// tut-dock unlocks: spawn a partner IN ORBIT (not on the pad), target it,
-	// plant the meeting burn, and dock.
+	// plant the rendezvous burn, and dock.
 	twin := *c
 	twin.ID = c.ID + 1000
 	w.Crafts = append(w.Crafts, &twin)

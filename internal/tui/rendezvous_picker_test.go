@@ -14,12 +14,12 @@ import (
 // a.Update — mirrors app_rendezvous_success_test.go's own fixture shapes
 // (rotateAboutAxis is defined there, same package).
 
-// meetingPickerPhaseMismatchApp builds a fresh App with two craft on the
+// rendezvousPickerPhaseMismatchApp builds a fresh App with two craft on the
 // SAME circular orbit (same altitude, same plane) but 90° apart in phase
 // — far enough that K's trim-rung nudge exceeds the burn ceiling, while
-// the coplanar, same-radius geometry gives the Meeting Planner a real
+// the coplanar, same-radius geometry gives the Rendezvous Planner a real
 // ladder to solve. Mirrors internal/sim's rendezvousPhaseMismatchWorld.
-func meetingPickerPhaseMismatchApp(t *testing.T) *App {
+func rendezvousPickerPhaseMismatchApp(t *testing.T) *App {
 	t.Helper()
 	a, err := New(nil)
 	if err != nil {
@@ -41,10 +41,10 @@ func meetingPickerPhaseMismatchApp(t *testing.T) *App {
 	return a
 }
 
-// meetingPickerPlaneMismatchApp mirrors internal/sim's
+// rendezvousPickerPlaneMismatchApp mirrors internal/sim's
 // rendezvousPlaneMismatchWorld: same radius/speed, tilted 30° out of
 // plane — a size-and-shape match, purely a plane difference.
-func meetingPickerPlaneMismatchApp(t *testing.T) *App {
+func rendezvousPickerPlaneMismatchApp(t *testing.T) *App {
 	t.Helper()
 	a, err := New(nil)
 	if err != nil {
@@ -65,10 +65,10 @@ func meetingPickerPlaneMismatchApp(t *testing.T) *App {
 	return a
 }
 
-// meetingPickerNearMatchedApp mirrors internal/sim's
+// rendezvousPickerNearMatchedApp mirrors internal/sim's
 // rendezvousSmallLagWorld — the fixture K's own direct-plant happy path
 // test uses.
-func meetingPickerNearMatchedApp(t *testing.T) *App {
+func rendezvousPickerNearMatchedApp(t *testing.T) *App {
 	t.Helper()
 	a, err := New(nil)
 	if err != nil {
@@ -94,12 +94,12 @@ func meetingPickerNearMatchedApp(t *testing.T) *App {
 // acceptance: "K on a near-matched close pair still plants a nudge
 // directly, with no picker."
 func TestPlanRendezvousKey_NearMatched_PlantsDirect_NoPicker(t *testing.T) {
-	a := meetingPickerNearMatchedApp(t)
+	a := rendezvousPickerNearMatchedApp(t)
 	c := a.world.ActiveCraft()
 
 	pressRune(a, 'K')
 
-	if a.orbitView.MeetingPickerOpen() {
+	if a.orbitView.RendezvousPickerOpen() {
 		t.Fatalf("picker opened on a near-matched close pair — should plant directly")
 	}
 	if len(c.Nodes) != 1 {
@@ -114,12 +114,12 @@ func TestPlanRendezvousKey_NearMatched_PlantsDirect_NoPicker(t *testing.T) {
 // acceptance: "K on a phase-mismatched pair opens the picker rather than
 // returning a refusal."
 func TestPlanRendezvousKey_PhaseMismatch_OpensPicker(t *testing.T) {
-	a := meetingPickerPhaseMismatchApp(t)
+	a := rendezvousPickerPhaseMismatchApp(t)
 	c := a.world.ActiveCraft()
 
 	pressRune(a, 'K')
 
-	if !a.orbitView.MeetingPickerOpen() {
+	if !a.orbitView.RendezvousPickerOpen() {
 		t.Fatalf("expected the picker to open on a phase-mismatched pair, statusMsg=%q", a.statusMsg)
 	}
 	if a.active != screenOrbit {
@@ -137,12 +137,12 @@ func TestPlanRendezvousKey_PhaseMismatch_OpensPicker(t *testing.T) {
 // acceptance: "K on a plane-mismatched pair names [I] and plants
 // nothing."
 func TestPlanRendezvousKey_PlaneMismatch_NamesI_PlantsNothing(t *testing.T) {
-	a := meetingPickerPlaneMismatchApp(t)
+	a := rendezvousPickerPlaneMismatchApp(t)
 	c := a.world.ActiveCraft()
 
 	pressRune(a, 'K')
 
-	if a.orbitView.MeetingPickerOpen() {
+	if a.orbitView.RendezvousPickerOpen() {
 		t.Fatalf("picker opened on a plane-mismatched pair — must refuse instead")
 	}
 	if len(c.Nodes) != 0 {
@@ -153,43 +153,43 @@ func TestPlanRendezvousKey_PlaneMismatch_NamesI_PlantsNothing(t *testing.T) {
 	}
 }
 
-// TestMeetingPickerLeftRight_WalksPlace and TestMeetingPickerUpDown_WalksRow
+// TestRendezvousPickerLeftRight_WalksPlace and TestRendezvousPickerUpDown_WalksRow
 // pin the picker's own key contract (ADR 0045 §2 acceptance: "←/→ walks
-// the Meeting Place ... ↑/↓ walks the Lap Ladder").
-func TestMeetingPickerLeftRight_WalksPlace(t *testing.T) {
-	a := meetingPickerPhaseMismatchApp(t)
+// the Rendezvous Orbit ... ↑/↓ walks the Lap Ladder").
+func TestRendezvousPickerLeftRight_WalksPlace(t *testing.T) {
+	a := rendezvousPickerPhaseMismatchApp(t)
 	pressRune(a, 'K')
-	if !a.orbitView.MeetingPickerOpen() {
+	if !a.orbitView.RendezvousPickerOpen() {
 		t.Fatalf("setup: picker did not open")
 	}
-	start := a.orbitView.MeetingPickerPlace()
+	start := a.orbitView.RendezvousPickerOrbit()
 
 	a.Update(tea.KeyMsg{Type: tea.KeyRight})
-	afterRight := a.orbitView.MeetingPickerPlace()
+	afterRight := a.orbitView.RendezvousPickerOrbit()
 	if afterRight == start {
-		t.Errorf("right arrow did not change the Meeting Place from %v", start)
+		t.Errorf("right arrow did not change the Rendezvous Orbit from %v", start)
 	}
 
 	a.Update(tea.KeyMsg{Type: tea.KeyLeft})
-	afterLeft := a.orbitView.MeetingPickerPlace()
+	afterLeft := a.orbitView.RendezvousPickerOrbit()
 	if afterLeft != start {
 		t.Errorf("left arrow after right did not return to the start Place: got %v, want %v", afterLeft, start)
 	}
 }
 
-func TestMeetingPickerUpDown_WalksRow(t *testing.T) {
-	a := meetingPickerPhaseMismatchApp(t)
+func TestRendezvousPickerUpDown_WalksRow(t *testing.T) {
+	a := rendezvousPickerPhaseMismatchApp(t)
 	pressRune(a, 'K')
-	if !a.orbitView.MeetingPickerOpen() {
+	if !a.orbitView.RendezvousPickerOpen() {
 		t.Fatalf("setup: picker did not open")
 	}
-	startLaps, ok := a.orbitView.MeetingPickerSelectedLaps()
+	startLaps, ok := a.orbitView.RendezvousPickerSelectedLaps()
 	if !ok {
 		t.Fatalf("setup: no row selected after opening")
 	}
 
 	a.Update(tea.KeyMsg{Type: tea.KeyDown})
-	downLaps, ok := a.orbitView.MeetingPickerSelectedLaps()
+	downLaps, ok := a.orbitView.RendezvousPickerSelectedLaps()
 	if !ok {
 		t.Fatalf("down arrow left no row selected")
 	}
@@ -198,19 +198,19 @@ func TestMeetingPickerUpDown_WalksRow(t *testing.T) {
 	}
 
 	a.Update(tea.KeyMsg{Type: tea.KeyUp})
-	upLaps, _ := a.orbitView.MeetingPickerSelectedLaps()
+	upLaps, _ := a.orbitView.RendezvousPickerSelectedLaps()
 	if upLaps != startLaps {
 		t.Errorf("up arrow after down did not return to the start row: got %d laps, want %d", upLaps, startLaps)
 	}
 }
 
-// TestMeetingPickerEnter_PlantsExactlyOneNode — ADR 0045 §2 acceptance:
+// TestRendezvousPickerEnter_PlantsExactlyOneNode — ADR 0045 §2 acceptance:
 // "Enter plants the single node."
-func TestMeetingPickerEnter_PlantsExactlyOneNode(t *testing.T) {
-	a := meetingPickerPhaseMismatchApp(t)
+func TestRendezvousPickerEnter_PlantsExactlyOneNode(t *testing.T) {
+	a := rendezvousPickerPhaseMismatchApp(t)
 	c := a.world.ActiveCraft()
 	pressRune(a, 'K')
-	if !a.orbitView.MeetingPickerOpen() {
+	if !a.orbitView.RendezvousPickerOpen() {
 		t.Fatalf("setup: picker did not open")
 	}
 	if len(c.Nodes) != 0 {
@@ -219,7 +219,7 @@ func TestMeetingPickerEnter_PlantsExactlyOneNode(t *testing.T) {
 
 	a.Update(tea.KeyMsg{Type: tea.KeyEnter})
 
-	if a.orbitView.MeetingPickerOpen() {
+	if a.orbitView.RendezvousPickerOpen() {
 		t.Errorf("picker still open after Enter — should close on plant")
 	}
 	if len(c.Nodes) != 1 {
@@ -227,19 +227,19 @@ func TestMeetingPickerEnter_PlantsExactlyOneNode(t *testing.T) {
 	}
 }
 
-// TestMeetingPickerEsc_PlantsNothing — ADR 0045 §2 acceptance: "Esc
+// TestRendezvousPickerEsc_PlantsNothing — ADR 0045 §2 acceptance: "Esc
 // closes without planting."
-func TestMeetingPickerEsc_PlantsNothing(t *testing.T) {
-	a := meetingPickerPhaseMismatchApp(t)
+func TestRendezvousPickerEsc_PlantsNothing(t *testing.T) {
+	a := rendezvousPickerPhaseMismatchApp(t)
 	c := a.world.ActiveCraft()
 	pressRune(a, 'K')
-	if !a.orbitView.MeetingPickerOpen() {
+	if !a.orbitView.RendezvousPickerOpen() {
 		t.Fatalf("setup: picker did not open")
 	}
 
 	a.Update(tea.KeyMsg{Type: tea.KeyEsc})
 
-	if a.orbitView.MeetingPickerOpen() {
+	if a.orbitView.RendezvousPickerOpen() {
 		t.Errorf("picker still open after Esc")
 	}
 	if len(c.Nodes) != 0 {
@@ -247,22 +247,22 @@ func TestMeetingPickerEsc_PlantsNothing(t *testing.T) {
 	}
 }
 
-// TestMeetingPickerJoinsCapturingText — trap #1 (#399's own naming): a
+// TestRendezvousPickerJoinsCapturingText — trap #1 (#399's own naming): a
 // new interactive surface that forgets to join a.capturingText() lets the
 // boss key fire mid-edit (ADR 0044's review). Pinned directly against the
 // predicate, mirroring TestCapturingTextTrueWhileAltitudeBoxOpen's shape.
-func TestMeetingPickerJoinsCapturingText(t *testing.T) {
-	a := meetingPickerPhaseMismatchApp(t)
+func TestRendezvousPickerJoinsCapturingText(t *testing.T) {
+	a := rendezvousPickerPhaseMismatchApp(t)
 	if a.capturingText() {
 		t.Fatalf("capturingText() = true before the picker opens")
 	}
 
 	pressRune(a, 'K')
-	if !a.orbitView.MeetingPickerOpen() {
+	if !a.orbitView.RendezvousPickerOpen() {
 		t.Fatalf("setup: picker did not open")
 	}
 	if !a.capturingText() {
-		t.Fatalf("capturingText() = false while the Meeting Planner picker is open")
+		t.Fatalf("capturingText() = false while the Rendezvous Planner picker is open")
 	}
 
 	a.Update(tea.KeyMsg{Type: tea.KeyEsc})
@@ -271,31 +271,31 @@ func TestMeetingPickerJoinsCapturingText(t *testing.T) {
 	}
 }
 
-// TestMeetingPickerBlocksBossKey is the end-to-end regression
+// TestRendezvousPickerBlocksBossKey is the end-to-end regression
 // TestBossKeyInertWhileTypingAltitude mirrors for this surface: a
 // backtick while the picker is open must not swap the screen to the boss
 // shell.
-func TestMeetingPickerBlocksBossKey(t *testing.T) {
-	a := meetingPickerPhaseMismatchApp(t)
+func TestRendezvousPickerBlocksBossKey(t *testing.T) {
+	a := rendezvousPickerPhaseMismatchApp(t)
 	pressRune(a, 'K')
-	if !a.orbitView.MeetingPickerOpen() {
+	if !a.orbitView.RendezvousPickerOpen() {
 		t.Fatalf("setup: picker did not open")
 	}
 
 	pressRune(a, '`')
 
 	if a.active == screenBoss {
-		t.Fatalf("a backtick while the Meeting Planner picker was open opened the boss shell")
+		t.Fatalf("a backtick while the Rendezvous Planner picker was open opened the boss shell")
 	}
 	if a.active != screenOrbit {
 		t.Errorf("active screen = %v after a backtick with the picker open, want screenOrbit", a.active)
 	}
-	if !a.orbitView.MeetingPickerOpen() {
+	if !a.orbitView.RendezvousPickerOpen() {
 		t.Errorf("the picker closed on an unrecognized key (backtick) — it should stay open")
 	}
 }
 
-// TestMeetingPickerArrowKeysLeaveNoResidualPan is the camera-pan half of
+// TestRendezvousPickerArrowKeysLeaveNoResidualPan is the camera-pan half of
 // trap #2 (#399: "arrow keys here must not also pan the camera"). Since
 // OrbitView.panOffset is unexported and this test lives in package tui,
 // it asserts the same OBSERVABLE CONTRACT app_pan_test.go's own
@@ -312,23 +312,23 @@ func TestMeetingPickerBlocksBossKey(t *testing.T) {
 // A window wide enough that the size gate (floor 104×24) never swallows
 // the keys this test presses; the picker's own 80×24 render contract is
 // pinned separately at the screens package level
-// (TestMeetingPickerChip_Render80x24), where the size gate doesn't apply.
-func TestMeetingPickerArrowKeysLeaveNoResidualPan(t *testing.T) {
-	a := meetingPickerPhaseMismatchApp(t)
+// (TestRendezvousPickerChip_Render80x24), where the size gate doesn't apply.
+func TestRendezvousPickerArrowKeysLeaveNoResidualPan(t *testing.T) {
+	a := rendezvousPickerPhaseMismatchApp(t)
 	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
 	a.View() // establish the canvas fit (Scale() > 0) — see OrbitView.pan's own guard
 	pressRune(a, 'K')
-	if !a.orbitView.MeetingPickerOpen() {
+	if !a.orbitView.RendezvousPickerOpen() {
 		t.Fatalf("setup: picker did not open")
 	}
-	startPlace := a.orbitView.MeetingPickerPlace()
+	startPlace := a.orbitView.RendezvousPickerOrbit()
 	before := a.View()
 
 	for i := 0; i < 3; i++ {
 		a.Update(tea.KeyMsg{Type: tea.KeyLeft})
 	}
 
-	if got := a.orbitView.MeetingPickerPlace(); got != startPlace {
+	if got := a.orbitView.RendezvousPickerOrbit(); got != startPlace {
 		t.Fatalf("test invariant broken: 3 lefts should complete a full Place lap (got %v, started %v) — cycle length changed?", got, startPlace)
 	}
 	after := a.View()

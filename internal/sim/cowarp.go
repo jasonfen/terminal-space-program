@@ -216,13 +216,13 @@ type CoWarpPeer struct {
 	// authoritative baseline, not its own staler recompute (v0.29 S1).
 	RendezvousCA float64
 
-	// RendezvousMeetingPlace / RendezvousMeetingLaps (ADR 0045 S7, #400)
-	// carry the peer's chosen Meeting Place + lap count alongside
-	// RendezvousTau/CA, when their commit came from a planted Meeting
+	// RendezvousOrbit / RendezvousLaps (ADR 0045 S7, #400)
+	// carry the peer's chosen Rendezvous Orbit + lap count alongside
+	// RendezvousTau/CA, when their commit came from a planted Rendezvous
 	// Burn node. Empty/zero otherwise — including the whole "agreed, no
 	// plan yet" state, which has no Place to carry.
-	RendezvousMeetingPlace string
-	RendezvousMeetingLaps  int
+	RendezvousOrbit string
+	RendezvousLaps  int
 
 	// RendezvousInitiator is this peer's SEAT in the mutual agreement (ADR
 	// 0037 §2) — true when they proposed the rendezvous and therefore fly
@@ -291,20 +291,20 @@ type RendezvousArm struct {
 	Tau         time.Time // the current waypoint's absolute encounter sim-time — zero means "agreed, no plan yet" (ADR 0045 S7, #400): see RendezvousUnplanned.
 	CommittedCA float64   // m — the predicted approach at Tau, re-derived per waypoint (HUD "committed" row)
 
-	// MeetingPlaceLabel / MeetingLaps (ADR 0045 S7, #400) name the
-	// initiator's chosen Meeting Place + lap count when Tau was committed
-	// from a planted Meeting Burn node (RendezvousCommitWithPlan's Source
+	// RendezvousOrbitLabel / RendezvousLaps (ADR 0045 S7, #400) name the
+	// initiator's chosen Rendezvous Orbit + lap count when Tau was committed
+	// from a planted Rendezvous Burn node (RendezvousCommitWithPlan's Source
 	// 2) — agreement state, carried onto the wire (relay.CraftReport /
 	// CoWarpPeer) and adopted verbatim by the accepter via
-	// SetRendezvousMeeting, exactly like Tau/CommittedCA. Empty when the
+	// SetRendezvousOrbit, exactly like Tau/CommittedCA. Empty when the
 	// commit's source was the trim-rung nudge or the current-course
 	// search — neither has a Place to name — including the whole
 	// "agreed, no plan yet" state (Tau.IsZero()), which by definition
 	// never had a Source 2 commit. The accepter has no code path that
-	// writes these fields — PlanMeetingBurn never touches RendezvousArm —
+	// writes these fields — PlanRendezvousBurn never touches RendezvousArm —
 	// so once set, only a fresh Engage (initiator side) can change them.
-	MeetingPlaceLabel string
-	MeetingLaps       int
+	RendezvousOrbitLabel string
+	RendezvousLaps       int
 
 	// Initiator is this side's SEAT in the agreement (ADR 0037 §2), fixed
 	// at invite time: the player who proposed the rendezvous is

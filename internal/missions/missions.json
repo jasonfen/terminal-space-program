@@ -125,7 +125,7 @@
           "params": { "action": "cycle_target", "require_target_craft": true }
         },
         {
-          "name": "Plant the meeting burn",
+          "name": "Plant the rendezvous burn",
           "description": "Press [K] to plant a burn toward it.",
           "kind": "event",
           "params": { "action": "plan_rendezvous" }

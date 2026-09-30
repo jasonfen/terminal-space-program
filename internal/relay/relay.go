@@ -9,6 +9,7 @@
 package relay
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -70,15 +71,15 @@ type CraftReport struct {
 	RendezvousTau    time.Time `json:"rendezvous_tau,omitempty"`
 	RendezvousCA     float64   `json:"rendezvous_ca,omitempty"` // committed predicted approach at τ (m) — the responder's adopted baseline
 
-	// RendezvousMeetingPlace / RendezvousMeetingLaps (ADR 0045 S7, #400)
-	// carry the reporter's chosen Meeting Place + lap count alongside
-	// RendezvousTau/CA, when their commit came from a planted Meeting
+	// RendezvousOrbit / RendezvousLaps (ADR 0045 S7, #400)
+	// carry the reporter's chosen Rendezvous Orbit + lap count alongside
+	// RendezvousTau/CA, when their commit came from a planted Rendezvous
 	// Burn node — agreement state the accepter's chip names (and cannot
 	// change; see sim.RendezvousArm's doc comment). Empty/zero otherwise,
 	// including the whole "agreed, no plan yet" state (RendezvousTau the
 	// zero time), which by definition never had one.
-	RendezvousMeetingPlace string `json:"rendezvous_meeting_place,omitempty"`
-	RendezvousMeetingLaps  int    `json:"rendezvous_meeting_laps,omitempty"`
+	RendezvousOrbit string `json:"rendezvous_orbit,omitempty"`
+	RendezvousLaps  int    `json:"rendezvous_laps,omitempty"`
 
 	// RendezvousInitiator / RendezvousRate / RendezvousBurning carry the
 	// reporter's SEAT and its contribution to the pair's rate in a
@@ -262,4 +263,29 @@ func (s *Store) Subscribe() (<-chan CraftReport, func()) {
 		defer s.mu.Unlock()
 		delete(s.subs, id)
 	}
+}
+
+// UnmarshalJSON decodes a CraftReport, also accepting the pre-rename
+// rendezvous_meeting_place / rendezvous_meeting_laps keys (the vocabulary
+// settled on "rendezvous"), so a report from an older build still carries
+// its chosen orbit and lap count. The new keys win when both are present.
+// Encoding always writes the new keys. Remove the legacy read one release
+// after this ships.
+func (r *CraftReport) UnmarshalJSON(b []byte) error {
+	type plain CraftReport
+	aux := struct {
+		*plain
+		LegacyOrbit string `json:"rendezvous_meeting_place"`
+		LegacyLaps  int    `json:"rendezvous_meeting_laps"`
+	}{plain: (*plain)(r)}
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	if r.RendezvousOrbit == "" {
+		r.RendezvousOrbit = aux.LegacyOrbit
+	}
+	if r.RendezvousLaps == 0 {
+		r.RendezvousLaps = aux.LegacyLaps
+	}
+	return nil
 }

@@ -74,7 +74,13 @@ import (
 // pass — an old save's ascent behaviour is unchanged on load with no
 // field transform needed, the same shape migrateV9PayloadToV10 used for
 // the prior bump.
-const SchemaVersion = 11
+// v12 renames the planted Rendezvous Burn node's persisted keys
+// (meeting_arrival_sec / meeting_place_label / meeting_laps become
+// rendezvous_arrival_sec / rendezvous_orbit_label / rendezvous_laps) and
+// its advisory_key value ("meeting-burn" becomes "rendezvous-burn"), when
+// the vocabulary settled on rendezvous; migrateV11PayloadToV12 rewrites
+// an old envelope's nodes, values unchanged.
+const SchemaVersion = 12
 
 // File is the on-disk envelope.
 //
@@ -404,17 +410,28 @@ type Node struct {
 	// harmless on every save predating this field (a local-craft or
 	// untargeted node's TargetGhostOwner was always "").
 	TargetGhostOwner string `json:"target_ghost_owner,omitempty"`
-	// MeetingArrivalSec / MeetingPlaceLabel / MeetingLaps (ADR 0045 S7,
+	// RendezvousArrivalSec / RendezvousOrbitLabel / RendezvousLaps (ADR 0045 S7,
 	// #400, additive omitempty) mirror spacecraft.ManeuverNode's fields of
-	// the same name — the Meeting Planner plan a planted Meeting Burn
+	// the same name — the Rendezvous Planner plan a planted Rendezvous Burn
 	// node carries, so a reloaded save's node still lets Engage commit to
 	// the plan's own arrival (RendezvousCommitWithPlan's Source 2)
 	// instead of losing it. Absent → the zero value, correct for every
-	// node type that predates this field (including every non-Meeting-
-	// Burn node). No migration.
-	MeetingArrivalSec float64 `json:"meeting_arrival_sec,omitempty"`
-	MeetingPlaceLabel string  `json:"meeting_place_label,omitempty"`
-	MeetingLaps       int     `json:"meeting_laps,omitempty"`
+	// node type that predates this field (including every non-Rendezvous-
+	// Burn node). These carried meeting_* keys through schema v11; v12
+	// renamed them (see save_migrate_v11_to_v12.go).
+	RendezvousArrivalSec float64 `json:"rendezvous_arrival_sec,omitempty"`
+	RendezvousOrbitLabel string  `json:"rendezvous_orbit_label,omitempty"`
+	RendezvousLaps       int     `json:"rendezvous_laps,omitempty"`
+
+	// Read-only shadows of the schema v11 keys, so an old envelope's values
+	// decode instead of being dropped as unknown keys. Never written:
+	// FoldLegacyMeetingKeys moves them into the fields above and zeroes
+	// them, so omitempty keeps them off disk. Load runs it via
+	// migrateV11PayloadToV12; the server's parked dock payloads run it in
+	// relay.craftFromWire. Remove with the migration.
+	V11MeetingArrivalSec float64 `json:"meeting_arrival_sec,omitempty"`
+	V11MeetingPlaceLabel string  `json:"meeting_place_label,omitempty"`
+	V11MeetingLaps       int     `json:"meeting_laps,omitempty"`
 }
 
 // DockedComponent mirrors spacecraft.DockedComponent. v0.8.3+.
@@ -649,6 +666,11 @@ func Load(path string) (*sim.World, error) {
 	// migrateV10PayloadToV11's package comment.
 	if f.Version < 11 {
 		migrateV10PayloadToV11(&f.Payload)
+	}
+	// schema v12: the Rendezvous Burn node's keys were renamed from
+	// meeting_*; fold an old envelope's values into the new fields.
+	if f.Version < 12 {
+		migrateV11PayloadToV12(&f.Payload)
 	}
 	return worldFromPayload(f.Payload, systems)
 }

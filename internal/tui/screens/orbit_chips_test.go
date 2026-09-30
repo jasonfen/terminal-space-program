@@ -1181,8 +1181,8 @@ func TestComposeChipsBayNoticeDoesNotMoveBoxes(t *testing.T) {
 func TestComposeChipsBayWrapsWidePickerLine(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	const cCols, cRows = 138, 37
-	v.OpenMeetingPicker(planner.MeetingTheirOrbit, planner.MeetingLadder{}, sim.ErrMeetingSizeMismatch)
-	pickerLines := v.buildMeetingPickerChip()
+	v.OpenRendezvousPicker(planner.RendezvousTheirOrbit, planner.RendezvousLadder{}, sim.ErrRendezvousSizeMismatch)
+	pickerLines := v.buildRendezvousPickerChip()
 	if pickerLines == nil {
 		t.Fatal("setup: picker chip nil while open")
 	}

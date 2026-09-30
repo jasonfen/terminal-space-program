@@ -186,6 +186,9 @@ func craftFromWire(wc *save.Craft, systems []bodies.System) *spacecraft.Spacecra
 	if wc == nil {
 		return nil
 	}
+	// session.json parked payloads written by an older build carry the
+	// pre-v12 meeting_* node keys (save schema v12 renamed them).
+	wc.FoldLegacyMeetingKeys()
 	c, err := save.CraftFromWire(*wc, systems)
 	if err != nil {
 		return nil

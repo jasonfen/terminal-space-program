@@ -12,24 +12,24 @@ import (
 )
 
 // ADR 0045 S7 (#400) acceptance tests: Engage becomes the agreement to
-// meet, and a planted Meeting Planner node's own arrival — however far
+// meet, and a planted Rendezvous Planner node's own arrival — however far
 // out — is what it commits to, never a re-search within the 4h window
 // that bounds the current-course fallback.
 
-// TestRendezvousCommitWithPlan_MeetingNode_ArrivalBeyondHorizon is the
-// #400 acceptance test: "Engage commits to a planted Meeting Planner
+// TestRendezvousCommitWithPlan_RendezvousNode_ArrivalBeyondHorizon is the
+// #400 acceptance test: "Engage commits to a planted Rendezvous Planner
 // node's arrival [well] out [past the 4h horizon]." Plants a real
-// Meeting Burn via PlanMeetingBurn, picking the LARGEST-lap Ok row on
+// Rendezvous Burn via PlanRendezvousBurn, picking the LARGEST-lap Ok row on
 // the small-lag fixture: more laps means a smaller Δv spread over more
 // holder periods (ADR 0045 §2's own wait-vs-Δv ladder), so on a ~90 min
 // LEO period even the smallest such fixture's highest lap count
-// (meetingCandidateLaps' own 20) naturally waits tens of hours — no
+// (rendezvousCandidateLaps' own 20) naturally waits tens of hours — no
 // need to force the scenario by hand.
 //
-// Review finding 2 (this test previously overwrote MeetingArrivalSec by
+// Review finding 2 (this test previously overwrote RendezvousArrivalSec by
 // hand to exactly 8h, so nothing pinned the field's NATURAL value — a
 // vacuous test the reviewer flagged specifically): this version reads
-// MeetingArrivalSec straight off the planted node and asserts
+// RendezvousArrivalSec straight off the planted node and asserts
 // RendezvousCommitWithPlan commits to TriggerTime + that natural value,
 // with a non-vacuous precondition guard that it is actually beyond the
 // 4h horizon (so the test still exercises the "beyond horizon" property
@@ -39,15 +39,15 @@ import (
 // instead ran rendezvousCommitFromPlantedNode's horizon-bounded search
 // (the trim-nudge sibling's behaviour), an encounter well past the 4h
 // window could never be found, and the commit would refuse.
-func TestRendezvousCommitWithPlan_MeetingNode_ArrivalBeyondHorizon(t *testing.T) {
+func TestRendezvousCommitWithPlan_RendezvousNode_ArrivalBeyondHorizon(t *testing.T) {
 	w := rendezvousSmallLagWorld(t)
 	c := w.ActiveCraft()
 
-	ladder, err := w.RecommendMeetingLadder(planner.MeetingTheirOrbit)
+	ladder, err := w.RecommendRendezvousLadder(planner.RendezvousTheirOrbit)
 	if err != nil {
-		t.Fatalf("RecommendMeetingLadder err: %v", err)
+		t.Fatalf("RecommendRendezvousLadder err: %v", err)
 	}
-	// Pick the LARGEST-lap Ok row (rows are appended in meetingCandidateLaps'
+	// Pick the LARGEST-lap Ok row (rows are appended in rendezvousCandidateLaps'
 	// own ascending order, so the last Ok row is the largest), not the
 	// first — the whole point is a wait that clears the 4h horizon.
 	var pick int
@@ -60,42 +60,42 @@ func TestRendezvousCommitWithPlan_MeetingNode_ArrivalBeyondHorizon(t *testing.T)
 	if !found {
 		t.Fatalf("expected at least one Ok row: %+v", ladder.Rows)
 	}
-	if _, err := w.PlanMeetingBurn(planner.MeetingTheirOrbit, pick); err != nil {
-		t.Fatalf("PlanMeetingBurn err: %v", err)
+	if _, err := w.PlanRendezvousBurn(planner.RendezvousTheirOrbit, pick); err != nil {
+		t.Fatalf("PlanRendezvousBurn err: %v", err)
 	}
 	if len(c.Nodes) != 1 {
 		t.Fatalf("expected 1 planted node, got %d", len(c.Nodes))
 	}
 	node := c.Nodes[0]
 
-	// Non-vacuous precondition: the NATURAL MeetingArrivalSec this specific
+	// Non-vacuous precondition: the NATURAL RendezvousArrivalSec this specific
 	// lap row solved to must already exceed rendezvousCommitHorizonSec, or
 	// this test isn't exercising the "beyond horizon" property it claims to.
-	if node.MeetingArrivalSec <= rendezvousCommitHorizonSec {
-		t.Fatalf("setup: node.MeetingArrivalSec = %.1f s, want > %.1f s (the 4h horizon) — laps=%d didn't naturally wait long enough to stress the bound",
-			node.MeetingArrivalSec, rendezvousCommitHorizonSec, pick)
+	if node.RendezvousArrivalSec <= rendezvousCommitHorizonSec {
+		t.Fatalf("setup: node.RendezvousArrivalSec = %.1f s, want > %.1f s (the 4h horizon) — laps=%d didn't naturally wait long enough to stress the bound",
+			node.RendezvousArrivalSec, rendezvousCommitHorizonSec, pick)
 	}
-	wantTau := node.TriggerTime.Add(time.Duration(node.MeetingArrivalSec * float64(time.Second)))
+	wantTau := node.TriggerTime.Add(time.Duration(node.RendezvousArrivalSec * float64(time.Second)))
 
 	plan, ok := w.RendezvousCommitWithPlan()
 	if !ok {
 		t.Fatal("RendezvousCommitWithPlan: ok=false, want true (structural gates all pass)")
 	}
 	if plan.Tau.IsZero() {
-		t.Fatal("plan.Tau is zero — the planted Meeting Burn node was not honored")
+		t.Fatal("plan.Tau is zero — the planted Rendezvous Burn node was not honored")
 	}
 	if diff := plan.Tau.Sub(wantTau); diff < -time.Second || diff > time.Second {
-		t.Errorf("plan.Tau = %v, want %v (node.TriggerTime + its own MeetingArrivalSec) — got a difference of %v; "+
+		t.Errorf("plan.Tau = %v, want %v (node.TriggerTime + its own RendezvousArrivalSec) — got a difference of %v; "+
 			"a horizon-bounded search would have refused entirely rather than land near this", plan.Tau, wantTau, diff)
 	}
 	if plan.CommittedCA <= 0 {
 		t.Errorf("plan.CommittedCA = %.3f, want > 0", plan.CommittedCA)
 	}
-	if plan.MeetingPlaceLabel != planner.MeetingTheirOrbit.String() {
-		t.Errorf("plan.MeetingPlaceLabel = %q, want %q", plan.MeetingPlaceLabel, planner.MeetingTheirOrbit.String())
+	if plan.RendezvousOrbitLabel != planner.RendezvousTheirOrbit.String() {
+		t.Errorf("plan.RendezvousOrbitLabel = %q, want %q", plan.RendezvousOrbitLabel, planner.RendezvousTheirOrbit.String())
 	}
-	if plan.MeetingLaps != pick {
-		t.Errorf("plan.MeetingLaps = %d, want %d", plan.MeetingLaps, pick)
+	if plan.RendezvousLaps != pick {
+		t.Errorf("plan.RendezvousLaps = %d, want %d", plan.RendezvousLaps, pick)
 	}
 }
 
@@ -117,42 +117,42 @@ func rendezvousPhaseLagWorld(t *testing.T, angle float64) *World {
 	return w
 }
 
-// TestPlanMeetingBurn_CommittedArrivalMatchesTrueClosestApproach is
+// TestPlanRendezvousBurn_CommittedArrivalMatchesTrueClosestApproach is
 // review Finding 2's own regression test, reproducing the reviewer's
 // exact measured scenario: rendezvousTwoCraftWorld with a 30° phase lag.
 //
-// Before the fix, PlanMeetingBurn solved the burn tangentially at the
+// Before the fix, PlanRendezvousBurn solved the burn tangentially at the
 // craft's position NOW but planted it as a BurnVector node — a FROZEN
 // inertial direction (spacecraft.NodeBurnDirection) — that fires
 // leadBuffer later at a different point on the orbit, where the frozen
-// direction is no longer tangential; MeetingArrivalSec was then
+// direction is no longer tangential; RendezvousArrivalSec was then
 // re-anchored by subtracting leadBuffer from the "solved at now" row's
 // TArrival, which doesn't land on the resulting closest approach either.
 // Measured on this exact fixture: the row/commit reported
 // AchievableCA/CommittedCA = 0.0 m, but propagating the planted node
-// exactly as rendezvousCommitFromPlantedMeetingNode does gave 974.9 m at
+// exactly as rendezvousCommitFromPlantedBurnNode does gave 974.9 m at
 // the committed τ, with the TRUE minimum separation of 46.3 m occurring
-// ten seconds later — a burn advertised as a meeting that actually
+// ten seconds later — a burn advertised as a rendezvous that actually
 // misses by very roughly a kilometer at the wrong instant.
 //
 // After the fix (BurnPrograde/Retrograde re-derived at fire time, solved
-// from the state at TriggerTime — see PlanMeetingBurn's own doc
+// from the state at TriggerTime — see PlanRendezvousBurn's own doc
 // comment), the committed plan's CommittedCA must be small AND must sit
 // at the actual local-minimum separation — verified here by an
 // independent fine-grained scan around the committed arrival using the
-// SAME post-burn state rendezvousCommitFromPlantedMeetingNode derives,
+// SAME post-burn state rendezvousCommitFromPlantedBurnNode derives,
 // so this test cannot pass merely because the solver's own prediction
 // agrees with itself (the self-consistency trap the planner package's
-// own TestMeetingLadder_IterateSelfConsistent doc comment warns about —
+// own TestRendezvousLadder_IterateSelfConsistent doc comment warns about —
 // this scan uses the node's ACTUAL fire-time direction, not the
 // solver's stored one).
-func TestPlanMeetingBurn_CommittedArrivalMatchesTrueClosestApproach(t *testing.T) {
+func TestPlanRendezvousBurn_CommittedArrivalMatchesTrueClosestApproach(t *testing.T) {
 	w := rendezvousPhaseLagWorld(t, -30*math.Pi/180)
 	c := w.ActiveCraft()
 
-	ladder, err := w.RecommendMeetingLadder(planner.MeetingTheirOrbit)
+	ladder, err := w.RecommendRendezvousLadder(planner.RendezvousTheirOrbit)
 	if err != nil {
-		t.Fatalf("RecommendMeetingLadder err: %v", err)
+		t.Fatalf("RecommendRendezvousLadder err: %v", err)
 	}
 	var pick int
 	found := false
@@ -165,8 +165,8 @@ func TestPlanMeetingBurn_CommittedArrivalMatchesTrueClosestApproach(t *testing.T
 	if !found {
 		t.Fatalf("expected at least one Ok row: %+v", ladder.Rows)
 	}
-	if _, err := w.PlanMeetingBurn(planner.MeetingTheirOrbit, pick); err != nil {
-		t.Fatalf("PlanMeetingBurn err: %v", err)
+	if _, err := w.PlanRendezvousBurn(planner.RendezvousTheirOrbit, pick); err != nil {
+		t.Fatalf("PlanRendezvousBurn err: %v", err)
 	}
 	if len(c.Nodes) != 1 {
 		t.Fatalf("expected 1 planted node, got %d", len(c.Nodes))
@@ -179,11 +179,11 @@ func TestPlanMeetingBurn_CommittedArrivalMatchesTrueClosestApproach(t *testing.T
 	}
 
 	// Independent scan: rebuild the SAME post-burn state
-	// rendezvousCommitFromPlantedMeetingNode itself derives (target
+	// rendezvousCommitFromPlantedBurnNode itself derives (target
 	// Kepler-propagated to TriggerTime, then the node's OWN direction
 	// mode applied via postBurnStateWithTarget — BurnPrograde/Retrograde
 	// re-resolved at that state, not a stored vector), then sweep a
-	// ±60 s window around the node's own MeetingArrivalSec looking for
+	// ±60 s window around the node's own RendezvousArrivalSec looking for
 	// the TRUE local-minimum separation.
 	rT, vT, tok := w.TargetStateRelativeToActivePrimary()
 	if !tok {
@@ -202,7 +202,7 @@ func TestPlanMeetingBurn_CommittedArrivalMatchesTrueClosestApproach(t *testing.T
 	trueMin := math.Inf(1)
 	trueMinOffset := 0.0
 	for offset := -60.0; offset <= 60.0; offset += 1.0 {
-		tArr := node.MeetingArrivalSec + offset
+		tArr := node.RendezvousArrivalSec + offset
 		if tArr <= 0 {
 			continue
 		}
@@ -233,20 +233,20 @@ func TestPlanMeetingBurn_CommittedArrivalMatchesTrueClosestApproach(t *testing.T
 	}
 }
 
-// TestRendezvousCommitWithPlan_MeetingNode_NoMeetingArrivalFallsThrough
-// is a companion to the test above: a node carrying AdvisoryKeyMeetingBurn
-// but no MeetingArrivalSec (the "predates this field" / "didn't clear the
-// lead buffer" case PlanMeetingBurn's own doc comment names) must not be
+// TestRendezvousCommitWithPlan_RendezvousNode_NoRendezvousArrivalFallsThrough
+// is a companion to the test above: a node carrying AdvisoryKeyRendezvousBurn
+// but no RendezvousArrivalSec (the "predates this field" / "didn't clear the
+// lead buffer" case PlanRendezvousBurn's own doc comment names) must not be
 // treated as a zero-wait commit — it should read as "no plan info" and
 // let RendezvousCommitWithPlan fall through to Source 3 exactly as if
 // nothing had been planted.
-func TestRendezvousCommitWithPlan_MeetingNode_NoMeetingArrivalFallsThrough(t *testing.T) {
+func TestRendezvousCommitWithPlan_RendezvousNode_NoRendezvousArrivalFallsThrough(t *testing.T) {
 	w := rendezvousSmallLagWorld(t)
 	c := w.ActiveCraft()
-	if _, err := w.PlanMeetingBurn(planner.MeetingTheirOrbit, ladderFirstOkLap(t, w)); err != nil {
-		t.Fatalf("PlanMeetingBurn err: %v", err)
+	if _, err := w.PlanRendezvousBurn(planner.RendezvousTheirOrbit, ladderFirstOkLap(t, w)); err != nil {
+		t.Fatalf("PlanRendezvousBurn err: %v", err)
 	}
-	c.Nodes[0].MeetingArrivalSec = 0 // simulate a pre-#400 node
+	c.Nodes[0].RendezvousArrivalSec = 0 // simulate a pre-#400 node
 
 	// This geometry is the zero-relative-drift stalemate (rendezvousSmallLagWorld's
 	// own doc comment / TestRendezvousCommitMatchedOrbitsRefusesPhantomNudge):
@@ -258,17 +258,17 @@ func TestRendezvousCommitWithPlan_MeetingNode_NoMeetingArrivalFallsThrough(t *te
 		t.Fatal("RendezvousCommitWithPlan: ok=false, want true (structural gates pass)")
 	}
 	if !plan.Tau.IsZero() {
-		t.Errorf("plan.Tau = %v, want zero — a MeetingArrivalSec<=0 node must not commit to a zero-second wait", plan.Tau)
+		t.Errorf("plan.Tau = %v, want zero — a RendezvousArrivalSec<=0 node must not commit to a zero-second wait", plan.Tau)
 	}
 }
 
 // ladderFirstOkLap is a small helper: the first Ok row's lap count from a
-// MeetingTheirOrbit ladder on w, or a fatal test failure.
+// RendezvousTheirOrbit ladder on w, or a fatal test failure.
 func ladderFirstOkLap(t *testing.T, w *World) int {
 	t.Helper()
-	ladder, err := w.RecommendMeetingLadder(planner.MeetingTheirOrbit)
+	ladder, err := w.RecommendRendezvousLadder(planner.RendezvousTheirOrbit)
 	if err != nil {
-		t.Fatalf("RecommendMeetingLadder err: %v", err)
+		t.Fatalf("RecommendRendezvousLadder err: %v", err)
 	}
 	for _, row := range ladder.Rows {
 		if row.Ok {
@@ -328,7 +328,7 @@ func rendezvousBeyondFourHourWorld(t *testing.T) (*World, orbital.Vec3State, orb
 // acceptance test: "a test that rendezvousCommitCurrentCourse still
 // refuses beyond 4h (the search window is untouched)." Source 3 (the
 // current-course fallback) is a SEARCH restricted to
-// rendezvousCommitHorizonSec, unlike Source 2's Meeting-Planner commit
+// rendezvousCommitHorizonSec, unlike Source 2's Rendezvous-Planner commit
 // above, which happily committed to 8h. This scenario's TRUE first
 // closest approach — confirmed via a generous 10x horizon — sits well
 // past 4h (planner.NextClosestApproach's own documented edge-snap

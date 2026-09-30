@@ -10,39 +10,39 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
 
-// meetingCalibrationRadius / meetingCalibrationMu anchor the ADR 0045
+// rendezvousCalibrationRadius / rendezvousCalibrationMu anchor the ADR 0045
 // calibration scenario: "two matched circular orbits 1 km apart at
 // 500 km" — real-Earth LEO, same fixture family as
 // rendezvous_recommend_test.go's r=6.771e6 (400 km) cases, just at the
 // ADR's own 500 km altitude. Real Earth mu/radius (muEarth, from
 // transfer_test.go) — the ADR's own numbers were argued from
 // real-body scale, not this game's stripped-back bodies.
-const meetingCalibrationRadius = 6.371e6 + 500e3 // 500 km LEO
+const rendezvousCalibrationRadius = 6.371e6 + 500e3 // 500 km LEO
 
-// TestRecommendMeetingLadder_TheirOrbit_PhaseOffsetConverges — ADR 0045
+// TestRecommendRendezvousLadder_TheirOrbit_PhaseOffsetConverges — ADR 0045
 // §2's own calibration geometry: near-matched circular 500 km orbits
 // with a phase offset (quarter-lap-ish here — the ADR's own "closing a
-// quarter-lap offset takes ~1,100 laps" natural-drift anchor), Meeting
+// quarter-lap offset takes ~1,100 laps" natural-drift anchor), Rendezvous
 // Place = "their orbit". Acceptance criterion (#398): a planted row
 // must actually produce a small closest approach at the predicted
 // time — propagate and check, don't trust the closed form. The row's
 // own AchievableCA IS that propagate-and-check (see
-// meetingLadderCore's doc comment), so this asserts it directly rather
+// rendezvousLadderCore's doc comment), so this asserts it directly rather
 // than re-deriving a second predictor call.
-func TestRecommendMeetingLadder_TheirOrbit_PhaseOffsetConverges(t *testing.T) {
-	r := meetingCalibrationRadius
+func TestRecommendRendezvousLadder_TheirOrbit_PhaseOffsetConverges(t *testing.T) {
+	r := rendezvousCalibrationRadius
 	mu := muEarth
 	target := circularStateAtRadius(r, 0, mu)
 	// Quarter-lap phase offset — the ADR's own "~1,100 laps to close
 	// naturally" anchor scenario.
 	chaser := circularStateAtRadius(r, -math.Pi/2, mu)
 
-	ladder, err := RecommendMeetingLadder(chaser, target, bodies.CelestialBody{}, mu, MeetingTheirOrbit, 4*3600, -1)
+	ladder, err := RecommendRendezvousLadder(chaser, target, bodies.CelestialBody{}, mu, RendezvousTheirOrbit, 4*3600, -1)
 	if err != nil {
-		t.Fatalf("RecommendMeetingLadder err: %v", err)
+		t.Fatalf("RecommendRendezvousLadder err: %v", err)
 	}
 	if !ladder.MoverIsA {
-		t.Fatalf("MeetingTheirOrbit must burn the active craft (stateA): MoverIsA=false")
+		t.Fatalf("RendezvousTheirOrbit must burn the active craft (stateA): MoverIsA=false")
 	}
 	if len(ladder.Rows) == 0 {
 		t.Fatalf("expected at least one row")
@@ -59,7 +59,7 @@ func TestRecommendMeetingLadder_TheirOrbit_PhaseOffsetConverges(t *testing.T) {
 		// row's Δv solve and its AchievableCA verification use the same
 		// closed-form KeplerStep propagation, so there is no
 		// Verlet/analytic model mismatch to produce residual here — see
-		// meetingLadderCore's doc comment); this bound exists to catch
+		// rendezvousLadderCore's doc comment); this bound exists to catch
 		// a wrong-direction or wrong-frame bug (km-scale), not to size
 		// an expected numerical tolerance.
 		if row.AchievableCA > 5_000 {
@@ -77,24 +77,24 @@ func TestRecommendMeetingLadder_TheirOrbit_PhaseOffsetConverges(t *testing.T) {
 	}
 }
 
-// TestRecommendMeetingLadder_TensOfKm_NotOk — review finding (LOW):
-// meetingAchievableCATolFrac at its old 1% let Ok=true rows through
+// TestRecommendRendezvousLadder_TensOfKm_NotOk — review finding (LOW):
+// rendezvousAchievableCATolFrac at its old 1% let Ok=true rows through
 // whose own propagated AchievableCA ran into the tens of kilometres —
 // not a rounding error, but not "an encounter" either, and Ok flows
-// straight through PlanMeetingBurn into the node an Engage commits to.
+// straight through PlanRendezvousBurn into the node an Engage commits to.
 //
 // Reproduces the reviewer's measured scenario: a mildly eccentric
 // holder (e in roughly [0.002, 0.01], built the same way as
-// TestRecommendMeetingLadder_EccentricHolder_UnachievableRefused's own
+// TestRecommendRendezvousLadder_EccentricHolder_UnachievableRefused's own
 // fixture family — a co-orbital pair offset by a small fraction of a
 // period) a small fraction of a period ahead of the mover, at the 500 km
 // LEO calibration radius (r0mag≈6.871e6 m). At the old 1% bound
 // (≈68,710 m) every row here reported Ok=true with AchievableCA in
 // 12,717-49,422 m; this asserts those specific measured geometries are
-// no longer Ok=true at meetingAchievableCATolFrac's current (tighter)
+// no longer Ok=true at rendezvousAchievableCATolFrac's current (tighter)
 // value.
-func TestRecommendMeetingLadder_TensOfKm_NotOk(t *testing.T) {
-	r := meetingCalibrationRadius
+func TestRecommendRendezvousLadder_TensOfKm_NotOk(t *testing.T) {
+	r := rendezvousCalibrationRadius
 	mu := muEarth
 
 	cases := []struct {
@@ -115,7 +115,7 @@ func TestRecommendMeetingLadder_TensOfKm_NotOk(t *testing.T) {
 		}
 		chaser := orbital.Vec3State{R: svB.R, V: svB.V}
 
-		ladder, err := RecommendMeetingLadder(chaser, target, bodies.CelestialBody{}, mu, MeetingTheirOrbit, 4*3600, -1)
+		ladder, err := RecommendRendezvousLadder(chaser, target, bodies.CelestialBody{}, mu, RendezvousTheirOrbit, 4*3600, -1)
 		if err != nil {
 			t.Fatalf("k=%.3f fracP=%.5f: err: %v", c.k, c.fracP, err)
 		}
@@ -127,18 +127,18 @@ func TestRecommendMeetingLadder_TensOfKm_NotOk(t *testing.T) {
 				continue // below the reviewer's flagged tens-of-km range — not what this test targets
 			}
 			if row.Ok {
-				t.Errorf("k=%.3f fracP=%.5f laps=%d: Ok=true with AchievableCA=%.0f m (tens of km) — must not read as a meeting",
+				t.Errorf("k=%.3f fracP=%.5f laps=%d: Ok=true with AchievableCA=%.0f m (tens of km) — must not read as a rendezvous",
 					c.k, c.fracP, row.Laps, row.AchievableCA)
 			}
 		}
 	}
 }
 
-// TestRecommendMeetingLadder_EccentricHolder_UnachievableRefused —
-// review Finding 1: "Ok never consults AchievableCA." meetingLadderCore's
+// TestRecommendRendezvousLadder_EccentricHolder_UnachievableRefused —
+// review Finding 1: "Ok never consults AchievableCA." rendezvousLadderCore's
 // t0 derivation sweeps the holder at a uniform angular rate, exact only
 // for a circular holder; on an eccentric one the model is wrong and the
-// row it prices doesn't actually deliver a meeting, yet every other gate
+// row it prices doesn't actually deliver a rendezvous, yet every other gate
 // (r0 in [holderPeri, holderApo], periapsis safety, affordability) still
 // passes because both craft sit on the SAME eccentric orbit.
 //
@@ -150,7 +150,7 @@ func TestRecommendMeetingLadder_TensOfKm_NotOk(t *testing.T) {
 // AchievableCA≈6,563,744 m against r0mag≈6.77e6 m (a ~97%-of-orbit
 // miss); this asserts no row is allowed to claim Ok=true when its own
 // propagated check misses this badly.
-func TestRecommendMeetingLadder_EccentricHolder_UnachievableRefused(t *testing.T) {
+func TestRecommendRendezvousLadder_EccentricHolder_UnachievableRefused(t *testing.T) {
 	mu := muEarth
 	rp := 6.771e6
 	ra := 12.000e6
@@ -165,16 +165,16 @@ func TestRecommendMeetingLadder_EccentricHolder_UnachievableRefused(t *testing.T
 	}
 	stateB := orbital.Vec3State{R: svB.R, V: svB.V}
 
-	ladder, err := RecommendMeetingLadder(stateA, stateB, bodies.CelestialBody{}, mu, MeetingTheirOrbit, 4*3600, -1)
+	ladder, err := RecommendRendezvousLadder(stateA, stateB, bodies.CelestialBody{}, mu, RendezvousTheirOrbit, 4*3600, -1)
 	if err != nil {
-		t.Fatalf("RecommendMeetingLadder err: %v", err)
+		t.Fatalf("RecommendRendezvousLadder err: %v", err)
 	}
 	if len(ladder.Rows) == 0 {
 		t.Fatalf("expected rows")
 	}
 	for _, row := range ladder.Rows {
 		if row.Ok {
-			t.Errorf("laps=%d: Ok=true with AchievableCA=%.0f m (r0≈%.0f m) — a %.0f%% miss must not be offered as a meeting",
+			t.Errorf("laps=%d: Ok=true with AchievableCA=%.0f m (r0≈%.0f m) — a %.0f%% miss must not be offered as a rendezvous",
 				row.Laps, row.AchievableCA, rp, 100*row.AchievableCA/rp)
 		}
 		// The row is still RETURNED with its real numbers (ADR 0045 §2:
@@ -187,20 +187,20 @@ func TestRecommendMeetingLadder_EccentricHolder_UnachievableRefused(t *testing.T
 	}
 }
 
-// TestRecommendMeetingLadder_MoreLapsCostsLess — the doctrine's own
+// TestRecommendRendezvousLadder_MoreLapsCostsLess — the doctrine's own
 // wait-vs-Δv lever (ADR 0045 §2's ladder example: 2 laps/630 m/s vs
 // 5 laps/250 m/s vs 20 laps/60 m/s — monotonically cheaper with more
 // laps). Exact figures aren't reproduced (they depend on assumptions
 // the ADR doesn't fully pin — see PR description) but the monotonic
 // trend is a geometry-independent property of the solver and is what
 // makes the ladder a real trade rather than a fixed price.
-func TestRecommendMeetingLadder_MoreLapsCostsLess(t *testing.T) {
-	r := meetingCalibrationRadius
+func TestRecommendRendezvousLadder_MoreLapsCostsLess(t *testing.T) {
+	r := rendezvousCalibrationRadius
 	mu := muEarth
 	target := circularStateAtRadius(r, 0, mu)
 	chaser := circularStateAtRadius(r, -math.Pi/2, mu)
 
-	ladder, err := RecommendMeetingLadder(chaser, target, bodies.CelestialBody{}, mu, MeetingTheirOrbit, 4*3600, -1)
+	ladder, err := RecommendRendezvousLadder(chaser, target, bodies.CelestialBody{}, mu, RendezvousTheirOrbit, 4*3600, -1)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -225,23 +225,23 @@ func TestRecommendMeetingLadder_MoreLapsCostsLess(t *testing.T) {
 	}
 }
 
-// TestRecommendMeetingLadder_YourOrbit_PlansForPartner — #398
+// TestRecommendRendezvousLadder_YourOrbit_PlansForPartner — #398
 // acceptance: "meet on your orbit" must produce a plan for the
 // PARTNER (stateB), never for the active craft (stateA) — MoverIsA
 // must be false, and the row's burn must be sized against stateB's
 // own current orbit/period, not stateA's.
-func TestRecommendMeetingLadder_YourOrbit_PlansForPartner(t *testing.T) {
-	r := meetingCalibrationRadius
+func TestRecommendRendezvousLadder_YourOrbit_PlansForPartner(t *testing.T) {
+	r := rendezvousCalibrationRadius
 	mu := muEarth
 	active := circularStateAtRadius(r, 0, mu)
 	partner := circularStateAtRadius(r, -math.Pi/2, mu)
 
-	ladder, err := RecommendMeetingLadder(active, partner, bodies.CelestialBody{}, mu, MeetingYourOrbit, 4*3600, -1)
+	ladder, err := RecommendRendezvousLadder(active, partner, bodies.CelestialBody{}, mu, RendezvousYourOrbit, 4*3600, -1)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
 	if ladder.MoverIsA {
-		t.Fatalf("MeetingYourOrbit must plan for the partner (stateB): MoverIsA=true")
+		t.Fatalf("RendezvousYourOrbit must plan for the partner (stateB): MoverIsA=true")
 	}
 	sawOk := false
 	for _, row := range ladder.Rows {
@@ -253,30 +253,30 @@ func TestRecommendMeetingLadder_YourOrbit_PlansForPartner(t *testing.T) {
 		t.Fatalf("expected at least one Ok row for the partner's plan: %+v", ladder.Rows)
 	}
 
-	// Cross-check: MeetingTheirOrbit on the SAME two states (active as
-	// mover) should generally differ from MeetingYourOrbit's rows
+	// Cross-check: RendezvousTheirOrbit on the SAME two states (active as
+	// mover) should generally differ from RendezvousYourOrbit's rows
 	// (partner as mover) — confirms the roles actually swapped rather
 	// than the solver silently always burning stateA.
-	theirs, err := RecommendMeetingLadder(active, partner, bodies.CelestialBody{}, mu, MeetingTheirOrbit, 4*3600, -1)
+	theirs, err := RecommendRendezvousLadder(active, partner, bodies.CelestialBody{}, mu, RendezvousTheirOrbit, 4*3600, -1)
 	if err != nil {
 		t.Fatalf("err (their orbit cross-check): %v", err)
 	}
 	if !theirs.MoverIsA {
-		t.Fatalf("MeetingTheirOrbit must burn the active craft: MoverIsA=false")
+		t.Fatalf("RendezvousTheirOrbit must burn the active craft: MoverIsA=false")
 	}
 }
 
-// TestRecommendMeetingLadder_Unaffordable_ReturnedNotDropped — #398
+// TestRecommendRendezvousLadder_Unaffordable_ReturnedNotDropped — #398
 // acceptance: an unaffordable row is returned AND marked, not hidden
 // — "the trade stays visible" (ADR 0045 §2).
-func TestRecommendMeetingLadder_Unaffordable_ReturnedNotDropped(t *testing.T) {
-	r := meetingCalibrationRadius
+func TestRecommendRendezvousLadder_Unaffordable_ReturnedNotDropped(t *testing.T) {
+	r := rendezvousCalibrationRadius
 	mu := muEarth
 	target := circularStateAtRadius(r, 0, mu)
 	chaser := circularStateAtRadius(r, -math.Pi/2, mu)
 
 	// A near-zero Δv budget: every row's burn will exceed it.
-	ladder, err := RecommendMeetingLadder(chaser, target, bodies.CelestialBody{}, mu, MeetingTheirOrbit, 4*3600, 0.001)
+	ladder, err := RecommendRendezvousLadder(chaser, target, bodies.CelestialBody{}, mu, RendezvousTheirOrbit, 4*3600, 0.001)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -301,9 +301,9 @@ func TestRecommendMeetingLadder_Unaffordable_ReturnedNotDropped(t *testing.T) {
 	}
 }
 
-// TestRecommendMeetingLadder_UnsafePeriapsis_Rejected — #398 acceptance:
+// TestRecommendRendezvousLadder_UnsafePeriapsis_Rejected — #398 acceptance:
 // a row that would deorbit the mover is rejected by the (reused)
-// periapsis-safety gate. The tangential model (meetingLadderCore)
+// periapsis-safety gate. The tangential model (rendezvousLadderCore)
 // tries both "catch up by dropping" and "fall back by raising" per
 // lap count and prefers whichever is safe — a raise leaves periapsis
 // AT the burn point (r0) for a near-circular start, so it's always
@@ -312,14 +312,14 @@ func TestRecommendMeetingLadder_Unaffordable_ReturnedNotDropped(t *testing.T) {
 // that floor (30 km altitude, well under it) forces every row —
 // raise or drop — to fail: there is no altitude "fall back" to when
 // the starting point itself is already unsafe.
-func TestRecommendMeetingLadder_UnsafePeriapsis_Rejected(t *testing.T) {
+func TestRecommendRendezvousLadder_UnsafePeriapsis_Rejected(t *testing.T) {
 	primary := bodies.CelestialBody{MeanRadius: 6378} // km — Earth-radius primary, RadiusMeters() > 0
 	mu := muEarth
 	r := 6.378e6 + 30e3 // 30 km altitude — under the surface+50km floor
 	target := circularStateAtRadius(r, 0, mu)
 	chaser := circularStateAtRadius(r, -0.1*math.Pi, mu)
 
-	ladder, err := RecommendMeetingLadder(chaser, target, primary, mu, MeetingTheirOrbit, 4*3600, -1)
+	ladder, err := RecommendRendezvousLadder(chaser, target, primary, mu, RendezvousTheirOrbit, 4*3600, -1)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -340,7 +340,7 @@ func TestRecommendMeetingLadder_UnsafePeriapsis_Rejected(t *testing.T) {
 func TestOrbitSafetyGate_DirectRejection(t *testing.T) {
 	primary := bodies.CelestialBody{MeanRadius: 6378} // km
 	mu := muEarth
-	r := meetingCalibrationRadius
+	r := rendezvousCalibrationRadius
 	pre := circularStateAtRadius(r, 0, mu)
 	// A hard retrograde burn at the current point drops periapsis to
 	// near zero (a near-radial-fall orbit).
@@ -354,89 +354,89 @@ func TestOrbitSafetyGate_DirectRejection(t *testing.T) {
 	}
 }
 
-// TestRecommendMeetingLadder_NonCoplanarRefused — #398 out-of-scope
+// TestRecommendRendezvousLadder_NonCoplanarRefused — #398 out-of-scope
 // note: "this slice assumes coplanar and refuses otherwise, naming
-// [I]." A target inclined well past meetingPlaneTolDeg must refuse
-// with ErrMeetingPlaneMismatch, not silently attempt a 3D Lambert fit.
-func TestRecommendMeetingLadder_NonCoplanarRefused(t *testing.T) {
-	r := meetingCalibrationRadius
+// [I]." A target inclined well past rendezvousPlaneTolDeg must refuse
+// with ErrRendezvousPlaneMismatch, not silently attempt a 3D Lambert fit.
+func TestRecommendRendezvousLadder_NonCoplanarRefused(t *testing.T) {
+	r := rendezvousCalibrationRadius
 	mu := muEarth
 	target := circularStateAtRadius(r, 0, mu)
 	chaser := inclinedCircularState(r, -math.Pi/2, 30*math.Pi/180, mu) // 30° plane tilt
 
-	_, err := RecommendMeetingLadder(chaser, target, bodies.CelestialBody{}, mu, MeetingTheirOrbit, 4*3600, -1)
-	if !errors.Is(err, ErrMeetingPlaneMismatch) {
-		t.Fatalf("err = %v, want ErrMeetingPlaneMismatch", err)
+	_, err := RecommendRendezvousLadder(chaser, target, bodies.CelestialBody{}, mu, RendezvousTheirOrbit, 4*3600, -1)
+	if !errors.Is(err, ErrRendezvousPlaneMismatch) {
+		t.Fatalf("err = %v, want ErrRendezvousPlaneMismatch", err)
 	}
 }
 
-// TestRecommendMeetingLadder_Crossing_AlwaysRefuses — review round 2
-// regression revert: PR #412's attempt to anchor meetingLadderCore's
+// TestRecommendRendezvousLadder_Crossing_AlwaysRefuses — review round 2
+// regression revert: PR #412's attempt to anchor rendezvousLadderCore's
 // solve at the natural crossing instant (tCA) produced rows whose
 // DV/BurnDir were only correct for a burn executed AT tCA, while
-// internal/sim.PlanMeetingBurn always plants the resulting node to
+// internal/sim.PlanRendezvousBurn always plants the resulting node to
 // fire at TriggerTime = now + a slew lead — not at tCA. The two times
 // coincide only by chance, so the planted burn routinely missed by
-// megametres (see ErrMeetingCrossingNotImplemented's doc comment for
-// the measured numbers, and internal/sim/meeting_test.go for the
+// megametres (see ErrRendezvousCrossingNotImplemented's doc comment for
+// the measured numbers, and internal/sim/rendezvous_burn_test.go for the
 // sim-layer regression test against the actual plant path). Reverted
-// rather than fixed forward: MeetingCrossing now refuses
-// unconditionally — ErrMeetingNoCrossing when no natural crossing
-// exists within the search horizon, ErrMeetingCrossingNotImplemented
+// rather than fixed forward: RendezvousCrossing now refuses
+// unconditionally — ErrRendezvousNoCrossing when no natural crossing
+// exists within the search horizon, ErrRendezvousCrossingNotImplemented
 // when one does but there is still no solver for it. Neither path ever
 // returns a ladder with rows.
 //
 // This fixture (a small phase offset on matched circular orbits) is
 // exactly the case that used to legitimately produce a plantable
-// MeetingCrossing row (the natural crossing is ~"now" there) — the
+// RendezvousCrossing row (the natural crossing is ~"now" there) — the
 // case a partial fix could most easily miss.
-func TestRecommendMeetingLadder_Crossing_AlwaysRefuses(t *testing.T) {
-	r := meetingCalibrationRadius
+func TestRecommendRendezvousLadder_Crossing_AlwaysRefuses(t *testing.T) {
+	r := rendezvousCalibrationRadius
 	mu := muEarth
 	target := circularStateAtRadius(r, 0, mu)
 	chaser := circularStateAtRadius(r, -0.5*math.Pi/180, mu) // small offset — NextClosestApproach converges, a natural crossing exists
 
-	ladder, err := RecommendMeetingLadder(chaser, target, bodies.CelestialBody{}, mu, MeetingCrossing, 4*3600, -1)
-	if !errors.Is(err, ErrMeetingCrossingNotImplemented) {
-		t.Fatalf("err = %v, want ErrMeetingCrossingNotImplemented (a natural crossing exists here, so this must be the not-implemented refusal, not ErrMeetingNoCrossing)", err)
+	ladder, err := RecommendRendezvousLadder(chaser, target, bodies.CelestialBody{}, mu, RendezvousCrossing, 4*3600, -1)
+	if !errors.Is(err, ErrRendezvousCrossingNotImplemented) {
+		t.Fatalf("err = %v, want ErrRendezvousCrossingNotImplemented (a natural crossing exists here, so this must be the not-implemented refusal, not ErrRendezvousNoCrossing)", err)
 	}
 	if len(ladder.Rows) != 0 {
 		t.Fatalf("expected zero rows on a structural refusal, got %d: %+v", len(ladder.Rows), ladder.Rows)
 	}
 }
 
-// TestRecommendMeetingLadder_Crossing_InvalidHorizonRefused — the input
+// TestRecommendRendezvousLadder_Crossing_InvalidHorizonRefused — the input
 // guard ahead of the existence check: a non-positive
 // crossingSearchHorizon is a caller bug (this must always be
 // rendezvousCommitHorizonSec, per this function's own doc comment), not
-// something MeetingCrossing should try to interpret as "no crossing".
-func TestRecommendMeetingLadder_Crossing_InvalidHorizonRefused(t *testing.T) {
-	r := meetingCalibrationRadius
+// something RendezvousCrossing should try to interpret as "no crossing".
+func TestRecommendRendezvousLadder_Crossing_InvalidHorizonRefused(t *testing.T) {
+	r := rendezvousCalibrationRadius
 	mu := muEarth
 	target := circularStateAtRadius(r, 0, mu)
 	chaser := circularStateAtRadius(r, -0.5*math.Pi/180, mu)
 
-	_, err := RecommendMeetingLadder(chaser, target, bodies.CelestialBody{}, mu, MeetingCrossing, 0, -1)
-	if !errors.Is(err, errMeetingInvalidInput) {
-		t.Fatalf("err = %v, want errMeetingInvalidInput", err)
+	_, err := RecommendRendezvousLadder(chaser, target, bodies.CelestialBody{}, mu, RendezvousCrossing, 0, -1)
+	if !errors.Is(err, errRendezvousInvalidInput) {
+		t.Fatalf("err = %v, want errRendezvousInvalidInput", err)
 	}
 }
 
-// TestRecommendMeetingLadder_ShapeMismatchNowYieldsPlan — #398
+// TestRecommendRendezvousLadder_ShapeMismatchNowYieldsPlan — #398
 // acceptance: the #290 mismatch geometry (TestRecommendRendezvousNudge_
 // ShapeMismatch's own fixture — a sharply eccentric chaser, e≈0.69,
 // against a circular target at the same periapsis radius) is exactly
-// the case K's Shape-Match Gate used to refuse outright. The Meeting
+// the case K's Shape-Match Gate used to refuse outright. The Rendezvous
 // Planner never had that gate (it doesn't use K's single-axis
 // projection, so it isn't exposed to the failure mode the gate
 // existed to prevent) — it must produce a real plan for this geometry.
-func TestRecommendMeetingLadder_ShapeMismatchNowYieldsPlan(t *testing.T) {
+func TestRecommendRendezvousLadder_ShapeMismatchNowYieldsPlan(t *testing.T) {
 	r := 6.771e6
 	mu := muEarth
 	target := circularStateAtRadius(r, 0, mu)
 	chaser := eccentricStateAtRadius(r, -0.5*math.Pi/180, 1.3, mu) // e≈0.69, #290's geometry
 
-	ladder, err := RecommendMeetingLadder(chaser, target, bodies.CelestialBody{}, mu, MeetingTheirOrbit, 4*3600, -1)
+	ladder, err := RecommendRendezvousLadder(chaser, target, bodies.CelestialBody{}, mu, RendezvousTheirOrbit, 4*3600, -1)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -447,20 +447,20 @@ func TestRecommendMeetingLadder_ShapeMismatchNowYieldsPlan(t *testing.T) {
 		}
 	}
 	if !sawOk {
-		t.Fatalf("expected the Meeting Planner to produce a real plan for the #290 mismatch geometry, got: %+v", ladder.Rows)
+		t.Fatalf("expected the Rendezvous Planner to produce a real plan for the #290 mismatch geometry, got: %+v", ladder.Rows)
 	}
 }
 
-// meetingApplyBurn advances (moverState, holderState) forward by
+// rendezvousApplyBurn advances (moverState, holderState) forward by
 // row.TArrival, applying row's burn to mover at t=0 first — via
 // physics.KeplerStep, the SAME analytic (closed-form) two-body
-// propagation meetingLadderCore itself uses to derive
+// propagation rendezvousLadderCore itself uses to derive
 // row.AchievableCA. This is NOT an independent check against a
 // numerical integrator (Verlet/RK4) or the live game's actual coast —
-// see TestMeetingLadder_IterateSelfConsistent's doc comment for what
-// that limits this helper to proving. Used to chain repeated Meeting
+// see TestRendezvousLadder_IterateSelfConsistent's doc comment for what
+// that limits this helper to proving. Used to chain repeated Rendezvous
 // Planner calls in that test.
-func meetingApplyBurn(moverState orbital.Vec3State, row MeetingBurnOption, holderState orbital.Vec3State, mu float64) (orbital.Vec3State, orbital.Vec3State) {
+func rendezvousApplyBurn(moverState orbital.Vec3State, row RendezvousBurnOption, holderState orbital.Vec3State, mu float64) (orbital.Vec3State, orbital.Vec3State) {
 	burned := orbital.Vec3State{R: moverState.R, V: moverState.V.Add(row.BurnDir.Scale(row.DV))}
 	mSV, mok := physics.KeplerStep(physics.StateVector{R: burned.R, V: burned.V}, mu, row.TArrival)
 	hSV, hok := physics.KeplerStep(physics.StateVector{R: holderState.R, V: holderState.V}, mu, row.TArrival)
@@ -470,18 +470,18 @@ func meetingApplyBurn(moverState orbital.Vec3State, row MeetingBurnOption, holde
 	return orbital.Vec3State{R: mSV.R, V: mSV.V}, orbital.Vec3State{R: hSV.R, V: hSV.V}
 }
 
-// TestMeetingLadder_IterateSelfConsistent repeatedly opens the Meeting
+// TestRendezvousLadder_IterateSelfConsistent repeatedly opens the Rendezvous
 // Planner "the way a pilot mashing the key would" on the #290 mismatch
 // geometry (a sharply eccentric chaser against a circular target),
-// takes the cheapest Ok row each time, applies it via meetingApplyBurn,
+// takes the cheapest Ok row each time, applies it via rendezvousApplyBurn,
 // and re-opens the ladder from the resulting state. It asserts the
 // solver's own predicted AchievableCA stays small across every
 // iteration.
 //
 // SCOPE, READ CAREFULLY: this is a SELF-CONSISTENCY check on the
 // analytic model, not a live-integrator anti-divergence proof.
-// meetingApplyBurn propagates with physics.KeplerStep — the exact same
-// closed-form two-body model meetingLadderCore itself uses internally
+// rendezvousApplyBurn propagates with physics.KeplerStep — the exact same
+// closed-form two-body model rendezvousLadderCore itself uses internally
 // to compute AchievableCA. Prediction and "flight" are the same
 // equations evaluated twice, so a mismatch between them is structurally
 // impossible; the near-zero CA sequence this test records shows the
@@ -492,7 +492,7 @@ func meetingApplyBurn(moverState orbital.Vec3State, row MeetingBurnOption, holde
 // reverted (PR #405 review) specifically because this test cannot
 // stand in for that missing live-integrator proof; that proof is a
 // separate follow-up slice.
-func TestMeetingLadder_IterateSelfConsistent(t *testing.T) {
+func TestRendezvousLadder_IterateSelfConsistent(t *testing.T) {
 	r := 6.771e6
 	mu := muEarth
 	primary := bodies.CelestialBody{}
@@ -503,11 +503,11 @@ func TestMeetingLadder_IterateSelfConsistent(t *testing.T) {
 	cas := make([]float64, 0, iterations)
 
 	for i := 0; i < iterations; i++ {
-		ladder, err := RecommendMeetingLadder(chaser, target, primary, mu, MeetingTheirOrbit, 4*3600, -1)
+		ladder, err := RecommendRendezvousLadder(chaser, target, primary, mu, RendezvousTheirOrbit, 4*3600, -1)
 		if err != nil {
-			t.Fatalf("iteration %d: RecommendMeetingLadder err: %v", i, err)
+			t.Fatalf("iteration %d: RecommendRendezvousLadder err: %v", i, err)
 		}
-		var best MeetingBurnOption
+		var best RendezvousBurnOption
 		found := false
 		for _, row := range ladder.Rows {
 			if !row.Ok {
@@ -521,7 +521,7 @@ func TestMeetingLadder_IterateSelfConsistent(t *testing.T) {
 			t.Fatalf("iteration %d: no usable row: %+v", i, ladder.Rows)
 		}
 		cas = append(cas, best.AchievableCA)
-		chaser, target = meetingApplyBurn(chaser, best, target, mu)
+		chaser, target = rendezvousApplyBurn(chaser, best, target, mu)
 	}
 
 	t.Logf("CA sequence across %d iterations (self-consistency, analytic model only): %v", iterations, cas)
@@ -529,7 +529,7 @@ func TestMeetingLadder_IterateSelfConsistent(t *testing.T) {
 	// Self-consistency bound, not an anti-divergence proof (see the
 	// test's own doc comment): every iteration's solver-predicted
 	// AchievableCA should stay near the closed-form's own residual
-	// noise floor, since meetingApplyBurn flies each burn with the
+	// noise floor, since rendezvousApplyBurn flies each burn with the
 	// exact model the solver used to predict it. A bound this loose
 	// (50 km, vs. the ~µm residuals actually observed) exists only to
 	// catch a gross logic error in the iterate/re-solve loop itself

@@ -582,12 +582,12 @@ func lenRunes(s string) int {
 	return n
 }
 
-// TestRendezvousChipMeetingPlaceRendersAt80x24 is part of the ADR 0045
+// TestRendezvousChipOrbitRendersAt80x24 is part of the ADR 0045
 // S7 (#400) acceptance test — "chip rendering asserted at 80×24" — for
-// the Meeting Place row the coasting state now carries. Mirrors
+// the Rendezvous Orbit row the coasting state now carries. Mirrors
 // TestRendezvousChipPacedRendersAt80x24's shape exactly: the same
 // composited-canvas + per-cell-width checks, new text.
-func TestRendezvousChipMeetingPlaceRendersAt80x24(t *testing.T) {
+func TestRendezvousChipOrbitRendersAt80x24(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w := rendezvousChipWorld(t)
 	tau := w.Clock.SimTime.Add(8 * time.Hour)
@@ -596,16 +596,16 @@ func TestRendezvousChipMeetingPlaceRendersAt80x24(t *testing.T) {
 		T: tau, Rendezvous: true,
 		RendezvousOwner: "SHA256:guest", RendezvousHandle: "gern",
 	}
-	w.RendezvousArm.MeetingPlaceLabel = "your orbit"
-	w.RendezvousArm.MeetingLaps = 5
+	w.RendezvousArm.RendezvousOrbitLabel = "your orbit"
+	w.RendezvousArm.RendezvousLaps = 5
 
 	lines := v.buildRendezvousChip(w)
-	assertChipCellWidthConsistent(t, "meeting-place rendezvous chip", lines)
+	assertChipCellWidthConsistent(t, "rendezvous-place rendezvous chip", lines)
 
 	out := v.composeChips(blankCanvas(80, 24), 80, 24, 0, 0, 0,
 		[]builtChip{{corner: cornerBottomLeft, lines: lines}})
-	if !strings.Contains(out, "your orbit — 5 laps") {
-		t.Errorf("meeting place row missing from the 80×24 composited canvas:\n%s", out)
+	if !strings.Contains(out, "your orbit, 5 laps") {
+		t.Errorf("rendezvous orbit row missing from the 80×24 composited canvas:\n%s", out)
 	}
 	for _, row := range strings.Split(out, "\n") {
 		if w := lenRunes(row); w != 80 {

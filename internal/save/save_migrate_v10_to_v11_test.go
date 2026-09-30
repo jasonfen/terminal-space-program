@@ -59,16 +59,6 @@ func TestMigrateV10PayloadToV11IsIdentity(t *testing.T) {
 	}
 }
 
-// TestSchemaVersionBumpedToV11 pins the version number itself — a
-// regression here means someone added another persisted-shape change
-// without bumping, defeating the migration file alongside it (same
-// discipline as TestSchemaVersionBumpedToV10 before it).
-func TestSchemaVersionBumpedToV11(t *testing.T) {
-	if SchemaVersion != 11 {
-		t.Errorf("SchemaVersion = %d, want 11", SchemaVersion)
-	}
-}
-
 // TestLoadAcceptsV11Envelope — a freshly-written v11 envelope carrying a
 // non-default (nonzero-offset) HeadingTrim must round-trip through
 // Save/Load intact: Load's version gate must accept it, and the

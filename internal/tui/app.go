@@ -889,7 +889,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
-		// Meeting Planner picker (ADR 0045 S6, #399): a walkable chip on
+		// Rendezvous Planner picker (ADR 0045 S6, #399): a walkable chip on
 		// the orbit map, not a screen — a.active never changes while it's
 		// open, so this can't be handled by any of the a.active==screenXxx
 		// blocks below. Sits above the flight-key switch (which owns
@@ -898,8 +898,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// that forgets to claim its keys here bleeds into flight controls
 		// — exactly the trap ADR 0044's review caught (#399's own second
 		// named trap).
-		if a.orbitView.MeetingPickerOpen() {
-			return a.handleMeetingPickerKey(m)
+		if a.orbitView.RendezvousPickerOpen() {
+			return a.handleRendezvousPickerKey(m)
 		}
 		// v0.7.3.3+: Esc on the orbit (home) view opens the splash
 		// menu. The menu owns the save / load / quit dispatch from
@@ -1052,7 +1052,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					return a, nil
 				case key.Matches(m, a.keys.PlanRendezvous):
 					// handlePlanRendezvousKey may itself route to the
-					// Meeting Planner picker (a.active = screenOrbit
+					// Rendezvous Planner picker (a.active = screenOrbit
 					// with the picker armed) — closeManeuverToOrbit
 					// after it is still correct: same target screen,
 					// and it clears the planner's own edit/cursor state.
@@ -1224,10 +1224,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the moment the seat is taken — it is the only point where the
 			// asymmetry is a choice rather than a surprise.
 			if a.world.EngageRendezvousWarpAs(inv.Owner, inv.Handle, inv.Tau, inv.CA, false) {
-				// ADR 0045 S7 (#400): adopt the initiator's Meeting Place
+				// ADR 0045 S7 (#400): adopt the initiator's Rendezvous Orbit
 				// verbatim, same as Tau/CA above — the accepter has no code
 				// path that can change it (see RendezvousArm's doc comment).
-				a.world.SetRendezvousMeeting(inv.MeetingPlaceLabel, inv.MeetingLaps)
+				a.world.SetRendezvousOrbit(inv.RendezvousOrbitLabel, inv.RendezvousLaps)
 				if inv.Tau.IsZero() {
 					a.toast(fmt.Sprintf("rendezvous agreed with %s — no plan yet; you fly copilot ([,] brakes the pair, [/] cancels)", inv.Handle))
 				} else {
@@ -1448,7 +1448,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			//
 			// ADR 0045 S6 (#399): K became modal — a close, near-matched
 			// pair still plants directly (unchanged from v0.10.2); a
-			// phase-mismatched pair opens the Meeting Planner picker
+			// phase-mismatched pair opens the Rendezvous Planner picker
 			// instead of refusing. See doPlanRendezvous / handlePlanRendezvousKey.
 			a.doPlanRendezvous()
 			return a, nil
@@ -2340,7 +2340,7 @@ func (a *App) capturingText() bool {
 	if a.chatOpen {
 		return true
 	}
-	// The Meeting Planner picker (ADR 0045 S6, #399) is a chip on the
+	// The Rendezvous Planner picker (ADR 0045 S6, #399) is a chip on the
 	// orbit map, not a screen — a.active stays screenOrbit (or
 	// screenBodyInfo/screenMissions, K's other two reachable screens)
 	// while it's open, so it can't be reached via the per-screen switch
@@ -2348,7 +2348,7 @@ func (a *App) capturingText() bool {
 	// "extend here" note — ADR 0044's review caught exactly this kind of
 	// omission (a new interactive surface never added here let the boss
 	// key fire mid-edit).
-	if a.orbitView.MeetingPickerOpen() {
+	if a.orbitView.RendezvousPickerOpen() {
 		return true
 	}
 	switch a.active {
@@ -2577,7 +2577,7 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		// Rendezvous Warp initiate (v0.29 S2 / ADR 0034 v0.29 addendum;
 		// ADR 0045 S7, #400: Engage IS the agreement now). Target the
 		// partner's ghost (the advisory + TARGET chip context), commit
-		// whatever encounter is available — a planted Meeting Burn node's
+		// whatever encounter is available — a planted Rendezvous Burn node's
 		// own arrival, a planted trim-rung nudge's post-burn course, else
 		// the current-course closest approach (#276: never the K-nudge
 		// ADVISORY's unfired preview) — and arm toward them regardless of
@@ -2605,12 +2605,12 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		// makes you pilot-in-command of the pair's time once the terminal
 		// phase begins.
 		case a.world.EngageRendezvousWarpAs(cmd.Owner, cmd.Handle, plan.Tau, plan.CommittedCA, true):
-			// Meeting Place (ADR 0045 S7, #400): stamped after Engage
+			// Rendezvous Orbit (ADR 0045 S7, #400): stamped after Engage
 			// succeeds, so a re-Engage that plants nothing new (plan has no
 			// Place) clears whatever the PREVIOUS arm carried — the arm was
 			// just replaced wholesale above, so this keeps the two in sync
 			// rather than accidentally carrying stale Place text forward.
-			a.world.SetRendezvousMeeting(plan.MeetingPlaceLabel, plan.MeetingLaps)
+			a.world.SetRendezvousOrbit(plan.RendezvousOrbitLabel, plan.RendezvousLaps)
 			// Name the acting craft (#295): arming acts on whatever slot is
 			// active, and a player who cycled it earlier has no other way to
 			// catch a wrong-vessel arm before the invitation goes out.
@@ -3005,13 +3005,13 @@ func (a *App) flashStatus(op string, err error) {
 
 // handlePlanRendezvousKey is K's modal body (ADR 0045 S6, #399), called
 // once the CraftVisibleHere gate has already passed. Delegates the actual
-// decision to World.PlanRendezvousOrOpenMeeting: a close, near-matched
+// decision to World.PlanRendezvousOrOpenPicker: a close, near-matched
 // pair plants directly (unchanged v0.10.2 behavior); a phase-mismatched
-// pair opens the Meeting Planner picker instead of refusing; a plane
+// pair opens the Rendezvous Planner picker instead of refusing; a plane
 // mismatch or a structural gate (no target, different primaries, already
 // docked) refuses outright, naming the remedy.
 func (a *App) handlePlanRendezvousKey() {
-	out, err := a.world.PlanRendezvousOrOpenMeeting()
+	out, err := a.world.PlanRendezvousOrOpenPicker()
 	if err != nil {
 		// item-3 UX batch (features finding 17): the refusal used to
 		// name the missing precondition but not the action that
@@ -3048,76 +3048,76 @@ func (a *App) handlePlanRendezvousKey() {
 		// also reach this case, #282) so the chip the player just
 		// summoned is actually visible.
 		a.active = screenOrbit
-		a.orbitView.OpenMeetingPicker(out.Place, out.Ladder, out.LadderErr)
+		a.orbitView.OpenRendezvousPicker(out.Place, out.Ladder, out.LadderErr)
 		a.flash("rendezvous plan: too far apart to nudge, walk the Lap Ladder [←→↑↓], Enter to plant, Esc to cancel")
 	}
 }
 
-// handleMeetingPickerKey routes every keypress while the Meeting Planner
+// handleRendezvousPickerKey routes every keypress while the Rendezvous Planner
 // picker (ADR 0045 S6, #399) is open. Mirrors the chat/end-flight-confirm
 // discipline in the caller: switch and return unconditionally so nothing
 // leaks to camera pan or flight controls while the picker holds input.
-func (a *App) handleMeetingPickerKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (a *App) handleRendezvousPickerKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(m, a.keys.PanLeft):
-		a.orbitView.MeetingPickerLeft()
-		a.refreshMeetingPickerLadder()
+		a.orbitView.RendezvousPickerLeft()
+		a.refreshRendezvousPickerLadder()
 	case key.Matches(m, a.keys.PanRight):
-		a.orbitView.MeetingPickerRight()
-		a.refreshMeetingPickerLadder()
+		a.orbitView.RendezvousPickerRight()
+		a.refreshRendezvousPickerLadder()
 	case key.Matches(m, a.keys.PanUp):
-		a.orbitView.MeetingPickerUp()
+		a.orbitView.RendezvousPickerUp()
 	case key.Matches(m, a.keys.PanDown):
-		a.orbitView.MeetingPickerDown()
+		a.orbitView.RendezvousPickerDown()
 	case m.Type == tea.KeyEnter:
-		a.planMeetingPickerSelection()
+		a.planRendezvousPickerSelection()
 	case key.Matches(m, a.keys.Back):
-		a.orbitView.CloseMeetingPicker()
+		a.orbitView.CloseRendezvousPicker()
 	}
 	return a, nil
 }
 
-// refreshMeetingPickerLadder recomputes the ladder for the picker's
+// refreshRendezvousPickerLadder recomputes the ladder for the picker's
 // (just-changed) Place against the live World and pushes it back in.
-// MeetingPickerLeft/Right themselves only walk the Place cycle — they
+// RendezvousPickerLeft/Right themselves only walk the Place cycle — they
 // can't call World (the picker's navigation state is intentionally
-// World-free, see orbit_meeting_picker.go) — so the App does the
+// World-free, see orbit_rendezvous_picker.go) — so the App does the
 // recompute here, the same "App drives World, screen renders" split
 // every other form on this screen follows.
-func (a *App) refreshMeetingPickerLadder() {
-	place := a.orbitView.MeetingPickerPlace()
-	ladder, err := a.world.RecommendMeetingLadder(place)
-	a.orbitView.SetMeetingPickerLadder(place, ladder, err)
+func (a *App) refreshRendezvousPickerLadder() {
+	place := a.orbitView.RendezvousPickerOrbit()
+	ladder, err := a.world.RecommendRendezvousLadder(place)
+	a.orbitView.SetRendezvousPickerLadder(place, ladder, err)
 }
 
-// planMeetingPickerSelection is Enter's action: plant the highlighted Lap
+// planRendezvousPickerSelection is Enter's action: plant the highlighted Lap
 // Ladder row. An unaffordable / unsafe / structurally-refused row keeps
 // the picker OPEN with the refusal flashed — a bad row must not eject the
 // player back to flight controls, since the whole point of showing
 // unaffordable rows (ADR 0045 §2) is to let them pick a different one
 // instead. Esc is still the only "give up" exit.
-func (a *App) planMeetingPickerSelection() {
-	laps, ok := a.orbitView.MeetingPickerSelectedLaps()
+func (a *App) planRendezvousPickerSelection() {
+	laps, ok := a.orbitView.RendezvousPickerSelectedLaps()
 	if !ok {
 		return // structurally-refused Place (#407): no row to plant.
 	}
-	place := a.orbitView.MeetingPickerPlace()
-	plan, err := a.world.PlanMeetingBurn(place, laps)
+	place := a.orbitView.RendezvousPickerOrbit()
+	plan, err := a.world.PlanRendezvousBurn(place, laps)
 	if err != nil {
-		a.flash(fmt.Sprintf("meeting: %v", err))
+		a.flash(fmt.Sprintf("rendezvous: %v", err))
 		return
 	}
 	if plan.ForActive {
-		a.flash(fmt.Sprintf("meeting burn planted: %.1f m/s → CA %.0f m, arriving ~%.0f m/s",
+		a.flash(fmt.Sprintf("rendezvous burn planted: %.1f m/s → CA %.0f m, arriving ~%.0f m/s",
 			plan.DV, plan.AchievableCA, plan.ArrivalSpeed))
 		a.world.RecordAction(missions.ActionPlanRendezvous) // ADR 0025 §7
 	} else {
-		// MeetingYourOrbit: the PARTNER is the mover. #399 out of scope —
+		// RendezvousYourOrbit: the PARTNER is the mover. #399 out of scope —
 		// carrying this plan to them over the wire is a later slice.
 		a.flash(fmt.Sprintf("rendezvous plan (their burn): %.1f m/s → CA %.0f m, arriving ~%.0f m/s",
 			plan.DV, plan.AchievableCA, plan.ArrivalSpeed))
 	}
-	a.orbitView.CloseMeetingPicker()
+	a.orbitView.CloseRendezvousPicker()
 }
 
 // finiteBurnDuration returns the sim-time duration needed to deliver dv
@@ -3414,7 +3414,7 @@ func (a *App) doPlanCircularize() {
 }
 
 // doPlanRendezvous executes `K`: plant the recommended nudge toward the
-// target vessel, or open the Meeting Planner picker. See
+// target vessel, or open the Rendezvous Planner picker. See
 // doPlanTransfer's doc for why this exists as a standalone method.
 func (a *App) doPlanRendezvous() {
 	switch {

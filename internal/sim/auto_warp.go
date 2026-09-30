@@ -204,23 +204,23 @@ func (w *World) EngageRendezvousWarpAs(partner, handle string, tau time.Time, co
 	return true
 }
 
-// SetRendezvousMeeting stamps the Meeting Place + lap count onto the
+// SetRendezvousOrbit stamps the Rendezvous Orbit + lap count onto the
 // CURRENT arm (ADR 0045 S7, #400): called right after a successful
-// EngageRendezvousWarpAs when the commit's source was a planted Meeting
+// EngageRendezvousWarpAs when the commit's source was a planted Rendezvous
 // Burn node (RendezvousCommitWithPlan's Source 2, or the invite's own
 // carried fields on the accepter's join), so the initiator's choice
 // becomes visible agreement state on both sides' RENDEZVOUS chip. A
 // separate call rather than extra EngageRendezvousWarpAs parameters —
 // that function's 5-argument signature has dozens of existing call
-// sites (production and test) that pass no Meeting Place at all; this
+// sites (production and test) that pass no Rendezvous Orbit at all; this
 // keeps it additive. No-op when there is no live arm (defensive; both
 // call sites always Engage first in the same sequence).
-func (w *World) SetRendezvousMeeting(placeLabel string, laps int) {
+func (w *World) SetRendezvousOrbit(placeLabel string, laps int) {
 	if w.RendezvousArm == nil {
 		return
 	}
-	w.RendezvousArm.MeetingPlaceLabel = placeLabel
-	w.RendezvousArm.MeetingLaps = laps
+	w.RendezvousArm.RendezvousOrbitLabel = placeLabel
+	w.RendezvousArm.RendezvousLaps = laps
 }
 
 // rendezvousFollowing is RendezvousArm.BrakeIdx's "no brake" value — the
@@ -315,12 +315,12 @@ type RendezvousInvite struct {
 	Tau       time.Time // the initiator's committed encounter sim-time — zero means the initiator Engaged with no plan yet (ADR 0045 S7, #400)
 	CA        float64   // m — the initiator's committed predicted approach
 
-	// MeetingPlaceLabel / MeetingLaps (ADR 0045 S7, #400) carry the
-	// initiator's chosen Meeting Place alongside Tau/CA, when their
-	// commit came from a planted Meeting Burn node. Empty when it didn't
+	// RendezvousOrbitLabel / RendezvousLaps (ADR 0045 S7, #400) carry the
+	// initiator's chosen Rendezvous Orbit alongside Tau/CA, when their
+	// commit came from a planted Rendezvous Burn node. Empty when it didn't
 	// — including whenever Tau is zero, which by definition never had one.
-	MeetingPlaceLabel string
-	MeetingLaps       int
+	RendezvousOrbitLabel string
+	RendezvousLaps       int
 
 	// Blocked marks an invite from a subspace-diverged peer (#250): the
 	// intent is live, but the coast could never start across the gap, so
@@ -363,7 +363,7 @@ func (w *World) refreshRendezvousInvite(peers []CoWarpPeer) {
 			w.RendezvousInvite = &RendezvousInvite{
 				Owner: p.Owner, Handle: p.Handle, CraftName: p.ActiveCraftName,
 				Tau: p.RendezvousTau, CA: p.RendezvousCA,
-				MeetingPlaceLabel: p.RendezvousMeetingPlace, MeetingLaps: p.RendezvousMeetingLaps,
+				RendezvousOrbitLabel: p.RendezvousOrbit, RendezvousLaps: p.RendezvousLaps,
 			}
 			return
 		}
@@ -371,7 +371,7 @@ func (w *World) refreshRendezvousInvite(peers []CoWarpPeer) {
 			blocked = &RendezvousInvite{
 				Owner: p.Owner, Handle: p.Handle, CraftName: p.ActiveCraftName,
 				Tau: p.RendezvousTau, CA: p.RendezvousCA,
-				MeetingPlaceLabel: p.RendezvousMeetingPlace, MeetingLaps: p.RendezvousMeetingLaps,
+				RendezvousOrbitLabel: p.RendezvousOrbit, RendezvousLaps: p.RendezvousLaps,
 				Blocked: true, AheadBy: w.Clock.SimTime.Sub(p.SubspaceTime),
 			}
 		}
@@ -652,11 +652,11 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 			// until a plan lands.
 			//
 			// Finding 1 (batch review): nothing on the ACCEPTER's side ever
-			// writes to this arm's Tau once it's set — PlanMeetingBurn only
+			// writes to this arm's Tau once it's set — PlanRendezvousBurn only
 			// ever touches the arm-holder's own RendezvousArm, and
 			// refreshRendezvousInvite never surfaces a fresh invite while
 			// w.RendezvousArm is non-nil (an accepter has one from the
-			// moment they join). So when the INITIATOR plants a Meeting
+			// moment they join). So when the INITIATOR plants a Rendezvous
 			// Burn and re-Engages — the ordinary "K then Engage" flow the
 			// chip itself prompts for — their own arm.Tau updates and
 			// relays, but the accepter's zero Tau would sit stuck forever
@@ -670,7 +670,7 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 				return
 			}
 			arm.Tau, arm.CommittedCA = partner.RendezvousTau, partner.RendezvousCA
-			arm.MeetingPlaceLabel, arm.MeetingLaps = partner.RendezvousMeetingPlace, partner.RendezvousMeetingLaps
+			arm.RendezvousOrbitLabel, arm.RendezvousLaps = partner.RendezvousOrbit, partner.RendezvousLaps
 			arm.degradeBaseSet = false // a new waypoint means a new baseline (#251 interaction)
 		}
 		handle := partner.Handle

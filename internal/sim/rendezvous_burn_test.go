@@ -10,8 +10,8 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// TestPlanMeetingBurn_PlantsOneNode — the happy path for the sim-layer
-// planter: MeetingTheirOrbit on a near-matched-orbit two-craft world
+// TestPlanRendezvousBurn_PlantsOneNode — the happy path for the sim-layer
+// planter: RendezvousTheirOrbit on a near-matched-orbit two-craft world
 // (rendezvousSmallLagWorld, the same fixture family K's own nudge
 // tests use) plants exactly one node on the ACTIVE craft.
 //
@@ -20,18 +20,18 @@ import (
 // longer tangential by the time the node actually fires (leadBuffer
 // later); BurnPrograde/Retrograde re-derive the tangential direction at
 // fire time from the craft's actual (r, v) instead (see
-// PlanMeetingBurn's own doc comment). BurnDirUnit stays zero — it's
+// PlanRendezvousBurn's own doc comment). BurnDirUnit stays zero — it's
 // populated only for BurnVector nodes (ManeuverNode's own doc comment).
-func TestPlanMeetingBurn_PlantsOneNode(t *testing.T) {
+func TestPlanRendezvousBurn_PlantsOneNode(t *testing.T) {
 	w := rendezvousSmallLagWorld(t)
 	c := w.ActiveCraft()
 	if len(c.Nodes) != 0 {
 		t.Fatalf("precondition: active craft has %d nodes, expected 0", len(c.Nodes))
 	}
 
-	ladder, err := w.RecommendMeetingLadder(planner.MeetingTheirOrbit)
+	ladder, err := w.RecommendRendezvousLadder(planner.RendezvousTheirOrbit)
 	if err != nil {
-		t.Fatalf("RecommendMeetingLadder err: %v", err)
+		t.Fatalf("RecommendRendezvousLadder err: %v", err)
 	}
 	var pick int
 	found := false
@@ -45,12 +45,12 @@ func TestPlanMeetingBurn_PlantsOneNode(t *testing.T) {
 		t.Fatalf("expected at least one Ok row: %+v", ladder.Rows)
 	}
 
-	plan, err := w.PlanMeetingBurn(planner.MeetingTheirOrbit, pick)
+	plan, err := w.PlanRendezvousBurn(planner.RendezvousTheirOrbit, pick)
 	if err != nil {
-		t.Fatalf("PlanMeetingBurn err: %v", err)
+		t.Fatalf("PlanRendezvousBurn err: %v", err)
 	}
 	if !plan.ForActive {
-		t.Fatalf("MeetingTheirOrbit must plant on the active craft: ForActive=false")
+		t.Fatalf("RendezvousTheirOrbit must plant on the active craft: ForActive=false")
 	}
 	if len(c.Nodes) != 1 {
 		t.Fatalf("expected 1 node planted, got %d", len(c.Nodes))
@@ -59,8 +59,8 @@ func TestPlanMeetingBurn_PlantsOneNode(t *testing.T) {
 	if n.Mode != spacecraft.BurnPrograde && n.Mode != spacecraft.BurnRetrograde {
 		t.Errorf("Mode = %v, want BurnPrograde or BurnRetrograde", n.Mode)
 	}
-	if n.AdvisoryKey != AdvisoryKeyMeetingBurn {
-		t.Errorf("AdvisoryKey = %q, want %q", n.AdvisoryKey, AdvisoryKeyMeetingBurn)
+	if n.AdvisoryKey != AdvisoryKeyRendezvousBurn {
+		t.Errorf("AdvisoryKey = %q, want %q", n.AdvisoryKey, AdvisoryKeyRendezvousBurn)
 	}
 	if math.Abs(n.DV-plan.DV) > 1e-6 {
 		t.Errorf("node DV = %.3f, want %.3f (plan.DV)", n.DV, plan.DV)
@@ -68,23 +68,23 @@ func TestPlanMeetingBurn_PlantsOneNode(t *testing.T) {
 	if n.BurnDirUnit.Norm() != 0 {
 		t.Errorf("BurnDirUnit = %+v, want zero — populated only for BurnVector nodes, and this node is Prograde/Retrograde", n.BurnDirUnit)
 	}
-	if n.MeetingArrivalSec <= 0 {
-		t.Errorf("MeetingArrivalSec = %.1f, want > 0", n.MeetingArrivalSec)
+	if n.RendezvousArrivalSec <= 0 {
+		t.Errorf("RendezvousArrivalSec = %.1f, want > 0", n.RendezvousArrivalSec)
 	}
 	if !n.TriggerTime.After(w.Clock.SimTime) {
 		t.Errorf("TriggerTime not in the future")
 	}
 }
 
-// TestPlanMeetingBurn_SecondPressReplaces — #293's "replace, don't
-// stack" rule applies to the Meeting Burn's own advisory key too: a
-// second PlanMeetingBurn call removes the first unfired node rather
+// TestPlanRendezvousBurn_SecondPressReplaces — #293's "replace, don't
+// stack" rule applies to the Rendezvous Burn's own advisory key too: a
+// second PlanRendezvousBurn call removes the first unfired node rather
 // than queuing a second one behind it.
-func TestPlanMeetingBurn_SecondPressReplaces(t *testing.T) {
+func TestPlanRendezvousBurn_SecondPressReplaces(t *testing.T) {
 	w := rendezvousSmallLagWorld(t)
 	c := w.ActiveCraft()
 
-	ladder, err := w.RecommendMeetingLadder(planner.MeetingTheirOrbit)
+	ladder, err := w.RecommendRendezvousLadder(planner.RendezvousTheirOrbit)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -105,13 +105,13 @@ func TestPlanMeetingBurn_SecondPressReplaces(t *testing.T) {
 		t.Skipf("need at least two Ok rows to exercise replace, got %d: %+v", nOk, ladder.Rows)
 	}
 
-	if _, err := w.PlanMeetingBurn(planner.MeetingTheirOrbit, lap1); err != nil {
+	if _, err := w.PlanRendezvousBurn(planner.RendezvousTheirOrbit, lap1); err != nil {
 		t.Fatalf("first plant err: %v", err)
 	}
 	if len(c.Nodes) != 1 {
 		t.Fatalf("after first plant: %d nodes, want 1", len(c.Nodes))
 	}
-	if _, err := w.PlanMeetingBurn(planner.MeetingTheirOrbit, lap2); err != nil {
+	if _, err := w.PlanRendezvousBurn(planner.RendezvousTheirOrbit, lap2); err != nil {
 		t.Fatalf("second plant err: %v", err)
 	}
 	if len(c.Nodes) != 1 {
@@ -119,12 +119,12 @@ func TestPlanMeetingBurn_SecondPressReplaces(t *testing.T) {
 	}
 }
 
-// TestPlanMeetingBurn_YourOrbit_NoPlant — #398 acceptance: "meet on
+// TestPlanRendezvousBurn_YourOrbit_NoPlant — #398 acceptance: "meet on
 // your orbit" produces a plan for the PARTNER, not the active craft —
 // at the sim layer this means NO node is planted on the active
 // craft's own Nodes slate (there is no mechanism in this slice to
 // plant on the partner's), and the returned plan says so.
-func TestPlanMeetingBurn_YourOrbit_NoPlant(t *testing.T) {
+func TestPlanRendezvousBurn_YourOrbit_NoPlant(t *testing.T) {
 	w := rendezvousSmallLagWorld(t)
 	active := w.ActiveCraft()
 	target, _, ok := w.craftByID(w.Target.CraftID)
@@ -132,12 +132,12 @@ func TestPlanMeetingBurn_YourOrbit_NoPlant(t *testing.T) {
 		t.Fatalf("precondition: target craft not resolved")
 	}
 
-	ladder, err := w.RecommendMeetingLadder(planner.MeetingYourOrbit)
+	ladder, err := w.RecommendRendezvousLadder(planner.RendezvousYourOrbit)
 	if err != nil {
-		t.Fatalf("RecommendMeetingLadder err: %v", err)
+		t.Fatalf("RecommendRendezvousLadder err: %v", err)
 	}
 	if ladder.MoverIsA {
-		t.Fatalf("MeetingYourOrbit must burn the partner: MoverIsA=true")
+		t.Fatalf("RendezvousYourOrbit must burn the partner: MoverIsA=true")
 	}
 	var pick int
 	found := false
@@ -154,43 +154,43 @@ func TestPlanMeetingBurn_YourOrbit_NoPlant(t *testing.T) {
 	activeNodesBefore := len(active.Nodes)
 	targetNodesBefore := len(target.Nodes)
 
-	plan, err := w.PlanMeetingBurn(planner.MeetingYourOrbit, pick)
+	plan, err := w.PlanRendezvousBurn(planner.RendezvousYourOrbit, pick)
 	if err != nil {
-		t.Fatalf("PlanMeetingBurn err: %v", err)
+		t.Fatalf("PlanRendezvousBurn err: %v", err)
 	}
 	if plan.ForActive {
-		t.Fatalf("expected ForActive=false for MeetingYourOrbit")
+		t.Fatalf("expected ForActive=false for RendezvousYourOrbit")
 	}
 	if plan.DV <= 0 {
 		t.Errorf("expected a real plan (DV > 0), got DV=%.3f", plan.DV)
 	}
 	if len(active.Nodes) != activeNodesBefore {
-		t.Errorf("active craft's Nodes changed (%d → %d) — MeetingYourOrbit must not plant on the active craft", activeNodesBefore, len(active.Nodes))
+		t.Errorf("active craft's Nodes changed (%d → %d) — RendezvousYourOrbit must not plant on the active craft", activeNodesBefore, len(active.Nodes))
 	}
 	if len(target.Nodes) != targetNodesBefore {
 		t.Errorf("target craft's Nodes changed (%d → %d) — this slice doesn't plant on the partner either (no delivery mechanism yet)", targetNodesBefore, len(target.Nodes))
 	}
 }
 
-// TestRecommendMeetingLadder_NoTarget mirrors
+// TestRecommendRendezvousLadder_NoTarget mirrors
 // TestRecommendedRendezvousBurn's own no-target gate.
-func TestRecommendMeetingLadder_NoTarget(t *testing.T) {
+func TestRecommendRendezvousLadder_NoTarget(t *testing.T) {
 	w := mustWorld(t)
-	_, err := w.RecommendMeetingLadder(planner.MeetingTheirOrbit)
+	_, err := w.RecommendRendezvousLadder(planner.RendezvousTheirOrbit)
 	if !errors.Is(err, ErrRendezvousNoTarget) {
 		t.Fatalf("err = %v, want ErrRendezvousNoTarget", err)
 	}
 }
 
-// TestPlanMeetingBurn_UnaffordableRefusal — a near-zero Δv budget
+// TestPlanRendezvousBurn_UnaffordableRefusal — a near-zero Δv budget
 // yields a refusal naming the specific lap row's own gate, not a
 // generic collapse (mirrors #278's split for K's own refusals).
-func TestPlanMeetingBurn_UnaffordableRefusal(t *testing.T) {
+func TestPlanRendezvousBurn_UnaffordableRefusal(t *testing.T) {
 	w := rendezvousSmallLagWorld(t)
 	c := w.ActiveCraft()
 	drainCraftFuel(t, c)
 
-	ladder, err := w.RecommendMeetingLadder(planner.MeetingTheirOrbit)
+	ladder, err := w.RecommendRendezvousLadder(planner.RendezvousTheirOrbit)
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -205,9 +205,9 @@ func TestPlanMeetingBurn_UnaffordableRefusal(t *testing.T) {
 	if !found {
 		t.Skipf("no priced row to test against: %+v", ladder.Rows)
 	}
-	_, err = w.PlanMeetingBurn(planner.MeetingTheirOrbit, pick)
-	if !errors.Is(err, ErrMeetingUnaffordable) {
-		t.Fatalf("err = %v, want ErrMeetingUnaffordable", err)
+	_, err = w.PlanRendezvousBurn(planner.RendezvousTheirOrbit, pick)
+	if !errors.Is(err, ErrRendezvousUnaffordable) {
+		t.Fatalf("err = %v, want ErrRendezvousUnaffordable", err)
 	}
 }
 
@@ -217,7 +217,7 @@ func TestPlanMeetingBurn_UnaffordableRefusal(t *testing.T) {
 // scaled ×0.99 so the pair isn't exactly co-orbital. This geometry has
 // a natural crossing within the search horizon (NextClosestApproach
 // converges to a real tCA) — before the revert, that's exactly the
-// case MeetingCrossing would have anchored its (broken) solve on.
+// case RendezvousCrossing would have anchored its (broken) solve on.
 func rendezvousCrossingFixtureWorld(t *testing.T) *World {
 	t.Helper()
 	w := rendezvousTwoCraftWorld(t)
@@ -232,12 +232,12 @@ func rendezvousCrossingFixtureWorld(t *testing.T) *World {
 	return w
 }
 
-// TestPlanMeetingBurn_Crossing_RefusesRatherThanMisplants is the
+// TestPlanRendezvousBurn_Crossing_RefusesRatherThanMisplants is the
 // review round-2 regression test for both HIGH findings at once: on a
 // fixture where a natural crossing genuinely exists (verified below via
 // the same NextClosestApproach the planner's own existence check uses),
-// PlanMeetingBurn(MeetingCrossing, ...) must refuse — never plant a
-// node whose advertised numbers (MeetingArrivalSec/DV/BurnDir) disagree
+// PlanRendezvousBurn(RendezvousCrossing, ...) must refuse — never plant a
+// node whose advertised numbers (RendezvousArrivalSec/DV/BurnDir) disagree
 // with what actually happens when that node fires.
 //
 // Before the revert, PR #412's crossing-anchor implementation planted
@@ -248,20 +248,20 @@ func rendezvousCrossingFixtureWorld(t *testing.T) *World {
 // against the mover's velocity at TriggerTime — two different epochs.
 // On this fixture that produced a planted node whose advertised
 // AchievableCA (tens of km) bore no relation to the actual miss
-// (independently re-derived here via rendezvousCommitFromPlantedMeetingNode,
+// (independently re-derived here via rendezvousCommitFromPlantedBurnNode,
 // the same function Engage's commit path uses) — megametres off. This
-// test would have failed loudly against that implementation (PlanMeetingBurn
+// test would have failed loudly against that implementation (PlanRendezvousBurn
 // returning nil error, or returning one but still having queued a
-// node); it passes now because MeetingCrossing refuses before any of
+// node); it passes now because RendezvousCrossing refuses before any of
 // that machinery runs.
-func TestPlanMeetingBurn_Crossing_RefusesRatherThanMisplants(t *testing.T) {
+func TestPlanRendezvousBurn_Crossing_RefusesRatherThanMisplants(t *testing.T) {
 	w := rendezvousCrossingFixtureWorld(t)
 	c := w.ActiveCraft()
 
 	// Non-vacuous precondition: a natural crossing must actually exist
 	// here (tCA > 0, within the horizon), or this fixture doesn't
 	// exercise the "a crossing exists but is unsolved" path — it would
-	// only prove the (uninteresting) ErrMeetingNoCrossing branch.
+	// only prove the (uninteresting) ErrRendezvousNoCrossing branch.
 	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
 	if !ok {
 		t.Fatalf("setup: TargetStateRelativeToActivePrimary ok=false")
@@ -276,9 +276,9 @@ func TestPlanMeetingBurn_Crossing_RefusesRatherThanMisplants(t *testing.T) {
 	}
 
 	for _, laps := range []int{2, 3, 5, 10, 20} {
-		plan, err := w.PlanMeetingBurn(planner.MeetingCrossing, laps)
-		if !errors.Is(err, ErrMeetingCrossingNotImplemented) {
-			t.Errorf("laps=%d: err = %v, want ErrMeetingCrossingNotImplemented", laps, err)
+		plan, err := w.PlanRendezvousBurn(planner.RendezvousCrossing, laps)
+		if !errors.Is(err, ErrRendezvousCrossingNotImplemented) {
+			t.Errorf("laps=%d: err = %v, want ErrRendezvousCrossingNotImplemented", laps, err)
 		}
 		if plan != nil {
 			t.Errorf("laps=%d: plan = %+v, want nil", laps, plan)

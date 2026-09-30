@@ -95,7 +95,7 @@ type builtChip struct {
 	// neverShrink exempts a chip from layoutChipsBySide's budget entirely
 	// (always Full, never Compact, never dropped) while it still stacks
 	// normally (unlike leftOfPrev, it doesn't ride beside another chip).
-	// Reserved for MEETING PLAN (ADR 0045 S6): it's a modal that claims
+	// Reserved for RENDEZVOUS PLAN (ADR 0045 S6): it's a modal that claims
 	// keyboard focus while open, so losing it silently would leave the
 	// player's keystrokes going nowhere with no explanation on screen —
 	// a different category of thing than an ordinary contextual Chip

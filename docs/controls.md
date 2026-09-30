@@ -399,20 +399,20 @@ found; `Enter` does nothing there.
 A notice on the map, not a separate screen (it holds keyboard focus while
 open, so it never shrinks or gets tucked away). It opens when `K`'s small
 nudge isn't enough to close on your target (too far apart in phase) but your
-planes already match. Pick where to meet: on their orbit, on yours, or at
+planes already match. Pick the Rendezvous Orbit: their orbit, yours, or
 the natural crossing of your current courses; then pick a lap count on the
-**Lap Ladder** for that meeting place, more laps for less Δv but a longer
+**Lap Ladder** for that orbit, more laps for less Δv but a longer
 wait. Unaffordable or unsafe rows still show, dimmed, with the reason,
 rather than being hidden.
 
 | Key | Action |
 |---|---|
-| `←` / `→` | Walk the Rendezvous: their orbit / your orbit / the crossing |
+| `←` / `→` | Walk the Rendezvous Orbit: their orbit / your orbit / the crossing |
 | `↑` / `↓` | Walk the Lap Ladder |
 | `Enter` | Plant the highlighted row's burn |
 | `Esc` | Close without planting |
 
-"Meet on your orbit" computes a plan for your *target*, not you — since this
+"Your orbit" computes a plan for your *target*, not you — since this
 session has no way to plant a node on someone else's vessel, planting there
 is a later slice; the row still shows what that burn would cost.
 

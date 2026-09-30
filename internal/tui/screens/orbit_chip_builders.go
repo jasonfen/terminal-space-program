@@ -298,7 +298,7 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// control / [U] undock once absorbed into another player's stack, so
 	// it goes near the end of the bay's fold order.
 	add("", v.buildDockGuestChip(w))
-	// RENDEZVOUS PLAN (ADR 0045 S6, #399; renamed from MEETING PLAN,
+	// RENDEZVOUS PLAN (ADR 0045 S6, #399,
 	// slice 3 ruling 2): the picker holds keyboard focus while open
 	// (app.go's key intercept claims ←/→/↑/↓/Enter/Esc before they can
 	// reach camera pan or anything else), so unlike every other chip it
@@ -306,7 +306,7 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// not silently vanish under F2 declutter while it's still eating
 	// their keystrokes. Last in append order: the bay's fold order
 	// (oldest-first) means it is the very last thing ever folded away.
-	if lines := v.buildMeetingPickerChip(); lines != nil {
+	if lines := v.buildRendezvousPickerChip(); lines != nil {
 		chips = append(chips, builtChip{corner: cornerBay, lines: lines})
 	}
 	return chips
@@ -547,11 +547,11 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		lines := []string{
 			v.theme.Primary.Render("RENDEZVOUS"),
 			"  coasting with " + aw.RendezvousHandle + " to the encounter",
-			chipRow("τ in:", readout.Duration(tauIn)),
+			rendezvousChipRow("τ in:", readout.Duration(tauIn)),
 		}
 		if arm := w.RendezvousArm; arm != nil {
-			lines = append(lines, chipRow("committed:", readout.Distance(arm.CommittedCA)))
-			if line := rendezvousMeetingLine(arm.MeetingPlaceLabel, arm.MeetingLaps); line != "" {
+			lines = append(lines, rendezvousChipRow("committed:", readout.Distance(arm.CommittedCA)))
+			if line := rendezvousOrbitLine(arm.RendezvousOrbitLabel, arm.RendezvousLaps); line != "" {
 				lines = append(lines, line)
 			}
 			// ADR 0039 S3 / #281: the trend across waypoint re-derivations —
@@ -562,7 +562,7 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 			lines = append(lines, rendezvousTrendLines(*arm, v.theme)...)
 		}
 		if w.RendezvousApproachM > 0 {
-			lines = append(lines, chipRow("approach:", readout.Distance(w.RendezvousApproachM)))
+			lines = append(lines, rendezvousChipRow("approach:", readout.Distance(w.RendezvousApproachM)))
 		}
 		if line := v.rendezvousHoldOrPaceLine(w, aw.RendezvousHandle); line != "" {
 			lines = append(lines, line)
@@ -613,10 +613,10 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 		lines := []string{
 			v.theme.Primary.Render("RENDEZVOUS"),
 			status,
-			chipRow("τ in:", readout.Duration(armTauIn)),
-			chipRow("CA:", readout.Distance(arm.CommittedCA)),
+			rendezvousChipRow("τ in:", readout.Duration(armTauIn)),
+			rendezvousChipRow("CA:", readout.Distance(arm.CommittedCA)),
 		}
-		if line := rendezvousMeetingLine(arm.MeetingPlaceLabel, arm.MeetingLaps); line != "" {
+		if line := rendezvousOrbitLine(arm.RendezvousOrbitLabel, arm.RendezvousLaps); line != "" {
 			lines = append(lines, line)
 		}
 		return append(lines, v.theme.Dim.Render("  [/] cancel"))
@@ -637,7 +637,7 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 				v.theme.Dim.Render("  ◇ " + inv.Handle + CraftTag(inv.CraftName) + " wants to rendezvous — " + gap),
 			}
 			lines = append(lines, rendezvousInviteEncounterLines(inv, now)...)
-			if line := rendezvousMeetingLine(inv.MeetingPlaceLabel, inv.MeetingLaps); line != "" {
+			if line := rendezvousOrbitLine(inv.RendezvousOrbitLabel, inv.RendezvousLaps); line != "" {
 				lines = append(lines, line)
 			}
 			return lines
@@ -647,7 +647,7 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 			v.theme.Warning.Render("  ◇ " + inv.Handle + CraftTag(inv.CraftName) + " wants to rendezvous"),
 		}
 		lines = append(lines, rendezvousInviteEncounterLines(inv, now)...)
-		if line := rendezvousMeetingLine(inv.MeetingPlaceLabel, inv.MeetingLaps); line != "" {
+		if line := rendezvousOrbitLine(inv.RendezvousOrbitLabel, inv.RendezvousLaps); line != "" {
 			lines = append(lines, line)
 		}
 		// Name the seat at the moment it is taken (ADR 0037 §2): roles
@@ -658,19 +658,19 @@ func (v *OrbitView) buildRendezvousChip(w *sim.World) []string {
 	return nil
 }
 
-// rendezvousMeetingLine renders the Meeting Place + lap count row (ADR
+// rendezvousOrbitLine renders the Rendezvous Orbit + lap count row (ADR
 // 0045 S7, #400) — agreement state named on both sides' RENDEZVOUS chip,
 // carried verbatim from whichever side committed it (RendezvousArm.
-// MeetingPlaceLabel on the initiator, RendezvousInvite.MeetingPlaceLabel
-// on the accepter before joining, RendezvousArm.MeetingPlaceLabel again
-// after — see SetRendezvousMeeting). "" (render nothing) whenever the
-// commit's source wasn't a planted Meeting Burn node — including the
+// RendezvousOrbitLabel on the initiator, RendezvousInvite.RendezvousOrbitLabel
+// on the accepter before joining, RendezvousArm.RendezvousOrbitLabel again
+// after — see SetRendezvousOrbit). "" (render nothing) whenever the
+// commit's source wasn't a planted Rendezvous Burn node — including the
 // whole agreed-no-plan state, which never had one.
-func rendezvousMeetingLine(placeLabel string, laps int) string {
+func rendezvousOrbitLine(placeLabel string, laps int) string {
 	if placeLabel == "" {
 		return ""
 	}
-	return chipRow("meeting:", fmt.Sprintf("%s — %d laps", placeLabel, laps))
+	return rendezvousChipRow("rendezvous:", fmt.Sprintf("%s, %d laps", placeLabel, laps))
 }
 
 // rendezvousInviteEncounterLines renders the invite's τ/CA rows — nil
@@ -689,8 +689,8 @@ func rendezvousInviteEncounterLines(inv *sim.RendezvousInvite, now time.Time) []
 		invTauIn = 0
 	}
 	return []string{
-		chipRow("τ in:", readout.Duration(invTauIn)),
-		chipRow("CA:", readout.Distance(inv.CA)),
+		rendezvousChipRow("τ in:", readout.Duration(invTauIn)),
+		rendezvousChipRow("CA:", readout.Distance(inv.CA)),
 	}
 }
 
@@ -774,13 +774,13 @@ func (v *OrbitView) rendezvousApproachLines(w *sim.World) []string {
 	// unseated pair is on plain min-wins and saying "pilot" would be a lie.
 	switch rr.Seat {
 	case sim.RendezvousSeatPilot:
-		lines = append(lines, chipRow("seat:", "pilot — your warp keys fly the pair"))
+		lines = append(lines, rendezvousChipRow("seat:", "pilot — your warp keys fly the pair"))
 	case sim.RendezvousSeatCopilot:
-		lines = append(lines, chipRow("seat:", "copilot — [,] brakes the pair, [.] follows"))
+		lines = append(lines, rendezvousChipRow("seat:", "copilot — [,] brakes the pair, [.] follows"))
 	}
-	lines = append(lines, chipRow("rate:", WarpLabel(w.EffectiveWarp())))
+	lines = append(lines, rendezvousChipRow("rate:", WarpLabel(w.EffectiveWarp())))
 	if held := rendezvousHoldLabel(w.RendezvousRateHold(), handle); held != "" {
-		lines = append(lines, chipRow("held:", held))
+		lines = append(lines, rendezvousChipRow("held:", held))
 	}
 	if line := v.rendezvousHoldOrPaceLine(w, handle); line != "" {
 		lines = append(lines, line)
@@ -1836,4 +1836,15 @@ func chipCellAt(row, label, value string, startCol, valueGap int) string {
 		valPad = 1
 	}
 	return row + strings.Repeat(" ", valPad) + value
+}
+
+// rendezvousChipValueCol is the RENDEZVOUS chip's own value column, one
+// past the shared chipValueCol: its "rendezvous:" row label is 11 cells
+// wide, which would otherwise push that one value a cell right of every
+// sibling row. All of this chip's rows share it, so they stay aligned.
+const rendezvousChipValueCol = chipValueCol + 1
+
+// rendezvousChipRow is chipRow at the RENDEZVOUS chip's value column.
+func rendezvousChipRow(label, value string) string {
+	return chipRowAt(label, value, rendezvousChipValueCol)
 }
