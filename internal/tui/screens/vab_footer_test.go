@@ -15,7 +15,7 @@ import (
 func TestVABFooterWrapsAndKeepsSaveOpenAt104Columns(t *testing.T) {
 	v := NewVAB(Theme{})
 	v.Reset(testVABComps())
-	out := v.Render(104)
+	out := v.Render(104, 40)
 
 	for _, ln := range strings.Split(out, "\n") {
 		if len([]rune(ln)) > 104 {
@@ -40,7 +40,7 @@ func TestVABFooterWrapsAndKeepsSaveOpenAt104Columns(t *testing.T) {
 func TestVABFooterFitsOnOneRowWhenWide(t *testing.T) {
 	v := NewVAB(Theme{})
 	v.Reset(testVABComps())
-	out := v.Render(160)
+	out := v.Render(160, 40)
 	lines := strings.Split(out, "\n")
 
 	footerRows := 0

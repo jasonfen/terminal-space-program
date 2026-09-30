@@ -187,7 +187,7 @@ func TestSettingsScreenRoundTripPersists(t *testing.T) {
 
 // TestVABOpensFromMenuAndCloses — the pause menu `b` key opens the Vehicle
 // Assembly screen (v0.24 / ADR 0029), its keys are consumed by the screen,
-// and Esc returns to orbit.
+// and Esc returns to the menu, a second Esc to orbit (#501).
 func TestVABOpensFromMenuAndCloses(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	a, err := New(nil)
@@ -206,8 +206,29 @@ func TestVABOpensFromMenuAndCloses(t *testing.T) {
 		t.Errorf("VAB build key leaked screen change: active = %v", a.active)
 	}
 	a.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if a.active != screenMenu {
+		t.Fatalf("after esc, active = %v, want screenMenu", a.active)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if a.active != screenOrbit {
-		t.Errorf("after esc, active = %v, want screenOrbit", a.active)
+		t.Errorf("after second esc, active = %v, want screenOrbit", a.active)
+	}
+}
+
+// TestVABEscReturnsToMenu (#501): esc from the VAB lands on the pause menu it
+// was opened from, not past it on the orbit view.
+func TestVABEscReturnsToMenu(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.menu.Reset()
+	a.active = screenMenu
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'b'}})
+	a.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if a.active != screenMenu {
+		t.Errorf("esc from VAB: active = %v, want screenMenu", a.active)
 	}
 }
 

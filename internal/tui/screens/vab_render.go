@@ -211,16 +211,16 @@ func (v *VAB) refreshDesigns() {
 
 // Render returns the VAB screen for the current mode. width is the terminal
 // width.
-func (v *VAB) Render(width int) string {
+func (v *VAB) Render(width, height int) string {
 	switch v.mode {
 	case vabModeNaming:
-		return v.renderNaming(width)
+		return v.renderNaming(width, height)
 	case vabModeLoad:
 		return v.renderLoad(width)
 	case vabModeTarget:
 		return v.renderTarget(width)
 	default:
-		return v.renderBuild(width)
+		return v.renderBuild(width, height)
 	}
 }
 
@@ -229,7 +229,7 @@ func (v *VAB) Render(width int) string {
 // stats strip and a full-width footer (ADR 0030 §2). The columns are joined
 // per-line so a single linear cursor reads naturally down whichever column
 // has focus.
-func (v *VAB) renderBuild(width int) string {
+func (v *VAB) renderBuild(width, height int) string {
 	if width < 64 {
 		width = 64 // floor: keep both columns usable on a narrow terminal
 	}
@@ -246,8 +246,6 @@ func (v *VAB) renderBuild(width int) string {
 		name = "(unsaved)"
 	}
 	head = append(head, v.theme.Dim.Render("design: ")+v.theme.Primary.Render(name))
-
-	body := v.joinColumns(v.renderPaletteColumn(palW), v.renderVehicleColumn(vehW), palW)
 
 	var foot []string
 	if v.flash != "" {
@@ -268,6 +266,11 @@ func (v *VAB) renderBuild(width int) string {
 		"[+/−] qty  ['['/']'] reorder  [y] duplicate  [enter] crack part  [d] dock seam  [c] fuse  [t] target  [s] save  [o] open  [esc] back", width) {
 		foot = append(foot, v.theme.Footer.Render(ln))
 	}
+
+	// The vehicle column windows around the cursor into whatever height the
+	// head and footer leave (#501): head rows + blank above, footer below.
+	bodyH := height - len(head) - 1 - len(foot)
+	body := v.joinColumns(v.renderPaletteColumn(palW), v.renderVehicleColumn(vehW, bodyH), palW)
 
 	return strings.Join(head, "\n") + "\n\n" + body + "\n" + strings.Join(foot, "\n")
 }
@@ -360,51 +363,112 @@ func (v *VAB) renderPalette(w int) []string {
 			marker = v.theme.Primary.Render("→ ")
 			styled = v.theme.Primary.Render(label)
 		default:
-			styled = v.theme.Dim.Render(label)
+			styled = label // readable default foreground, not the disabled grey (#500)
 		}
 		lines = append(lines, marker+glyph+styled)
 	}
 	return lines
 }
 
-// renderInspector shows the full stats of the palette item under the cursor,
-// its description, and what it would add to the active stage (ADR 0030 §7).
+// renderInspector is a whole box (top, sides, bottom) describing the item
+// under the cursor of the FOCUSED column: the palette item, or the vehicle
+// row (component group or stage) when the vehicle column has focus (#501,
+// ADR 0030 §7).
 func (v *VAB) renderInspector(w int) []string {
-	if v.paletteIdx < 0 || v.paletteIdx >= len(v.palette) {
+	if w < 12 {
 		return nil
 	}
-	it := v.palette[v.paletteIdx]
-	lines := []string{v.theme.Dim.Render("┌ inspect")}
-	add := func(s string) { lines = append(lines, v.theme.Dim.Render("│ ")+s) }
-	if it.isComponent {
-		c := v.comps[it.id]
-		add(v.componentStyle(it.id).Render(v.componentGlyph(it.id)) + " " + v.theme.Primary.Render(v.compName(c)))
-		switch c.Kind {
-		case spacecraft.ComponentEngine:
-			add(v.theme.Dim.Render(fmt.Sprintf("engine · %s", c.FuelType)))
-			add(v.theme.Dim.Render(fmt.Sprintf("%.0f kN · Isp %.0f s · dry %.0f kg", c.ThrustN/1000, c.IspS, c.DryMassKg)))
-		case spacecraft.ComponentTank:
-			add(v.theme.Dim.Render(fmt.Sprintf("tank · %s", c.FuelType)))
-			add(v.theme.Dim.Render(fmt.Sprintf("%.0f kg fuel · dry %.0f kg", c.FuelCapacityKg, c.DryMassKg)))
-		case spacecraft.ComponentCommandCore:
-			add(v.theme.Dim.Render(fmt.Sprintf("command-core · %s · dry %.0f kg", c.CommandSource, c.DryMassKg)))
-		case spacecraft.ComponentAntenna:
-			add(v.theme.Dim.Render(fmt.Sprintf("antenna · %s · dry %.0f kg", c.AntennaKind, c.DryMassKg)))
-		default:
-			add(v.theme.Dim.Render(fmt.Sprintf("structure · dry %.0f kg", c.DryMassKg)))
+	inner := w - 4 // "│ " + content + " │"
+	var body []string
+	add := func(s string) { body = append(body, s) }
+	addText := func(text string) { add(truncWidth(text, inner)) }
+
+	switch {
+	case v.focus == focusStack && v.inspectStackRow(inner, add, addText):
+	case v.paletteIdx < 0 || v.paletteIdx >= len(v.palette):
+		return nil
+	default:
+		it := v.palette[v.paletteIdx]
+		if it.isComponent {
+			v.inspectComponent(it.id, inner, add, addText)
+			add(v.inspectAddLine(inner))
+		} else if m, ok := spacecraft.StageCatalog[it.id]; ok {
+			add(v.theme.Primary.Render(truncWidth(m.Glyph+" "+m.Name, inner)))
+			addText("catalog part · " + m.Tier)
+			addText("→ adds as a new opaque stage")
+		} else {
+			add(v.theme.Primary.Render(truncWidth(it.id, inner)))
 		}
-		for _, ln := range wrapText(c.Description, w-2) {
-			add(v.theme.Dim.Render(ln))
-		}
-		add(v.inspectAddLine(w - 2))
-	} else if m, ok := spacecraft.StageCatalog[it.id]; ok {
-		add(v.theme.Primary.Render(m.Glyph + " " + m.Name))
-		add(v.theme.Dim.Render("catalog part · " + m.Tier))
-		add(v.theme.Dim.Render("→ adds as a new opaque stage"))
-	} else {
-		add(v.theme.Primary.Render(it.id))
 	}
+
+	edge := func(s string) string { return v.theme.Dim.Render(s) }
+	title := "┌ inspect "
+	lines := []string{edge(title + strings.Repeat("─", maxInt(0, w-lipgloss.Width(title)-1)) + "┐")}
+	for _, b := range body {
+		pad := maxInt(0, inner-lipgloss.Width(b))
+		lines = append(lines, edge("│ ")+b+strings.Repeat(" ", pad)+edge(" │"))
+	}
+	lines = append(lines, edge("└"+strings.Repeat("─", w-2)+"┘"))
 	return lines
+}
+
+// inspectComponent writes the component's name line, stats and description.
+func (v *VAB) inspectComponent(id string, inner int, add func(string), addText func(string)) {
+	c := v.comps[id]
+	add(v.componentStyle(id).Render(v.componentGlyph(id)) + " " + v.theme.Primary.Render(truncWidth(v.compName(c), inner-2)))
+	switch c.Kind {
+	case spacecraft.ComponentEngine:
+		addText(fmt.Sprintf("engine · %s", c.FuelType))
+		addText(fmt.Sprintf("%.0f kN · Isp %.0f s · dry %.0f kg", c.ThrustN/1000, c.IspS, c.DryMassKg))
+	case spacecraft.ComponentTank:
+		addText(fmt.Sprintf("tank · %s", c.FuelType))
+		addText(fmt.Sprintf("%.0f kg fuel · dry %.0f kg", c.FuelCapacityKg, c.DryMassKg))
+	case spacecraft.ComponentCommandCore:
+		addText(fmt.Sprintf("command-core · %s · dry %.0f kg", c.CommandSource, c.DryMassKg))
+	case spacecraft.ComponentAntenna:
+		addText(fmt.Sprintf("antenna · %s · dry %.0f kg", c.AntennaKind, c.DryMassKg))
+	default:
+		addText(fmt.Sprintf("structure · dry %.0f kg", c.DryMassKg))
+	}
+	for _, ln := range wrapText(c.Description, inner) {
+		add(ln)
+	}
+}
+
+// inspectStackRow describes the vehicle row under the stack cursor; false when
+// the stack is empty (the caller falls back to the palette item).
+func (v *VAB) inspectStackRow(inner int, add func(string), addText func(string)) bool {
+	r, ok := v.currentRow()
+	if !ok {
+		return false
+	}
+	if r.isHeader() {
+		i := r.stageIdx
+		stats := spacecraft.StackStats(v.resolvedStages())
+		add(v.theme.Primary.Render(truncWidth(fmt.Sprintf("Stage S%d", i+1), inner)))
+		addText(v.stageLabel(v.stages[i]))
+		if i < len(stats.StageDV) {
+			addText(fmt.Sprintf("Δv %.0f m/s", stats.StageDV[i]))
+		}
+		return true
+	}
+	groups := v.rowGroups(r.stageIdx)
+	if r.group >= len(groups) {
+		return false
+	}
+	g := groups[r.group]
+	if g.placeholder {
+		add(v.theme.Primary.Render(truncWidth(g.kind+" — empty slot", inner)))
+		addText(fmt.Sprintf("[←/→] picks a %s for S%d", g.kind, r.stageIdx+1))
+		return true
+	}
+	v.inspectComponent(g.compID, inner, add, addText)
+	if g.count > 1 {
+		addText(fmt.Sprintf("×%d in S%d", g.count, r.stageIdx+1))
+	} else {
+		addText(fmt.Sprintf("in S%d", r.stageIdx+1))
+	}
+	return true
 }
 
 // inspectAddLine previews where the selected palette item would land and
@@ -412,16 +476,16 @@ func (v *VAB) renderInspector(w int) []string {
 func (v *VAB) inspectAddLine(w int) string {
 	it := v.palette[v.paletteIdx]
 	if len(v.stages) == 0 {
-		return v.theme.Dim.Render(truncWidth("→ adds to a new stage", w))
+		return truncWidth("→ adds to a new stage", w)
 	}
 	i := clampI(v.stageIdx, 0, len(v.stages)-1)
 	if v.stages[i].isCatalog() {
-		return v.theme.Dim.Render(truncWidth("→ starts a new stage (block is opaque)", w))
+		return truncWidth("→ starts a new stage (block is opaque)", w)
 	}
 	if warn := v.fuelConflict(v.stages[i].components, it.id); warn != "" {
 		return v.theme.Warning.Render(truncWidth("✗ "+warn, w))
 	}
-	return v.theme.Dim.Render(truncWidth(fmt.Sprintf("→ adds to S%d", i+1), w))
+	return truncWidth(fmt.Sprintf("→ adds to S%d", i+1), w)
 }
 
 // paletteItemLabel returns the kind (section header / jump key) and the short
@@ -441,7 +505,7 @@ func (v *VAB) paletteItemLabel(it vabPaletteItem) (kind, label string) {
 // renderVehicleColumn is the right column: the stats strip and the glyph
 // vehicle view — stage headers with their kind-folded component groups, seam
 // and decouple markers, and soft-validation warnings (ADR 0030 §1-§4).
-func (v *VAB) renderVehicleColumn(w int) []string {
+func (v *VAB) renderVehicleColumn(w, h int) []string {
 	hdr := "VEHICLE  top → bottom"
 	var lines []string
 	if v.focus == focusStack {
@@ -461,27 +525,75 @@ func (v *VAB) renderVehicleColumn(w int) []string {
 		return lines
 	}
 	rows := v.stackRows()
+	var body []string // scrollable rows; cursorLine indexes the cursor's row
+	cursorLine := 0
 	for idx, r := range rows {
 		cursorOn := idx == v.stackCursor
 		sel := cursorOn && v.focus == focusStack
+		if cursorOn {
+			cursorLine = len(body)
+		}
 		if r.isHeader() {
 			// A dock seam below the stage above (i+1) sits between it and this
 			// stage — render the divider just before this header (top-down).
 			if up := r.stageIdx + 1; up < len(v.stages) && v.stages[up].dockSeamBelow {
-				lines = append(lines, v.theme.Warning.Render(truncWidth("── dock seam (Undock to release) ──", w)))
+				body = append(body, v.theme.Warning.Render(truncWidth("── dock seam (Undock to release) ──", w)))
+				if cursorOn {
+					cursorLine = len(body)
+				}
 			}
-			lines = append(lines, v.stageHeaderLine(r.stageIdx, stats, sel, cursorOn, w))
+			body = append(body, v.stageHeaderLine(r.stageIdx, stats, sel, cursorOn, w))
 		} else {
 			groups := v.rowGroups(r.stageIdx)
 			if r.group < len(groups) {
-				lines = append(lines, v.groupLine(groups[r.group], sel, cursorOn, w))
+				body = append(body, v.groupLine(groups[r.group], sel, cursorOn, w))
 			}
 		}
 	}
+	var tail []string
 	for _, warn := range v.Warnings() {
-		lines = append(lines, v.theme.Dim.Render(truncWidth("⚠ "+warn, w)))
+		tail = append(tail, v.theme.Warning.Render(truncWidth("⚠ "+warn, w)))
 	}
-	return lines
+	if h > 0 {
+		body = v.windowRows(body, cursorLine, h-len(lines)-len(tail), w)
+	}
+	lines = append(lines, body...)
+	return append(lines, tail...)
+}
+
+// windowRows shows at most n of rows, scrolled so cursorLine stays visible,
+// with a dim "↑/↓ N more" row on each clipped side (the cue rows count against
+// n). Rows pass through untouched when they already fit.
+func (v *VAB) windowRows(rows []string, cursorLine, n, w int) []string {
+	if n < 3 || len(rows) <= n {
+		return rows
+	}
+	// Reserve a cue row per side that ends up clipped; settle by trial.
+	for _, cues := range []int{0, 1, 2} {
+		size := n - cues
+		start := clampI(cursorLine-size/2, 0, len(rows)-size)
+		end := start + size
+		up, down := start > 0, end < len(rows)
+		if need := btoi(up) + btoi(down); need > cues {
+			continue
+		}
+		out := append([]string(nil), rows[start:end]...)
+		if up {
+			out = append([]string{v.theme.Dim.Render(truncWidth(fmt.Sprintf("  ↑ %d more", start), w))}, out...)
+		}
+		if down {
+			out = append(out, v.theme.Dim.Render(truncWidth(fmt.Sprintf("  ↓ %d more", len(rows)-end), w)))
+		}
+		return out
+	}
+	return rows[:n]
+}
+
+func btoi(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // stageHeaderLine renders one stage header: its number, fuel chemistry (or
@@ -544,8 +656,6 @@ func (v *VAB) groupLine(g vabGroup, sel, cursorOn bool, w int) string {
 			marker = "  → "
 			name = v.theme.Primary.Render(name)
 		}
-	} else {
-		name = v.theme.Dim.Render(name)
 	}
 	return marker + glyph + " " + name
 }
@@ -643,7 +753,7 @@ func (v *VAB) stageLabel(vs vabStage) string {
 	return fmt.Sprintf("%d components", len(vs.components))
 }
 
-func (v *VAB) renderNaming(width int) string {
+func (v *VAB) renderNaming(width, height int) string {
 	var lines []string
 	lines = append(lines, v.theme.Title.Render("terminal-space-program — save design"))
 	lines = append(lines, "")
@@ -653,7 +763,20 @@ func (v *VAB) renderNaming(width int) string {
 		lines = append(lines, "  "+v.theme.Warning.Render(v.flash))
 		lines = append(lines, "")
 	}
-	lines = append(lines, v.theme.Footer.Render("[enter] save  [esc] cancel"))
+	foot := v.theme.Footer.Render("[enter] save  [esc] cancel")
+	// #501: show the vehicle being named, windowed to what the prompt leaves.
+	vehW := clampI(width-2, 28, 100)
+	room := 0
+	if height > 0 {
+		room = maxInt(0, height-len(lines)-2)
+	}
+	if room >= 6 || height <= 0 {
+		for _, ln := range v.renderVehicleColumn(vehW, room) {
+			lines = append(lines, "  "+ln)
+		}
+		lines = append(lines, "")
+	}
+	lines = append(lines, foot)
 	return strings.Join(lines, "\n")
 }
 
