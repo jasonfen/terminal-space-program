@@ -127,8 +127,19 @@ func TestFlightSchoolLiftOffRungKeyIgnitesEngine(t *testing.T) {
 	a.active = screenOrbit
 	stagesBefore := len(a.world.ActiveCraft().Stages)
 
+	// Put the player on tut-launch: earlier Flight School rungs passed, the
+	// pad spawn credited, then the same z and bracketed key a player presses.
+	a.world.SetEnabledMissionPrograms(map[string]bool{missions.ProgramTutorial: true})
+	for i := range a.world.Missions {
+		if id := a.world.Missions[i].ID; id == "tut-orient" || id == "tut-plan" || id == "tut-fly" {
+			a.world.Missions[i].Status = missions.Passed
+		}
+	}
+	a.world.RecordAction(missions.ActionSpawnCraft)
+	a.world.Tick() // the spawn credits while the vessel is still on the pad
 	pressKey(a, 'z')
 	pressKey(a, []rune(k)[0])
+	a.world.Tick()
 
 	c := a.world.ActiveCraft()
 	if len(c.Stages) != stagesBefore {
@@ -139,6 +150,25 @@ func TestFlightSchoolLiftOffRungKeyIgnitesEngine(t *testing.T) {
 	}
 	if strings.Contains(rung.Description, "clamps") {
 		t.Errorf("rung mentions clamps, there are none: %q", rung.Description)
+	}
+	// The rung must actually complete from that key: a wrong action binding
+	// would light the engine yet leave the ladder stuck here.
+	var live *missions.Objective
+	for i := range a.world.Missions {
+		if a.world.Missions[i].ID != "tut-launch" {
+			continue
+		}
+		for j := range a.world.Missions[i].Objectives {
+			if a.world.Missions[i].Objectives[j].Name == rung.Name {
+				live = &a.world.Missions[i].Objectives[j]
+			}
+		}
+	}
+	if live == nil {
+		t.Fatalf("rung %q not in the world's tut-launch", rung.Name)
+	}
+	if live.Status != missions.Passed {
+		t.Errorf("rung %q status = %v after [%s], want Passed", rung.Name, live.Status, toks[1])
 	}
 }
 

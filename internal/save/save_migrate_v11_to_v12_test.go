@@ -49,10 +49,10 @@ func v11Fixture(t *testing.T) string {
 		{`"rendezvous_orbit_label"`, `"meeting_place_label"`},
 		{`"rendezvous_laps"`, `"meeting_laps"`},
 		{`"rendezvous-burn"`, `"meeting-burn"`},
-		{`"version": 12`, `"version": 11`},
+		{`"version": 13`, `"version": 11`},
 	} {
 		if !strings.Contains(s, r[0]) {
-			t.Fatalf("v12 save lacks %s; cannot build the v11 fixture:\n%s", r[0], s[:min(len(s), 400)])
+			t.Fatalf("v13 save lacks %s; cannot build the v11 fixture:\n%s", r[0], s[:min(len(s), 400)])
 		}
 		s = strings.ReplaceAll(s, r[0], r[1])
 	}
@@ -100,14 +100,6 @@ func TestMigrateV11ToV12RendezvousBurn(t *testing.T) {
 	}
 	if m := again.ActiveCraft().Nodes[0]; m.RendezvousArrivalSec != 8*3600 || m.RendezvousOrbitLabel != "their orbit" || m.RendezvousLaps != 5 || m.AdvisoryKey != sim.AdvisoryKeyRendezvousBurn {
 		t.Errorf("v12 round-trip after migration lost values: %+v", m)
-	}
-}
-
-// TestSchemaVersionBumpedToV12 pins the version number itself: a change
-// here without a migration alongside it defeats the repo's bump rule.
-func TestSchemaVersionBumpedToV12(t *testing.T) {
-	if save.SchemaVersion != 12 {
-		t.Errorf("SchemaVersion = %d, want 12", save.SchemaVersion)
 	}
 }
 

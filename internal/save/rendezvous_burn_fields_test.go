@@ -18,8 +18,8 @@ import (
 // these set round-trips as the zero value. The v11 -> v12 rename of the
 // persisted keys is pinned separately in TestMigrateV11ToV12RendezvousBurn.
 func TestRoundtripRendezvousBurnFields(t *testing.T) {
-	if save.SchemaVersion != 12 {
-		t.Fatalf("save.SchemaVersion = %d, want 12 - this test round-trips the v12 key names (rendezvous_*); a later bump should re-confirm they are unchanged", save.SchemaVersion)
+	if save.SchemaVersion != 13 {
+		t.Fatalf("save.SchemaVersion = %d, want 13 - this test round-trips the v12+ key names (rendezvous_*); a later bump should re-confirm they are unchanged", save.SchemaVersion)
 	}
 
 	w, err := sim.NewWorld()
