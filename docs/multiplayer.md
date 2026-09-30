@@ -53,7 +53,7 @@ From that roster:
 ## Rendezvous warp
 
 Closing the distance takes orbits of coasting, so warp there *together*.
-`w` on a player's roster row **agrees to meet them** — you don't need a
+`w` on a player's roster row **agrees to rendezvous with them** — you don't need a
 predicted encounter first. If K's rendezvous nudge or the Rendezvous Planner
 already has a burn queued toward them, `w` commits to where it leads,
 however far out; otherwise it commits to whatever the current courses

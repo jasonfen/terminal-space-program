@@ -26,7 +26,7 @@ import (
 // unaffordable".
 var (
 	ErrRendezvousPlaneMismatch = transferError("your planes differ — match theirs [I] first")
-	ErrRendezvousNoCrossing    = transferError("no natural encounter to meet at — try \"their orbit\" or \"your orbit\"")
+	ErrRendezvousNoCrossing    = transferError("no natural encounter to rendezvous at — try \"their orbit\" or \"your orbit\"")
 	// ErrRendezvousCrossingNotImplemented: "the crossing" has no working
 	// solver (review round 2 revert — see planner.
 	// ErrRendezvousCrossingNotImplemented's doc comment for why PR #412's

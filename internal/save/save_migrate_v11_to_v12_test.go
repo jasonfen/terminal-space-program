@@ -111,7 +111,7 @@ func TestSchemaVersionBumpedToV12(t *testing.T) {
 	}
 }
 
-// TestMigrateV11ToV12ObjectiveName - an in-progress Meet & Dock challenge
+// TestMigrateV11ToV12ObjectiveName - an in-progress Docking challenge
 // saved under v11 keeps its state but picks up the renamed objective.
 func TestMigrateV11ToV12ObjectiveName(t *testing.T) {
 	p := &save.Payload{Missions: []missions.Mission{{
@@ -124,5 +124,27 @@ func TestMigrateV11ToV12ObjectiveName(t *testing.T) {
 	}
 	if got := p.Missions[0].Objectives[1].Name; got != "Target it" {
 		t.Errorf("unrelated objective renamed to %q", got)
+	}
+}
+
+// TestMigrateV11ToV12MissionName - the Flight School rung was titled
+// "Flight School: Meet & Dock" and the challenge "Rendezvous & Dock"; a v11
+// save persists whole missions, so both titles are renamed on load like
+// the objective above.
+func TestMigrateV11ToV12MissionName(t *testing.T) {
+	p := &save.Payload{Missions: []missions.Mission{
+		{ID: "tut-dock", Name: "Flight School: Meet & Dock"},
+		{ID: "other", Name: "Flight School: Orientation"},
+		{ID: "chal-dock", Name: "Rendezvous & Dock"},
+	}}
+	save.MigrateV11PayloadToV12ForTest(p)
+	if got := p.Missions[0].Name; got != "Flight School: Docking" {
+		t.Errorf("mission name = %q", got)
+	}
+	if got := p.Missions[1].Name; got != "Flight School: Orientation" {
+		t.Errorf("unrelated mission renamed to %q", got)
+	}
+	if got := p.Missions[2].Name; got != "Dock Two Vessels" {
+		t.Errorf("challenge name = %q", got)
 	}
 }
