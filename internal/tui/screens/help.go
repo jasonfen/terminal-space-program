@@ -66,7 +66,7 @@ var helpSections = []helpSection{
 		{"↑ ↓ ← →", "pan the view — displaces the tracked center; [g] or any refocus clears it"},
 		{"shift+↑ / shift+↓", "tilt the 3D view up / down (tilted view only)"},
 		{"shift+← / shift+→", "yaw the 3D view left / right, wraps 360° (tilted view only)"},
-		{"F2", "declutter — hide chips + navball (core column stays)"},
+		{"F2", "declutter — hide the instrument boxes + navball (ENGINE, PROPELLANT stay while an engine is lit)"},
 	}},
 	{"TIME & WARP", [][2]string{
 		{".", "warp up (1× … 100000×; inert during a rendezvous coast)"},
