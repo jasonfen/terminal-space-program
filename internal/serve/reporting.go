@@ -590,7 +590,7 @@ func (m *reportingModel) refreshSession(now time.Time) {
 		}
 		away[r.Owner] = m.srv.isAway(r.Owner)
 	}
-	peers := relay.CoWarpPeersFrom(w, others, handles, m.owner, live, away, time.Now())
+	peers := relay.CoWarpPeersFrom(w, others, handles, m.owner, live, away, now)
 	// Rendezvous Warp (v0.29 S1): start or cancel the shared coast to the
 	// committed encounter from this tick's mutual-arm state, before the
 	// clamp reads the couple. Arrival + arm bookkeeping live in the sim.
@@ -623,8 +623,11 @@ func (m *reportingModel) refreshSession(now time.Time) {
 	// node-edit re-freeze pattern applied to subspaces. Same goroutine
 	// as the tick, so the write is safe.
 	if w.AutoWarp != nil && w.AutoWarp.Sync && w.AutoWarp.SyncOwner != "" {
-		if rep, ok := reports[w.AutoWarp.SyncOwner]; ok && rep.SubspaceTime.After(w.AutoWarp.T) {
-			w.AutoWarp.T = rep.SubspaceTime
+		if rep, ok := reports[w.AutoWarp.SyncOwner]; ok {
+			// Current clock (#417), consistent with the co-warp peer's.
+			if clock := relay.PeerClock(rep, m.srv.presence.isOnline(rep.Owner), now); clock.After(w.AutoWarp.T) {
+				w.AutoWarp.T = clock
+			}
 		}
 	}
 	// Cross-player docking (v0.28 S5): detect contact against a co-warp-
@@ -698,7 +701,7 @@ func (m *reportingModel) refreshSession(now time.Time) {
 		}
 		if rep, ok := reports[p.Fingerprint]; ok {
 			row.HasReport = true
-			row.DeltaT = rep.SubspaceTime.Sub(w.Clock.SimTime)
+			row.DeltaT = relay.PeerClock(rep, m.srv.presence.isOnline(p.Fingerprint), now).Sub(w.Clock.SimTime)
 			row.CraftCount = len(rep.Crafts)
 			// LOCATION follows the craft they are FLYING, not a fixed slot
 			// (#288) — a partner reads this column to find someone, and slot

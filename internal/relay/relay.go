@@ -47,8 +47,10 @@ type CraftReport struct {
 	// ReportedAt is the WALL-clock instant the reporter sent this report
 	// (#417). SubspaceTime is the reporter's sim clock AT that instant;
 	// consumers that need the clock NOW extrapolate it by EffWarp times
-	// the wall time since ReportedAt (sim.ExtrapolateSubspaceTime). Zero
-	// (omitted) means unstamped: read SubspaceTime verbatim.
+	// the wall time since ReportedAt (sim.ExtrapolateSubspaceTime). A zero
+	// time means unstamped (reports predating the field decode to zero, and
+	// omitempty never omits a time.Time, so a zero stamp serialises as
+	// 0001-01-01T00:00:00Z and reads back zero): read SubspaceTime verbatim.
 	ReportedAt time.Time `json:"reported_at,omitempty"`
 
 	// ActiveCraftID names which of Crafts the reporter is actually
