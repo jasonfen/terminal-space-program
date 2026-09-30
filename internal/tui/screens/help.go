@@ -60,7 +60,7 @@ var helpSections = []helpSection{
 		{"f / F", "cycle camera focus forward / back (system → bodies → vessels; exits spectate)"},
 		{"g", "reset camera to the whole system"},
 		{"+ / -", "zoom in / out"},
-		{"v", "cycle view (tilted / top / right / bottom / left / flat) — projections only"},
+		{"v", "cycle view (Tilted / Top / Right / Bottom / Left / Orbit-flat), projections only"},
 		{"V", "launch / surface view — chase-cam on your active vessel (press again to return)"},
 		{"o", "proximity view — close-range picture of your target vessel (press again to return)"},
 		{"↑ ↓ ← →", "pan the view — displaces the tracked center; [g] or any refocus clears it"},

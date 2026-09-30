@@ -386,7 +386,7 @@ const hintStripText = "[F1] help · [t] target · [m] plan · [n] new vessel · 
 // hintStripGap is the blank column count between the end of the
 // "view:"-style label and the start of the Hint Strip, so the strip can
 // never visually run into the label even at its longest form
-// ("view: tilted 30°/anchor").
+// ("view: Tilted 30°/anchor").
 const hintStripGap = 2
 
 // inspectHintStripText replaces the Hint Strip while Inspect is live
@@ -1474,14 +1474,14 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	viewLabel := "view: " + w.ViewMode.Label()
 	if w.ViewMode == sim.ViewTilted {
 		// v0.10.6+: surface θ in degrees when the player has nudged it
-		// off the default via shift+↑/↓. Plain "view: tilted" stays
-		// the at-default form; "view: tilted 30°" cues that the value
+		// off the default via shift+↑/↓. Plain "view: Tilted" stays
+		// the at-default form; "view: Tilted 30°" cues that the value
 		// is non-default (useful when triaging player reports of
 		// "the angle is wrong").
 		//
 		// v0.10.7+: append "/anchor" when the launch-anchor is active
 		// (apoAlt ≤ 200 km), and always show θ in that form
-		// ("view: tilted 25°/anchor") so the player has a visible
+		// ("view: Tilted 25°/anchor") so the player has a visible
 		// readout of both axes during launch.
 		el, ok := activeCraftElements(w)
 		_, anchored := sim.LaunchAnchorPhi(w.ActiveCraft(), el, ok)
@@ -1495,7 +1495,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// decision 6 (grilled 2026-09-06): "declutter is named in two places
 	// while it is on" — appended after every other conditional above so
 	// it always trails whatever the label already says (e.g. "view:
-	// tilted 30°/anchor · declutter"). Gone the instant F2 clears
+	// Tilted 30°/anchor · declutter"). Gone the instant F2 clears
 	// v.declutter.
 	if v.declutter {
 		viewLabel += " · declutter"
@@ -1615,7 +1615,14 @@ func (v *OrbitView) declutterTagText() (plain, rendered string) {
 func warpRateText(w *sim.World) string {
 	if secs, ok := w.AutoWarpSecondsToTarget(); ok {
 		dur := time.Duration(secs * float64(time.Second))
-		return fmt.Sprintf("AUTO →%.0fx  %s", w.EffectiveWarp(), readout.Duration(dur))
+		// R4 #3: Duration is days-and-hours with no upper unit, so a node
+		// years out would outgrow warpFieldWidth. Past 999 days the exact
+		// figure is noise; cap it.
+		eta := readout.Duration(dur)
+		if dur >= 1000*24*time.Hour {
+			eta = ">999d"
+		}
+		return fmt.Sprintf("AUTO →%.0fx  %s", w.EffectiveWarp(), eta)
 	}
 	reqWarp := w.Clock.Warp()
 	if eff := w.EffectiveWarp(); eff < reqWarp {
@@ -1627,7 +1634,8 @@ func warpRateText(w *sim.World) string {
 // warpFieldWidth is the fixed cell width reserved for the warp readout in
 // a title bar (#499). The widest common forms ("warp 100000x→100000x",
 // "AUTO →100000x  3d05h") are 20 cells; two more leave room for a
-// three-digit day count. Anything longer overflows rather than truncates.
+// three-digit day count. warpRateText caps the AUTO countdown at ">999d"
+// so the widest real form (22 cells) always fits.
 const warpFieldWidth = 22
 
 // warpField is warpRateText right-padded with spaces to warpFieldWidth

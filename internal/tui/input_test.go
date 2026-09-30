@@ -1,11 +1,13 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jasonfen/terminal-space-program/internal/keylayout"
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
 // TestNormalizeKeyQWERTZ — the ingest chokepoint (ADR 0022): a 'y' typed on a
@@ -46,5 +48,18 @@ func TestNormalizeKeyPassthrough(t *testing.T) {
 	up := tea.KeyMsg{Type: tea.KeyUp}
 	if got := normalizeKey(keylayout.QWERTZ, up); got.String() != up.String() {
 		t.Errorf("QWERTZ normalizeKey altered a special key %q → %q", up.String(), got.String())
+	}
+}
+
+// R4 #6: the keymap's `v` help text carries the same title-cased view names
+// the screen shows.
+func TestCycleViewHelpUsesScreenNames(t *testing.T) {
+	var names []string
+	for _, m := range sim.ProjectionViewModes {
+		names = append(names, m.Label())
+	}
+	got := DefaultKeymap().CycleView.Help().Desc
+	if want := "cycle view (" + strings.Join(names, " / ") + ")"; got != want {
+		t.Errorf("CycleView help = %q, want %q", got, want)
 	}
 }

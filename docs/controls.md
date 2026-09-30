@@ -156,7 +156,7 @@ Dvorak, and free per-key remapping aren't supported yet.
 | `+` / `-` | Zoom in / out. Zoom is remembered per focus |
 | `f` / `F` | Cycle what the camera follows, forward / back (whole system → each body → your vessel). Focusing a body your trajectory passes fits the camera to its sphere of influence so the capture curve fills the canvas. Also the way back from spectating another player |
 | `g` | Reset the camera to the whole system (clears any pan) |
-| `v` | Cycle the projection: tilted (default, a 3D-style perspective) → top → right → bottom → left → flat. The camera re-frames once when focus, view, or system changes and otherwise stays where you put it |
+| `v` | Cycle the projection: Tilted (default, a 3D-style perspective) → Top → Right → Bottom → Left → Orbit-flat. The camera re-frames once when focus, view, or system changes and otherwise stays where you put it |
 | `shift+↑` / `shift+↓` | Tilt the 3D view up / down (tilted view only) |
 | `shift+←` / `shift+→` | Yaw the 3D view left / right in 5° steps, wrapping (tilted view only) |
 | `o` | **Proximity view** for the last kilometres of a rendezvous: the target vessel sits dead centre, its direction of travel runs right, the planet is below, so you read your drift the way the physics works. Needs a vessel target; a `CLOSE RANGE` chip reminds you once within 35 km. Press again to return to the map as you left it |
