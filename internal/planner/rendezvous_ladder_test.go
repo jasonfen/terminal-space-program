@@ -1,8 +1,8 @@
 package planner
 
 import (
-	"fmt"
 	"errors"
+	"fmt"
 	"math"
 	"testing"
 
