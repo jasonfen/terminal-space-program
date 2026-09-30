@@ -97,35 +97,30 @@ func TestHoldRendezvousLeader_LargeAheadPaces(t *testing.T) {
 	}
 }
 
-// TestHoldRendezvousLeader_DeadbandScalesWithPartnerEffWarp is the
-// finding-1 regression guard (#412 review, auto_warp.go:780): the flat
-// rendezvousWaypointMinLead deadband is inert at any real coast warp —
-// see rendezvous_pace_deadband_test.go's harness for the full mechanism.
-// This pins the boundary directly: at partner.EffWarp = 100, an `ahead`
-// of 400 sim-seconds (100x the OLD flat 5s deadband, and comfortably
-// past rendezvousPaceCeilingSec=90 on its own) is pure plausible
-// staleness — Heartbeat(5s wall) * EffWarp(100) = 500s — and must not
-// pace; one second past the scaled deadband must.
-func TestHoldRendezvousLeader_DeadbandScalesWithPartnerEffWarp(t *testing.T) {
+// TestHoldRendezvousLeader_DeadbandIsConstantAtHighWarp is the #417 guard.
+// The peer's clock now arrives current (CoWarpPeersFrom extrapolates it),
+// so the deadband is a small honest constant at EVERY partner rate: the
+// old Heartbeat*EffWarp scaling (#414) made a partner at EffWarp 100
+// tolerate 500 sim-seconds of lead, which with a current clock is 500 s of
+// real divergence nobody paced. At partner.EffWarp = 100, one second past
+// rendezvousWaypointMinLead must pace, and exactly at it must not.
+func TestHoldRendezvousLeader_DeadbandIsConstantAtHighWarp(t *testing.T) {
 	w := pacedLeaderWorld(t)
-	partner := &CoWarpPeer{
-		Owner: harnessOwnerB, Handle: "bob", EffWarp: 100,
-		SubspaceTime: w.Clock.SimTime.Add(-400 * time.Second),
-	}
+	partner := &CoWarpPeer{Owner: harnessOwnerB, Handle: "bob", EffWarp: 100}
+
+	partner.SubspaceTime = w.Clock.SimTime.Add(-rendezvousWaypointMinLead)
 	w.RendezvousHold, w.RendezvousPaced, w.RendezvousPaceWarp = false, false, 0
 	w.holdRendezvousLeader(partner)
 	if w.RendezvousPaced {
-		t.Errorf("RendezvousPaced = true for 400s ahead at partner.EffWarp=100 (deadband=%v) — "+
-			"that's within one relay.Heartbeat of plausible staleness at this warp, not genuine divergence",
-			rendezvousPaceHeartbeatSec*partner.EffWarp)
+		t.Error("RendezvousPaced = true exactly at the constant deadband at EffWarp 100 (guard is <=)")
 	}
 
-	deadband := rendezvousPaceHeartbeatSec * partner.EffWarp // 500
-	partner.SubspaceTime = w.Clock.SimTime.Add(-time.Duration(deadband+1) * time.Second)
+	partner.SubspaceTime = w.Clock.SimTime.Add(-rendezvousWaypointMinLead - time.Second)
 	w.RendezvousHold, w.RendezvousPaced, w.RendezvousPaceWarp = false, false, 0
 	w.holdRendezvousLeader(partner)
 	if !w.RendezvousPaced {
-		t.Errorf("RendezvousPaced = false one second past the scaled deadband (%v) — want true", deadband)
+		t.Errorf("RendezvousPaced = false one second past the constant deadband at EffWarp 100: "+
+			"the deadband must not scale with the partner's rate now that its clock is current")
 	}
 }
 
