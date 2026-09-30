@@ -987,12 +987,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		}
 		// VAB (v0.24 / ADR 0029): the Vehicle Assembly builder owns its own
-		// keymap (palette / stack / save / load); esc backs out to orbit.
+		// keymap (palette / stack / save / load); esc backs out to the pause
+		// menu it was opened from (#501), a second esc reaches orbit.
 		// Handled here so its keys don't fall through to the orbit flight
 		// controls.
 		if a.active == screenVAB {
 			if a.vab.HandleKey(m.String()) == screens.VABActionCancel {
-				a.active = screenOrbit
+				a.menu.Reset()
+				a.active = screenMenu
 			}
 			return a, nil
 		}
@@ -3166,7 +3168,7 @@ func (a *App) View() string {
 	case screenControls:
 		base = a.controls.Render(a.layout, a.width)
 	case screenVAB:
-		base = a.vab.Render(a.width)
+		base = a.vab.Render(a.width, a.height)
 	case screenSaves:
 		base = a.saves.Render(a.width, a.height)
 	case screenBoss:
