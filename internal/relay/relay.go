@@ -9,6 +9,7 @@
 package relay
 
 import (
+	"encoding/json"
 	"sync"
 	"time"
 
@@ -262,4 +263,29 @@ func (s *Store) Subscribe() (<-chan CraftReport, func()) {
 		defer s.mu.Unlock()
 		delete(s.subs, id)
 	}
+}
+
+// UnmarshalJSON decodes a CraftReport, also accepting the pre-rename
+// rendezvous_meeting_place / rendezvous_meeting_laps keys (the vocabulary
+// settled on "rendezvous"), so a report from an older build still carries
+// its chosen orbit and lap count. The new keys win when both are present.
+// Encoding always writes the new keys. Remove the legacy read one release
+// after this ships.
+func (r *CraftReport) UnmarshalJSON(b []byte) error {
+	type plain CraftReport
+	aux := struct {
+		*plain
+		LegacyOrbit string `json:"rendezvous_meeting_place"`
+		LegacyLaps  int    `json:"rendezvous_meeting_laps"`
+	}{plain: (*plain)(r)}
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	if r.RendezvousOrbit == "" {
+		r.RendezvousOrbit = aux.LegacyOrbit
+	}
+	if r.RendezvousLaps == 0 {
+		r.RendezvousLaps = aux.LegacyLaps
+	}
+	return nil
 }
