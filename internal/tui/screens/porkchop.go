@@ -406,3 +406,6 @@ func linspace(start, end float64, n int) []float64 {
 	}
 	return out
 }
+
+// TargetIdx is the system body index the plot was loaded for.
+func (p *Porkchop) TargetIdx() int { return p.targetIdx }

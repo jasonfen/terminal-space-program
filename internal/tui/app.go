@@ -3425,8 +3425,8 @@ func (a *App) doPlanRendezvous() {
 	}
 }
 
-// doOpenPorkchop executes `P`: open the porkchop plot for the selected
-// body. Returns true when it actually opened (so callers know whether
+// doOpenPorkchop executes `P`: open the porkchop plot for the TARGET
+// body (#502). Returns true when it actually opened (so callers know whether
 // to also tear down whatever screen they were leaving). See
 // doPlanTransfer's doc for why this exists as a standalone method.
 func (a *App) doOpenPorkchop() bool {
@@ -3438,11 +3438,14 @@ func (a *App) doOpenPorkchop() bool {
 		// the same one-phrase treatment.
 		a.refuse("porkchop", "vessel not in this system")
 		return false
-	case a.selectedBody <= 0:
-		a.refuse("porkchop", "no body selected")
-		return false
 	default:
-		a.porkchop.Load(a.world, a.selectedBody)
+		// #502: Target wins. The body cursor (h/l) feeds i, not P.
+		idx, reason, ok := a.world.PorkchopTarget()
+		if !ok {
+			a.refuse("porkchop", reason)
+			return false
+		}
+		a.porkchop.Load(a.world, idx)
 		a.active = screenPorkchop
 		return true
 	}

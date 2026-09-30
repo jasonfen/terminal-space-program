@@ -1164,7 +1164,7 @@ type quickPlanRow struct {
 // apply — CraftVisibleHere, World.Target, ResolveTargetCraft,
 // HasRefinablePlan — so a row's dimmed reason never drifts from what
 // actually happens when the key is pressed. selectedBody is the App's
-// body cursor (not World state), needed for [P]'s "no body selected"
+// body cursor (not World state), kept for callers; [P] now follows the target
 // guard.
 func quickPlanRows(w *sim.World, selectedBody int) []quickPlanRow {
 	visible := w.CraftVisibleHere()
@@ -1215,10 +1215,13 @@ func quickPlanRows(w *sim.World, selectedBody int) []quickPlanRow {
 	switch {
 	case !visible:
 		p.reason = "vessel not in this system"
-	case selectedBody <= 0:
-		p.reason = "no body selected"
 	default:
-		p.ok = true
+		// #502: P plots the TARGET body, same guard as the key.
+		if _, reason, ok := w.PorkchopTarget(); ok {
+			p.ok = true
+		} else {
+			p.reason = reason
+		}
 	}
 	rows = append(rows, p)
 
