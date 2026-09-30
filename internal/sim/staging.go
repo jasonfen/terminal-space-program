@@ -12,6 +12,7 @@ package sim
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
@@ -130,6 +131,26 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 	w.stampCraftID(jettisoned) // the jettisoned stage is a new vessel (ADR 0012)
 	w.Crafts = append(w.Crafts, jettisoned)
 	jettisonedIdx = len(w.Crafts) - 1
+
+	// #467: a stage shed moments after another spawns at the same offset and
+	// push, so the two sit inside each other's docking gates and checkDocking
+	// fused them ("docked with S-IVB-1, now 1 vessel, 3 components"). Latch
+	// the new stage against every other shed stage still on the slate, the
+	// same re-arm-by-leaving latch Undock arms (#343).
+	var releasedAt time.Time
+	if w.Clock != nil {
+		releasedAt = w.Clock.SimTime
+	}
+	for _, o := range w.Crafts[:jettisonedIdx] {
+		if o == nil || o.Role != spacecraft.RoleJettisonedStage {
+			continue
+		}
+		w.localReArms = append(w.localReArms, localReArm{
+			idA: o.ID, idB: jettisoned.ID, releasedAt: releasedAt,
+			// Debris pair: no "press c to re-arm" chip for stages nobody flies.
+			noticed: true,
+		})
+	}
 
 	// Active craft stays in place (the player keeps flying the
 	// upper chain). Slate ordering: active idx is unchanged; the
