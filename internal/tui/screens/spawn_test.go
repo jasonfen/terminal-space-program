@@ -352,3 +352,20 @@ func TestSpawnSavedDesignRowCarriesMassAndThrust(t *testing.T) {
 	}
 	t.Fatalf("design row not rendered\n%s", out)
 }
+
+// R4 #8: a saved design whose parts no longer resolve says why it has no
+// stats, rather than a bare "N parts".
+func TestSpawnUnresolvableDesignSaysWhy(t *testing.T) {
+	designs := []spacecraft.Design{
+		{Loadout: spacecraft.LoadoutDef{ID: "ghost", Name: "Ghost Ship", Parts: []spacecraft.PartRef{{PartID: "gone-a"}, {PartID: "gone-b"}}}},
+		{Loadout: spacecraft.LoadoutDef{ID: "ghost1", Name: "Ghost One", Parts: []spacecraft.PartRef{{PartID: "gone-a"}}}},
+	}
+	s := NewSpawnCraft(Theme{})
+	s.Reset(nil, "", designs, "", nil)
+	out := s.Render(120, 0)
+	for _, want := range []string{"2 parts, missing from catalog", "1 part, missing from catalog"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("render lacks %q", want)
+		}
+	}
+}

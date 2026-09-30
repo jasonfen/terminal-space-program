@@ -957,7 +957,12 @@ func (s *SpawnCraft) craftTypeLines() (lines []widgets.WindowLine, cursorLine in
 		if idx == s.loadoutIdx {
 			cursorLine = len(lines)
 		}
-		row := fmt.Sprintf("✎ %s  saved design  — %d parts", d.Name(), len(d.Loadout.Parts))
+		// R4 #8: an unresolvable design has no stats to show; say why.
+		noun := "parts"
+		if len(d.Loadout.Parts) == 1 {
+			noun = "part"
+		}
+		row := fmt.Sprintf("✎ %s  saved design  — %d %s, missing from catalog", d.Name(), len(d.Loadout.Parts), noun)
 		if ds := s.designStagesAt(idx - s.visibleCatalogCount() - 1); len(ds) > 0 {
 			row = fmt.Sprintf("✎ %s  saved design  — %s", d.Name(), stagesSummary(ds))
 		}
