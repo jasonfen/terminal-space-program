@@ -3,6 +3,7 @@ package sim
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -497,6 +498,63 @@ func TestStageActivePreservesAttitudeOnDroppedStage(t *testing.T) {
 // re-arm latch between shed stages, checkDocking fused them into a composite
 // ("docked with S-IVB-1, now 1 vessel, 3 components" in lunar orbit).
 func TestJettisonedStagesDoNotRedock(t *testing.T) {
+	doubleStage := func(t *testing.T) *World {
+		t.Helper()
+		w, err := NewWorld()
+		if err != nil {
+			t.Fatalf("NewWorld: %v", err)
+		}
+		saturn := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
+		saturn.Primary = w.Crafts[0].Primary
+		saturn.State = w.Crafts[0].State
+		w.Crafts[0] = saturn
+		w.ActiveCraftIdx = 0
+		crewTendActive(w)
+		for n := 0; n < 2; n++ {
+			if _, _, err := w.StageActive(0); err != nil {
+				t.Fatalf("StageActive #%d: %v", n+1, err)
+			}
+		}
+		if len(w.Crafts) != 3 {
+			t.Fatalf("post-stage slate count: got %d, want 3", len(w.Crafts))
+		}
+		return w
+	}
+	assertApart := func(t *testing.T, w *World, label string) {
+		t.Helper()
+		for k := 0; k < 3; k++ {
+			if _, _, docked := w.checkDocking(); docked {
+				t.Fatalf("%s: shed stages re-docked; slate now %d vessels", label, len(w.Crafts))
+			}
+		}
+		if w.LastLocalReArmRefusal != nil {
+			t.Errorf("%s: debris pair raised a re-arm chip: %+v", label, w.LastLocalReArmRefusal)
+		}
+		if len(w.Crafts) != 3 {
+			t.Errorf("%s: slate count after checkDocking: got %d, want 3", label, len(w.Crafts))
+		}
+	}
+
+	t.Run("immediately", func(t *testing.T) {
+		assertApart(t, doubleStage(t), "fresh")
+	})
+	t.Run("past ReArmCeiling", func(t *testing.T) {
+		w := doubleStage(t)
+		assertApart(t, w, "fresh")
+		w.Clock.SimTime = w.Clock.SimTime.Add(ReArmCeiling + time.Minute)
+		assertApart(t, w, "after ceiling")
+	})
+	t.Run("after load drops latches", func(t *testing.T) {
+		w := doubleStage(t)
+		w.localReArms = nil // what a save/load does: latches are transient
+		assertApart(t, w, "after load")
+	})
+}
+
+// TestJettisonedStageCanStillDockWithFlownVessel: only debris-debris is
+// excluded from docking; a shed stage next to a vessel someone flies still
+// fuses (a deliberate rendezvous with a spent stage stays possible).
+func TestJettisonedStageCanStillDockWithFlownVessel(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
@@ -507,24 +565,12 @@ func TestJettisonedStagesDoNotRedock(t *testing.T) {
 	w.Crafts[0] = saturn
 	w.ActiveCraftIdx = 0
 	crewTendActive(w)
-
-	for n := 0; n < 2; n++ {
-		if _, _, err := w.StageActive(0); err != nil {
-			t.Fatalf("StageActive #%d: %v", n+1, err)
-		}
+	if _, jIdx, err := w.StageActive(0); err != nil {
+		t.Fatalf("StageActive: %v", err)
+	} else {
+		w.Crafts[jIdx].State = w.Crafts[0].State // co-located, zero relative velocity
 	}
-	if len(w.Crafts) != 3 {
-		t.Fatalf("post-stage slate count: got %d, want 3", len(w.Crafts))
-	}
-	for k := 0; k < 3; k++ {
-		if _, _, docked := w.checkDocking(); docked {
-			t.Fatalf("tick %d: shed stages re-docked; slate now %d vessels", k, len(w.Crafts))
-		}
-	}
-	if w.LastLocalReArmRefusal != nil {
-		t.Errorf("debris pair raised a re-arm chip: %+v", w.LastLocalReArmRefusal)
-	}
-	if len(w.Crafts) != 3 {
-		t.Errorf("slate count after checkDocking: got %d, want 3", len(w.Crafts))
+	if _, _, docked := w.checkDocking(); !docked {
+		t.Fatalf("shed stage co-located with the flown vessel did not dock")
 	}
 }

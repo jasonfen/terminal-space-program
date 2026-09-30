@@ -640,6 +640,14 @@ func (w *World) checkDocking() (int, int, bool) {
 			if a.Landed || b.Landed {
 				continue
 			}
+			// #467: debris never docks. Stages shed in succession spawn at the
+			// same offset and push, so they sit inside each other's gates
+			// forever; nobody flies them and a fused wreck gains nothing. A
+			// shed stage can still dock with any other vessel. Unlike a
+			// re-arm latch this has no ceiling and survives save/load.
+			if a.Role == spacecraft.RoleJettisonedStage && b.Role == spacecraft.RoleJettisonedStage {
+				continue
+			}
 			dr := a.State.R.Sub(b.State.R)
 			if dr.Norm() > DockingDistM {
 				continue
