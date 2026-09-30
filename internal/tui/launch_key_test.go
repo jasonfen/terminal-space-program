@@ -144,3 +144,24 @@ func TestLaunchAndProximityToggleRenderAtMinTerminalSize(t *testing.T) {
 		t.Errorf("ended the round trip still inside a jump view: %s", a.world.ViewMode)
 	}
 }
+
+// TestManualLaunchToggleFlashNamesOnlyTheView (#468): a manual [V] out of
+// the launch view says which view you are back on and nothing about orbit:
+// ORBIT READY belongs to NAVIGATION's title at the Orbit Floor, not to a
+// view toggle on the pad or after a crash.
+func TestManualLaunchToggleFlashNamesOnlyTheView(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.world.ViewMode = sim.ViewTop
+	pressV(a)
+	pressV(a)
+	a.Update(sim.TickMsg{})
+	if strings.Contains(strings.ToUpper(a.statusMsg), "ORBIT READY") {
+		t.Errorf("manual [V] flashed %q, must not claim ORBIT READY", a.statusMsg)
+	}
+	if !strings.Contains(a.statusMsg, "top") {
+		t.Errorf("manual [V] flash %q should name the view returned to (top)", a.statusMsg)
+	}
+}

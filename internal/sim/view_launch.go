@@ -152,7 +152,7 @@ func (w *World) handleActiveCraftSwitch(newActive *spacecraft.Spacecraft) {
 }
 
 // LaunchReleaseEvent records a ViewLaunch session ending so the App's
-// status flash can surface a `"ORBIT READY — returning to <prev view>"`
+// status flash can surface a `"launch view off, back on the <prev view> view"`
 // toast. Same shape as LastDockEvent — App reads and clears.
 type LaunchReleaseEvent struct {
 	PrevView string
@@ -187,7 +187,7 @@ func (w *World) releaseLaunchSession() {
 // T0/trail/MaxQ — so a manual jump and an auto-route land on an
 // identical session once you're in the view. Leaving reuses
 // releaseLaunchSession, whose LastLaunchReleaseEvent already surfaces
-// the "ORBIT READY — returning to X" toast on the next Tick (the same
+// the "launch view off, back on the X view" toast on the next Tick (the same
 // plumbing the switch-triggered release already uses), so this toggle
 // only has to speak for entry and refusal.
 func (w *World) ToggleLaunchView() (entered bool, refusal string) {

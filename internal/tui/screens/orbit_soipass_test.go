@@ -246,3 +246,22 @@ func TestSOIPassChipShowsPlannedWithNode(t *testing.T) {
 		t.Errorf("expected a dual-arc 'planned' row with a node planted:\n%s", out)
 	}
 }
+
+// TestSOIPassChipWithheldWhenCrashed (#464): a wreck has no encounter to
+// report, so SOI PASS must not render perilune 0 m / TCA T+0s for it. Same
+// rule as ADR 0051 rule C for TARGET's encounter cells.
+func TestSOIPassChipWithheldWhenCrashed(t *testing.T) {
+	v := newSOIPassTestView()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	setupMoonCoast(t, w)
+	if !strings.Contains(v.Render(w, 0, 200, 60), "SOI PASS") {
+		t.Fatal("precondition: the coast must show SOI PASS before the crash")
+	}
+	w.ActiveCraft().Crashed = true
+	if out := v.Render(w, 0, 200, 60); strings.Contains(out, "SOI PASS") {
+		t.Errorf("a crashed vessel must not show a SOI PASS chip:\n%s", out)
+	}
+}

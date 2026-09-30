@@ -338,11 +338,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.flash(fmt.Sprintf("docked with %s — now 1 vessel, %d components", e.PartnerName, e.ComponentCount))
 			a.world.LastDockEvent = nil
 		}
-		// v0.11.0+: ViewLaunch switch-end release toast (ADR 0021 D
+		// v0.11.0+: ViewLaunch release toast, names only the view returned to (#468; ADR 0021 D
 		// retired the apoapsis-floor auto-release). Same flash
 		// surface as docking; cleared after one fire.
 		if e := a.world.LastLaunchReleaseEvent; e != nil {
-			a.flash(fmt.Sprintf("ORBIT READY — returning to %s", e.PrevView))
+			a.flash(fmt.Sprintf("launch view off, back on the %s view", e.PrevView))
 			a.world.LastLaunchReleaseEvent = nil
 		}
 		// #372: a same-World dock checkDocking refused because of a live
@@ -1522,7 +1522,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// only, same reasoning as ProximityView — it's a ViewMode of
 			// that screen's canvas, not a screen of its own. Leaving
 			// reuses releaseLaunchSession, whose LastLaunchReleaseEvent
-			// already surfaces the "ORBIT READY — returning to X" toast
+			// already surfaces the "launch view off, back on the X view" toast
 			// on the next Tick (the same plumbing the switch-triggered
 			// release uses), so only entry and refusal need a toast here.
 			if a.active == screenOrbit {
