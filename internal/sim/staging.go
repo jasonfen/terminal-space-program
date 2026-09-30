@@ -147,6 +147,8 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 		}
 		w.localReArms = append(w.localReArms, localReArm{
 			idA: o.ID, idB: jettisoned.ID, releasedAt: releasedAt,
+			// Debris pair: no "press c to re-arm" chip for stages nobody flies.
+			noticed: true,
 		})
 	}
 

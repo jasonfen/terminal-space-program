@@ -521,6 +521,9 @@ func TestJettisonedStagesDoNotRedock(t *testing.T) {
 			t.Fatalf("tick %d: shed stages re-docked; slate now %d vessels", k, len(w.Crafts))
 		}
 	}
+	if w.LastLocalReArmRefusal != nil {
+		t.Errorf("debris pair raised a re-arm chip: %+v", w.LastLocalReArmRefusal)
+	}
 	if len(w.Crafts) != 3 {
 		t.Errorf("slate count after checkDocking: got %d, want 3", len(w.Crafts))
 	}
