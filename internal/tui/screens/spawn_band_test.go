@@ -37,7 +37,7 @@ func bandTestBodies() []bodies.CelestialBody {
 }
 
 func resetWithBand(s *SpawnCraft, cov func(string, float64, float64) (float64, bool)) {
-	s.Reset(bandTestBodies(), "earth", nil, "", cov)
+	s.Reset(bandTestBodies(), "earth", nil, "", "", cov)
 }
 
 func TestSpawnFormFlagsDegradedBand(t *testing.T) {
@@ -71,7 +71,7 @@ func TestSpawnFormOutOfReachWording(t *testing.T) {
 
 func TestSpawnFormNoBandWarningWithoutSampler(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	s.Reset(bandTestBodies(), "earth", nil, "", "", nil)
 	setAltitude(t, s, 5000)
 	if out := s.Render(80, 0); strings.Contains(out, "degraded comms band") {
 		t.Errorf("no sampler injected → no claim made:\n%s", out)
@@ -97,7 +97,7 @@ func TestSpawnFormCrewedLoadoutNeverWarned(t *testing.T) {
 func TestSpawnFormPassesSelectedAntennaToSampler(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	var gotRange float64
-	s.Reset(bandTestBodies(), "earth", nil, "", func(bodyID string, altM, antennaRangeM float64) (float64, bool) {
+	s.Reset(bandTestBodies(), "earth", nil, "", "", func(bodyID string, altM, antennaRangeM float64) (float64, bool) {
 		gotRange = antennaRangeM
 		return 1.0, true
 	})
@@ -129,7 +129,7 @@ func TestClampAndCommsWarningBothRenderAtLowCeilingBody(t *testing.T) {
 	// live at whatever altitude Enceladus's ceiling clamps the 500km
 	// default down to.
 	degraded := func(bodyID string, altM, antennaRangeM float64) (float64, bool) { return 0.5, true }
-	s.Reset(sys.Bodies, "enceladus", nil, "", degraded)
+	s.Reset(sys.Bodies, "enceladus", nil, "", "", degraded)
 
 	// An uncrewed craft with a direct (non-relay) antenna, so bandWarning
 	// has something to say (crewed craft are never comms-gated) and #283's

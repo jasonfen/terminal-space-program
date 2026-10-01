@@ -148,7 +148,7 @@ func NewSpawnCraft(th Theme) *SpawnCraft { return &SpawnCraft{theme: th} }
 // the parent-field cursor lands on initially (typically the active
 // craft's current primary). v0.8.2+: replaces the v0.8.2-pre
 // no-arg Reset.
-func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID string, designs []spacecraft.Design, systemScale bodies.ScaleClass, bandCoverage func(bodyID string, altM, antennaRangeM float64) (float64, bool)) {
+func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID string, designs []spacecraft.Design, systemScale bodies.ScaleClass, systemName string, bandCoverage func(bodyID string, altM, antennaRangeM float64) (float64, bool)) {
 	s.bandCoverage = bandCoverage
 	s.bandCache = map[bandCacheKey]float64{}
 	s.fieldIdx = 0
@@ -168,7 +168,7 @@ func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID 
 	s.systemScale = systemScale
 	s.showAll = false
 	s.posMode = posOrbit
-	s.latIdx = 1 // 28.6° KSC — matches the v0.9.2 launchpad default
+	s.latIdx = sim.DefaultLaunchSiteIndex(systemName) // KSC, except Lumen (equatorial, #461)
 	s.retrograde = false
 	s.parentBodies = systemBodies
 	s.parentIdx = 0

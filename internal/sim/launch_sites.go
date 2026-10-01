@@ -42,3 +42,34 @@ func LaunchSiteByName(name string) (LaunchSitePreset, bool) {
 	}
 	return LaunchSitePreset{}, false
 }
+
+// systemDefaultSiteKey maps a star system's name (lower-case) to the key of
+// its default launch site. Systems not listed here use KSC. Lumen mirrors
+// Kerbol, whose space centre sits on the equator, so a default Lumen launch
+// starts equatorial (#461): a plain ascent from Kern then arrives flat at
+// Cursor instead of in a 32 degree tilted orbit. This is a Go-side table on
+// purpose: a catalog field would move body_catalog_hash.
+var systemDefaultSiteKey = map[string]string{
+	"lumen": "Equator",
+}
+
+// DefaultLaunchSiteIndex returns the index into LaunchSites of the default
+// launch site for the named system (case-insensitive; "" is the default
+// system). Unlisted systems get KSC (index 1).
+func DefaultLaunchSiteIndex(systemName string) int {
+	key, ok := systemDefaultSiteKey[strings.ToLower(strings.TrimSpace(systemName))]
+	if !ok {
+		key = "KSC"
+	}
+	for i, s := range LaunchSites {
+		if s.Key == key {
+			return i
+		}
+	}
+	return 1
+}
+
+// DefaultLaunchSite is LaunchSites[DefaultLaunchSiteIndex(systemName)].
+func DefaultLaunchSite(systemName string) LaunchSitePreset {
+	return LaunchSites[DefaultLaunchSiteIndex(systemName)]
+}
