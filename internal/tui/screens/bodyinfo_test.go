@@ -17,7 +17,10 @@ func TestBodyInfoFooterNamesLiveKeys(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	out := NewBodyInfo(chipTestTheme()).Render(w, 0, 100, 40)
-	footer := out[strings.LastIndex(out, "\n")+1:]
+	// The last row is a blank the App overlays flashes on (#495); the footer
+	// is the last non-empty row.
+	footer := out[strings.LastIndex(strings.TrimRight(out, "\n"), "\n")+1:]
+	footer = strings.TrimRight(footer, "\n")
 	t.Logf("body info footer: %q", footer)
 
 	if !strings.Contains(footer, "[h/l]") {
@@ -28,6 +31,11 @@ func TestBodyInfoFooterNamesLiveKeys(t *testing.T) {
 	}
 	if strings.Contains(footer, "[q]") {
 		t.Errorf("footer still advertises [q] quit; q is radial+ here: %q", footer)
+	}
+	for _, k := range []string{"[t] target", "[H] transfer", "[P] porkchop"} {
+		if !strings.Contains(footer, k) {
+			t.Errorf("footer does not advertise %q: %q", k, footer)
+		}
 	}
 	if !strings.Contains(footer, "[esc]") {
 		t.Errorf("footer lost the [esc] back exit: %q", footer)
