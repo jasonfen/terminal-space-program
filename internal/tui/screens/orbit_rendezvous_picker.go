@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
@@ -47,6 +49,10 @@ type rendezvousPickerState struct {
 	rowIdx    int
 	ladder    planner.RendezvousLadder
 	ladderErr error
+	// now is the sim clock as last pushed by the App (SetRendezvousPickerNow);
+	// zero until the first push, which reads as "no time has passed since
+	// the ladder was solved". Rows are drawn as counting down from it.
+	now time.Time
 }
 
 // OpenRendezvousPicker opens the picker at the given Place with its already-
@@ -63,6 +69,31 @@ func (v *OrbitView) OpenRendezvousPicker(place planner.RendezvousOrbit, ladder p
 		ladderErr: ladderErr,
 		rowIdx:    rendezvousPickerFirstOkRow(ladder),
 	}
+}
+
+// SetRendezvousPickerNow pushes the sim clock so the chip's burn and wait
+// columns count down while the pilot reads (the rows were solved at
+// ladder.SolvedAt; TBurn and TArrival count from there). Display only: the
+// plant reads the row's own epoch, never this.
+func (v *OrbitView) SetRendezvousPickerNow(now time.Time) {
+	if v.rendezvousPicker.open {
+		v.rendezvousPicker.now = now
+	}
+}
+
+// RendezvousPickerLadder returns the ladder the pilot is reading, with the
+// SolvedAt stamp the plant needs to honour the rows' burn epoch (#418).
+func (v *OrbitView) RendezvousPickerLadder() planner.RendezvousLadder {
+	return v.rendezvousPicker.ladder
+}
+
+// RendezvousPickerSelectedRow returns the highlighted row. ok=false when
+// the picker is closed or the Place refused (no rows).
+func (v *OrbitView) RendezvousPickerSelectedRow() (planner.RendezvousBurnOption, bool) {
+	if !v.rendezvousPicker.open {
+		return planner.RendezvousBurnOption{}, false
+	}
+	return v.rendezvousPicker.selectedRow()
 }
 
 func rendezvousPickerFirstOkRow(ladder planner.RendezvousLadder) int {
@@ -134,6 +165,7 @@ func (v *OrbitView) SetRendezvousPickerLadder(place planner.RendezvousOrbit, lad
 	v.rendezvousPicker.ladder = ladder
 	v.rendezvousPicker.ladderErr = ladderErr
 	v.rendezvousPicker.rowIdx = rendezvousPickerFirstOkRow(ladder)
+	v.rendezvousPicker.now = time.Time{}
 }
 
 // RendezvousPickerUp / RendezvousPickerDown walk the Lap Ladder rows. Clamped,
@@ -189,7 +221,17 @@ func (v *OrbitView) buildRendezvousPickerChip() []string {
 		if i == mp.rowIdx {
 			marker = ">"
 		}
-		wait := readout.Duration(time.Duration(row.TArrival * float64(time.Second)))
+		// Rows were solved at ladder.SolvedAt; burn and wait count down
+		// from there as the clock runs while the pilot reads (G4 Q2).
+		var elapsed float64
+		if !mp.now.IsZero() && !mp.ladder.SolvedAt.IsZero() {
+			elapsed = mp.now.Sub(mp.ladder.SolvedAt).Seconds()
+		}
+		burn := readout.Countdown(time.Duration((row.TBurn - elapsed) * float64(time.Second)))
+		wait := readout.Duration(time.Duration((row.TArrival - elapsed) * float64(time.Second)))
+		if row.TArrival <= 0 {
+			wait = readout.Duration(0)
+		}
 		var body string
 		if row.Ok {
 			// readout.DeltaV returns "N m/s" as one string; split the
@@ -198,9 +240,9 @@ func (v *OrbitView) buildRendezvousPickerChip() []string {
 			// many digits the contract's own precision rule gives a
 			// particular row's figure (TestRendezvousPickerChip_LadderColumnsAlign).
 			dvNum, dvUnit, _ := strings.Cut(readout.DeltaV(row.DV), " ")
-			body = fmt.Sprintf("%s %2d laps   %-8s %5s %s", marker, row.Laps, wait, dvNum, dvUnit)
+			body = fmt.Sprintf("%s %2d laps  burn %s  wait %s %5s %s", marker, row.Laps, padRightCells(burn, 7), padRightCells(wait, 6), dvNum, dvUnit)
 		} else {
-			body = fmt.Sprintf("%s %2d laps   %-8s (%s)", marker, row.Laps, wait, row.Reason)
+			body = fmt.Sprintf("%s %2d laps  burn %s  wait %s (%s)", marker, row.Laps, padRightCells(burn, 7), padRightCells(wait, 6), row.Reason)
 		}
 		if i == mp.rowIdx {
 			lines = append(lines, v.theme.Primary.Render(body))
@@ -221,4 +263,13 @@ func (mp rendezvousPickerState) selectedRow() (planner.RendezvousBurnOption, boo
 		return planner.RendezvousBurnOption{}, false
 	}
 	return mp.ladder.Rows[mp.rowIdx], true
+}
+
+// padRightCells pads s with spaces to n terminal cells, measured with
+// lipgloss (never %-Ns, which counts bytes).
+func padRightCells(s string, n int) string {
+	if w := lipgloss.Width(s); w < n {
+		return s + strings.Repeat(" ", n-w)
+	}
+	return s
 }

@@ -337,35 +337,19 @@ func TestRecommendRendezvousLadder_NonCoplanarRefused(t *testing.T) {
 	}
 }
 
-// TestRecommendRendezvousLadder_Crossing_AlwaysRefuses — review round 2
-// regression revert: PR #412's attempt to anchor rendezvousLadderCore's
-// solve at the natural crossing instant (tCA) produced rows whose
-// DV/BurnDir were only correct for a burn executed AT tCA, while
-// internal/sim.PlanRendezvousBurn always plants the resulting node to
-// fire at TriggerTime = now + a slew lead — not at tCA. The two times
-// coincide only by chance, so the planted burn routinely missed by
-// megametres (see ErrRendezvousCrossingNotImplemented's doc comment for
-// the measured numbers, and internal/sim/rendezvous_burn_test.go for the
-// sim-layer regression test against the actual plant path). Reverted
-// rather than fixed forward: RendezvousCrossing now refuses
-// unconditionally — ErrRendezvousNoCrossing when no natural crossing
-// exists within the search horizon, ErrRendezvousCrossingNotImplemented
-// when one does but there is still no solver for it. Neither path ever
-// returns a ladder with rows.
-//
-// This fixture (a small phase offset on matched circular orbits) is
-// exactly the case that used to legitimately produce a plantable
-// RendezvousCrossing row (the natural crossing is ~"now" there) — the
-// case a partial fix could most easily miss.
-func TestRecommendRendezvousLadder_Crossing_AlwaysRefuses(t *testing.T) {
+// TestRecommendRendezvousLadder_Crossing_CoincidentOrbitsRefuse: a matched
+// circular pair shares EVERY point, so there is no single crossing to coast
+// to; it refuses as no-crossing (their orbit / your orbit are the tools), and
+// never returns rows or the retired not-implemented decoy (PR #412 / #415).
+func TestRecommendRendezvousLadder_Crossing_CoincidentOrbitsRefuse(t *testing.T) {
 	r := rendezvousCalibrationRadius
 	mu := muEarth
 	target := circularStateAtRadius(r, 0, mu)
-	chaser := circularStateAtRadius(r, -0.5*math.Pi/180, mu) // small offset — NextClosestApproach converges, a natural crossing exists
+	chaser := circularStateAtRadius(r, -0.5*math.Pi/180, mu)
 
 	ladder, err := RecommendRendezvousLadder(chaser, target, bodies.CelestialBody{}, mu, RendezvousCrossing, 4*3600, -1)
-	if !errors.Is(err, ErrRendezvousCrossingNotImplemented) {
-		t.Fatalf("err = %v, want ErrRendezvousCrossingNotImplemented (a natural crossing exists here, so this must be the not-implemented refusal, not ErrRendezvousNoCrossing)", err)
+	if !errors.Is(err, ErrRendezvousNoCrossing) {
+		t.Fatalf("err = %v, want ErrRendezvousNoCrossing", err)
 	}
 	if len(ladder.Rows) != 0 {
 		t.Fatalf("expected zero rows on a structural refusal, got %d: %+v", len(ladder.Rows), ladder.Rows)
@@ -536,5 +520,146 @@ func TestHolderTimeToPhaseWrapAroundIsNotAPeriodLate(t *testing.T) {
 		if got := holderTimeToPhase(h, hEl, mu, math.Pi/2, period); got <= 1 || got >= period {
 			t.Errorf("quarter-turn t0 = %.1f s, want within (1, %.0f)", got, period)
 		}
+	}
+}
+
+// rendezvousFlownCA applies the row's burn to the mover at the row's own
+// burn epoch (both states Kepler-coasted TBurn, no burn yet) and flies both
+// to TArrival with the independent Kepler stepper. Returns the separation.
+// This does NOT use the row's AchievableCA, so a solver that agrees only
+// with itself fails here.
+func rendezvousFlownCA(t *testing.T, mover, holder orbital.Vec3State, row RendezvousBurnOption, mu float64) float64 {
+	t.Helper()
+	m, ok1 := physics.KeplerStep(physics.StateVector{R: mover.R, V: mover.V}, mu, row.TBurn)
+	h, ok2 := physics.KeplerStep(physics.StateVector{R: holder.R, V: holder.V}, mu, row.TBurn)
+	if !ok1 || !ok2 {
+		t.Fatal("coast to burn failed")
+	}
+	m.V = m.V.Add(row.BurnDir.Scale(row.DV))
+	m2, ok3 := physics.KeplerStep(m, mu, row.FlightSec())
+	h2, ok4 := physics.KeplerStep(h, mu, row.FlightSec())
+	if !ok3 || !ok4 {
+		t.Fatal("flight to rendezvous failed")
+	}
+	return m2.R.Sub(h2.R).Norm()
+}
+
+// G4 Q2: every row carries its own burn time. With a 5 min lead each row
+// burns 300 s out, wait counts from now, and the burn flown at THAT epoch
+// (not now) closes the gap.
+func TestRecommendRendezvousLadderAfter_RowsCarryTBurn(t *testing.T) {
+	r := rendezvousCalibrationRadius
+	mu := muEarth
+	target := circularStateAtRadius(r, 0, mu)
+	chaser := circularStateAtRadius(r, -math.Pi/2, mu)
+	const lead = 300.0
+
+	ladder, err := RecommendRendezvousLadderAfter(chaser, target, bodies.CelestialBody{}, mu, RendezvousTheirOrbit, 4*3600, -1, lead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok := 0
+	for _, row := range ladder.Rows {
+		if !row.Ok {
+			continue
+		}
+		ok++
+		if row.TBurn != lead {
+			t.Errorf("laps=%d TBurn=%.1f want %.1f", row.Laps, row.TBurn, lead)
+		}
+		if row.TArrival <= row.TBurn {
+			t.Errorf("laps=%d TArrival=%.1f must count from now and exceed TBurn=%.1f", row.Laps, row.TArrival, row.TBurn)
+		}
+		if ca := rendezvousFlownCA(t, chaser, target, row, mu); ca > 5_000 {
+			t.Errorf("laps=%d flown CA=%.0f m, want <5 km (row burn at its own TBurn)", row.Laps, ca)
+		}
+	}
+	if ok == 0 {
+		t.Fatalf("no Ok rows: %+v", ladder.Rows)
+	}
+}
+
+// ellipseState builds a coplanar (XY) state at true anomaly nu on an orbit
+// with periapsis rp, eccentricity e, periapsis direction angle omega.
+func ellipseState(rp, e, omega, nu, mu float64) orbital.Vec3State {
+	p := rp * (1 + e)
+	r := p / (1 + e*math.Cos(nu))
+	vr := math.Sqrt(mu/p) * e * math.Sin(nu)
+	vt := math.Sqrt(mu/p) * (1 + e*math.Cos(nu))
+	th := omega + nu
+	c, s := math.Cos(th), math.Sin(th)
+	return orbital.Vec3State{
+		R: orbital.Vec3{X: r * c, Y: r * s},
+		V: orbital.Vec3{X: vr*c - vt*s, Y: vr*s + vt*c},
+	}
+}
+
+// distanceToOrbit is the minimum distance from point pos to the orbit of
+// state s, sampled finely over one period.
+func distanceToOrbit(s orbital.Vec3State, pos orbital.Vec3, mu float64) float64 {
+	P := orbitalPeriod(physics.StateVector{R: s.R, V: s.V}, mu)
+	best := math.Inf(1)
+	const n = 40000
+	for i := 0; i < n; i++ {
+		st, ok := physics.KeplerStep(physics.StateVector{R: s.R, V: s.V}, mu, P*float64(i)/n)
+		if !ok {
+			continue
+		}
+		if d := st.R.Sub(pos).Norm(); d < best {
+			best = d
+		}
+	}
+	return best
+}
+
+// G4 Q3 / #416: the crossing coasts to the TRUE intersection of the two
+// coplanar orbits and burns there. Two different-shape orbits (an ellipse
+// and a circle that cross it) with arbitrary phasing.
+func TestRecommendRendezvousLadderAfter_Crossing_BurnsAtTrueIntersection(t *testing.T) {
+	mu := muEarth
+	re := 6.371e6
+	mover := ellipseState(re+400e3, 0.12, 0.3, 1.1, mu) // perigee 400 km, apogee ~1900 km
+	holder := circularStateAtRadius(re+1100e3, 2.2, mu) // circle between peri and apo
+	const lead = 300.0
+
+	ladder, err := RecommendRendezvousLadderAfter(mover, holder, bodies.CelestialBody{}, mu, RendezvousCrossing, 4*3600, -1, lead)
+	if err != nil {
+		t.Fatalf("crossing refused: %v", err)
+	}
+	if !ladder.MoverIsA {
+		t.Errorf("crossing: active craft burns")
+	}
+	oks := 0
+	for _, row := range ladder.Rows {
+		if !row.Ok {
+			continue
+		}
+		oks++
+		if row.TBurn < lead-1e-6 {
+			t.Errorf("laps=%d TBurn=%.1f earlier than the lead %.1f", row.Laps, row.TBurn, lead)
+		}
+		// The burn point must sit ON the holder's orbit (an intersection).
+		m, _ := physics.KeplerStep(physics.StateVector{R: mover.R, V: mover.V}, mu, row.TBurn)
+		if d := distanceToOrbit(holder, m.R, mu); d > 5_000 {
+			t.Errorf("laps=%d burn point is %.0f m from the holder's orbit, want an intersection (<5 km)", row.Laps, d)
+		}
+		if ca := rendezvousFlownCA(t, mover, holder, row, mu); ca > 7_000 {
+			t.Errorf("laps=%d flown CA=%.0f m, want small", row.Laps, ca)
+		}
+	}
+	if oks == 0 {
+		t.Fatalf("no Ok crossing rows: %+v", ladder.Rows)
+	}
+}
+
+// Orbits that never cross (concentric, different radius) refuse as
+// no-crossing, not as the old not-implemented stub.
+func TestRecommendRendezvousLadderAfter_Crossing_NoIntersectionRefuses(t *testing.T) {
+	mu := muEarth
+	a := circularStateAtRadius(rendezvousCalibrationRadius, 0, mu)
+	b := circularStateAtRadius(rendezvousCalibrationRadius+300e3, 1, mu)
+	_, err := RecommendRendezvousLadderAfter(a, b, bodies.CelestialBody{}, mu, RendezvousCrossing, 4*3600, -1, 300)
+	if !errors.Is(err, ErrRendezvousNoCrossing) {
+		t.Fatalf("err=%v want ErrRendezvousNoCrossing", err)
 	}
 }

@@ -108,3 +108,17 @@ func (w *World) PlanRendezvousOrOpenPicker() (RendezvousKOutcome, error) {
 	// rung instead of refusing.
 	return RendezvousKOutcome{OpenPicker: true, Place: rendezvousKDefaultPlace, Ladder: ladder, LadderErr: lerr}, nil
 }
+
+// DropWarpForPlanning is what opening the Rendezvous Planner picker does to
+// the clock (G4 Q1b, #418): Selected Warp falls to 1x so the rows' ~5 min
+// lead is five real minutes, and a standing Auto-Warp to a burn is released
+// (it would otherwise re-raise the rate under the pilot). The clock keeps
+// running; there is no pause state. A rendezvous coast owns the rate by
+// design (the pilot cancels it with [/]), so it is left alone.
+func (w *World) DropWarpForPlanning() {
+	if w.rendezvousWarpEngaged() {
+		return
+	}
+	w.DisengageAutoWarp()
+	w.Clock.WarpIdx = 0
+}

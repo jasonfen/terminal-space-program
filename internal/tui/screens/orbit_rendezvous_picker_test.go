@@ -3,6 +3,7 @@ package screens
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
@@ -23,11 +24,11 @@ func rendezvousPickerTestLadder() planner.RendezvousLadder {
 		Place:    planner.RendezvousTheirOrbit,
 		MoverIsA: true,
 		Rows: []planner.RendezvousBurnOption{
-			{Laps: 2, Ok: true, DV: 696.6, TArrival: 15587, ArrivalSpeed: 12.5},
-			{Laps: 3, Ok: true, DV: 509.4, TArrival: 21255, ArrivalSpeed: 9.1},
-			{Laps: 5, Ok: false, Reason: "unaffordable", TArrival: 32592},
-			{Laps: 10, Ok: true, DV: 177.2, TArrival: 60932, ArrivalSpeed: 4.2},
-			{Laps: 20, Ok: true, DV: 91.8, TArrival: 117614, ArrivalSpeed: 2.0},
+			{Laps: 2, Ok: true, DV: 696.6, TBurn: 300, TArrival: 15587, ArrivalSpeed: 12.5},
+			{Laps: 3, Ok: true, DV: 509.4, TBurn: 300, TArrival: 21255, ArrivalSpeed: 9.1},
+			{Laps: 5, Ok: false, Reason: "unaffordable", TBurn: 300, TArrival: 32592},
+			{Laps: 10, Ok: true, DV: 177.2, TBurn: 300, TArrival: 60932, ArrivalSpeed: 4.2},
+			{Laps: 20, Ok: true, DV: 91.8, TBurn: 300, TArrival: 117614, ArrivalSpeed: 2.0},
 		},
 	}
 }
@@ -267,7 +268,7 @@ func TestRendezvousPickerChip_Render80x24(t *testing.T) {
 	// suspenders check that the picker doesn't independently blow past a
 	// sane width at the narrow floor.
 	for _, line := range v.buildRendezvousPickerChip() {
-		if w := lipgloss.Width(line); w > 40 {
+		if w := lipgloss.Width(line); w > 52 {
 			t.Errorf("rendezvous picker chip line implausibly wide (%d cols) at 80×24: %q", w, line)
 		}
 	}
@@ -302,9 +303,9 @@ func TestRendezvousPickerChip_Render80x24_Golden(t *testing.T) {
 		Place:    planner.RendezvousTheirOrbit,
 		MoverIsA: true,
 		Rows: []planner.RendezvousBurnOption{
-			{Laps: 2, Ok: true, DV: 696.6, TArrival: 15587, ArrivalSpeed: 12.5},
-			{Laps: 5, Ok: false, Reason: "unaffordable", TArrival: 32592},
-			{Laps: 20, Ok: true, DV: 91.8, TArrival: 117614, ArrivalSpeed: 2.0},
+			{Laps: 2, Ok: true, DV: 696.6, TBurn: 300, TArrival: 15587, ArrivalSpeed: 12.5},
+			{Laps: 5, Ok: false, Reason: "unaffordable", TBurn: 300, TArrival: 32592},
+			{Laps: 20, Ok: true, DV: 91.8, TBurn: 300, TArrival: 117614, ArrivalSpeed: 2.0},
 		},
 	}
 	v.OpenRendezvousPicker(planner.RendezvousTheirOrbit, ladder, nil)
@@ -312,9 +313,9 @@ func TestRendezvousPickerChip_Render80x24_Golden(t *testing.T) {
 	want := strings.Join([]string{
 		"RENDEZVOUS PLAN",
 		"  \u2190 their orbit \u2192",
-		">  2 laps   4h19m      697 m/s",
-		"   5 laps   9h03m    (unaffordable)",
-		"  20 laps   1d08h    91.80 m/s",
+		">  2 laps  burn T-5m00s  wait 4h19m    697 m/s",
+		"   5 laps  burn T-5m00s  wait 9h03m  (unaffordable)",
+		"  20 laps  burn T-5m00s  wait 1d08h  91.80 m/s",
 		"  arriving ~12.50 m/s",
 	}, "\n")
 
@@ -341,7 +342,7 @@ func TestRendezvousPickerChip_LadderColumnsAlign(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.OpenRendezvousPicker(planner.RendezvousTheirOrbit, rendezvousPickerTestLadder(), nil)
 
-	lapsAt, dvAt := -1, -1
+	lapsAt, dvAt, burnAt, waitAt := -1, -1, -1, -1
 	rows := 0
 	for _, l := range v.buildRendezvousPickerChip() {
 		i := strings.Index(l, " laps")
@@ -353,6 +354,14 @@ func TestRendezvousPickerChip_LadderColumnsAlign(t *testing.T) {
 			lapsAt = i
 		} else if i != lapsAt {
 			t.Errorf("ladder row %q: %q column starts at %d, want %d (ragged lap field)", l, " laps", i, lapsAt)
+		}
+		// burn / wait columns (G4 Q2): every row carries both.
+		if b, w := strings.Index(l, "burn "), strings.Index(l, "wait "); b < 0 || w < 0 {
+			t.Errorf("ladder row %q is missing its burn or wait column", l)
+		} else if burnAt < 0 {
+			burnAt, waitAt = b, w
+		} else if b != burnAt || w != waitAt {
+			t.Errorf("ladder row %q: burn/wait columns at %d/%d, want %d/%d (ragged)", l, b, w, burnAt, waitAt)
 		}
 		// Δv column, skipped for refusal rows which carry no m/s.
 		j := strings.Index(l, "m/s")
@@ -367,5 +376,33 @@ func TestRendezvousPickerChip_LadderColumnsAlign(t *testing.T) {
 	}
 	if rows < 4 {
 		t.Fatalf("test setup broken: only %d ladder rows found; the fixture must span one- and two-digit lap counts", rows)
+	}
+}
+
+// G4 Q2 (#418): the burn and wait columns count down as the clock runs
+// while the pilot reads, from the ladder's SolvedAt; the rows themselves do
+// not change.
+func TestRendezvousPickerChip_BurnAndWaitCountDown(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	ladder := rendezvousPickerTestLadder()
+	solved := time.Date(2000, 1, 5, 0, 0, 0, 0, time.UTC)
+	ladder.SolvedAt = solved
+	v.OpenRendezvousPicker(planner.RendezvousTheirOrbit, ladder, nil)
+
+	first := strings.Join(v.buildRendezvousPickerChip(), "\n")
+	if !strings.Contains(first, "burn T-5m00s") {
+		t.Fatalf("fresh rows should read burn T-5m00s:\n%s", first)
+	}
+	v.SetRendezvousPickerNow(solved.Add(2 * time.Minute))
+	later := strings.Join(v.buildRendezvousPickerChip(), "\n")
+	if !strings.Contains(later, "burn T-3m00s") {
+		t.Errorf("two minutes on, rows should read burn T-3m00s:\n%s", later)
+	}
+	if !strings.Contains(later, "wait 4h17m") {
+		t.Errorf("two minutes on, the 15587 s wait should read 4h17m:\n%s", later)
+	}
+	v.SetRendezvousPickerNow(solved.Add(6 * time.Minute))
+	if past := strings.Join(v.buildRendezvousPickerChip(), "\n"); !strings.Contains(past, "burn T+1m00s") {
+		t.Errorf("past the burn the row should read burn T+1m00s:\n%s", past)
 	}
 }
