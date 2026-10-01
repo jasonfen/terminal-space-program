@@ -107,7 +107,7 @@ var helpSections = []helpSection{
 		{"l", "move the body cursor next (info only, not [t] target)"},
 		{"h", "move the body cursor previous"},
 		{"tab", "switch star system"},
-		{"i", "body info screen"},
+		{"i", "body info screen (there [t] targets the shown body, then [H] / [P] plan to it)"},
 		{"j", "inspect — step a name highlight through what's on the map"},
 		{"enter", "inspect: make the highlighted thing your target (esc exits)"},
 		{"M", "missions ladder (program / objective progress)"},

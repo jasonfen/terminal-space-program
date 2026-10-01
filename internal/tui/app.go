@@ -1466,7 +1466,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// ignored without a visible target or a vessel to plan
 			// from — same state-guard shape as the K/E fix, so it gets
 			// the same one-phrase treatment.
-			if a.active == screenOrbit {
+			// #495 (B3): also reachable from body info, where [t] then
+			// [P] plots the shown body. Other screens never get here.
+			if a.active == screenOrbit || a.active == screenBodyInfo {
 				a.doOpenPorkchop()
 			}
 			return a, nil
@@ -1768,6 +1770,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(m, a.keys.CycleTarget):
+			if a.active == screenBodyInfo {
+				// #495 (B3): on body info `t` aims at the body SHOWN, not
+				// the nearest-first cycle step. A deliberate per-screen
+				// meaning; the map's cycle is unchanged.
+				a.doTargetShownBody()
+				return a, nil
+			}
 			a.world.CycleTarget(true)
 			a.world.RecordAction(missions.ActionCycleTarget) // ADR 0025 §7
 			return a, nil
@@ -3470,6 +3479,35 @@ func (a *App) doOpenPorkchop() bool {
 		a.active = screenPorkchop
 		return true
 	}
+}
+
+// doTargetShownBody executes `t` on the body info screen (#495): set the
+// Target to the body the screen shows. Refuses in one phrase where
+// SetTargetBody would clear (the star) or where the cycle never offers the
+// body (the one you orbit), and says so when it is already the Target.
+func (a *App) doTargetShownBody() {
+	sys := a.world.System()
+	idx := a.selectedBody
+	if idx < 0 || idx >= len(sys.Bodies) {
+		a.refuse("target", "no body selected")
+		return
+	}
+	b := sys.Bodies[idx]
+	switch {
+	case idx == 0:
+		a.refuse("target", "a star can't be targeted")
+		return
+	case a.world.Target.Kind == sim.TargetBody && a.world.Target.BodyIdx == idx:
+		a.refuse("target", b.EnglishName+" is already targeted")
+		return
+	}
+	if c := a.world.ActiveCraft(); c != nil && a.world.CraftVisibleHere() && c.Primary.ID == b.ID {
+		a.refuse("target", "you are orbiting "+b.EnglishName)
+		return
+	}
+	a.world.SetTargetBody(idx)
+	a.world.RecordAction(missions.ActionCycleTarget) // ADR 0025 §7
+	a.flash("target: " + b.EnglishName)
 }
 
 // doRefinePlan executes `R`: re-Lambert the pending arrival and plant a
