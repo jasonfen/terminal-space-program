@@ -237,9 +237,11 @@ func TestModalsOwningArrowsLeaveTrimsAlone(t *testing.T) {
 				if _, _, panicked := safeUpdate(a, keyType(kt)); panicked {
 					t.Fatalf("%v panicked in %s", kt, tc.name)
 				}
-			}
-			if c.PitchTrim != 0 || c.HeadingTrim != 0 {
-				t.Errorf("%s: arrows moved a trim: pitch %v heading %v", tc.name, c.PitchTrim, c.HeadingTrim)
+				// Checked after EVERY press: left/right and up/down would
+				// cancel each other in a single end-of-run check.
+				if c.PitchTrim != 0 || c.HeadingTrim != 0 {
+					t.Fatalf("%s: %v moved a trim: pitch %v heading %v", tc.name, kt, c.PitchTrim, c.HeadingTrim)
+				}
 			}
 		})
 	}
@@ -262,11 +264,11 @@ func TestRendezvousPickerKeepsPlainArrows(t *testing.T) {
 	if a.orbitView.RendezvousPickerOrbit() == start {
 		t.Error("plain right no longer walks the picker's Rendezvous Orbit")
 	}
-	for _, kt := range []tea.KeyType{tea.KeyLeft, tea.KeyUp, tea.KeyDown, tea.KeyShiftLeft, tea.KeyShiftUp} {
+	for _, kt := range []tea.KeyType{tea.KeyRight, tea.KeyLeft, tea.KeyUp, tea.KeyDown, tea.KeyShiftLeft, tea.KeyShiftUp} {
 		a.Update(keyType(kt))
-	}
-	if c.PitchTrim != 0 || c.HeadingTrim != 0 {
-		t.Errorf("picker arrows moved a trim: pitch %v heading %v", c.PitchTrim, c.HeadingTrim)
+		if c.PitchTrim != 0 || c.HeadingTrim != 0 {
+			t.Fatalf("picker: %v moved a trim: pitch %v heading %v", kt, c.PitchTrim, c.HeadingTrim)
+		}
 	}
 }
 
