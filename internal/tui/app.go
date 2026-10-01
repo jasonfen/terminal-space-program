@@ -182,6 +182,17 @@ type App struct {
 	// guard endFlightConfirm has (see the chat-open check above).
 	quickloadConfirm bool
 
+	// transposeConfirm / deployConfirm (ADR 0052 decision 7) gate `D`
+	// (Apollo transposition) and `Y` (release the top payload) behind the
+	// same y/n shape as endFlightConfirm: y/Y commits, n/N/esc cancels,
+	// every other key is swallowed. Both reshape the vessel with no undo.
+	// They are only armed once the verb has passed its refusal checks, so
+	// the player is never asked about something that would refuse anyway.
+	// deployConfirm carries the payload's name for the prompt ("" = unarmed).
+	// Session-only state, not persisted.
+	transposeConfirm bool
+	deployConfirm    string
+
 	// quitConfirm (#474) gates every quit path — ctrl+c and the menu's
 	// Quit row both arm it — behind one prompt with one wording: [y]
 	// saves into the autosave ring and quits, [n] quits writing
@@ -848,7 +859,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// gets the identical guard — the same hole would let ~ hide the F9
 		// prompt behind the chat band, where it survives the round-trip
 		// and fires on whatever key closes chat.
-		if a.active == screenOrbit && !a.endFlightConfirm && !a.quickloadConfirm && m.Type == tea.KeyRunes && len(m.Runes) == 1 && m.Runes[0] == '~' {
+		if a.active == screenOrbit && !a.endFlightConfirm && !a.quickloadConfirm && !a.transposeConfirm && a.deployConfirm == "" && m.Type == tea.KeyRunes && len(m.Runes) == 1 && m.Runes[0] == '~' {
 			if a.world.Session == nil {
 				// Solo: say so — a dead key reads as broken (v0.30 lesson).
 				a.toast("chat is multiplayer — host or join a session [O]")
@@ -876,6 +887,42 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.endFlightConfirm = false
 			case "n", "N", "esc":
 				a.endFlightConfirm = false
+			}
+			return a, nil
+		}
+		// transposeConfirm / deployConfirm intercepts (ADR 0052 decision 7):
+		// the endFlightConfirm shape. The verb is re-checked at commit time
+		// through the same sim method, so a state change between ask and
+		// answer (a tick that moved the stack) still refuses honestly.
+		if a.transposeConfirm {
+			switch m.String() {
+			case "y", "Y":
+				a.transposeConfirm = false
+				switch err := a.world.Transpose(a.world.ActiveCraftIdx); {
+				case err == nil:
+					a.world.RecordAction(missions.ActionTranspose) // ADR 0025 §7
+					a.flash("transposed: SM is firing core, press U to release the LM")
+				case errors.Is(err, sim.ErrTransposeNotReady):
+					a.flash("transpose: drop the launch vehicle first (stack must be Descent/Ascent/SM/CM)")
+				default:
+					a.flash(fmt.Sprintf("transpose failed: %v", err))
+				}
+			case "n", "N", "esc":
+				a.transposeConfirm = false
+			}
+			return a, nil
+		}
+		if a.deployConfirm != "" {
+			switch m.String() {
+			case "y", "Y":
+				a.deployConfirm = ""
+				if a.world.Deploy(a.world.ActiveCraftIdx) {
+					a.flash(fmt.Sprintf("deployed payload, %d vessels on the slate", len(a.world.Crafts)))
+				} else {
+					a.flash("deploy: no payload to release (carrier carries no docked payload)")
+				}
+			case "n", "N", "esc":
+				a.deployConfirm = ""
 			}
 			return a, nil
 		}
@@ -1747,22 +1794,25 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.Deploy):
 			// v0.23 / ADR 0028: release the top carried payload, keep flying the
-			// carrier (drop-and-continue). World.Deploy self-records the deploy
-			// action (so any caller emits it) — no second RecordAction here.
-			if a.world.Deploy(a.world.ActiveCraftIdx) {
-				a.flash(fmt.Sprintf("deployed payload — %d vessels on the slate", len(a.world.Crafts)))
-			} else {
+			// carrier (drop-and-continue). ADR 0052 decision 7: ask first, but
+			// only when Deploy would go ahead (refusal first, then the ask).
+			// World.Deploy self-records the deploy action (so any caller emits
+			// it) — no second RecordAction here.
+			name, ok := a.world.DeployPayloadName(a.world.ActiveCraftIdx)
+			if !ok {
 				a.flash("deploy: no payload to release (carrier carries no docked payload)")
+				return a, nil
 			}
+			a.deployConfirm = name
 			return a, nil
 		case key.Matches(m, a.keys.Transpose):
 			// v0.12 / ADR 0009: one-shot Apollo transposition. Reorders
 			// the [Descent, Ascent, SM, CM] stack so the SM fires (LOI/
 			// TEI) with the LM as a docked nose payload released via U.
-			switch err := a.world.Transpose(a.world.ActiveCraftIdx); {
+			// ADR 0052 decision 7: ask first, but refuse before asking.
+			switch err := a.world.TransposeRefusal(a.world.ActiveCraftIdx); {
 			case err == nil:
-				a.world.RecordAction(missions.ActionTranspose) // ADR 0025 §7
-				a.flash("transposed: SM is firing core — press U to release the LM")
+				a.transposeConfirm = true
 			case errors.Is(err, sim.ErrTransposeNotReady):
 				a.flash("transpose: drop the launch vehicle first (stack must be Descent/Ascent/SM/CM)")
 			default:
@@ -1800,29 +1850,50 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.handleAttitudeKey(spacecraft.BurnSurfaceRetrograde)
 			return a, nil
 		case key.Matches(m, a.keys.PitchTrimEast):
+			// Arrows trim (ADR 0052): only on the flight screen. Body info
+			// and the mission ladder share this switch, and an arrow there
+			// must not steer a vessel the player cannot see.
+			if a.active != screenOrbit {
+				return a, nil
+			}
 			if c := a.world.ActiveCraft(); c != nil {
 				c.PitchTrim += spacecraft.PitchTrimStepRad
 			}
 			return a, nil
 		case key.Matches(m, a.keys.PitchTrimWest):
+			// Arrows trim (ADR 0052): only on the flight screen. Body info
+			// and the mission ladder share this switch, and an arrow there
+			// must not steer a vessel the player cannot see.
+			if a.active != screenOrbit {
+				return a, nil
+			}
 			if c := a.world.ActiveCraft(); c != nil {
 				c.PitchTrim -= spacecraft.PitchTrimStepRad
 			}
 			return a, nil
 		case key.Matches(m, a.keys.HeadingTrimNorth):
-			// ADR 0049 decision 9: offsetRad IS the desired bearing shift
-			// away from due east (see ApplyHeadingTrim's doc comment):
+			if a.active != screenOrbit { // see PitchTrimEast above
+				return a, nil
+			}
+			// ADR 0049 decision 9 (key moved to ↑ by ADR 0052): offsetRad IS
+			// the desired bearing shift away from due east (see ApplyHeadingTrim's doc comment):
 			// increasing bearing sweeps east(090°) -> south(180°) ->
 			// west(270°) -> north(360°=0°), so nudging TOWARD north from
 			// due east means DECREASING the offset. Swapping this sign
 			// with HeadingTrimSouth's is exactly the risk
-			// TestHeadingTrimKeysNudgeTowardCorrectCompassDirection
-			// sabotage-proves in app_test.go.
+			// TestHeadingArrowsReadTheCorrectCompassDirection
+			// sabotage-proves in app_same_keys_test.go.
 			if c := a.world.ActiveCraft(); c != nil {
 				c.HeadingTrim -= spacecraft.HeadingTrimStepRad
 			}
 			return a, nil
 		case key.Matches(m, a.keys.HeadingTrimSouth):
+			// Arrows trim (ADR 0052): only on the flight screen. Body info
+			// and the mission ladder share this switch, and an arrow there
+			// must not steer a vessel the player cannot see.
+			if a.active != screenOrbit {
+				return a, nil
+			}
 			if c := a.world.ActiveCraft(); c != nil {
 				c.HeadingTrim += spacecraft.HeadingTrimStepRad
 			}
@@ -1875,7 +1946,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// (or stage once more to drop the LM for a manual flip).
 				// Without this the wrong-engine state is silent.
 				if sim.TransposeReady(a.world.ActiveCraft()) {
-					a.flash("TRANSPOSE READY — press D to flip (SM → firing core; LM becomes nose payload)")
+					a.flash("TRANSPOSE READY: press D to flip (SM → firing core; LM becomes nose payload)")
 				}
 			case errors.Is(err, sim.ErrStageOnlyOne):
 				// v0.12 Slice 3 (ADR 0008): once the vessel is reduced to
@@ -1902,7 +1973,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the silence on shift+↑ reads as "the modifier is broken",
 			// not "not now". Refuse out loud like every sibling guard.
 			if a.world.ViewMode != sim.ViewTilted {
-				a.refuse("tilt", "only in the tilted view — [v] cycles")
+				a.refuse("tilt", "only in the tilted view, [v] cycles")
 				return a, nil
 			}
 			delta := sim.ViewTiltThetaStep
@@ -1918,9 +1989,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			//
 			// item-3 UX batch: same fix as the tilt keys above — refuse
 			// out loud outside ViewTilted instead of the old silent
-			// no-op.
+			// no-op. (Keys moved to { } by ADR 0052.)
 			if a.world.ViewMode != sim.ViewTilted {
-				a.refuse("yaw", "only in the tilted view — [v] cycles")
+				a.refuse("yaw", "only in the tilted view, [v] cycles")
 				return a, nil
 			}
 			delta := sim.ViewTiltPhiStep
@@ -3087,15 +3158,15 @@ func (a *App) handlePlanRendezvousKey() {
 // leaks to camera pan or flight controls while the picker holds input.
 func (a *App) handleRendezvousPickerKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case key.Matches(m, a.keys.PanLeft):
+	case key.Matches(m, a.keys.PickerLeft):
 		a.orbitView.RendezvousPickerLeft()
 		a.refreshRendezvousPickerLadder()
-	case key.Matches(m, a.keys.PanRight):
+	case key.Matches(m, a.keys.PickerRight):
 		a.orbitView.RendezvousPickerRight()
 		a.refreshRendezvousPickerLadder()
-	case key.Matches(m, a.keys.PanUp):
+	case key.Matches(m, a.keys.PickerUp):
 		a.orbitView.RendezvousPickerUp()
-	case key.Matches(m, a.keys.PanDown):
+	case key.Matches(m, a.keys.PickerDown):
 		a.orbitView.RendezvousPickerDown()
 	case m.Type == tea.KeyEnter:
 		a.planRendezvousPickerSelection()
@@ -3234,6 +3305,13 @@ func (a *App) View() string {
 		}
 		prompt := fmt.Sprintf("END FLIGHT — remove %s? [y/n]", name)
 		base = overlayBottomBorder(base, a.theme.Alert.Render(prompt), border)
+	}
+	// transposeConfirm / deployConfirm ride the same band (ADR 0052).
+	if a.transposeConfirm {
+		base = overlayBottomBorder(base, a.theme.Alert.Render("transpose: SM becomes the firing core, LM rides as payload? [y/n]"), border)
+	}
+	if a.deployConfirm != "" {
+		base = overlayBottomBorder(base, a.theme.Alert.Render(fmt.Sprintf("deploy %s as its own vessel? [y/n]", a.deployConfirm)), border)
 	}
 	// quickloadConfirm rides the same band (item-3 UX batch): takes the
 	// same precedence as the end-flight prompt above, for the same

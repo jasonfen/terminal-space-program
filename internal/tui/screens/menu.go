@@ -21,6 +21,10 @@ import (
 type Menu struct {
 	theme Theme
 
+	// cursor is the highlighted row (ADR 0052 decision 6): up/down move it,
+	// enter fires it. Indexes menuRows. Reset returns it to the first row.
+	cursor int
+
 	// Click-target ranges, recomputed each Render so terminal-resize
 	// doesn't stale the hit-tests. Each is (row, colStart, colEnd).
 	backBtn     buttonRange
@@ -51,6 +55,7 @@ func NewMenu(th Theme) *Menu { return &Menu{theme: th} }
 // App when transitioning into screenMenu so a stale hit-test from the
 // previous time the menu was open can't linger.
 func (m *Menu) Reset() {
+	m.cursor = 0
 	m.saveBtn.set = false
 	m.loadBtn.set = false
 	m.vabBtn.set = false
@@ -78,6 +83,29 @@ const (
 	MenuActionQuit
 )
 
+// menuRow is one pause-menu row: its shortcut letter, label and action.
+type menuRow struct {
+	key, label string
+	action     MenuAction
+}
+
+// menuRows is the row order, top to bottom. The letters are shortcuts that
+// sit beside each row; up/down + enter reach the same actions (ADR 0052
+// decision 6). Keyboard layout moved from c to k so no letter is a
+// near-miss for the flight keys around it.
+var menuRows = []menuRow{
+	{"s", "[Save Game]", MenuActionSave},
+	{"l", "[Load Game]", MenuActionLoad},
+	{"b", "[Build (VAB)]", MenuActionVAB},
+	{"t", "[Settings]", MenuActionSettings},
+	// #425: renamed from "[Controls]": that label read like the keybinding
+	// list, but it's only the QWERTY/QWERTZ picker.
+	{"k", "[Keyboard layout]", MenuActionControls},
+	// #425: a real pointer to the F1 overlay, the actual keybinding list.
+	{"h", "[Help (F1)]", MenuActionHelp},
+	{"q", "[Quit]", MenuActionQuit},
+}
+
 // HandleKey maps a raw key string to a MenuAction. Lower- and
 // upper-case both match. Every row — including Quit — fires its action
 // directly; #474 moved quit's confirm off this screen entirely and
@@ -86,22 +114,21 @@ const (
 // question and one wording wherever the player leaves from.
 func (m *Menu) HandleKey(s string) MenuAction {
 	switch s {
-	case "s", "S":
-		return MenuActionSave
-	case "l", "L":
-		return MenuActionLoad
-	case "b", "B":
-		return MenuActionVAB
-	case "t", "T":
-		return MenuActionSettings
-	case "c", "C":
-		return MenuActionControls
-	case "h", "H":
-		return MenuActionHelp
-	case "q", "Q":
-		return MenuActionQuit
 	case "esc":
 		return MenuActionCancel
+	case "up":
+		m.cursor = (m.cursor - 1 + len(menuRows)) % len(menuRows)
+		return MenuActionNone
+	case "down":
+		m.cursor = (m.cursor + 1) % len(menuRows)
+		return MenuActionNone
+	case "enter":
+		return menuRows[m.cursor].action
+	}
+	for _, r := range menuRows {
+		if s == r.key || s == strings.ToUpper(r.key) {
+			return r.action
+		}
 	}
 	return MenuActionNone
 }
@@ -179,29 +206,19 @@ func (m *Menu) renderList(rowOffset int) []string {
 	lines = append(lines, m.theme.Dim.Render("─── menu ───"))
 	lines = append(lines, "")
 
-	type entry struct {
-		key, label string
-		btn        *buttonRange
-	}
-	rows := []entry{
-		{"s", "[Save Game]", &m.saveBtn},
-		{"l", "[Load Game]", &m.loadBtn},
-		{"b", "[Build (VAB)]", &m.vabBtn},
-		{"t", "[Settings]", &m.settingsBtn},
-		// #425: renamed from "[Controls]" — that label read like the
-		// keybinding list, but it's only the QWERTY/QWERTZ picker.
-		{"c", "[Keyboard layout]", &m.controlsBtn},
-		// #425: a real pointer to the F1 overlay, the actual keybinding
-		// list — previously the menu's only mention of it was a
-		// parenthetical inside the Controls screen's own prose.
-		{"h", "[Help (F1)]", &m.helpBtn},
-		{"q", "[Quit]", &m.quitBtn},
-	}
+	btns := []*buttonRange{&m.saveBtn, &m.loadBtn, &m.vabBtn, &m.settingsBtn,
+		&m.controlsBtn, &m.helpBtn, &m.quitBtn}
+	rows := menuRows
 	for i, r := range rows {
-		const indent = "  "
-		colStart := len([]rune(indent))
+		// The highlighted row carries a ▸ in the indent; the label column
+		// does not move, so click ranges are identical for every row.
+		indent := "  "
+		if i == m.cursor {
+			indent = m.theme.Primary.Render("▸") + " "
+		}
+		colStart := 2
 		colEnd := colStart + len([]rune(r.label))
-		*r.btn = buttonRange{
+		*btns[i] = buttonRange{
 			row:      rowOffset + len(lines),
 			colStart: colStart,
 			colEnd:   colEnd,
@@ -218,7 +235,7 @@ func (m *Menu) renderList(rowOffset int) []string {
 	}
 
 	lines = append(lines, "")
-	lines = append(lines, m.theme.Footer.Render("[esc] back to orbit · keyboard: s/l/b/t/c/h/q"))
+	lines = append(lines, m.theme.Footer.Render("[↑/↓] pick · [enter] open · [esc] back to orbit"))
 	return lines
 }
 

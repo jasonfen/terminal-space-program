@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"math"
 	"testing"
 	"time"
 
@@ -10,7 +9,6 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
-	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
 
@@ -396,7 +394,7 @@ func TestCancelWarpKeyDropsToOneX(t *testing.T) {
 	}
 }
 
-// TestYawKeysNudgePhi (ADR 0021 G): shift+← / shift+→ nudge ViewTilt.Phi
+// TestYawKeysNudgePhi (ADR 0021 G; keys moved to { } by ADR 0052): { and } nudge ViewTilt.Phi
 // ±5° with 360° wrap while in ViewTilted, flashing the resulting yaw —
 // and stay silent (no mutation, no toast) in any other ViewMode,
 // matching the Theta tilt keys' (shift+↑/↓) gating.
@@ -410,19 +408,19 @@ func TestYawKeysNudgePhi(t *testing.T) {
 	}
 
 	// shift+→ yaws +5° and toasts the new value.
-	a.Update(tea.KeyMsg{Type: tea.KeyShiftRight})
+	pressRune(a, '}')
 	if a.world.ViewTilt.Phi != 5 {
-		t.Errorf("after shift+→: Phi = %v, want 5", a.world.ViewTilt.Phi)
+		t.Errorf("after }: Phi = %v, want 5", a.world.ViewTilt.Phi)
 	}
 	if a.statusMsg != "view: yaw 5°" {
 		t.Errorf("statusMsg = %q, want %q", a.statusMsg, "view: yaw 5°")
 	}
 
 	// shift+← twice crosses zero and wraps to 355° — no clamp.
-	a.Update(tea.KeyMsg{Type: tea.KeyShiftLeft})
-	a.Update(tea.KeyMsg{Type: tea.KeyShiftLeft})
+	pressRune(a, '{')
+	pressRune(a, '{')
 	if a.world.ViewTilt.Phi != 355 {
-		t.Errorf("after shift+← shift+←: Phi = %v, want 355 (wrap below zero)", a.world.ViewTilt.Phi)
+		t.Errorf("after { {: Phi = %v, want 355 (wrap below zero)", a.world.ViewTilt.Phi)
 	}
 	if a.statusMsg != "view: yaw 355°" {
 		t.Errorf("statusMsg = %q, want %q", a.statusMsg, "view: yaw 355°")
@@ -434,11 +432,11 @@ func TestYawKeysNudgePhi(t *testing.T) {
 	// this just pins that Phi itself still doesn't mutate).
 	a.world.ViewMode = sim.ViewTop
 	a.statusMsg = ""
-	a.Update(tea.KeyMsg{Type: tea.KeyShiftRight})
+	pressRune(a, '}')
 	if a.world.ViewTilt.Phi != 355 {
-		t.Errorf("shift+→ in ViewTop mutated Phi to %v, want 355 (no-op)", a.world.ViewTilt.Phi)
+		t.Errorf("} in ViewTop mutated Phi to %v, want 355 (no-op)", a.world.ViewTilt.Phi)
 	}
-	if a.statusMsg != "yaw: only in the tilted view — [v] cycles" {
+	if a.statusMsg != "yaw: only in the tilted view, [v] cycles" {
 		t.Errorf("statusMsg = %q, want the refusal", a.statusMsg)
 	}
 }
@@ -491,74 +489,9 @@ func TestQuestionMarkOpensHelpPitchTrimResetOnPipe(t *testing.T) {
 	}
 }
 
-// TestHeadingTrimKeysNudgeTowardCorrectCompassDirection pins ADR 0049
-// decision 9's `{` -> north / `}` -> south direction against the exact
-// literal absolute-heading readout the pad's `heading:` row shows:
-// from due east (090°, HeadingTrim==0), `{` reads "085°" and `}` reads
-// "095°". This is the sign the item4-B1-heading-physics.md impl notes
-// flagged as invisible to an inclination-only test (000°/180° both
-// read i=90° regardless of which one a sign bug points at): the risk
-// lives one layer up from that physics, in which case body app.go's
-// HeadingTrimNorth/HeadingTrimSouth switch on. offsetRad IS the
-// bearing shift away from due east (ApplyHeadingTrim's own doc
-// comment), so toward-north means DECREASING HeadingTrim and
-// toward-south means INCREASING it.
-//
-// Sabotage-checked: swapping the two case bodies (HeadingTrimNorth
-// doing += and HeadingTrimSouth doing -=) was applied by hand and
-// this test went red, both literals came out swapped ("095°" for `{`,
-// "085°" for `}`), confirming the test isn't vacuous to that bug.
-// Reverted before committing.
-func TestHeadingTrimKeysNudgeTowardCorrectCompassDirection(t *testing.T) {
-	a, err := New(nil)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	c, err := a.world.SpawnCraft(sim.SpawnSpec{
-		LoadoutID:       spacecraft.LoadoutSaturnVID,
-		ParentBodyID:    "earth",
-		Launchpad:       true,
-		Latitude:        sim.DefaultLaunchpadLatitude,
-		LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
-	})
-	if err != nil {
-		t.Fatalf("SpawnCraft: %v", err)
-	}
-	if a.world.ActiveCraft() != c {
-		t.Fatal("setup: SpawnCraft should have made the new vessel active")
-	}
-	if c.HeadingTrim != 0 {
-		t.Fatalf("setup: fresh vessel should start at zero heading trim, got %v", c.HeadingTrim)
-	}
-
-	headingLabel := func() string {
-		deg := (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi
-		return readout.Heading(deg)
-	}
-
-	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'{'}})
-	if c.HeadingTrim >= 0 {
-		t.Errorf("after `{`: HeadingTrim = %v, want negative (nudged toward north)", c.HeadingTrim)
-	}
-	if got := headingLabel(); got != "085°" {
-		t.Errorf("after `{`: heading readout = %q, want %q", got, "085°")
-	}
-
-	// `|` resets both trims (ADR 0049 decision 9 widened it), back to
-	// due east before the south-ward tap.
-	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'|'}})
-	if c.HeadingTrim != 0 {
-		t.Fatalf("`|` did not reset heading trim (HeadingTrim=%v)", c.HeadingTrim)
-	}
-
-	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'}'}})
-	if c.HeadingTrim <= 0 {
-		t.Errorf("after `}`: HeadingTrim = %v, want positive (nudged toward south)", c.HeadingTrim)
-	}
-	if got := headingLabel(); got != "095°" {
-		t.Errorf("after `}`: heading readout = %q, want %q", got, "095°")
-	}
-}
+// (TestHeadingTrimKeysNudgeTowardCorrectCompassDirection moved to
+// app_same_keys_test.go as TestHeadingArrowsReadTheCorrectCompassDirection
+// when ADR 0052 put the heading trim on up/down.)
 
 // TestPitchTrimResetAlsoResetsHeadingTrim locks ADR 0049 decision 9's
 // widening of the existing `|` binding: it must zero HeadingTrim

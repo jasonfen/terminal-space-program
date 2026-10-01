@@ -363,21 +363,21 @@ func TestCraftSlotJumpsOccupiedSlot(t *testing.T) {
 	}
 }
 
-// item-3 UX batch (controls findings 6 / 10): shift+↑/↓/←/→ (tilt /
-// yaw) used to no-op silently outside the tilted view — the review
-// found that indistinguishable from a broken modifier key, since
-// plain ↑ pans in every view. Table-driven since the fix is identical
-// for all four.
+// item-3 UX batch (controls findings 6 / 10): tilt / yaw used to no-op
+// silently outside the tilted view — the review found that
+// indistinguishable from a broken key. Table-driven since the fix is
+// identical for all four. ADR 0052 decision 4 moved them from
+// shift+arrows to > < (tilt) and { } (yaw).
 func TestTiltAndYawRefuseOutsideTiltedView(t *testing.T) {
 	cases := []struct {
 		name string
-		key  tea.KeyType
+		key  rune
 		want string
 	}{
-		{"TiltUp", tea.KeyShiftUp, "tilt: only in the tilted view — [v] cycles"},
-		{"TiltDown", tea.KeyShiftDown, "tilt: only in the tilted view — [v] cycles"},
-		{"YawLeft", tea.KeyShiftLeft, "yaw: only in the tilted view — [v] cycles"},
-		{"YawRight", tea.KeyShiftRight, "yaw: only in the tilted view — [v] cycles"},
+		{"TiltUp", '>', "tilt: only in the tilted view, [v] cycles"},
+		{"TiltDown", '<', "tilt: only in the tilted view, [v] cycles"},
+		{"YawLeft", '{', "yaw: only in the tilted view, [v] cycles"},
+		{"YawRight", '}', "yaw: only in the tilted view, [v] cycles"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -390,7 +390,7 @@ func TestTiltAndYawRefuseOutsideTiltedView(t *testing.T) {
 			// exercises the refusal path, not the nudge path.
 			a.world.ViewMode = sim.ViewTop
 
-			a.Update(tea.KeyMsg{Type: tc.key})
+			pressRune(a, tc.key)
 
 			if a.statusMsg != tc.want {
 				t.Errorf("statusMsg = %q, want %q", a.statusMsg, tc.want)
@@ -409,7 +409,7 @@ func TestTiltWorksInTiltedView(t *testing.T) {
 	}
 	a.world.ViewMode = sim.ViewTilted
 
-	a.Update(tea.KeyMsg{Type: tea.KeyShiftUp})
+	pressRune(a, '>')
 
 	if !strings.HasPrefix(a.statusMsg, "view: Tilted") {
 		t.Errorf("statusMsg = %q, want a %q-prefixed tilt readout", a.statusMsg, "view: Tilted")

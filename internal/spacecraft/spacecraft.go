@@ -290,7 +290,7 @@ type Spacecraft struct {
 	// mode's natural direction (about the local-north axis at the
 	// craft's current position); negative rotates west. Used by
 	// ascent gravity-turn flight: the player launches BurnRadialOut
-	// (vertical), trims +5–15° east via the `<` / `>` keys to start
+	// (vertical), trims +5–15° east via the ← / → keys to start
 	// the gravity turn, then switches to BurnSurfacePrograde once
 	// surface-relative velocity is established. Reset via the `\`
 	// key. Persists in saves so a paused-mid-ascent session restores

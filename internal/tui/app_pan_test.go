@@ -6,22 +6,43 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// TestPlainArrowsAreBoundToPan pins the ADR 0042 keymap split: the plain
-// ↑↓←→ bindings belong to Pan, not NextBody/PrevBody. If a future edit puts
-// an arrow back on NextBody/PrevBody, key.Matches would route it to body
-// browse again ahead of (or instead of) Pan.
-func TestPlainArrowsAreBoundToPan(t *testing.T) {
+// TestShiftArrowsArePanAndPlainArrowsTrim pins the keymap split: ADR 0042
+// gave the arrows to Pan rather than NextBody/PrevBody, and ADR 0052 moved
+// Pan to shift+arrows and gave the plain arrows to the trims (and, inside the
+// Rendezvous Planner picker, to its own Picker* bindings). If a future edit
+// puts an arrow back on NextBody/PrevBody, key.Matches would route it to
+// body browse again.
+func TestShiftArrowsArePanAndPlainArrowsTrim(t *testing.T) {
 	keys := DefaultKeymap()
 
-	wantPan := map[string][]string{
+	for arrow, bound := range map[string][]string{
 		"left":  keys.PanLeft.Keys(),
 		"right": keys.PanRight.Keys(),
 		"up":    keys.PanUp.Keys(),
 		"down":  keys.PanDown.Keys(),
+	} {
+		if len(bound) != 1 || bound[0] != "shift+"+arrow {
+			t.Errorf("Pan binding for %q = %v, want exactly [shift+%s]", arrow, bound, arrow)
+		}
 	}
-	for arrow, bound := range wantPan {
+	for arrow, bound := range map[string][]string{
+		"left":  keys.PitchTrimWest.Keys(),
+		"right": keys.PitchTrimEast.Keys(),
+		"up":    keys.HeadingTrimNorth.Keys(),
+		"down":  keys.HeadingTrimSouth.Keys(),
+	} {
 		if len(bound) != 1 || bound[0] != arrow {
-			t.Errorf("Pan binding for %q = %v, want exactly [%q]", arrow, bound, arrow)
+			t.Errorf("trim binding for %q = %v, want exactly [%q]", arrow, bound, arrow)
+		}
+	}
+	for arrow, bound := range map[string][]string{
+		"left":  keys.PickerLeft.Keys(),
+		"right": keys.PickerRight.Keys(),
+		"up":    keys.PickerUp.Keys(),
+		"down":  keys.PickerDown.Keys(),
+	} {
+		if len(bound) != 1 || bound[0] != arrow {
+			t.Errorf("picker binding for %q = %v, want exactly [%q]", arrow, bound, arrow)
 		}
 	}
 
@@ -93,7 +114,7 @@ func TestBodyBrowseStillWorksOnHL(t *testing.T) {
 }
 
 // TestArrowKeysDispatchToOrbitViewPan is a smoke test for the app.go wiring:
-// the plain arrow keys must reach OrbitView.Pan* rather than being dropped
+// the shift+arrow keys (and, harmlessly, the plain ones) must reach OrbitView.Pan* rather than being dropped
 // or misrouted. We can't reach into OrbitView's unexported panOffset from
 // this package, so this asserts the observable contract instead — pressing
 // an arrow must not panic, must not change Focus/Target, and must leave

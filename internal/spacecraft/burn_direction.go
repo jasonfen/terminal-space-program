@@ -358,9 +358,9 @@ func HeadingInclinationDeg(r, spinAxis orbital.Vec3, headingOffsetRad float64) (
 // PitchTrimStepRad is the per-keypress pitch trim adjustment in
 // radians. v0.16: 5° (= π/36) — finer control for the gravity turn.
 // History: v0.9.2 shipped at 5°, v0.9.2.1 bumped to 10° because a
-// Saturn V's gravity turn needed too many `>` taps to get going; the
+// Saturn V's gravity turn needed too many → taps to get going; the
 // 5° step is restored per playtest preference (the smaller stripped-back
-// Lumen vehicles steer better with finer granularity, and held `>`
+// Lumen vehicles steer better with finer granularity, and held →
 // ramps continuously at the terminal key-repeat rate for big pitch-overs).
 const PitchTrimStepRad = math.Pi / 36
 
@@ -376,6 +376,6 @@ const HeadingTrimDueEastRad = math.Pi / 2
 
 // HeadingTrimStepRad is the per-keypress heading trim adjustment in
 // radians, 5° (= π/36) — the same step size and idiom as
-// PitchTrimStepRad (ADR 0049 decision 8/9: "`{` / `}` nudge the
+// PitchTrimStepRad (ADR 0049 decision 8/9: "↑ / ↓ nudge the
 // commanded heading ±5°... with the pitch-trim idiom").
 const HeadingTrimStepRad = math.Pi / 36

@@ -530,7 +530,7 @@ identity.
 _Avoid_: Line type, Stroke.
 
 **Pan** (ADR 0042):
-The player's view offset from the tracked Focus — arrows slide the view
+The player's view offset from the tracked Focus — shift+arrows slide the view
 while center tracking continues, displaced; cleared by `g` or any
 refocus. Purely view state; never moves Focus or Target.
 _Avoid_: Scroll, Offset camera.

@@ -302,6 +302,44 @@ func (w *World) restoreComponentCraft(c *spacecraft.Spacecraft, comp spacecraft.
 	return s
 }
 
+// deployablePayload is Deploy's precondition, factored out so the UI can
+// ask "would Deploy refuse?" before it asks the player to confirm (ADR 0052
+// decision 7: refusal first, then the ask). Returns the carrier, the top
+// payload component, and whether a Deploy would succeed.
+func (w *World) deployablePayload(idx int) (*spacecraft.Spacecraft, spacecraft.DockedComponent, bool) {
+	if idx < 0 || idx >= len(w.Crafts) {
+		return nil, spacecraft.DockedComponent{}, false
+	}
+	c := w.Crafts[idx]
+	if c == nil || len(c.DockedComponents) < 2 {
+		return nil, spacecraft.DockedComponent{}, false
+	}
+	// The top payload is the last component; its live stages are the top of
+	// the composite's Stages (newCustomCraft / DockCrafts / Transpose all build
+	// Stages as the in-order concatenation of the components, bottom-to-top).
+	top := c.DockedComponents[len(c.DockedComponents)-1]
+	cnt := len(top.Stages)
+	if cnt <= 0 || cnt >= len(c.Stages) {
+		// Malformed component breakdown (no per-stage record, or it claims the
+		// whole stack) — refuse rather than strand the carrier. The legacy
+		// single-stage prorate path Undock falls back to isn't reachable for
+		// deployable composites, which always carry full Stages breakdowns.
+		return nil, spacecraft.DockedComponent{}, false
+	}
+	return c, top, true
+}
+
+// DeployPayloadName names the payload Deploy would release from the craft
+// at idx, and reports false when Deploy would refuse (nothing is changed
+// either way).
+func (w *World) DeployPayloadName(idx int) (string, bool) {
+	_, top, ok := w.deployablePayload(idx)
+	if !ok {
+		return "", false
+	}
+	return top.Name, true
+}
+
 // Deploy releases the **topmost** nose payload of the composite at idx as its
 // own craft while keeping the carrier active — the drop-and-continue verb for
 // constellations and tugs (ADR 0028 decisions 3/4/7). Each press pops one
@@ -317,26 +355,11 @@ func (w *World) restoreComponentCraft(c *spacecraft.Spacecraft, comp spacecraft.
 // the active craft. No-op (returns false) when the craft is not a loaded
 // composite (fewer than two components). v0.23 / ADR 0028 C3-2.
 func (w *World) Deploy(idx int) bool {
-	if idx < 0 || idx >= len(w.Crafts) {
+	c, top, ok := w.deployablePayload(idx)
+	if !ok {
 		return false
 	}
-	c := w.Crafts[idx]
-	if c == nil || len(c.DockedComponents) < 2 {
-		return false
-	}
-
-	// The top payload is the last component; its live stages are the top of
-	// the composite's Stages (newCustomCraft / DockCrafts / Transpose all build
-	// Stages as the in-order concatenation of the components, bottom-to-top).
-	top := c.DockedComponents[len(c.DockedComponents)-1]
 	cnt := len(top.Stages)
-	if cnt <= 0 || cnt >= len(c.Stages) {
-		// Malformed component breakdown (no per-stage record, or it claims the
-		// whole stack) — refuse rather than strand the carrier. The legacy
-		// single-stage prorate path Undock falls back to isn't reachable for
-		// deployable composites, which always carry full Stages breakdowns.
-		return false
-	}
 	keep := len(c.Stages) - cnt
 	payloadStages := append([]spacecraft.Stage(nil), c.Stages[keep:]...)
 

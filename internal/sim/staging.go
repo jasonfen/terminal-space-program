@@ -280,6 +280,26 @@ func TransposeReady(c *spacecraft.Spacecraft) bool {
 		c.Stages[2].Name == "SM" && c.Stages[3].Name == "CM"
 }
 
+// TransposeRefusal returns the error Transpose would refuse with, or nil
+// when it would go ahead. It changes nothing, so the UI can ask "would it
+// refuse?" before asking the player to confirm (ADR 0052 decision 7).
+func (w *World) TransposeRefusal(craftIdx int) error {
+	if craftIdx < 0 || craftIdx >= len(w.Crafts) {
+		return fmt.Errorf("%w: %d (slate has %d)", ErrStageNoCraft, craftIdx, len(w.Crafts))
+	}
+	c := w.Crafts[craftIdx]
+	if c == nil {
+		return fmt.Errorf("%w: %d (nil)", ErrStageNoCraft, craftIdx)
+	}
+	if !w.canCommand(c) { // ADR 0027: transposition restructures the stack: a command
+		return ErrNoSignal
+	}
+	if !TransposeReady(c) {
+		return ErrTransposeNotReady
+	}
+	return nil
+}
+
 // Transpose performs the Apollo transposition (ADR 0009) on the craft at
 // craftIdx in one shot: it reproduces the end-state of the manual
 // docking flip — the SM becomes the firing core (Stages[0]) with the LM
@@ -301,19 +321,10 @@ func TransposeReady(c *spacecraft.Spacecraft) bool {
 // semantics — DockCrafts would build the identical composite from a
 // hand-flown flip.
 func (w *World) Transpose(craftIdx int) error {
-	if craftIdx < 0 || craftIdx >= len(w.Crafts) {
-		return fmt.Errorf("%w: %d (slate has %d)", ErrStageNoCraft, craftIdx, len(w.Crafts))
+	if err := w.TransposeRefusal(craftIdx); err != nil {
+		return err
 	}
 	c := w.Crafts[craftIdx]
-	if c == nil {
-		return fmt.Errorf("%w: %d (nil)", ErrStageNoCraft, craftIdx)
-	}
-	if !w.canCommand(c) { // ADR 0027: transposition restructures the stack — a command
-		return ErrNoSignal
-	}
-	if !TransposeReady(c) {
-		return ErrTransposeNotReady
-	}
 
 	// Own backing arrays so the two halves don't alias the soon-rebuilt
 	// c.Stages.

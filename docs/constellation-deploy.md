@@ -7,7 +7,7 @@ first.
 
 ## The one mechanic that matters
 
-When you press `Y` (Deploy), the top payload is released into the carrier's
+When you press `Y` (Deploy) and answer `y` to its `[y/n]` ask, the top payload is released into the carrier's
 **exact current orbit**: same position, same velocity, plus a tiny 75 m / 0.15
 m/s nudge so it doesn't auto-redock. There is no separate "insertion orbit"
 handed to the satellite, and nothing spaces the satellites for you. Every comsat

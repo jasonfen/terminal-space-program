@@ -90,7 +90,7 @@ func (b *BodyInfo) Render(w *sim.World, selectedIdx, cols, rows int) string {
 	}
 
 	// h/l are the keys that actually step the body cursor here
-	// (Keymap.PrevBody / NextBody). ←/→ pan the map behind this panel and
+	// (Keymap.PrevBody / NextBody). shift+←/→ pan the map behind this panel and
 	// q is radial+, so neither belongs in this footer (#423). t/H/P act on
 	// the body shown: t targets it directly, H and P plan to the Target (#495).
 	footer := b.theme.Footer.Render("[t] target  [H] transfer  [P] porkchop  [esc] back  [h/l] prev/next body")

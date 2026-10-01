@@ -53,7 +53,7 @@ To go somewhere, say the Moon:
 
 1. Press `t` to pick a **target**. Keep tapping until the target readout shows
    the Moon. (`h` / `l` move a separate map cursor used by the body info
-   screen; they don't set your travel target. The arrow
+   screen; they don't set your travel target. `shift` + the arrow
    keys **pan** the map.)
 2. Press `H` to plan the trip. Because the Moon orbits the same planet you do,
    the planner works out two ways to get there, plans the cheaper one, and
@@ -101,11 +101,11 @@ A good first attempt:
    at a thrust-to-weight ratio of about 1.24.
 3. Above 10 km, pitch east with `W` (Flight School's turn) and hold it
    through the climb: it points the rocket along your motion relative to the
-   ground. To start bending over sooner, tap `>` a couple of times to tip
+   ground. To start bending over sooner, tap `→` a couple of times to tip
    ~5° east each; the rocket starts building sideways speed.
 4. As your ground speed passes ~100 m/s, keep `W` on so the rocket tracks its
    own motion and gravity rounds the climb into orbit for you. If you tipped
-   it with `>`, press `|` to clear the pitch trim.
+   it with `→`, press `|` to clear the pitch trim.
 5. When the first stage runs dry, press `space` to drop it. You keep flying the upper
    stage and the stage list advances. Keep burning, drop the next stage, then
    the last one.
@@ -138,7 +138,7 @@ Dvorak, and free per-key remapping aren't supported yet.
 
 | Key | Action |
 |---|---|
-| `Esc` | Back; on the main view, open the save / load / build / settings / controls / quit menu |
+| `Esc` | Back; on the main view, open the pause menu: save / load / build / settings / keyboard layout / help / quit. `↑`/`↓` pick a row (it is highlighted) and `Enter` opens it; the letter beside each row (`s` `l` `b` `t` `k` `h` `q`) is a shortcut |
 | `Ctrl+C` | Quit — asks whether to save first ([y] save and quit, [n] quit without saving, [esc] stay). The pause menu's Quit row asks the same question |
 | `F1` or `?` | Toggle the help overlay. It opens on an index: "Your first flight" first, then every section with a note on when you would want it. `1`-`9` jump to a page, `↑`/`↓` + `Enter` reach the rest, `Esc` goes back to the index (and closes from the index), `F1` closes from anywhere. Long pages scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`. `?` opens the same overlay as `F1` everywhere `F1` does |
 | `F2` | Declutter: hide all eight instrument boxes and the navball together for a clean look at the orbit. Press again to restore. ENGINE and PROPELLANT stay up while an engine is lit, so fuel and a live burn are never hidden mid-burn |
@@ -152,13 +152,13 @@ Dvorak, and free per-key remapping aren't supported yet.
 
 | Key | Action |
 |---|---|
-| `↑` `↓` `←` `→` | Pan the map. The camera keeps following your focus, just displaced; `g` or any refocus snaps it back |
+| `shift+↑` `shift+↓` `shift+←` `shift+→` | Pan the map. The camera keeps following your focus, just displaced; `g` or any refocus snaps it back. The plain arrows are the flight trims (see Manual flight), in every view |
 | `+` / `-` | Zoom in / out. Zoom is remembered per focus |
 | `f` / `F` | Cycle what the camera follows, forward / back (whole system → each body → your vessel). Focusing a body your trajectory passes fits the camera to its sphere of influence so the capture curve fills the canvas. Also the way back from spectating another player |
 | `g` | Reset the camera to the whole system (clears any pan) |
 | `v` | Cycle the projection: Tilted (default, a 3D-style perspective) → Top → Right → Bottom → Left → Orbit-flat. The camera re-frames once when focus, view, or system changes and otherwise stays where you put it |
-| `shift+↑` / `shift+↓` | Tilt the 3D view up / down (tilted view only) |
-| `shift+←` / `shift+→` | Yaw the 3D view left / right in 5° steps, wrapping (tilted view only) |
+| `>` / `<` | Tilt the 3D view up / down (tilted view only). Camera only: a missed shift can move the view, never the vessel |
+| `{` / `}` | Yaw the 3D view left / right in 5° steps, wrapping (tilted view only) |
 | `o` | **Proximity view** for the last kilometres of a rendezvous: the target vessel sits dead centre, its direction of travel runs right, the planet is below, so you read your drift the way the physics works. Needs a vessel target; a `CLOSE RANGE` chip reminds you once within 35 km. Press again to return to the map as you left it |
 | `V` | **Launch / surface view**: chase-cam on your active vessel with a curved horizon, pad marker, and breadcrumb trail, scaled tight at liftoff and pulled back high up. Lifting off routes you here automatically. Press again to return to the map |
 | `j` | **Inspect**: each press steps a bright highlight onto the next thing drawn (bodies, vessels, other players' ghosts, planned burns, the closest-approach `✕`) and names it in a chip. One press past the last item clears it; `Esc` clears immediately. Clicking any orbit line or marker jumps the highlight there |
@@ -188,8 +188,8 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 | `a` / `d` | Point normal+ / normal- (perpendicular to your orbit) |
 | `q` / `e` | Point radial+ / radial- (away from / toward the body) |
 | `W` / `S` | Point along / against your ground speed (velocity relative to the spinning atmosphere). Use this for the launch gravity turn |
-| `>` / `<` | Tip the nose 5° east / west on top of whatever the autopilot is doing (hold to ramp) |
-| `{` / `}` | Nudge your commanded launch heading 5° toward north / south off due east (hold to ramp), on the pad or mid-ascent |
+| `→` / `←` | Tip the nose 5° east / west on top of whatever the autopilot is doing (hold to ramp). Works the same in the map, the `V` launch view and every projection |
+| `↑` / `↓` | Nudge your commanded launch heading 5° toward north / south off due east (hold to ramp), on the pad or mid-ascent |
 | `\|` | Clear the manual tip and the commanded heading (both trims back to 0) |
 | `;` | Autopilot reference: Orbit → Surface → Target (skips Target when none is set) |
 | `k` | Steering style: smooth turning (default) or instant snap |
@@ -237,9 +237,9 @@ refuse in one phrase.
 | `n` | Open the [spawn form](#spawn-form-n) |
 | `[` / `]` | Switch which vessel you're flying |
 | `1`–`9` | Jump straight to vessel N (nothing happens if the slot is empty) |
-| `space` | Drop the bottom stage (only if there's more than one). On a bare capsule with a parachute this arms the chute instead; it opens on its own in the atmosphere |
-| `Y` | Deploy the top carried payload as its own vessel (satellite, probe, station) while you keep flying the carrier. Press again for the next one |
-| `D` | Apollo transposition: flip the Service Module to the front to do the flying, leaving the Lunar Module as a nose payload (then `U` to release it) |
+| `space` | Drop the bottom stage (only if there's more than one), instantly, on the pad too; the STAGES box names it (`▸ S-IC (1/3) [space]`) and a flash confirms what dropped. On a bare capsule with a parachute this arms the chute instead; it opens on its own in the atmosphere |
+| `Y` | Deploy the top carried payload as its own vessel (satellite, probe, station) while you keep flying the carrier. Asks `[y/n]` first (there is no undo). Press again for the next one |
+| `D` | Apollo transposition: flip the Service Module to the front to do the flying, leaving the Lunar Module as a nose payload (then `U` to release it). Asks `[y/n]` first (there is no undo) |
 | `U` | Undock a docked vessel into its parts and switch you to a released piece. On a cross-player stack it releases your partner's vessel through the dock ledger, connected or not (an absent partner's vessel is parked as a **Parcel** and delivered, safed, when they next connect) |
 | `c` | Re-arm docking. After an undock a pair is held apart until you clear 100 m or ten minutes pass, even if you drift back inside docking range. `c` clears that hold now: with a vessel targeted, just that pair; otherwise every hold on your active vessel. A pair already close and slow docks on the next tick |
 | `J` | Transfer control of a cross-player docked stack to the guest riding in it. Multiplayer only; see [multiplayer.md](multiplayer.md#docking-across-players) |
