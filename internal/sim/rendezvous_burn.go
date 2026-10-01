@@ -28,7 +28,6 @@ import (
 var (
 	ErrRendezvousPlaneMismatch = transferError("your planes differ — match theirs [I] first")
 	ErrRendezvousNoCrossing    = transferError("these orbits have no single crossing point, try \"their orbit\" or \"your orbit\"")
-	ErrRendezvousSizeMismatch  = transferError("radius outside target's apsides: plan a transfer [H] first")
 	ErrRendezvousUnaffordable  = transferError("rendezvous burn exceeds remaining Δv budget")
 	ErrRendezvousNoSolution    = transferError("no rendezvous solution on this lap count")
 	ErrRendezvousNoSuchLap     = transferError("no such lap count on the ladder")
@@ -52,8 +51,8 @@ func rendezvousStructuralErr(err error) error {
 		return ErrRendezvousPlaneMismatch
 	case errors.Is(err, planner.ErrRendezvousNoCrossing):
 		return ErrRendezvousNoCrossing
-	case errors.Is(err, planner.ErrRendezvousSizeMismatch):
-		return ErrRendezvousSizeMismatch
+	case errors.Is(err, planner.ErrRendezvousShapeMismatch):
+		return ErrRendezvousShapeMismatch
 	default:
 		return ErrRendezvousNoImprovement
 	}

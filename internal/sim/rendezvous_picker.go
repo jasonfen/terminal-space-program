@@ -33,7 +33,7 @@ type RendezvousKOutcome struct {
 	// pair is coplanar, so the rendezvous rung opens instead of refusing.
 	// Place/Ladder/LadderErr are the picker's initial state (the default
 	// Place); LadderErr carries a per-place structural refusal
-	// (ErrRendezvousSizeMismatch / ErrRendezvousNoCrossing, #407) the picker
+	// (ErrRendezvousShapeMismatch / ErrRendezvousNoCrossing, #407) the picker
 	// itself must show rather than render a blank/broken chip — nothing is
 	// planted yet, the picker is read-only until Enter, and ←/→ can still
 	// try a different Place.

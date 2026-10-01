@@ -184,18 +184,6 @@ var (
 	// point is shared). The caller's remedy is "their orbit" or "your
 	// orbit", which don't depend on a crossing existing.
 	ErrRendezvousNoCrossing = errors.New("rendezvous: these orbits have no single crossing point, try \"their orbit\" or \"your orbit\"")
-	// ErrRendezvousSizeMismatch: the mover's current orbital radius never
-	// falls within the holder's own [periapsis, apoapsis] band, so
-	// there is no point on the holder's UNCHANGED orbit the tangential
-	// "return to my own current position" model (see rendezvousLadderCore)
-	// can aim at. A KNOWN, DOCUMENTED simplification of this slice
-	// (see rendezvousLadderCore's doc comment) rather than the fully
-	// general "the same burn also carries you to the other altitude"
-	// solve ADR 0045 §2 describes — that combined reshape+phase case is
-	// a natural follow-on, not required for #398's acceptance criteria
-	// (all of which use matched or near-matched orbit sizes). [H]/[m]
-	// remain the tools for a genuine size mismatch.
-	ErrRendezvousSizeMismatch = errors.New("radius outside target's apsides: plan a transfer [H] first")
 	// errRendezvousInvalidInput: non-positive mu or search horizon —
 	// mirrors RecommendRendezvousNudge's "horizon too short" input
 	// guard.
@@ -433,13 +421,11 @@ func rendezvousCoplanar(stateA, stateB orbital.Vec3State) bool {
 // rejected rather than searched around ("fall back to the other when
 // blocked" — not "search until something works").
 //
-// This DELIBERATELY does not implement the fully general "if the
-// orbits differ, the same burn also carries you to the other
-// altitude" case ADR 0045 §2 describes for arbitrary size mismatches
-// — see ErrRendezvousSizeMismatch. r0 must fall within the holder's own
+// This model returns to r0, so r0 must fall within the holder's own
 // [periapsis, apoapsis] band (trivially true for same-radius circular
-// orbits, and true near a genuine "crossing") for this model to have
-// anywhere to aim.
+// orbits, and true near a genuine "crossing"). Outside it (different
+// SIZES, G4 Q4 / #407) the solve moves to the holder's altitude crossing
+// instead: see rendezvousLadderResize.
 func rendezvousLadderCore(moverState, holderState orbital.Vec3State, primary bodies.CelestialBody, mu float64, moverRemainingDV float64) ([]RendezvousBurnOption, error) {
 	r0 := moverState.R
 	v0 := moverState.V
@@ -471,7 +457,9 @@ func rendezvousLadderCore(moverState, holderState orbital.Vec3State, primary bod
 	// scenario's whole point — same-radius circular orbits).
 	const reachTol = 1.0 // 1 m
 	if r0mag < holderPeri-reachTol || r0mag > holderApo+reachTol {
-		return nil, ErrRendezvousSizeMismatch
+		// Different sizes (G4 Q4, #407): one tangential burn reaches the
+		// holder's altitude and the rows time the meeting there.
+		return rendezvousLadderResize(moverState, holderState, hEl, primary, mu, moverRemainingDV)
 	}
 
 	// t0: time (from now) until the holder's angular position first
