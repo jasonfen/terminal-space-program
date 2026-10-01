@@ -1833,7 +1833,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// (nextCraftName always appends "-N", so "S-IC" would read
 			// "S-IC-1", "S-IC-2", ... across a playthrough — the loadout's
 			// bare stage name is stable and matches the issue's own
-			// example, "dropped S-IC — 2 stages left"). Captured before
+			// example, "dropped S-IC, 2 stages left"). Captured before
 			// the call since StageActive reslices Stages out from under
 			// the pre-drop bottom entry.
 			droppedName := ""
@@ -1855,7 +1855,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if remaining == 1 {
 					stageWord = "stage"
 				}
-				a.flash(fmt.Sprintf("dropped %s — %d %s left", droppedName, remaining, stageWord))
+				a.flash(fmt.Sprintf("dropped %s, %d %s left", droppedName, remaining, stageWord))
 				// v0.12 / ADR 0009: surface the transposition hint the
 				// moment a stage drop leaves the Apollo stack in the
 				// pre-transposition shape [Descent, Ascent, SM, CM] — the

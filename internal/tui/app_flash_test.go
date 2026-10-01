@@ -70,8 +70,8 @@ func TestRefuseIsAFlash(t *testing.T) {
 }
 
 // TestStagingFlashNamesDroppedStageAndRemainingCount pins the #427 Event
-// Flash text for a stage drop: "dropped <name> — <n> stages left" (the
-// issue's own example, "dropped S-IC — 2 stages left"), replacing the
+// Flash text for a stage drop: "dropped <name>, <n> stages left" (the
+// issue's own example, "dropped S-IC, 2 stages left"), replacing the
 // old "staged: <name> jettisoned" wording that named the newly-spawned
 // passive craft with no sense of how much rocket is left.
 func TestStagingFlashNamesDroppedStageAndRemainingCount(t *testing.T) {
@@ -94,7 +94,7 @@ func TestStagingFlashNamesDroppedStageAndRemainingCount(t *testing.T) {
 
 	pressKey(a, ' ')
 
-	const want = "dropped S-IC — 2 stages left"
+	const want = "dropped S-IC, 2 stages left"
 	if a.statusMsg != want {
 		t.Errorf("statusMsg = %q, want %q", a.statusMsg, want)
 	}
