@@ -45,9 +45,9 @@ var (
 	// That removal did not ship (PR #405 review — see
 	// RecommendRendezvousNudge's doc comment for why); this sentinel and
 	// the gate behind it stay.
-	ErrRendezvousShapeMismatch   = transferError("orbits differ in shape — circularize [C] or plan a transfer [H] first")
-	ErrRendezvousBurnTooLarge    = transferError("nudge would exceed the burn ceiling — use the transfer planner [H/I/m]")
-	ErrRendezvousUnsafePeriapsis = transferError("nudge would drop periapsis unsafely — plan a transfer instead [H/I/m]")
+	ErrRendezvousShapeMismatch   = transferError("orbits differ in shape: circularize [C] first")
+	ErrRendezvousBurnTooLarge    = transferError("nudge would exceed the burn ceiling: open the Rendezvous Planner [K]")
+	ErrRendezvousUnsafePeriapsis = transferError("burn would drop periapsis unsafely: pick another lap row, or circularize [C] first")
 
 	// ErrRendezvousNoEncounter (ADR 0039 S2, #277): the shared
 	// phasing-coach remedy for "no real encounter to score" — both K's

@@ -414,6 +414,8 @@ Enter plants exactly the row you read, and `G` afterwards warps to the burn.
 A row whose burn time passes before you press Enter refuses, reopen with `K`. Unaffordable or unsafe rows still show, dimmed, with the reason,
 rather than being hidden.
 
+Round orbits of different sizes (say you at 500 km and your partner at 700 km) work too: one burn at the row's burn time puts you on a transfer that reaches their altitude, and the row times the rendezvous at that crossing, the lap count later. Raising burns prograde and lowering burns retrograde (lowering rows are often unsafe, since the transfer dips below your orbit). A stretched orbit on either side is refused with `circularize [C] first`.
+
 | Key | Action |
 |---|---|
 | `←` / `→` | Walk the Rendezvous Orbit: their orbit / your orbit / the crossing |

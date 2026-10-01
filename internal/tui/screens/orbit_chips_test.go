@@ -1164,8 +1164,8 @@ func TestComposeChipsBayNoticeDoesNotMoveBoxes(t *testing.T) {
 }
 
 // TestComposeChipsBayWrapsWidePickerLine (ADR 0051 slice 3 ruling 2): the
-// RENDEZVOUS PLAN picker's size-mismatch refusal line ("radius outside
-// target's apsides: plan a transfer [H] first") is, together with its
+// RENDEZVOUS PLAN picker's no-crossing refusal line ("these orbits have no
+// single crossing point, try ...") is, together with its
 // title and place row, wide enough that the whole chip (85 columns
 // unwrapped, per the item 1 measurement of the old wording) does not fit
 // the bay's ~63-column gap at 140x40. It must now wrap instead of
@@ -1181,7 +1181,7 @@ func TestComposeChipsBayNoticeDoesNotMoveBoxes(t *testing.T) {
 func TestComposeChipsBayWrapsWidePickerLine(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	const cCols, cRows = 138, 37
-	v.OpenRendezvousPicker(planner.RendezvousTheirOrbit, planner.RendezvousLadder{}, sim.ErrRendezvousSizeMismatch)
+	v.OpenRendezvousPicker(planner.RendezvousTheirOrbit, planner.RendezvousLadder{}, sim.ErrRendezvousNoCrossing)
 	pickerLines := v.buildRendezvousPickerChip()
 	if pickerLines == nil {
 		t.Fatal("setup: picker chip nil while open")

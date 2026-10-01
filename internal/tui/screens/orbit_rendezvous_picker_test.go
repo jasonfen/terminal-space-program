@@ -72,17 +72,17 @@ func TestRendezvousPickerChip_Content(t *testing.T) {
 }
 
 // TestRendezvousPickerChip_LadderErrShowsRefusal — #407: a per-Place
-// structural refusal (e.g. ErrRendezvousSizeMismatch) must render as a
+// structural refusal (e.g. ErrRendezvousShapeMismatch) must render as a
 // clear one-line refusal, not a blank or broken chip.
 func TestRendezvousPickerChip_LadderErrShowsRefusal(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
-	v.OpenRendezvousPicker(planner.RendezvousYourOrbit, planner.RendezvousLadder{}, sim.ErrRendezvousSizeMismatch)
+	v.OpenRendezvousPicker(planner.RendezvousYourOrbit, planner.RendezvousLadder{}, sim.ErrRendezvousShapeMismatch)
 
 	joined := strings.Join(v.buildRendezvousPickerChip(), "\n")
 	if !strings.Contains(joined, "your orbit") {
 		t.Errorf("chip missing the selected Place:\n%s", joined)
 	}
-	if !strings.Contains(joined, sim.ErrRendezvousSizeMismatch.Error()) {
+	if !strings.Contains(joined, sim.ErrRendezvousShapeMismatch.Error()) {
 		t.Errorf("chip missing the structural refusal text:\n%s", joined)
 	}
 }
