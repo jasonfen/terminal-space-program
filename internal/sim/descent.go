@@ -1120,3 +1120,32 @@ func descentKinematics(c *spacecraft.Spacecraft) (descentKinematicsResult, bool)
 	}
 	return res, true
 }
+
+// LitStageName is the name of the stage the stop forecast judges: the
+// bottom, firing stage (#465, G5 Q2: the margin names whose tank it is).
+// "stage" when the craft has none or it is unnamed.
+func LitStageName(c *spacecraft.Spacecraft) string {
+	if c == nil || len(c.Stages) == 0 || c.Stages[0].Name == "" {
+		return "stage"
+	}
+	return c.Stages[0].Name
+}
+
+// NextFuelStageName is the first stage ABOVE the lit one that still holds
+// propellant, the way out of a dry lit stage ("Descent dry, Ascent
+// aboard"). ok is false when nothing above has fuel. The forecast never
+// stages for the pilot; this only names what a stage press would light.
+func NextFuelStageName(c *spacecraft.Spacecraft) (string, bool) {
+	if c == nil {
+		return "", false
+	}
+	for i := 1; i < len(c.Stages); i++ {
+		if c.Stages[i].FuelMass > 0 && c.Stages[i].Thrust > 0 {
+			if c.Stages[i].Name == "" {
+				return "stage", true
+			}
+			return c.Stages[i].Name, true
+		}
+	}
+	return "", false
+}

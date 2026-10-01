@@ -196,7 +196,7 @@ func (v *OrbitView) navigationTitle(w *sim.World, c *spacecraft.Spacecraft) stri
 			corridor.Stop, corridor.StopOK = stopDat.stop, stopDat.stopOK
 			corridor.BurnAt, corridor.HasBurnAt = stopDat.burnAt, stopDat.hasBurnAt
 			corridor.Margin = sim.DeriveMarginState(stopDat.stop, stopDat.stopOK, corridor.AltitudeM, stopDat.burnAt, stopDat.hasBurnAt)
-			if alarm, ok := navigationDescentAlarm(corridor); ok {
+			if alarm, ok := navigationDescentAlarm(corridor, c); ok {
 				title += "  " + alarm
 			}
 		}
@@ -213,20 +213,66 @@ func (v *OrbitView) navigationTitle(w *sim.World, c *spacecraft.Spacecraft) stri
 // limiter and the number both survive on the stop: cell itself (Q2).
 // ok is false when the corridor isn't currently alarming (comfortable
 // margin), so the title carries nothing.
-func navigationDescentAlarm(dc sim.DescentCorridor) (string, bool) {
+func navigationDescentAlarm(dc sim.DescentCorridor, c *spacecraft.Spacecraft) (string, bool) {
 	if !dc.StopOK {
 		return "⚠ NO STOP", true
 	}
 	switch dc.Stop.Outcome {
 	case sim.StopStopped:
-		if dc.Margin.State == sim.MarginTight {
+		switch dc.Margin.State {
+		case sim.MarginInsufficient:
+			// G5 Q3: the stage can halt but not then land.
+			return "⚠ NO LAND", true
+		case sim.MarginTight:
 			return "⚠ TIGHT", true
 		}
 		return "", false
-	case sim.StopCrashed, sim.StopFuelLimited:
+	case sim.StopCrashed:
 		return "⚠ NO STOP", true
+	case sim.StopFuelLimited:
+		// G5 Q2: name the stage that is dry and the one a press would light.
+		msg := "⚠ NO STOP · " + fitCells(sim.LitStageName(c), 12) + " dry"
+		if next, ok := sim.NextFuelStageName(c); ok {
+			msg += ", " + fitCells(next, 12) + " aboard"
+		}
+		return msg, true
 	}
 	return "", false
+}
+
+// stopCellBudget is the display width of NAVIGATION's stop: value: the
+// right tier's 62 content cells less the second column's 43 (label2 34 +
+// gap2 9). Pinned by TestChipTierWidthsAreDerivedFromFixtures, which
+// fails if a stop reading pokes past it.
+const stopCellBudget = 19
+
+// fitCells truncates s to at most n display cells, ending in an ellipsis
+// when it cut.
+func fitCells(s string, n int) string {
+	if lipgloss.Width(s) <= n {
+		return s
+	}
+	r := []rune(s)
+	for len(r) > 0 && lipgloss.Width(string(r))+1 > n {
+		r = r[:len(r)-1]
+	}
+	return string(r) + "…"
+}
+
+// stopMarginLabel is "<dist> up (<stage>)" fitted to stopCellBudget. When
+// the full form does not fit (a 5-digit distance plus a 7-letter stage
+// name is 21 cells against 19), the " up" goes first so the stage name
+// stays whole, then the name shrinks (never below 3 cells).
+func stopMarginLabel(dist, stage string) string {
+	if l := dist + " up (" + stage + ")"; lipgloss.Width(l) <= stopCellBudget {
+		return l
+	}
+	for n := lipgloss.Width(stage); n >= 3; n-- {
+		if l := dist + " (" + fitCells(stage, n) + ")"; lipgloss.Width(l) <= stopCellBudget {
+			return l
+		}
+	}
+	return dist + " (" + fitCells(stage, 3) + ")"
 }
 
 // navigationApPeCells: the Ap cell carries the live apoapsis altitude, a
@@ -370,7 +416,7 @@ func (v *OrbitView) navigationImpactStopCells(w *sim.World, c *spacecraft.Spacec
 	corridor.Margin = sim.DeriveMarginState(stopDat.stop, stopDat.stopOK, corridor.AltitudeM, stopDat.burnAt, stopDat.hasBurnAt)
 
 	impactV = fmt.Sprintf("%s (%s)", readout.Countdown(corridor.Impact.TimeToImpact), readout.Speed(corridor.Impact.SpeedMps))
-	stopV = v.navigationStopCell(corridor)
+	stopV = v.navigationStopCell(corridor, c)
 	return impactV, stopV
 }
 
@@ -472,21 +518,27 @@ func (v *OrbitView) navigationPlanRow(c *spacecraft.Spacecraft, state physics.St
 // (re-grill Q2): the alarm WORDS are gone from here (they live on the
 // title, navigationDescentAlarm) but the cell keeps its own colour and,
 // for an unstoppable outcome, the limiter that bound it.
-func (v *OrbitView) navigationStopCell(dc sim.DescentCorridor) string {
+func (v *OrbitView) navigationStopCell(dc sim.DescentCorridor, c *spacecraft.Spacecraft) string {
 	if !dc.StopOK {
 		return v.theme.Alert.Render(fmt.Sprintf("unresolved (%s)", dc.Margin.Limiter))
 	}
 	switch dc.Stop.Outcome {
 	case sim.StopStopped:
-		label := readout.Distance(dc.Stop.MarginM) + " up"
-		if dc.Margin.State == sim.MarginTight {
+		// #465 (G5 Q2): name the stage whose tank this margin is.
+		label := stopMarginLabel(readout.Distance(dc.Stop.MarginM), sim.LitStageName(c))
+		switch dc.Margin.State {
+		case sim.MarginInsufficient:
+			return v.theme.Alert.Render(label) // halts, but cannot then land (G5 Q3)
+		case sim.MarginTight:
 			return v.theme.Warning.Render(label)
 		}
 		return v.theme.Primary.Render(label)
 	case sim.StopCrashed:
 		return v.theme.Alert.Render(fmt.Sprintf("short by %s (%s)", readout.Distance(-dc.Stop.MarginM), readout.Speed(dc.Stop.ImpactSpeedMps)))
 	case sim.StopFuelLimited:
-		return v.theme.Alert.Render(fmt.Sprintf("fuel-limited at %s", readout.Distance(dc.Stop.MarginM)))
+		// The lit tank is dry; the way out (the next stage) is named on the
+		// title alarm (navigationDescentAlarm), which has the room.
+		return v.theme.Alert.Render(fitCells(sim.LitStageName(c)+" dry", stopCellBudget))
 	}
 	return v.theme.Dim.Render("—")
 }
