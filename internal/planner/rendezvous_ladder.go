@@ -3,6 +3,7 @@ package planner
 import (
 	"errors"
 	"math"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -17,20 +18,12 @@ import (
 type RendezvousOrbit int
 
 const (
-	// RendezvousCrossing — "the crossing": NOT YET IMPLEMENTED. Intended to
-	// anchor at wherever the two CURRENT, unburned courses already come
-	// closest within the shared search horizon (the same one the
-	// TARGET chip / Engage use, ADR 0045 S1) — "an existing
-	// intersection" — cheapest when a close approach already exists.
-	// PR #412 tried to build this (Kepler-propagate both craft to the
-	// crossing instant tCA, then solve there) and shipped it broken:
-	// the returned burn is only correct AT tCA, but the caller always
-	// plants the node to fire at "soon" (TriggerTime = now + a slew
-	// lead), not at tCA, so the planted burn routinely missed by
-	// megametres (review round 2). Reverted rather than fixed forward —
-	// see ErrRendezvousCrossingNotImplemented. RecommendRendezvousLadder
-	// always refuses for this Place; "their orbit" / "your orbit" are
-	// the two working Places.
+	// RendezvousCrossing — "the crossing" (G4 Q3, #416): the mover coasts
+	// to the geometric intersection of the two coplanar orbits, burns the
+	// same tangential lap-time change there, and meets N laps later. The
+	// row's TBurn is the coast. (PR #412's version solved at the crossing
+	// but planted at "now + lead" and missed by megametres; the row now
+	// carries its burn epoch and the plant reads it.)
 	RendezvousCrossing RendezvousOrbit = iota
 	// RendezvousTheirOrbit — "their orbit": the target holds, the active
 	// craft (A) is the mover and burns to arrive wherever the target's
@@ -83,7 +76,13 @@ type RendezvousBurnOption struct {
 	DV      float64      // scalar Δv magnitude, m/s
 	BurnDir orbital.Vec3 // unit thrust direction, mover's frame (== stateA/stateB's frame)
 
-	TArrival float64 // s from now until the rendezvous time (the ladder's "wait")
+	// TBurn is seconds from now until the burn fires (G4 Q2, #418/#416): the
+	// lead time every row carries, or the coast to the crossing. TArrival
+	// is seconds from now until the rendezvous (the ladder's "wait"), so
+	// the flight AFTER the burn is TArrival - TBurn (FlightSec), which is
+	// what a planted node stores as RendezvousArrivalSec.
+	TBurn    float64
+	TArrival float64
 
 	// AchievableCA / ArrivalSpeed come from an independent analytic
 	// (Kepler) propagation of BOTH the post-burn mover and the
@@ -98,6 +97,10 @@ type RendezvousBurnOption struct {
 	ArrivalSpeed float64 // m/s, |v_rel| at that same instant
 }
 
+// FlightSec is the time from the burn to the rendezvous (TArrival - TBurn),
+// the number a planted node carries as RendezvousArrivalSec.
+func (o RendezvousBurnOption) FlightSec() float64 { return o.TArrival - o.TBurn }
+
 // RendezvousLadder is the result of RecommendRendezvousLadder: every row the
 // solver produced for one RendezvousOrbit, plus which of the two input
 // states (A or B) is the mover — the row a plant-side caller must burn.
@@ -105,6 +108,13 @@ type RendezvousLadder struct {
 	Place    RendezvousOrbit
 	MoverIsA bool // true: stateA (typically the active craft) burns; false: stateB (the partner) does
 	Rows     []RendezvousBurnOption
+
+	// SolvedAt is the sim-clock instant the rows were solved at; every
+	// row's TBurn / TArrival count from it. The planner has no clock, so the
+	// sim layer stamps it. A plant reads SolvedAt + TBurn as the burn epoch,
+	// so the row you read is the burn you get however far the clock moved
+	// since (#418).
+	SolvedAt time.Time
 }
 
 // rendezvousCandidateLaps is the fixed lap-count ladder every RendezvousOrbit
@@ -169,36 +179,11 @@ var (
 	// caller's refusal text can point at it directly, matching K's own
 	// "your planes differ — match theirs [I] first" doctrine.
 	ErrRendezvousPlaneMismatch = errors.New("rendezvous: orbital planes differ — match theirs [I] first")
-	// ErrRendezvousNoCrossing: RendezvousCrossing found no closest approach
-	// on the current, unburned courses within the shared search
-	// horizon — there is no "existing intersection" to be cheap about.
-	// The caller's remedy is to pick "their orbit" or "your orbit"
-	// instead, which don't depend on one already existing.
-	ErrRendezvousNoCrossing = errors.New("rendezvous: no natural encounter within the search horizon — try \"their orbit\" or \"your orbit\"")
-	// ErrRendezvousCrossingNotImplemented: RendezvousCrossing found a natural
-	// crossing (NextClosestApproach converged within
-	// crossingSearchHorizon — see ErrRendezvousNoCrossing for when it
-	// doesn't) but this build has no solver for it. PR #412 tried to
-	// anchor rendezvousLadderCore's tangential solve at the crossing
-	// instant tCA (Kepler-propagate both craft there, then solve as if
-	// "now" were tCA); the row it returned was only correct for a burn
-	// executed AT tCA, but internal/sim.PlanRendezvousBurn always plants
-	// the resulting node to fire at TriggerTime = now + a slew lead —
-	// not at tCA — so the planted burn described a course correction
-	// for a position/velocity the mover was never at when the node
-	// actually fired. Measured (review round 2, two-craft LEO fixture,
-	// four configs): advertised AchievableCA in the 15,000-26,000 m
-	// range while the burn actually planted (propagated the same way
-	// Engage does, via rendezvousCommitFromPlantedBurnNode) missed
-	// by 1.4-16 million metres. Reverted rather than fixed forward — a
-	// correct version needs TriggerTime itself to mean "fire at the
-	// crossing", which is a bigger change than this patch makes. Until
-	// that lands, "the crossing" refuses outright rather than silently
-	// falling back to duplicating RendezvousTheirOrbit (the pre-#412
-	// behavior a previous review flagged as an inert decoy) — a picker
-	// walking here sees a plain refusal, never a plantable row that
-	// lies about where it lands.
-	ErrRendezvousCrossingNotImplemented = errors.New("rendezvous: \"the crossing\" isn't implemented yet — try \"their orbit\" or \"your orbit\"")
+	// ErrRendezvousNoCrossing: the two orbits share no single crossing
+	// point: they never meet (nested or concentric) or coincide (every
+	// point is shared). The caller's remedy is "their orbit" or "your
+	// orbit", which don't depend on a crossing existing.
+	ErrRendezvousNoCrossing = errors.New("rendezvous: these orbits have no single crossing point, try \"their orbit\" or \"your orbit\"")
 	// ErrRendezvousSizeMismatch: the mover's current orbital radius never
 	// falls within the holder's own [periapsis, apoapsis] band, so
 	// there is no point on the holder's UNCHANGED orbit the tangential
@@ -227,17 +212,12 @@ var (
 // resolves cross-primary conversion before calling in
 // (TargetStateRelativeToActivePrimary).
 //
-// crossingSearchHorizon bounds ONLY the RendezvousCrossing existence check
-// (NextClosestApproach on the current, unburned courses, used solely
-// to tell ErrRendezvousNoCrossing apart from ErrRendezvousCrossingNotImplemented
-// — RendezvousCrossing has no working solver yet, see that sentinel's doc
-// comment) — this must be the same flat search horizon every other
-// rendezvous surface uses (ADR 0045 S1 / #394, the sim layer's
-// rendezvousCommitHorizonSec), never a private constant. It does not
-// bound the ladder's own arrival times for the two working Places,
-// which are driven by lap count and can run well past it — that is the
-// entire point of this tool (ADR 0045 §2: "the 4h window bounds a
-// search, not a plan").
+// crossingSearchHorizon is only validated (> 0) for RendezvousCrossing; the
+// crossing itself is a closed-form orbit intersection, not a search. It must
+// still be the shared flat horizon (ADR 0045 S1 / #394), never a private
+// constant. It does not bound the ladder's own arrival times, which are
+// driven by lap count (ADR 0045 §2: "the 4h window bounds a search, not a
+// plan").
 //
 // moverRemainingDV is the mover's Spacecraft.RemainingDeltaV() (ADR
 // 0045 §2's affordability check). A NEGATIVE value means unknown
@@ -250,9 +230,9 @@ var (
 // let everything through".
 //
 // Returns a non-nil error for structural refusals: bad input,
-// non-coplanar geometry, or RendezvousCrossing (always — see
-// ErrRendezvousCrossingNotImplemented, this Place has no working solver).
-// Per-row gate failures on the two working Places (unaffordable, unsafe
+// non-coplanar geometry, or a crossing Place whose orbits share no single
+// crossing point (ErrRendezvousNoCrossing). Per-row gate failures
+// (unaffordable, unsafe
 // periapsis, no rendezvous solution for a given lap count) are reported IN
 // the ladder's Rows, Ok=false — visible, not hidden (ADR 0045 §2).
 func RecommendRendezvousLadder(
@@ -262,6 +242,18 @@ func RecommendRendezvousLadder(
 	place RendezvousOrbit,
 	crossingSearchHorizon, moverRemainingDV float64,
 ) (RendezvousLadder, error) {
+	return RecommendRendezvousLadderAfter(stateA, stateB, primary, mu, place, crossingSearchHorizon, moverRemainingDV, 0)
+}
+
+// RecommendRendezvousLadderAfter is RecommendRendezvousLadder with a lead
+// time (G4 Q1/Q2, #418): leadSec > 0 solves for a burn leadSec from now.
+func RecommendRendezvousLadderAfter(
+	stateA, stateB orbital.Vec3State,
+	primary bodies.CelestialBody,
+	mu float64,
+	place RendezvousOrbit,
+	crossingSearchHorizon, moverRemainingDV, leadSec float64,
+) (RendezvousLadder, error) {
 	if mu <= 0 {
 		return RendezvousLadder{}, errRendezvousInvalidInput
 	}
@@ -269,43 +261,129 @@ func RecommendRendezvousLadder(
 		return RendezvousLadder{}, ErrRendezvousPlaneMismatch
 	}
 
+	if leadSec < 0 {
+		leadSec = 0
+	}
 	switch place {
 	case RendezvousTheirOrbit:
-		rows, err := rendezvousLadderCore(stateA, stateB, primary, mu, moverRemainingDV)
+		rows, err := rendezvousLadderAt(stateA, stateB, primary, mu, moverRemainingDV, leadSec)
 		if err != nil {
 			return RendezvousLadder{}, err
 		}
 		return RendezvousLadder{Place: place, MoverIsA: true, Rows: rows}, nil
 	case RendezvousYourOrbit:
-		rows, err := rendezvousLadderCore(stateB, stateA, primary, mu, moverRemainingDV)
+		rows, err := rendezvousLadderAt(stateB, stateA, primary, mu, moverRemainingDV, leadSec)
 		if err != nil {
 			return RendezvousLadder{}, err
 		}
 		return RendezvousLadder{Place: place, MoverIsA: false, Rows: rows}, nil
 	case RendezvousCrossing:
-		// Regression revert (review round 2): PR #412 replaced this
-		// existence-check-only refusal with an attempt to Kepler-
-		// propagate both craft to the crossing instant tCA and solve
-		// there. That attempt is gone — see ErrRendezvousCrossingNotImplemented's
-		// doc comment for the measured failure and why this wasn't
-		// fixed forward. The existence check stays (it's cheap, and it
-		// lets the refusal distinguish "no natural crossing exists" from
-		// "one exists but this build can't solve it") but its result is
-		// never fed into rendezvousLadderCore — there is no solve to feed
-		// it into. This intentionally reproduces this Place's pre-#412
-		// behavior MINUS the decoy: instead of silently running
-		// RendezvousTheirOrbit's solve and calling it "the crossing" (a
-		// previous review's own "RendezvousCrossing is inert" finding),
-		// it refuses outright and says so.
+		// G4 Q3 (#416): coast to the geometric intersection of the two
+		// coplanar orbits (not NextClosestApproach), burn there, meet N
+		// laps later. leadSec is the minimum coast.
 		if crossingSearchHorizon <= 0 {
 			return RendezvousLadder{}, errRendezvousInvalidInput
 		}
-		if _, _, _, err := NextClosestApproach(stateA, stateB, primary, mu, crossingSearchHorizon); err != nil {
-			return RendezvousLadder{}, ErrRendezvousNoCrossing
+		tBurn, err := rendezvousCrossingBurnTime(stateA, stateB, mu, leadSec)
+		if err != nil {
+			return RendezvousLadder{}, err
 		}
-		return RendezvousLadder{}, ErrRendezvousCrossingNotImplemented
+		rows, err := rendezvousLadderAt(stateA, stateB, primary, mu, moverRemainingDV, tBurn)
+		if err != nil {
+			return RendezvousLadder{}, err
+		}
+		return RendezvousLadder{Place: place, MoverIsA: true, Rows: rows}, nil
 	}
 	return RendezvousLadder{}, errRendezvousInvalidInput
+}
+
+// rendezvousLadderAt solves the ladder for a burn tBurn seconds from now:
+// both vessels coast (Kepler, no burn) to the burn epoch, the tangential
+// solve runs there, and the rows are stamped with TBurn and re-based so
+// TArrival counts from now (G4 Q2). tBurn == 0 is the old "burn now".
+func rendezvousLadderAt(mover, holder orbital.Vec3State, primary bodies.CelestialBody, mu, moverRemainingDV, tBurn float64) ([]RendezvousBurnOption, error) {
+	if tBurn > 0 {
+		m, mok := physics.KeplerStep(physics.StateVector{R: mover.R, V: mover.V}, mu, tBurn)
+		h, hok := physics.KeplerStep(physics.StateVector{R: holder.R, V: holder.V}, mu, tBurn)
+		if !mok || !hok {
+			return nil, errRendezvousInvalidInput
+		}
+		mover = orbital.Vec3State{R: m.R, V: m.V}
+		holder = orbital.Vec3State{R: h.R, V: h.V}
+	}
+	rows, err := rendezvousLadderCore(mover, holder, primary, mu, moverRemainingDV)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		rows[i].TBurn = tBurn
+		if rows[i].TArrival > 0 {
+			rows[i].TArrival += tBurn
+		}
+	}
+	return rows, nil
+}
+
+// rendezvousCrossingBurnTime returns the seconds from now until the mover
+// first reaches an intersection of the two coplanar orbits at or after
+// minLead. In the orbital plane a conic is r = p / (1 + e.u) for the unit
+// direction u, so equal radius at the same direction u means
+// (pM*eH - pH*eM).u = pH - pM, solved in closed form for the (up to two)
+// intersection directions. ErrRendezvousNoCrossing when the orbits never
+// meet (concentric, nested) or coincide (every point is a crossing, so
+// there is nothing to choose).
+func rendezvousCrossingBurnTime(mover, holder orbital.Vec3State, mu, minLead float64) (float64, error) {
+	hM := mover.R.Cross(mover.V)
+	if hM.Norm() == 0 || holder.R.Cross(holder.V).Norm() == 0 {
+		return 0, errRendezvousInvalidInput
+	}
+	hhat := hM.Unit()
+	xhat := mover.R.Unit()
+	yhat := hhat.Cross(xhat)
+
+	conic := func(s orbital.Vec3State) (p, ex, ey float64) {
+		h := s.R.Cross(s.V)
+		p = h.Dot(h) / mu
+		r := s.R.Norm()
+		ev := s.R.Scale(s.V.Dot(s.V)/mu - 1/r).Sub(s.V.Scale(s.R.Dot(s.V) / mu))
+		return p, ev.Dot(xhat), ev.Dot(yhat)
+	}
+	pM, eMx, eMy := conic(mover)
+	pH, eHx, eHy := conic(holder)
+	gx := pM*eHx - pH*eMx
+	gy := pM*eHy - pH*eMy
+	c := pH - pM
+	gmag := math.Hypot(gx, gy)
+	scale := math.Max(pM, pH)
+	if gmag < 1e-9*scale || math.Abs(c) > gmag {
+		return 0, ErrRendezvousNoCrossing
+	}
+	base := math.Atan2(gy, gx)
+	off := math.Acos(c / gmag)
+
+	elM := orbital.ElementsFromState(mover.R, mover.V, mu)
+	pMover := orbitalPeriod(physics.StateVector{R: mover.R, V: mover.V}, mu)
+	if elM.A <= 0 || elM.E >= 1 || pMover <= 0 || math.IsInf(pMover, 0) || math.IsNaN(pMover) {
+		return 0, errRendezvousInvalidInput
+	}
+	best := math.Inf(1)
+	for _, phi := range [...]float64{base + off, base - off} {
+		dPhi := math.Mod(phi, 2*math.Pi)
+		if dPhi < 0 {
+			dPhi += 2 * math.Pi
+		}
+		t := holderTimeToPhase(mover, elM, mu, dPhi, pMover)
+		for t < minLead {
+			t += pMover
+		}
+		if t < best {
+			best = t
+		}
+	}
+	if math.IsInf(best, 1) {
+		return 0, ErrRendezvousNoCrossing
+	}
+	return best, nil
 }
 
 // rendezvousCoplanar reports whether stateA/stateB's orbital planes agree
