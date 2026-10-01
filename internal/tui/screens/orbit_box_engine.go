@@ -94,6 +94,11 @@ func (v *OrbitView) engineTitleWithQueue(title string, w *sim.World, c *spacecra
 // no node row to carry that information, so it keeps its own.
 func (v *OrbitView) engineThrottleLabel(w *sim.World, c *spacecraft.Spacecraft) string {
 	base := fmt.Sprintf("%.0f%%", c.EffectiveThrottle()*100)
+	if sim.StackDryArmed(c) {
+		// #466 (G5 Q1): the throttle is a standing order; the lit tank is
+		// dry, so say so. [space] relights the next engine at this setting.
+		return base + " " + v.theme.Warning.Render("✕ DRY")
+	}
 	if !sim.StackMidBurn(c) {
 		return base + v.theme.Dim.Render(" idle")
 	}

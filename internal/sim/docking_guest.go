@@ -452,6 +452,15 @@ func (s CoWarpState) WithDockCoupling(ownerHandle string, ownerEffWarp float64) 
 	return s
 }
 
+// StackDryArmed reports the #466 standing-order state: a throttle is set,
+// no engine is lit, and the lit stage is dry because a held burn ran it
+// out. The next stage press relights at that throttle. Never part of
+// StackMidBurn / AnyCraftThrusting.
+func StackDryArmed(c *spacecraft.Spacecraft) bool {
+	return c != nil && c.DryOrder && c.ActiveBurn == nil && c.ManualBurn == nil &&
+		c.EffectiveThrottle() > 0 && c.ActiveStageFuel() <= 0
+}
+
 // StackMidBurn reports whether the craft is actively thrusting — a planted
 // finite burn (ActiveBurn) or a player-held manual burn (ManualBurn) in
 // flight (v0.28 S5). Transfer Control is refused while a cross-player stack

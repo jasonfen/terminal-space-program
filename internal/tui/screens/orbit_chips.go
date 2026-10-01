@@ -900,6 +900,9 @@ func (v *OrbitView) throttleRow(c *spacecraft.Spacecraft) string {
 	// nil) rather than an inline copy, so this row's notion of thrusting
 	// can't silently drift from the rest of the codebase's (it already
 	// gates Transfer Control refusal, ADR 0034 addendum).
+	if sim.StackDryArmed(c) {
+		return base + " " + v.theme.Warning.Render("✕ DRY")
+	}
 	if !sim.StackMidBurn(c) {
 		return base + v.theme.Dim.Render(" (idle)")
 	}
