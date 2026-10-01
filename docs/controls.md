@@ -208,7 +208,10 @@ which engine is armed, the pulse size, RCS fuel, and how much Δv it's worth.
 Two different things point at bodies. The **target** (`t` / `T`) is what you
 plan trips to and what the target readout describes. The **map cursor**
 (`h` / `l`) feeds the body info screen (`i`) and
-does not affect your travel target.
+does not affect your travel target. On the body info screen itself, `t`
+targets the body shown (not the next one in the cycle), after which `H`
+(transfer) and `P` (porkchop) plan to it; the star and the body you orbit
+refuse in one phrase.
 
 | Key | Action |
 |---|---|
