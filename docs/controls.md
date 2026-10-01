@@ -401,10 +401,14 @@ found; `Enter` does nothing there.
 A notice on the map, not a separate screen (it holds keyboard focus while
 open, so it never shrinks or gets tucked away). It opens when `K`'s small
 nudge isn't enough to close on your target (too far apart in phase) but your
-planes already match. Pick the Rendezvous Orbit: their orbit, yours, or
-the natural crossing of your current courses; then pick a lap count on the
-**Lap Ladder** for that orbit, more laps for less Δv but a longer
-wait. Unaffordable or unsafe rows still show, dimmed, with the reason,
+planes already match. Opening it drops warp to 1x (the clock keeps running).
+Pick the Rendezvous Orbit: their orbit, yours, or the crossing (you coast to
+the point where the two orbits meet and burn there); then pick a lap count on
+the **Lap Ladder** for that orbit, more laps for less Δv but a longer
+wait. Every row shows its own `burn T-` countdown (about 5 minutes out by
+default, so the row stays valid while you read it) and its `wait` from now;
+Enter plants exactly the row you read, and `G` afterwards warps to the burn.
+A row whose burn time passes before you press Enter refuses, reopen with `K`. Unaffordable or unsafe rows still show, dimmed, with the reason,
 rather than being hidden.
 
 | Key | Action |

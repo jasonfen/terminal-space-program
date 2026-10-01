@@ -322,6 +322,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m := msg.(type) {
 	case sim.TickMsg:
 		a.world.Tick()
+		if a.orbitView.RendezvousPickerOpen() {
+			a.orbitView.SetRendezvousPickerNow(a.world.Clock.SimTime)
+		}
 		// v0.26 S4: periodic autosave, driven by the wall-clock stamp
 		// tea.Tick put in the TickMsg — real minutes, never game minutes,
 		// so warp can't accelerate it.
@@ -3061,7 +3064,11 @@ func (a *App) handlePlanRendezvousKey() {
 		// summoned is actually visible.
 		a.active = screenOrbit
 		a.orbitView.OpenRendezvousPicker(out.Place, out.Ladder, out.LadderErr)
-		a.flash("rendezvous plan: too far apart to nudge, walk the Lap Ladder [←→↑↓], Enter to plant, Esc to cancel")
+		// G4 Q1b (#418): reading rows at coasting warp lets the burn epoch
+		// run away, so the picker drops to 1x. Rows burn ~5 min out; [G]
+		// after Enter auto-warps to the burn.
+		a.world.DropWarpForPlanning()
+		a.flash("rendezvous plan: warp 1x, burns ~5 min out. Walk the ladder [←→↑↓], Enter to plant, Esc to cancel, then [G] to warp to the burn")
 	}
 }
 
@@ -3114,7 +3121,9 @@ func (a *App) planRendezvousPickerSelection() {
 		return // structurally-refused Place (#407): no row to plant.
 	}
 	place := a.orbitView.RendezvousPickerOrbit()
-	plan, err := a.world.PlanRendezvousBurn(place, laps)
+	// Plant the ladder the pilot READ (rows carry their own burn epoch,
+	// #418), not a fresh solve against wherever the clock has got to.
+	plan, err := a.world.PlanRendezvousFromLadder(place, a.orbitView.RendezvousPickerLadder(), laps)
 	if err != nil {
 		a.flash(fmt.Sprintf("rendezvous: %v", err))
 		return
