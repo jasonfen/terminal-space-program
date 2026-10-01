@@ -128,6 +128,15 @@ type Spacecraft struct {
 	Nodes        []ManeuverNode
 	ActiveBurn   *ActiveBurn
 	ManualBurn   *ManualBurn
+
+	// DryOrder (#466, ADR G5 Q1): the throttle is a standing order. Set
+	// when a held manual burn ends because the lit stage ran dry; the
+	// next staging relights the new bottom engine at the standing
+	// throttle. Deliberately NOT part of the thrusting predicate
+	// (AnyCraftThrusting / StackMidBurn): a dry vessel must not pin warp
+	// at 10x. Transient: neither ManualBurn nor Throttle is persisted, so
+	// a reloaded vessel comes up with cold engines and no order.
+	DryOrder bool
 	AttitudeMode BurnMode
 	EngineMode   EngineMode
 

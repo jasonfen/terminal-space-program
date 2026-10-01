@@ -1899,6 +1899,9 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	// engine has run dry, even if upper stages still hold propellant.
 	if c.ManualBurn != nil && c.ActiveStageFuel() <= 0 {
 		c.ManualBurn = nil
+		// #466 (G5 Q1): the throttle is a standing order. The dry tank ends
+		// the burn but not the order; the next stage press relights.
+		c.DryOrder = true
 	}
 }
 

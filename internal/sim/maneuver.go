@@ -88,6 +88,7 @@ func (w *World) StartManualBurn() {
 	if w.rendezvousWarpEngaged() {
 		w.DisengageRendezvousWarp()
 	}
+	c.DryOrder = false
 	c.ManualBurn = &ManualBurn{StartTime: w.Clock.SimTime}
 }
 
@@ -96,6 +97,7 @@ func (w *World) StartManualBurn() {
 func (w *World) StopManualBurn() {
 	if c := w.ActiveCraft(); c != nil {
 		c.ManualBurn = nil
+		c.DryOrder = false // an explicit cut cancels the standing order
 	}
 }
 

@@ -136,6 +136,11 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 	// jettisoned stage sits at the end.
 	newActiveIdx = craftIdx
 	w.stagedThisSession = true // mission outcome context (ADR 0025)
+	// #466 (G5 Q1): a standing throttle order relights the new bottom
+	// engine. StartManualBurn keeps its own gates (command, fuel, mode).
+	if c.DryOrder && craftIdx == w.ActiveCraftIdx {
+		w.StartManualBurn() // clears DryOrder on success; a refusal keeps the order standing
+	}
 	return newActiveIdx, jettisonedIdx, nil
 }
 
