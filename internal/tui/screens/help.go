@@ -64,6 +64,8 @@ var helpSections = []helpSection{
 	// (Keymap.AttitudeRadialOut), so it gets a menu-scoped section of its
 	// own rather than a line in GENERAL (#423).
 	{"PAUSE MENU (esc from the map)", [][2]string{
+		{"↑ / ↓", "pick a row (it is highlighted); [enter] opens it"},
+		{"s / l / b / t / k / h", "shortcuts beside each row: save / load / build (VAB) / settings / keyboard layout / help"},
 		{"q", "quit — asks to save first, same prompt as ctrl+c — menu only; in flight q is radial+"},
 	}},
 	{"CAMERA & VIEW", [][2]string{
@@ -73,9 +75,10 @@ var helpSections = []helpSection{
 		{"v", "cycle view (Tilted / Top / Right / Bottom / Left / Orbit-flat), projections only"},
 		{"V", "launch / surface view — chase-cam on your active vessel (press again to return)"},
 		{"o", "proximity view — close-range picture of your target vessel (press again to return)"},
-		{"↑ ↓ ← →", "pan the view — displaces the tracked center; [g] or any refocus clears it"},
-		{"shift+↑ / shift+↓", "tilt the 3D view up / down (tilted view only)"},
-		{"shift+← / shift+→", "yaw the 3D view left / right, wraps 360° (tilted view only)"},
+		{"shift+← / shift+→", "pan the view left / right — displaces the tracked center; [g] or any refocus clears it"},
+		{"shift+↑ / shift+↓", "pan the view up / down (plain arrows are the flight trims, see MANUAL FLIGHT)"},
+		{"> / <", "tilt the 3D view up / down (tilted view only; moves the camera, never the vessel)"},
+		{"{ / }", "yaw the 3D view left / right, wraps 360° (tilted view only)"},
 		{"F2", "declutter — hide the instrument boxes + navball (ENGINE, PROPELLANT stay while an engine is lit)"},
 	}},
 	{"TIME & WARP", [][2]string{
@@ -94,8 +97,8 @@ var helpSections = []helpSection{
 		{"a / d", "attitude normal+ / normal- (rcs: pulse-fire)"},
 		{"q / e", "attitude radial+ / radial- (rcs: pulse-fire)"},
 		{"W / S", "attitude surface prograde / retrograde (locks to ground)"},
-		{"< / >", "pitch trim 5° west / east off the active mode"},
-		{"{ / }", "heading trim 5° toward north / south off due east, on the pad or mid-ascent"},
+		{"← / →", "pitch trim 5° west / east off the active mode (hold to ramp)"},
+		{"↑ / ↓", "heading trim 5° toward north / south off due east, on the pad or mid-ascent (hold to ramp)"},
 		{"|", "reset pitch trim and heading trim to 0"},
 		{"b", "engage / cut the manual burn (main engine)"},
 		{"r", "engine: main / rcs"},
@@ -143,10 +146,10 @@ var helpSections = []helpSection{
 		{"1-9", "jump to vessel N (no-op when the slot is empty)"},
 		{"U", "undock the active composite (cross-player stack: release your partner's vessel — theirs comes back even if they're offline)"},
 		{"c", "re-arm docking — clear the local re-arm latch for the [t] target (or every latch naming the active vessel) so a just-undocked pair can dock again"},
-		{"Y", "deploy the top carried payload (keep flying the carrier)"},
-		{"D", "transpose: SM → firing core, LM → releasable nose payload"},
+		{"Y", "deploy the top carried payload (keep flying the carrier); asks [y/n] first"},
+		{"D", "transpose: SM → firing core, LM → releasable nose payload; asks [y/n] first"},
 		{"t / T", "cycle / clear the target"},
-		{"space", "decouple bottom stage (bare chute capsule: arm the chute)"},
+		{"space", "decouple bottom stage, instantly, pad included (the STAGES box names it; bare chute capsule: arm the chute)"},
 		{"E", "end flight — clear a crashed vessel from the slate (y/n confirm)"},
 	}},
 	{"VEHICLE ASSEMBLY (VAB)", [][2]string{

@@ -47,17 +47,18 @@ func TestHelpQuitRowIsMenuScoped(t *testing.T) {
 	}
 }
 
-// TestHelpPitchTrimNamesBothDirections (#423): `<` is west, `>` is east.
-// The row named only "east" while showing the keys in west-then-east order.
+// TestHelpPitchTrimNamesBothDirections (#423, keys moved by ADR 0052): ← is
+// west, → is east. The row named only "east" while showing the keys in
+// west-then-east order.
 func TestHelpPitchTrimNamesBothDirections(t *testing.T) {
-	_, desc := helpRow(t, "< / >")
+	_, desc := helpRow(t, "← / →")
 	west := strings.Index(desc, "west")
 	east := strings.Index(desc, "east")
 	if west < 0 || east < 0 {
 		t.Fatalf("pitch trim row names only one direction: %q", desc)
 	}
 	if west > east {
-		t.Errorf("pitch trim row reads east-before-west (%q) but the keys are `<` west then `>` east", desc)
+		t.Errorf("pitch trim row reads east-before-west (%q) but the keys are ← west then → east", desc)
 	}
 }
 
@@ -217,5 +218,29 @@ func TestHelpFirstFlightLayoutTranslation(t *testing.T) {
 	h.OpenPage(0)
 	if out := h.Render(120, 40, keylayout.QWERTZ); !strings.Contains(out, "y   ") || !strings.Contains(out, "on the pad, throttle to full") {
 		t.Errorf("first-flight key column not layout-translated:\n%s", out)
+	}
+}
+
+// TestHelpHeadingTrimNamesBothDirections: ↑ is north, ↓ is south (ADR 0052
+// decision 2, the heading half of the trim pair).
+func TestHelpHeadingTrimNamesBothDirections(t *testing.T) {
+	var hdesc string
+	for _, sec := range helpSections {
+		if sec.header != "MANUAL FLIGHT" {
+			continue
+		}
+		for _, r := range sec.rows {
+			if r[0] == "↑ / ↓" {
+				hdesc = r[1]
+			}
+		}
+	}
+	if hdesc == "" {
+		t.Fatal("no heading-trim row in MANUAL FLIGHT")
+	}
+	north := strings.Index(hdesc, "north")
+	south := strings.Index(hdesc, "south")
+	if north < 0 || south < 0 || north > south {
+		t.Errorf("heading trim row must name north then south for ↑ then ↓: %q", hdesc)
 	}
 }

@@ -42,10 +42,19 @@ func (v *OrbitView) buildStagesBox(w *sim.World) []string {
 	pips := stagePips(c)
 	pips = truncateCells(pips, stagePipsMax)
 	count := fmt.Sprintf(" (1/%d)", len(c.Stages))
-	fixed := lipgloss.Width("STAGES") + 2 + lipgloss.Width(pips) + 2 + lipgloss.Width("▸ ") + lipgloss.Width(count)
+	// ADR 0052 decision 5: name the key that drops this stage, standing
+	// (not a flash), so a thumb on the space bar can see what it is about
+	// to do. A lone stage cannot be dropped (space arms a chute instead),
+	// so it carries no suffix. The suffix is never truncated; the name
+	// gives way instead.
+	keyHint := ""
+	if len(c.Stages) > 1 {
+		keyHint = " [space]"
+	}
+	fixed := lipgloss.Width("STAGES") + 2 + lipgloss.Width(pips) + 2 + lipgloss.Width("▸ ") + lipgloss.Width(count) + lipgloss.Width(keyHint)
 	active = truncateCells(active, tierBottomLeftWidth-2-fixed)
 	return []string{fmt.Sprintf("%s  %s  %s", title, pips,
-		v.theme.Warning.Render(fmt.Sprintf("▸ %s%s", active, count)))}
+		v.theme.Warning.Render(fmt.Sprintf("▸ %s%s%s", active, count, keyHint)))}
 }
 
 // stagePipsMax is the STAGES pips' width cap in cells; past it the last

@@ -49,16 +49,26 @@ type Keymap struct {
 	NextBody   key.Binding
 	PrevBody   key.Binding
 	NextSystem key.Binding
-	// PanLeft / PanRight / PanUp / PanDown (ADR 0042): plain ↑↓←→ pan the
-	// OrbitView as a focus-relative offset (CONTEXT.md "Pan") — the camera
-	// keeps tracking Focus every frame, just displaced. `g` or any refocus
-	// clears the offset (see OrbitView.Render's Framing Event reset).
-	// Body-browse gave up its ←/→ aliases here so these keys are free; it
-	// lives on h/l alone (NextBody/PrevBody above), already bound there.
+	// PanLeft / PanRight / PanUp / PanDown (ADR 0042, moved by ADR 0052
+	// decision 3): shift+↑↓←→ pan the OrbitView as a focus-relative offset
+	// (CONTEXT.md "Pan") — the camera keeps tracking Focus every frame,
+	// just displaced. `g` or any refocus clears the offset (see
+	// OrbitView.Render's Framing Event reset). Plain ↑↓←→ are the trims
+	// (PitchTrim*/HeadingTrim* below); body-browse lives on h/l alone.
+	// Surfaces that own the plain arrows while open (the Rendezvous Planner
+	// picker) use PickerLeft/Right/Up/Down, never these.
 	PanLeft  key.Binding
 	PanRight key.Binding
 	PanUp    key.Binding
 	PanDown  key.Binding
+	// PickerLeft / PickerRight / PickerUp / PickerDown (ADR 0052): the plain
+	// arrows the Rendezvous Planner picker walks with while it is open. A
+	// separate set from Pan* so moving pan to shift+arrows can never move
+	// the picker with it.
+	PickerLeft  key.Binding
+	PickerRight key.Binding
+	PickerUp    key.Binding
+	PickerDown  key.Binding
 	WarpUp   key.Binding
 	WarpDown key.Binding
 	// AutoWarp (v0.16 / ADR 0016) toggles Auto-Warp: warp to 30 s before
@@ -215,21 +225,21 @@ type Keymap struct {
 	AttitudeSurfacePrograde   key.Binding
 	AttitudeSurfaceRetrograde key.Binding
 
-	// PitchTrimEast / PitchTrimWest (v0.9.2+): nudge thrust direction
-	// ±5° east of the active mode's natural direction. Used by
-	// ascent gravity-turn flight to initiate the pitch-over from
-	// vertical. Held → continuous trim ramp at the terminal's
-	// key-repeat rate. Reset via PitchTrimReset.
+	// PitchTrimEast / PitchTrimWest (v0.9.2+; ADR 0052 decision 2: on →
+	// and ←): nudge thrust direction ±5° east of the active mode's
+	// natural direction. Used by ascent gravity-turn flight to initiate
+	// the pitch-over from vertical. Held → continuous trim ramp at the
+	// terminal's key-repeat rate. Reset via PitchTrimReset.
 	PitchTrimEast  key.Binding
 	PitchTrimWest  key.Binding
 	PitchTrimReset key.Binding
 
 	// HeadingTrimNorth / HeadingTrimSouth (v0.42+, ADR 0049 decision
-	// 9): nudge the commanded launch heading ±5° from due east, toward
-	// north (`{`) or south (`}`), the same idiom, step size, and
-	// key-repeat ramp as PitchTrimEast/West above. Sit on the `[`/`]`
-	// keycaps the way `<`/`>` sit on `,`/`.`. PitchTrimReset (`|`) now
-	// resets both trims (widened, not a new binding, see its comment).
+	// 9; ADR 0052 decision 2 moved them to ↑ and ↓): nudge the commanded
+	// launch heading ±5° from due east, toward north (↑) or south (↓),
+	// the same idiom, step size, and key-repeat ramp as
+	// PitchTrimEast/West above. PitchTrimReset (`|`) resets both trims
+	// (widened, not a new binding, see its comment).
 	HeadingTrimNorth key.Binding
 	HeadingTrimSouth key.Binding
 
@@ -243,19 +253,18 @@ type Keymap struct {
 	// preference and is not persisted.
 	ToggleInstantSAS key.Binding
 
-	// TiltUp / TiltDown (v0.10.6+): nudge World.ViewTilt.Theta ±5°
-	// while ViewMode == ViewTilted. Per-press step + clamp lives in
-	// sim.World.NudgeViewTiltTheta. Bound to shift+↑ / shift+↓ —
-	// arrow keys don't have an uppercase form, so the explicit
-	// modifier syntax is required (W/S used capitals for letter-key
-	// shifts).
+	// TiltUp / TiltDown (v0.10.6+; ADR 0052 decision 4 moved them to `>`
+	// and `<`): nudge World.ViewTilt.Theta ±5° while ViewMode ==
+	// ViewTilted. Per-press step + clamp lives in
+	// sim.World.NudgeViewTiltTheta. Camera only: a missed shift can at
+	// worst move the view, never the vessel, the clock or the fleet.
 	TiltUp   key.Binding
 	TiltDown key.Binding
 
-	// YawLeft / YawRight (ADR 0021 G): nudge World.ViewTilt.Phi ±5°
-	// while ViewMode == ViewTilted, wrapping at 360° (no clamp —
-	// sim.World.NudgeViewTiltPhi owns step + wrap). Bound to shift+←/→,
-	// symmetric with TiltUp/TiltDown (shift+↑/↓).
+	// YawLeft / YawRight (ADR 0021 G; ADR 0052 decision 4 moved them to
+	// `{` and `}`): nudge World.ViewTilt.Phi ±5° while ViewMode ==
+	// ViewTilted, wrapping at 360° (no clamp — sim.World.NudgeViewTiltPhi
+	// owns step + wrap). Camera only, like TiltUp/TiltDown.
 	YawLeft  key.Binding
 	YawRight key.Binding
 
@@ -361,10 +370,15 @@ func DefaultKeymap() Keymap {
 		Session:  key.NewBinding(key.WithKeys("O"), key.WithHelp("O", "session roster (multiplayer)")),
 		NextBody: key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "next body")),
 		PrevBody: key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "prev body")),
-		PanLeft:  key.NewBinding(key.WithKeys("left"), key.WithHelp("←", "pan left")),
-		PanRight: key.NewBinding(key.WithKeys("right"), key.WithHelp("→", "pan right")),
-		PanUp:    key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "pan up")),
-		PanDown:  key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "pan down")),
+		PanLeft:  key.NewBinding(key.WithKeys("shift+left"), key.WithHelp("shift+←", "pan left")),
+		PanRight: key.NewBinding(key.WithKeys("shift+right"), key.WithHelp("shift+→", "pan right")),
+		PanUp:    key.NewBinding(key.WithKeys("shift+up"), key.WithHelp("shift+↑", "pan up")),
+		PanDown:  key.NewBinding(key.WithKeys("shift+down"), key.WithHelp("shift+↓", "pan down")),
+
+		PickerLeft:  key.NewBinding(key.WithKeys("left"), key.WithHelp("←", "walk the rendezvous orbit")),
+		PickerRight: key.NewBinding(key.WithKeys("right"), key.WithHelp("→", "walk the rendezvous orbit")),
+		PickerUp:    key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "walk the lap ladder")),
+		PickerDown:  key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "walk the lap ladder")),
 		// v0.7.3: NextSystem moved s → tab to free `s` for AttitudeRetrograde.
 		NextSystem: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next system")),
 		WarpUp:     key.NewBinding(key.WithKeys("."), key.WithHelp(".", "warp up")),
@@ -420,19 +434,19 @@ func DefaultKeymap() Keymap {
 
 		AttitudeSurfacePrograde:   key.NewBinding(key.WithKeys("W"), key.WithHelp("W", "attitude: surface prograde")),
 		AttitudeSurfaceRetrograde: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "attitude: surface retrograde")),
-		PitchTrimEast:             key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "pitch trim +5° east")),
-		PitchTrimWest:             key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "pitch trim -5° west")),
-		HeadingTrimNorth:          key.NewBinding(key.WithKeys("{"), key.WithHelp("{", "heading trim -5° (toward north)")),
-		HeadingTrimSouth:          key.NewBinding(key.WithKeys("}"), key.WithHelp("}", "heading trim +5° (toward south)")),
+		PitchTrimEast:             key.NewBinding(key.WithKeys("right"), key.WithHelp("→", "pitch trim +5° east")),
+		PitchTrimWest:             key.NewBinding(key.WithKeys("left"), key.WithHelp("←", "pitch trim -5° west")),
+		HeadingTrimNorth:          key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "heading trim -5° (toward north)")),
+		HeadingTrimSouth:          key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "heading trim +5° (toward south)")),
 		// #425: moved off `?` (now the Help alias below) to `|` — "vertical
 		// bar = straight up" is the mnemonic Jason gave for the reset.
 		// ADR 0049 decision 9 widened it to reset heading trim too.
 		PitchTrimReset: key.NewBinding(key.WithKeys("|"), key.WithHelp("|", "reset pitch + heading trim")),
 		ToggleInstantSAS:          key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "SAS model: slew / instant (MANUAL/AUTO)")),
-		TiltUp:                    key.NewBinding(key.WithKeys("shift+up"), key.WithHelp("shift+↑", "tilt +5° (ViewTilted)")),
-		TiltDown:                  key.NewBinding(key.WithKeys("shift+down"), key.WithHelp("shift+↓", "tilt -5° (ViewTilted)")),
-		YawLeft:                   key.NewBinding(key.WithKeys("shift+left"), key.WithHelp("shift+←", "yaw -5° (ViewTilted)")),
-		YawRight:                  key.NewBinding(key.WithKeys("shift+right"), key.WithHelp("shift+→", "yaw +5° (ViewTilted)")),
+		TiltUp:                    key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "tilt +5° (ViewTilted)")),
+		TiltDown:                  key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "tilt -5° (ViewTilted)")),
+		YawLeft:                   key.NewBinding(key.WithKeys("{"), key.WithHelp("{", "yaw -5° (ViewTilted)")),
+		YawRight:                  key.NewBinding(key.WithKeys("}"), key.WithHelp("}", "yaw +5° (ViewTilted)")),
 		EndFlight:                 key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "end flight (Crashed vessel)")),
 		JumpToLaunchView:          key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "launch/surface view — chase-cam on your active vessel (toggles)")),
 		ProximityView:             key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "proximity view — close-range picture of your target (toggles)")),

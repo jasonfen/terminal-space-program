@@ -17,8 +17,10 @@ func TestMenuHandleKey(t *testing.T) {
 		{"S", MenuActionSave},
 		{"l", MenuActionLoad},
 		{"L", MenuActionLoad},
-		{"c", MenuActionControls},
-		{"C", MenuActionControls},
+		{"k", MenuActionControls},
+		{"K", MenuActionControls},
+		{"c", MenuActionNone}, // ADR 0052 decision 6: Keyboard layout moved c -> k
+		{"C", MenuActionNone},
 		{"h", MenuActionHelp},
 		{"H", MenuActionHelp},
 		{"q", MenuActionQuit},
@@ -159,5 +161,65 @@ func TestMenuQuitFiresDirectlyBothPaths(t *testing.T) {
 	quitCol := (m.quitBtn.colStart + m.quitBtn.colEnd) / 2
 	if got := m.HandleClick(quitCol, m.quitBtn.row); got != MenuActionQuit {
 		t.Errorf("Quit click = %v, want MenuActionQuit", got)
+	}
+}
+
+// TestMenuArrowsMoveHighlightAndEnterOpensRow (ADR 0052 decision 6): up/down
+// walk a highlighted row, enter fires it, the cursor wraps, and Reset puts
+// it back on the first row. Letters keep working as shortcuts.
+func TestMenuArrowsMoveHighlightAndEnterOpensRow(t *testing.T) {
+	m := NewMenu(Theme{})
+	order := []MenuAction{MenuActionSave, MenuActionLoad, MenuActionVAB,
+		MenuActionSettings, MenuActionControls, MenuActionHelp, MenuActionQuit}
+
+	if got := m.HandleKey("enter"); got != MenuActionSave {
+		t.Fatalf("enter on a fresh menu = %v, want the first row (Save)", got)
+	}
+	for i, want := range order {
+		if got := m.HandleKey("enter"); got != want {
+			t.Errorf("row %d: enter = %v, want %v", i, got, want)
+		}
+		if got := m.HandleKey("down"); got != MenuActionNone {
+			t.Errorf("down returned action %v, want None", got)
+		}
+	}
+	// Past the last row it wraps to the first.
+	if got := m.HandleKey("enter"); got != MenuActionSave {
+		t.Errorf("down past the last row did not wrap: enter = %v", got)
+	}
+	m.HandleKey("up")
+	if got := m.HandleKey("enter"); got != MenuActionQuit {
+		t.Errorf("up from the first row did not wrap to Quit: enter = %v", got)
+	}
+	m.Reset()
+	if got := m.HandleKey("enter"); got != MenuActionSave {
+		t.Errorf("Reset did not return the cursor to Save: enter = %v", got)
+	}
+}
+
+// TestMenuRendersHighlightAndKeyedFooter: the highlighted row carries a
+// marker the others lack, the letters stay beside every row, and the footer
+// names the arrow keys instead of the old letter string.
+func TestMenuRendersHighlightAndKeyedFooter(t *testing.T) {
+	th := Theme{Primary: lipgloss.NewStyle(), Title: lipgloss.NewStyle(), Dim: lipgloss.NewStyle(), Footer: lipgloss.NewStyle()}
+	m := NewMenu(th)
+	m.HandleKey("down") // Load
+	out := m.Render(80)
+	var marked []string
+	for _, ln := range strings.Split(out, "\n") {
+		if strings.Contains(ln, "▸") {
+			marked = append(marked, ln)
+		}
+	}
+	if len(marked) != 1 || !strings.Contains(marked[0], "[Load Game]") {
+		t.Errorf("want exactly one ▸ row and it is Load; got %q", marked)
+	}
+	for _, want := range []string{"(s)", "(l)", "(b)", "(t)", "(k)", "(h)", "(q)", "[↑/↓]", "[enter]"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("menu render lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "(c)") || strings.Contains(out, "s/l/b/t/c/h/q") {
+		t.Errorf("menu still advertises the old c key:\n%s", out)
 	}
 }
