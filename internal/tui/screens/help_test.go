@@ -35,6 +35,7 @@ func helpKey(s string) tea.KeyMsg {
 // ("zoom in / out") keeps its letters. ADR 0022.
 func TestHelpRelabelsForQWERTZ(t *testing.T) {
 	h := NewHelp(chipTestTheme())
+	h.OpenPage(5) // MANUAL FLIGHT (F1 opens on the index since #494)
 	out := h.Render(120, 200, keylayout.QWERTZ)
 	if !strings.Contains(out, "y / x") {
 		t.Errorf("QWERTZ help missing relabelled throttle token 'y / x':\n%s", out)
@@ -44,44 +45,41 @@ func TestHelpRelabelsForQWERTZ(t *testing.T) {
 	}
 
 	q := NewHelp(chipTestTheme())
+	q.OpenPage(5)
 	qOut := q.Render(120, 200, keylayout.QWERTY)
 	if !strings.Contains(qOut, "z / x") {
 		t.Errorf("QWERTY help should keep 'z / x' throttle token:\n%s", qOut)
 	}
 }
 
-// TestHelpScrollsToLastSection — the bottom section is unreachable in the
-// top window but visible after scrolling to the end (the reported bug).
-func TestHelpScrollsToLastSection(t *testing.T) {
+// TestHelpScrollsToLastRow: a page taller than the window hides its last
+// row until End (the reported bug). Since #494 each section is its own
+// page, so the long READOUT GLOSSARY page stands in for the old flat list.
+func TestHelpScrollsToLastRow(t *testing.T) {
 	h := NewHelp(chipTestTheme())
-	// ht bumped 20->22 when ADR 0049 decision 9 added two rows (MANUAL
-	// FLIGHT's `{ / }`, READOUT GLOSSARY's `incl (min N°)`), then 22->30
-	// when ADR 0051 slice 2b added eight more READOUT GLOSSARY rows, then
-	// 30->32 when #478 added two more (the frame-spelling and rcs lines):
-	// each bump is the same bug repeating, the glossary growing long
-	// enough to push MOUSE's "click HUD" out of a bottom-aligned window
-	// once End-scrolled.
-	const w, ht = 100, 32
+	h.OpenPage(15) // READOUT GLOSSARY
+	const w, ht = 100, 12
 
 	top := h.Render(w, ht, keylayout.QWERTY)
 	if !strings.Contains(top, "keybindings") {
-		t.Error("title missing from the top of the overlay")
+		t.Error("title missing from the top of the page")
 	}
-	if strings.Contains(top, "click HUD") {
-		t.Fatalf("setup invalid: last section already visible at height %d — pick a shorter height", ht)
+	if strings.Contains(top, "orbit floor") {
+		t.Fatalf("setup invalid: last row already visible at height %d", ht)
 	}
 
 	h.HandleKey(helpKey("end"))
 	bottom := h.Render(w, ht, keylayout.QWERTY)
-	if !strings.Contains(bottom, "MOUSE") || !strings.Contains(bottom, "click HUD") {
-		t.Errorf("last section not reachable after End:\n%s", bottom)
+	if !strings.Contains(bottom, "orbit floor") {
+		t.Errorf("last row not reachable after End:\n%s", bottom)
 	}
 }
 
 // TestHelpScrollClamps — scroll can't go above the top or past the end.
 func TestHelpScrollClamps(t *testing.T) {
 	h := NewHelp(chipTestTheme())
-	const w, ht = 100, 20
+	h.OpenPage(15)
+	const w, ht = 100, 12
 	h.Render(w, ht, keylayout.QWERTY) // populate geometry
 
 	h.HandleKey(helpKey("up")) // already at top
@@ -104,21 +102,23 @@ func TestHelpScrollClamps(t *testing.T) {
 // TestHelpResetScroll — opening returns to the top.
 func TestHelpResetScroll(t *testing.T) {
 	h := NewHelp(chipTestTheme())
-	h.Render(100, 20, keylayout.QWERTY)
+	h.OpenPage(15)
+	h.Render(100, 12, keylayout.QWERTY)
 	h.HandleKey(helpKey("end"))
 	if h.scroll == 0 {
 		t.Fatal("setup: expected a non-zero scroll after End")
 	}
 	h.ResetScroll()
-	if h.scroll != 0 {
-		t.Errorf("ResetScroll left scroll at %d, want 0", h.scroll)
+	if h.scroll != 0 || h.page != helpIndexPage {
+		t.Errorf("ResetScroll left scroll=%d page=%d, want 0 on the index", h.scroll, h.page)
 	}
 }
 
 // TestHelpPageAdvancesViewport — PgDn moves a near-full viewport.
 func TestHelpPageAdvancesViewport(t *testing.T) {
 	h := NewHelp(chipTestTheme())
-	const ht = 24
+	h.OpenPage(15)
+	const ht = 10
 	h.Render(100, ht, keylayout.QWERTY)
 	before := h.scroll
 	h.HandleKey(helpKey("pgdown"))
@@ -133,10 +133,16 @@ func TestHelpPageAdvancesViewport(t *testing.T) {
 func TestHelpTruncatesToWidth(t *testing.T) {
 	h := NewHelp(chipTestTheme())
 	const w = 50
-	out := h.Render(w, 30, keylayout.QWERTY)
-	for i, ln := range strings.Split(out, "\n") {
-		if lw := lipgloss.Width(ln); lw > w {
-			t.Errorf("row %d width %d exceeds %d: %q", i, lw, w, ln)
+	for page := -1; page < helpPageCount(); page++ {
+		h.ResetScroll()
+		if page >= 0 {
+			h.OpenPage(page)
+		}
+		out := h.Render(w, 30, keylayout.QWERTY)
+		for i, ln := range strings.Split(out, "\n") {
+			if lw := lipgloss.Width(ln); lw > w {
+				t.Errorf("page %d row %d width %d exceeds %d: %q", page, i, lw, w, ln)
+			}
 		}
 	}
 }
@@ -147,6 +153,7 @@ func TestHelpTruncatesToWidth(t *testing.T) {
 // past it in this check.
 func TestHelpDocumentsReArmDockKey(t *testing.T) {
 	h := NewHelp(chipTestTheme())
+	h.OpenPage(9) // VESSEL
 	out := h.Render(120, 400, keylayout.QWERTY)
 	if !strings.Contains(out, "re-arm docking") {
 		t.Errorf("help overlay missing the re-arm docking (`c`) entry:\n%s", out)
@@ -159,6 +166,7 @@ func TestHelpTitleAndFooterAlwaysShown(t *testing.T) {
 	h := NewHelp(chipTestTheme())
 	for _, ht := range []int{8, 20, 60} {
 		h.ResetScroll()
+		h.OpenPage(15)
 		top := h.Render(80, ht, keylayout.QWERTY)
 		if !strings.Contains(top, "keybindings") || !strings.Contains(top, "close") {
 			t.Errorf("height %d: title/footer missing at top:\n%s", ht, top)

@@ -1083,6 +1083,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// don't fall through to flight actions. Backtick/ctrl+c/end-flight
 		// are handled above this block, so the boss key etc. still work.
 		if a.active == screenHelp {
+			// esc steps back from a page to the index first (#494);
+			// esc on the index and F1 anywhere close the overlay.
+			if key.Matches(m, a.keys.Back) && a.help.Back() {
+				return a, nil
+			}
 			if key.Matches(m, a.keys.Help) || key.Matches(m, a.keys.Back) {
 				a.active = screenOrbit
 				return a, nil

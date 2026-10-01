@@ -3,6 +3,8 @@ package screens
 import (
 	"strings"
 	"testing"
+
+	"github.com/jasonfen/terminal-space-program/internal/keylayout"
 )
 
 // helpRow returns the description the overlay prints for a key token,
@@ -191,5 +193,29 @@ func TestHelpDeclutterRowNamesInstrumentBoxes(t *testing.T) {
 		if !strings.Contains(desc, want) {
 			t.Errorf("F2 row omits %q: %q", want, desc)
 		}
+	}
+}
+
+// TestHelpIndexSectionsHaveWhenClauses (#494): every section is on the
+// index with a when-you-would-open-this clause, so a new section can't
+// ship as a bare name.
+func TestHelpIndexSectionsHaveWhenClauses(t *testing.T) {
+	for _, s := range helpSections {
+		if strings.TrimSpace(helpWhenFor(s.header)) == "" {
+			t.Errorf("section %q has no when-clause on the index", s.header)
+		}
+	}
+	if len(helpWhen) != len(helpSections) {
+		t.Errorf("helpWhen has %d entries for %d sections (stale key?)", len(helpWhen), len(helpSections))
+	}
+}
+
+// TestHelpFirstFlightLayoutTranslation: the page's key column follows the
+// active layout like every other row (QWERTZ throttle reads y).
+func TestHelpFirstFlightLayoutTranslation(t *testing.T) {
+	h := NewHelp(chipTestTheme())
+	h.OpenPage(0)
+	if out := h.Render(120, 40, keylayout.QWERTZ); !strings.Contains(out, "y   ") || !strings.Contains(out, "on the pad, throttle to full") {
+		t.Errorf("first-flight key column not layout-translated:\n%s", out)
 	}
 }
