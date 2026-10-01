@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -107,6 +108,19 @@ func TestBodyInfoTargetRefusals(t *testing.T) {
 		}
 		if a.world.Target != before {
 			t.Errorf("%s: target changed %+v -> %+v", c.id, before, a.world.Target)
+		}
+	}
+}
+
+// The flash for `t` must not overwrite the footer that advertises it.
+func TestBodyInfoFlashKeepsFooter(t *testing.T) {
+	a, _ := bodyInfoApp(t, "mars")
+	a.width, a.height = 140, 40
+	pressKey(a, 't')
+	v := a.View()
+	for _, want := range []string{"target: Mars", "[t] target  [H] transfer  [P] porkchop"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("view missing %q", want)
 		}
 	}
 }
