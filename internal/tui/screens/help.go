@@ -1,9 +1,11 @@
 package screens
 
 import (
+	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jasonfen/terminal-space-program/internal/keylayout"
@@ -17,6 +19,11 @@ import (
 type Help struct {
 	theme  Theme
 	scroll int
+	// page is -1 on the index (what F1 opens on), 0 on "Your first
+	// flight", and n (1-based) on helpSections[n-1]. cursor is the index
+	// row (0-based) the up/down + enter path acts on. Grill G1 Q1, #494.
+	page   int
+	cursor int
 	// viewH / maxScroll are cached from the last Render so HandleKey can
 	// page and clamp without re-deriving the layout. Zero until first
 	// Render (Render runs every frame, so this self-corrects immediately).
@@ -24,7 +31,10 @@ type Help struct {
 	maxScroll int
 }
 
-func NewHelp(th Theme) *Help { return &Help{theme: th} }
+func NewHelp(th Theme) *Help { return &Help{theme: th, page: helpIndexPage} }
+
+// helpIndexPage is the page value of the index itself.
+const helpIndexPage = -1
 
 type helpSection struct {
 	header string
@@ -234,23 +244,135 @@ var helpSections = []helpSection{
 	}},
 }
 
-// bodyLines builds the scrollable section content (everything between the
-// sticky title and footer), one terminal row per slice element. Key tokens
-// (the left column) are Display-translated to the active layout so a QWERTZ
-// player's keycaps match the overlay (ADR 0022); descriptions are left
-// untouched so prose like "zoom in" keeps its letters.
-func (h *Help) bodyLines(layout keylayout.Layout) []string {
+// firstFlight is the "Your first flight" page (grill G1 Q2, #494): the
+// flight the game starts you in (the orbit start) first, then the pad, in
+// Flight School's own order, each line naming the moment it applies. The
+// left column is a key so it is Display-translated to the active layout
+// like every other row. Authored outside helpSections on purpose: it
+// restates keys already covered there, so the keymap coverage test has
+// nothing to learn from it.
+var firstFlight = []helpSection{
+	{"ORBIT START (you begin in a 500 km orbit around Earth)", [][2]string{
+		{"v", "to change your view of the map, cycle the camera"},
+		{"t", "tap until TARGET reads Moon ([T] clears it)"},
+		{"H", "with the Moon targeted, plant a transfer: two burn markers appear"},
+		{"G", "once a burn is planted, warp to 30 s before it; the burn fires itself"},
+		{"b", "to fly the burn by hand instead, light the engine until you pass 700 km"},
+	}},
+	{"THE PAD (a Saturn V on the launchpad)", [][2]string{
+		{"n", "open the spawn form: pick Saturn V, position launchpad"},
+		{"z", "on the pad, throttle to full"},
+		{"b", "light the engine and lift off ([space] only drops stages)"},
+		{"W", "above 10 km, point along your motion over the ground and hold it through the turn"},
+		{"space", "when the first stage runs dry, drop it and keep flying"},
+		{"C", "at ● ORBIT READY, plant the circularising burn; it fires itself"},
+	}},
+}
+
+const firstFlightTitle = "Your first flight"
+const firstFlightWhen = "you are new and want one flight, start to finish"
+const firstFlightEnd = "F1 → MANUAL FLIGHT for the rest"
+
+// helpWhen is each section's "when you would open this" clause, shown on
+// the index. Keyed by helpSections header; a test pins that every section
+// has one.
+var helpWhen = map[string]string{
+	"GENERAL":            "you want to close this, quit, or quicksave",
+	"PAUSE MENU":         "you pressed esc on the map and want to save, load or quit",
+	"CAMERA & VIEW":      "the map is too crowded, too far, or from the wrong angle",
+	"TIME & WARP":        "you are waiting on a burn or an orbit",
+	"MANUAL FLIGHT":      "you are flying by hand: throttle, engine, pointing the nose",
+	"NAVIGATION":         "you want info on a body, a target, or your mission progress",
+	"PLAN BURNS":         "you are planning a transfer, a circularisation or a node",
+	"RENDEZVOUS PLANNER": "you are closing on another vessel and the planner opened",
+	"VESSEL":             "you are spawning, switching, staging, docking or undocking",
+	"VEHICLE ASSEMBLY":   "you are building your own rocket",
+	"MISSIONS":           "you want Flight School or the Challenge ladder on or off",
+	"SAVES":              "you are saving, loading, renaming or deleting a save",
+	"MULTIPLAYER":        "you are flying with friends: chat, ghosts, sync, hosting",
+	"MOUSE":              "you would rather click than type",
+	"READOUT GLOSSARY":   "a code on the HUD (fpa, TCA, e:, τ ...) means nothing to you",
+}
+
+// helpIndexTitle is a section header without its parenthetical scope note,
+// which the when-clause carries instead.
+func helpIndexTitle(header string) string {
+	if i := strings.Index(header, " ("); i >= 0 {
+		return header[:i]
+	}
+	return header
+}
+
+func helpWhenFor(header string) string { return helpWhen[helpIndexTitle(header)] }
+
+// helpPageCount is the index length: the first-flight page plus every
+// section.
+func helpPageCount() int { return len(helpSections) + 1 }
+
+// pageTitle names page n (0 = first flight, k = helpSections[k-1]).
+func pageTitle(n int) string {
+	if n == 0 {
+		return firstFlightTitle
+	}
+	return helpIndexTitle(helpSections[n-1].header)
+}
+
+func (h *Help) renderRows(layout keylayout.Layout, rows [][2]string) []string {
 	var lines []string
-	for si, s := range helpSections {
-		if si > 0 {
-			lines = append(lines, "") // blank gap between sections
+	for _, r := range rows {
+		token := keylayout.DisplayToken(layout, r[0])
+		pad := strings.Repeat(" ", maxInt(0, 20-len([]rune(token))))
+		lines = append(lines, "  "+h.theme.Primary.Render(token)+pad+r[1])
+	}
+	return lines
+}
+
+func (h *Help) sectionLines(layout keylayout.Layout, s helpSection) []string {
+	lines := []string{h.theme.Primary.Render(s.header)}
+	return append(lines, h.renderRows(layout, s.rows)...)
+}
+
+// bodyLines builds the scrollable content (everything between the sticky
+// title and footer), one terminal row per slice element: the index, or the
+// current page. Key tokens (the left column) are Display-translated to the
+// active layout so a QWERTZ player's keycaps match the overlay (ADR 0022);
+// descriptions are left untouched so prose like "zoom in" keeps its letters.
+func (h *Help) bodyLines(layout keylayout.Layout) []string {
+	if h.page == helpIndexPage {
+		return h.indexLines()
+	}
+	if h.page == 0 {
+		var lines []string
+		for i, s := range firstFlight {
+			if i > 0 {
+				lines = append(lines, "")
+			}
+			lines = append(lines, h.sectionLines(layout, s)...)
 		}
-		lines = append(lines, h.theme.Primary.Render(s.header))
-		for _, r := range s.rows {
-			token := keylayout.DisplayToken(layout, r[0])
-			pad := strings.Repeat(" ", maxInt(0, 20-len([]rune(token))))
-			lines = append(lines, "  "+h.theme.Primary.Render(token)+pad+r[1])
+		return append(lines, "", "  "+h.theme.Footer.Render(firstFlightEnd))
+	}
+	return h.sectionLines(layout, helpSections[h.page-1])
+}
+
+// indexLines is the index: a numbered row per page with its when-clause.
+// Digits 1-9 jump straight to a page; every row is also reachable with
+// up/down + enter (there are more pages than digit keys).
+func (h *Help) indexLines() []string {
+	lines := []string{h.theme.Primary.Render("WHERE TO START"), ""}
+	for n := 0; n < helpPageCount(); n++ {
+		when := firstFlightWhen
+		if n > 0 {
+			when = helpWhenFor(helpSections[n-1].header)
 		}
+		title := pageTitle(n)
+		pad := strings.Repeat(" ", maxInt(1, 22-lipgloss.Width(title)))
+		mark := "  "
+		if n == h.cursor {
+			mark = "> "
+		}
+		num := strconv.Itoa(n + 1)
+		numPad := strings.Repeat(" ", 3-len(num))
+		lines = append(lines, mark+h.theme.Primary.Render(num)+numPad+title+pad+when)
 	}
 	return lines
 }
@@ -297,8 +419,17 @@ func (h *Help) Render(width, height int, layout keylayout.Layout) string {
 	return b.String()
 }
 
-// footer is the sticky bottom row: ▲/▼ markers when more content sits
-// above / below, plus the scroll + close controls.
+// PositionLine is the footer's "where am I" text: the page name and its
+// place among the pages (grill G1 Q1: replaces the bare ▼ cue).
+func (h *Help) PositionLine() string {
+	if h.page == helpIndexPage {
+		return "INDEX · " + strconv.Itoa(helpPageCount()) + " pages"
+	}
+	return pageTitle(h.page) + " · " + strconv.Itoa(h.page+1) + " of " + strconv.Itoa(helpPageCount())
+}
+
+// footer is the sticky bottom row: the position line, ▲/▼ when a long page
+// has rows above / below, plus the controls for where you are.
 func (h *Help) footer() string {
 	marker := "   "
 	switch {
@@ -309,15 +440,59 @@ func (h *Help) footer() string {
 	case h.scroll < h.maxScroll:
 		marker = "▼  "
 	}
-	// #498: the more-above / more-below cue is the only sign that rows
-	// exist off-screen, so it gets Primary rather than the dim Footer gray.
-	return h.theme.Primary.Render(marker) + h.theme.Footer.Render("[↑/↓ PgUp/PgDn] scroll   [F1/esc] close")
+	keys := "[1-9] jump   [↑/↓ enter] pick   [F1/esc] close"
+	if h.page != helpIndexPage {
+		keys = "[↑/↓ PgUp/PgDn] scroll  [esc] index  [F1] close"
+	}
+	// #498: the position line and cue are the only signs of where you are,
+	// so they get Primary rather than the dim Footer gray.
+	return h.theme.Primary.Render(marker) + h.theme.Primary.Render(h.PositionLine()) + "   " + h.theme.Footer.Render(keys)
 }
 
-// HandleKey scrolls the body. Called by the app while the help screen is
-// active; F1/esc closing is handled by the app, not here.
+// OpenPage jumps to page n (0 = first flight, k = helpSections[k-1]); out
+// of range is ignored.
+func (h *Help) OpenPage(n int) {
+	if n < 0 || n >= helpPageCount() {
+		return
+	}
+	h.page, h.cursor, h.scroll = n, n, 0
+}
+
+// Back returns from a page to the index and reports true; on the index it
+// reports false so the caller closes the overlay.
+func (h *Help) Back() bool {
+	if h.page == helpIndexPage {
+		return false
+	}
+	h.page, h.scroll = helpIndexPage, 0
+	return true
+}
+
+// HandleKey scrolls the body, jumps pages and moves the index cursor.
+// Called by the app while the help screen is active; F1/esc closing is
+// handled by the app (via Back), not here.
 func (h *Help) HandleKey(msg tea.KeyMsg) {
-	switch msg.String() {
+	k := msg.String()
+	if len(k) == 1 && k[0] >= '1' && k[0] <= '9' {
+		h.OpenPage(int(k[0] - '1'))
+		return
+	}
+	if h.page == helpIndexPage {
+		switch k {
+		case "up", "k":
+			h.cursor = maxInt(0, h.cursor-1)
+		case "down", "j":
+			h.cursor = minInt(helpPageCount()-1, h.cursor+1)
+		case "home", "g":
+			h.cursor = 0
+		case "end", "G":
+			h.cursor = helpPageCount() - 1
+		case "enter":
+			h.OpenPage(h.cursor)
+		}
+		return
+	}
+	switch k {
 	case "up", "k":
 		h.ScrollBy(-1)
 	case "down", "j":
@@ -335,9 +510,9 @@ func (h *Help) HandleKey(msg tea.KeyMsg) {
 }
 
 // ScrollBy moves the window by n rows (clamped). ResetScroll returns to
-// the top, called when the overlay opens.
+// the index, called when the overlay opens.
 func (h *Help) ScrollBy(n int) { h.scroll += n; h.clamp() }
-func (h *Help) ResetScroll()   { h.scroll = 0 }
+func (h *Help) ResetScroll()   { h.scroll, h.page, h.cursor = 0, helpIndexPage, 0 }
 
 // Page moves a near-full viewport in dir (±1), overlapping one row.
 func (h *Help) Page(dir int) { h.ScrollBy(dir * maxInt(1, h.viewH-1)) }
@@ -358,6 +533,13 @@ func clipLine(s string, width int) string {
 		return s
 	}
 	return ansi.Truncate(s, width, "…")
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func maxInt(a, b int) int {
