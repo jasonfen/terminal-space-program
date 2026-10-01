@@ -73,7 +73,7 @@ func typeDigits(s *SpawnCraft, km int) {
 // it is what makes the natural gesture Enter-digits-Enter-Enter.
 func TestAltitudeEnterAfterCommitLaunches(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	s.Reset(bandTestBodies(), "earth", nil, "", "", nil)
 
 	enterAltEdit(t, s) // frame 1 → 2
 	typeDigits(s, 4400)
@@ -100,7 +100,7 @@ func TestAltitudeArmedLaunchDisarmsOnAnyOtherKey(t *testing.T) {
 	for _, key := range []string{"tab", "shift+tab", "left", "right"} {
 		t.Run(key, func(t *testing.T) {
 			s := NewSpawnCraft(Theme{})
-			s.Reset(bandTestBodies(), "earth", nil, "", nil)
+			s.Reset(bandTestBodies(), "earth", nil, "", "", nil)
 			enterAltEdit(t, s)
 			typeDigits(s, 900)
 			s.HandleKey("enter") // leave the box — armed
@@ -120,7 +120,7 @@ func TestAltitudeArmedLaunchDisarmsOnAnyOtherKey(t *testing.T) {
 // hint text: the frame that launches must say so, or the state is invisible.
 func TestAltitudeArmedHintTellsThePlayerEnterLaunches(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	s.Reset(bandTestBodies(), "earth", nil, "", "", nil)
 	s.fieldIdx = 3
 	if out := s.Render(80, 0); !strings.Contains(out, "Enter to edit") {
 		t.Fatalf("quiet focused ALTITUDE does not offer %q:\n%s", "Enter to edit", out)
@@ -142,7 +142,7 @@ func TestAltitudeArmedHintTellsThePlayerEnterLaunches(t *testing.T) {
 // elsewhere or a stray key) can produce SpawnActionConfirm.
 func TestAltitudeNeverLaunchesHalfTyped(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	s.Reset(bandTestBodies(), "earth", nil, "", "", nil)
 	enterAltEdit(t, s)
 
 	for _, k := range []string{"4", "4", "0", "0"} {
@@ -164,7 +164,7 @@ func TestAltitudeNeverLaunchesHalfTyped(t *testing.T) {
 // never cancel the whole form (SpawnActionCancel).
 func TestAltitudeEscRevertsNotCancelsForm(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	s.Reset(bandTestBodies(), "earth", nil, "", "", nil)
 	enterAltEdit(t, s)
 	typeDigits(s, 9999)
 
@@ -193,7 +193,7 @@ func TestAltitudeCommitClamps(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	systems := loadRealSystems(t)
 	sys := findRealBody(t, systems, "Sol", "earth")
-	s.Reset(sys.Bodies, "earth", nil, "", nil)
+	s.Reset(sys.Bodies, "earth", nil, "", "", nil)
 
 	enterAltEdit(t, s)
 	typeDigits(s, 60) // 60km — below Earth's 175km floor
@@ -221,7 +221,7 @@ func TestAltitudeCommitClamps(t *testing.T) {
 // case.
 func TestAltitudeEmptyCommitReverts(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	s.Reset(bandTestBodies(), "earth", nil, "", "", nil)
 	enterAltEdit(t, s)
 	typeDigits(s, 4400)
 	s.HandleKey("backspace")
@@ -246,7 +246,7 @@ func TestAltitudeEmptyCommitReverts(t *testing.T) {
 // ignored while editing; they neither mutate the buffer nor escape the box.
 func TestAltitudeOnlyDigitsAndBackspaceEditBuffer(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	s.Reset(bandTestBodies(), "earth", nil, "", "", nil)
 	enterAltEdit(t, s)
 	typeDigits(s, 42)
 
@@ -269,7 +269,7 @@ func TestAltitudeOnlyDigitsAndBackspaceEditBuffer(t *testing.T) {
 // Enter still confirms the form as before.
 func TestAltitudeEnterFromOtherFieldsStillLaunches(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	s.Reset(bandTestBodies(), "earth", nil, "", "", nil)
 	for _, idx := range []int{0, 1, 2, 4} {
 		s.fieldIdx = idx
 		if got := s.HandleKey("enter"); got != SpawnActionConfirm {
@@ -285,7 +285,7 @@ func TestAltitudeArrowsStepOrbitStops(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	systems := loadRealSystems(t)
 	sys := findRealBody(t, systems, "Sol", "earth")
-	s.Reset(sys.Bodies, "earth", nil, "", nil)
+	s.Reset(sys.Bodies, "earth", nil, "", "", nil)
 	s.fieldIdx = 3
 
 	// Land squarely on a value between two stops (the default 500km is
@@ -315,7 +315,7 @@ func TestAltitudeArrowsClampAtEnds(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	systems := loadRealSystems(t)
 	sys := findRealBody(t, systems, "Sol", "earth")
-	s.Reset(sys.Bodies, "earth", nil, "", nil)
+	s.Reset(sys.Bodies, "earth", nil, "", "", nil)
 	s.fieldIdx = 3
 
 	for i := 0; i < 20; i++ {
@@ -351,7 +351,7 @@ func TestAltitudeFollowsParentAcrossChangeWhenLegal(t *testing.T) {
 	if marsIdx < 0 {
 		t.Fatal("setup: mars not found in Sol system")
 	}
-	s.Reset(sys.Bodies, "earth", nil, "", nil)
+	s.Reset(sys.Bodies, "earth", nil, "", "", nil)
 	enterAltEdit(t, s)
 	typeDigits(s, 300) // 300km — legal at Earth (floor 175) and at Mars (floor 125)
 	s.HandleKey("enter")
@@ -378,7 +378,7 @@ func TestAltitudeReclampsOnParentChangeWhenIllegal(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	systems := loadRealSystems(t)
 	sys := findRealBody(t, systems, "Sol", "earth")
-	s.Reset(sys.Bodies, "earth", nil, "", nil)
+	s.Reset(sys.Bodies, "earth", nil, "", "", nil)
 	enterAltEdit(t, s)
 	typeDigits(s, 90000) // 90,000km — way above the Moon's ceiling
 	s.HandleKey("enter")
@@ -406,7 +406,7 @@ func TestAltitudeNoOrbitBodyKeepsEnterDead(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	systems := loadRealSystems(t)
 	sys := findRealBody(t, systems, "Sol", "phobos")
-	s.Reset(sys.Bodies, "phobos", nil, "", nil)
+	s.Reset(sys.Bodies, "phobos", nil, "", "", nil)
 
 	if !s.altBandEmpty {
 		t.Fatal("setup: Phobos should report an Empty Orbit Band")
@@ -442,7 +442,7 @@ func TestAltitudeNoOrbitBodyKeepsEnterDead(t *testing.T) {
 // arguments; a signature change would be a silent break there.
 func TestSelectedAltitudeMSignatureUnchanged(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	s.Reset(bandTestBodies(), "earth", nil, "", "", nil)
 	var _ func() float64 = s.SelectedAltitudeM
 	if s.SelectedAltitudeM() != 500_000 {
 		t.Errorf("default SelectedAltitudeM = %v, want 500000 (500km)", s.SelectedAltitudeM())
@@ -455,7 +455,7 @@ func TestSelectedAltitudeMSignatureUnchanged(t *testing.T) {
 func TestAltitudeCommitSamplesCommsOnceNotPerKeystroke(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	calls := 0
-	s.Reset(bandTestBodies(), "earth", nil, "", func(bodyID string, altM, antennaRangeM float64) (float64, bool) {
+	s.Reset(bandTestBodies(), "earth", nil, "", "", func(bodyID string, altM, antennaRangeM float64) (float64, bool) {
 		calls++
 		return 1.0, true
 	})
@@ -503,7 +503,7 @@ func TestAltKmLabelUsesCommaGrouping(t *testing.T) {
 // ignored exactly like a non-digit key already is.
 func TestAltitudeInputBufferCapped(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	s.Reset(bandTestBodies(), "earth", nil, "", "", nil)
 	enterAltEdit(t, s)
 
 	for i := 0; i < maxAltInputDigits+5; i++ {
@@ -536,7 +536,7 @@ func TestAltitudeRetypedDisplayedValueCountsAsOnStop(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	systems := loadRealSystems(t)
 	sys := findRealBody(t, systems, "Lumen", "mote")
-	s.Reset(sys.Bodies, "mote", nil, "", nil)
+	s.Reset(sys.Bodies, "mote", nil, "", "", nil)
 
 	enterAltEdit(t, s)
 	typeDigits(s, 42) // the displayed rounding of the 42.1387km sync stop
@@ -556,7 +556,7 @@ func TestAltitudeRetypedDisplayedValueCountsAsOnStop(t *testing.T) {
 // mandated real terminal width (not a wide terminal) for the quiet state.
 func TestAltitudeFieldRendersAt80Columns(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(bandTestBodies(), "earth", nil, "", nil)
+	s.Reset(bandTestBodies(), "earth", nil, "", "", nil)
 	out := s.Render(80, 0)
 	if !strings.Contains(out, "ALTITUDE") {
 		t.Error("ALTITUDE header missing from an 80-column render")

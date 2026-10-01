@@ -44,7 +44,7 @@ func selectCustom(s *SpawnCraft) {
 // branch.
 func TestSpawnCustomEntryReachableAndEmpty(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil, "", nil)
+	s.Reset(nil, "", nil, "", "", nil)
 	selectCustom(s)
 
 	if !s.IsCustomSelected() {
@@ -77,7 +77,7 @@ func TestSpawnCustomEntryReachableAndEmpty(t *testing.T) {
 // only once Custom is selected.
 func TestSpawnStackFieldReachableOnlyInCustom(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil, "", nil)
+	s.Reset(nil, "", nil, "", "", nil)
 
 	// Non-custom: Tab through a full cycle never lands on stackFieldIdx.
 	for i := 0; i < 12; i++ {
@@ -115,7 +115,7 @@ func TestSpawnStackFieldReachableOnlyInCustom(t *testing.T) {
 // CRAFT TYPE, and Tab onward from STACK continues to POSITION (field 1).
 func TestSpawnTabFromCustomReachesStackFirst(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil, "", nil)
+	s.Reset(nil, "", nil, "", "", nil)
 	selectCustom(s)
 
 	if s.fieldIdx != 0 {
@@ -142,7 +142,7 @@ func TestSpawnTabFromCustomReachesStackFirst(t *testing.T) {
 // picker, [a] appends the picked part on top, [x] removes the top.
 func TestSpawnStackAddRemove(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil, "", nil)
+	s.Reset(nil, "", nil, "", "", nil)
 	selectCustom(s)
 	s.fieldIdx = stackFieldIdx
 
@@ -188,7 +188,7 @@ func TestSpawnListsSavedDesigns(t *testing.T) {
 		{Loadout: spacecraft.LoadoutDef{ID: "mun-hopper", Name: "Mun Hopper", Parts: []spacecraft.PartRef{{PartID: "x"}}}},
 	}
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", designs, "", nil)
+	s.Reset(nil, "", designs, "", "", nil)
 
 	steps := 0
 	for !s.IsDesignSelected() && steps < len(spacecraft.LoadoutOrder)+5 {
@@ -226,7 +226,7 @@ func pickPart(s *SpawnCraft, id string) {
 // payload without the player marking it by hand.
 func TestSpawnDockSeamFromCSMLMModule(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil, "", nil)
+	s.Reset(nil, "", nil, "", "", nil)
 	selectCustom(s)
 	s.fieldIdx = stackFieldIdx
 
@@ -250,7 +250,7 @@ func TestSpawnDockSeamFromCSMLMModule(t *testing.T) {
 // at least one stage. v0.14 / ADR 0011.
 func TestSpawnDockSeamCycleAndClamp(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil, "", nil)
+	s.Reset(nil, "", nil, "", "", nil)
 	selectCustom(s)
 	s.fieldIdx = stackFieldIdx
 
@@ -289,7 +289,7 @@ func TestSpawnDockSeamCycleAndClamp(t *testing.T) {
 // for Custom and reflects added parts.
 func TestSpawnRenderShowsStackEditor(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil, "", nil)
+	s.Reset(nil, "", nil, "", "", nil)
 
 	if strings.Contains(s.Render(80, 0), "STACK (bottom → top)") {
 		t.Error("STACK editor rendered for a non-custom loadout")
@@ -315,7 +315,7 @@ func TestSpawnRenderShowsStackEditor(t *testing.T) {
 // header and never at the end of each vessel row.
 func TestSpawnRowsDropSystemDvSuffixHeaderCarriesIt(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil, bodies.ScaleReal, nil)
+	s.Reset(nil, "", nil, bodies.ScaleReal, "", nil)
 	out := s.Render(140, 60)
 	if n := strings.Count(out, "km/s to orbit"); n != 1 {
 		t.Fatalf("want the Δv-to-orbit figure exactly once (header), got %d\n%s", n, out)
@@ -333,7 +333,7 @@ func TestSpawnSavedDesignRowCarriesMassAndThrust(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	s.Reset(nil, "", []spacecraft.Design{
 		{Loadout: spacecraft.LoadoutDef{ID: "d1", Name: "Probe Hopper", Parts: []spacecraft.PartRef{{PartID: "x"}}}},
-	}, bodies.ScaleReal, nil)
+	}, bodies.ScaleReal, "", nil)
 	// Unresolvable design parts yield no stages; inject resolved ones.
 	s.designStages = [][]spacecraft.Stage{{{DryMass: 500, FuelMass: 1500, Thrust: 20000, Isp: 300}}}
 	for !s.IsDesignSelected() {
@@ -361,7 +361,7 @@ func TestSpawnUnresolvableDesignSaysWhy(t *testing.T) {
 		{Loadout: spacecraft.LoadoutDef{ID: "ghost1", Name: "Ghost One", Parts: []spacecraft.PartRef{{PartID: "gone-a"}}}},
 	}
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", designs, "", nil)
+	s.Reset(nil, "", designs, "", "", nil)
 	out := s.Render(120, 0)
 	for _, want := range []string{"2 parts, missing from catalog", "1 part, missing from catalog"} {
 		if !strings.Contains(out, want) {

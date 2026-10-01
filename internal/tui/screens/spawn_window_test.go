@@ -14,7 +14,7 @@ import (
 func spawnFormMidCatalog(t *testing.T) *SpawnCraft {
 	t.Helper()
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil, "", nil)
+	s.Reset(nil, "", nil, "", "", nil)
 	s.showAll = true // full unfiltered catalog — the biggest, most repro-prone list
 	n := s.visibleCatalogCount()
 	if n < 3 {
@@ -111,7 +111,7 @@ func TestSpawnFormWindowActuallyHidesRowsAtFloor(t *testing.T) {
 // pre-#373 behavior, kept for callers with nothing to fit into.
 func TestSpawnFormRenderUnboundedHeightShowsWholeCatalog(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
-	s.Reset(nil, "", nil, "", nil)
+	s.Reset(nil, "", nil, "", "", nil)
 	s.showAll = true
 	out := s.Render(80, 0)
 	for _, id := range spacecraft.LoadoutOrder {

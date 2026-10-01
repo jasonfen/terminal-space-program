@@ -44,7 +44,7 @@
       "density": 4.1,
       "gravity": 19.6,
       "eccentricity": 0.0,
-      "inclination": 89.806,
+      "inclination": 0,
       "discoveredBy": "Kepler Space Telescope",
       "discoveryDate": "2015",
       "moons": [
@@ -75,7 +75,7 @@
       "density": 3.2,
       "gravity": 21.1,
       "eccentricity": 0.023,
-      "inclination": 89.9,
+      "inclination": 0,
       "discoveredBy": "Kepler Space Telescope",
       "discoveryDate": "2015",
       "moons": [],
@@ -100,7 +100,7 @@
       "density": 2.1,
       "gravity": 24.7,
       "eccentricity": 0.041,
-      "inclination": 89.2,
+      "inclination": 0,
       "discoveredBy": "Kepler Space Telescope",
       "discoveryDate": "2015",
       "moons": [
@@ -136,7 +136,7 @@
       "density": 1.7,
       "gravity": 30.1,
       "eccentricity": 0.067,
-      "inclination": 88.8,
+      "inclination": 0,
       "discoveredBy": "Kepler Space Telescope",
       "discoveryDate": "2015",
       "moons": [

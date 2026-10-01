@@ -69,10 +69,11 @@ func buildScenario(r rawFlags) (*sim.StartScenario, error) {
 			// prime meridian).
 			s.LatDeg, s.LonDeg = r.lat, r.lon
 		default:
-			// --launchpad alone → the form's KSC default, so a bare
+			// --launchpad alone → the form's per-system default site (KSC; Lumen is equatorial), so a bare
 			// --launchpad lands somewhere sensible rather than the equator.
-			s.LatDeg = sim.DefaultLaunchpadLatitude
-			s.LonDeg = sim.DefaultLaunchpadLongitudeEast
+			site := sim.DefaultLaunchSite(r.system)
+			s.LatDeg = site.LatitudeDeg
+			s.LonDeg = site.LongitudeEastDeg
 		}
 		return s, nil
 	}
