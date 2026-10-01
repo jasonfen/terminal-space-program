@@ -297,6 +297,9 @@ const (
 	LimitNone MarginLimiter = iota
 	LimitThrust
 	LimitFuel
+	// LimitLanding (#465): the stage can halt but could not then descend
+	// the margin it stops with.
+	LimitLanding
 )
 
 func (l MarginLimiter) String() string {
@@ -305,6 +308,8 @@ func (l MarginLimiter) String() string {
 		return "thrust"
 	case LimitFuel:
 		return "fuel"
+	case LimitLanding:
+		return "landing"
 	}
 	return ""
 }
@@ -483,6 +488,21 @@ type PoweredStopPrediction struct {
 	// DVUsedMps is the Δv the rocket-equation accounting actually spent
 	// reaching termination (bounded by the stage's available Δv).
 	DVUsedMps float64
+
+	// LandApplies (#465, G5 Q3): the landing cost below is meaningful. True
+	// for a StopStopped outcome over an airless primary (a stop that ends
+	// in a hover and a drop; with an atmosphere drag does part of that
+	// work and the figure would over-warn, so it stays off).
+	LandApplies bool
+	// LandDVMps is the Δv this stage needs to descend MarginM from rest at
+	// the post-stop mass: free-fall speed sqrt(2·g·h) times a/(a−g) for
+	// the suicide burn that kills it (a = thrust/post-stop mass).
+	// +Inf when a <= g (the stage cannot out-thrust gravity there).
+	LandDVMps float64
+	// StageDVMps is the lit stage's rocket-equation Δv when the forecast
+	// started; StageDVAfterStopMps what is left once the stop is done.
+	StageDVMps          float64
+	StageDVAfterStopMps float64
 }
 
 // stopSubStepSeconds is PredictPoweredStop's RK4 sub-step. Finer than
@@ -665,6 +685,7 @@ func predictPoweredStopFrom(state physics.StateVector, c *spacecraft.Spacecraft,
 		}, true
 	}
 	mdot := thrustFull / (ispSec * stdGravityMps2)
+	startMassKg, startFuelKg := massKg, fuelKg
 
 	dt := stopSubStepSeconds
 	steps := int(math.Ceil(total / dt))
@@ -717,13 +738,28 @@ func predictPoweredStopFrom(state physics.StateVector, c *spacecraft.Spacecraft,
 			if crossedGround {
 				outcome = StopCrashed
 			}
-			return PoweredStopPrediction{
+			res := PoweredStopPrediction{
 				Outcome:        outcome,
 				MarginM:        stopState.R.Norm() - radius,
 				ImpactSpeedMps: impactSpeed,
 				ElapsedSec:     elapsed - stepDt + tau,
 				DVUsedMps:      dvUsed,
-			}, true
+			}
+			if outcome == StopStopped && primary.Atmosphere == nil {
+				res.LandApplies = true
+				g := mu / (stopState.R.Norm() * stopState.R.Norm())
+				aPost := thrustFull / massKg
+				if aPost <= g {
+					res.LandDVMps = math.Inf(1)
+				} else {
+					res.LandDVMps = math.Sqrt(2*g*res.MarginM) * aPost / (aPost - g)
+				}
+				res.StageDVMps = ispSec * stdGravityMps2 * math.Log(startMassKg/(startMassKg-startFuelKg))
+				if fuelKg > 0 {
+					res.StageDVAfterStopMps = ispSec * stdGravityMps2 * math.Log(massKg/(massKg-fuelKg))
+				}
+			}
+			return res, true
 		}
 
 		if fuelKg <= 1e-9 {
@@ -857,6 +893,10 @@ func PredictBurnAt(c *spacecraft.Spacecraft, horizon time.Duration) (BurnAtCue, 
 // #377 §4's suggested "~10% of current altitude".
 const marginTightAltitudeFrac = 0.10
 
+// landTightSpareFrac: a StopStopped margin whose landing would leave under
+// this fraction of the stage's starting Δv reads TIGHT (G5 Q3, "~10%").
+const landTightSpareFrac = 0.10
+
 // burnAtImminentSec is how soon the "burn at" cue can be before a
 // StopStopped margin promotes to TIGHT on that grounds alone — issue
 // #377 §4's "or the start cue is inside a few seconds".
@@ -895,6 +935,20 @@ func DeriveMarginState(stop PoweredStopPrediction, stopOK bool, currentAltitudeM
 		tight := hasBurnAt && burnAt.InSec >= 0 && burnAt.InSec < burnAtImminentSec
 		if currentAltitudeM > 0 && stop.MarginM < currentAltitudeM*marginTightAltitudeFrac {
 			tight = true
+		}
+		// #465 (G5 Q3): green means this stage can LAND you, not merely halt
+		// you. After the stop the vessel hangs at MarginM; descending that
+		// costs LandDVMps at the post-stop mass. Red if the stage could not
+		// arrive; TIGHT if it would arrive with under landTightSpareFrac of
+		// the Δv it started the forecast with.
+		if stop.LandApplies {
+			spare := stop.StageDVAfterStopMps - stop.LandDVMps
+			if spare < 0 || math.IsInf(stop.LandDVMps, 1) {
+				return BurnMargin{State: MarginInsufficient, Limiter: LimitLanding, ReqDVMps: stop.DVUsedMps}
+			}
+			if spare < landTightSpareFrac*stop.StageDVMps {
+				tight = true
+			}
 		}
 		state := MarginOK
 		if tight {
