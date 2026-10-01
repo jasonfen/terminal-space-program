@@ -236,3 +236,15 @@ func TestStartAltitudeClampNoteEmptyForNilScenario(t *testing.T) {
 		t.Errorf("note = %q, want empty (nil scenario)", note)
 	}
 }
+
+// TestBareLaunchpadOnLumenIsEquatorial (#461): the CLI's bare --launchpad
+// uses the same per-system default site as the spawn form.
+func TestBareLaunchpadOnLumenIsEquatorial(t *testing.T) {
+	s, err := buildScenario(rawFlags{launchpad: true, system: "Lumen", set: map[string]bool{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !s.Surface || s.LatDeg != 0 {
+		t.Errorf("bare --launchpad --system Lumen: Surface=%v lat=%v, want equator", s.Surface, s.LatDeg)
+	}
+}
