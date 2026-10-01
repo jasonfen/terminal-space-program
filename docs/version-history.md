@@ -2,6 +2,22 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.46.0
+
+A UX pass: the screens say what they mean, the VAB reads like the rest of the game, `P` plots to your Target, shed stages stay shed, and Flight School teaches the right key to lift off (UX cycle 3 wave A, tracking `#512`; PRs `#513`-`#518`, `#520`-`#525`, review fixes `#526`-`#530`; tag `v0.46.0`).
+
+- **Readouts that stop when their reason is gone.** A crashed vessel shows no SOI PASS, and `V` out of the launch view says which view you are back on instead of `ORBIT READY` (#464, #468).
+- **Title bar and help.** The clock and warp rate read at full brightness, the warp field keeps a fixed width so nothing slides as warp changes, F1's "more below" cue is visible, and F1's `F2` row names what declutter hides (#498, #499, #420).
+- **The VAB.** Parts and the inspector are no longer drawn in the disabled grey, build-blocking warnings are amber, the inspector follows the focused column and is a whole box, `s` shows the vehicle you are naming, `esc` returns to the pause menu, and a tall stack scrolls with a stage header always on top (#500, #501).
+- **`P` plots to your Target.** With a planet targeted, `P` opens its porkchop; no target, a vessel target or a body in your own system each refuse in one phrase (#502).
+- **Saves and spawn rows.** The in-game column shows date and time, autosave numbers follow the list order, quicksave names the file, the system's Δv-to-orbit moves to the spawn list header, and saved designs show mass and thrust (#503, #504).
+- **Planner and mission polish.** A fresh plan reads `fire at: now`, the objective counter sits on the mission title, and view names are title-cased (#505).
+- **Shed stages stay shed.** Jettisoned stages never dock with each other, after any warp and after a save/load (#467).
+- **Flight School lift-off.** The rung says `[b]` to light the engine (space used to drop the fuelled first stage on the pad), and a new rung teaches `space` when the stage runs dry (#519).
+- **Rendezvous.** Two vessels phasing on the same eccentric orbit get real Rendezvous Planner rows (#413); in multiplayer, a peer's clock is read current, and its position is propagated from the moment it was reported (#417).
+- **Hosting.** `serve promote <handle>`, `serve demote <handle>` and a read-only `serve roster`; the session store is locked across processes so a CLI change cannot lose a running server's write (#242).
+- **Saves move to schema 13.** Older saves migrate on load; an existing Flight School: Off the Pad mission is rebuilt with the corrected rungs, keeping the ones you passed.
+
 ### v0.45.1
 
 Rendezvous is the word again: the planner, its HUD row, its messages and the docs no longer say "meeting" anywhere (PRs `#491`, `#492`; tag `v0.45.1`).
