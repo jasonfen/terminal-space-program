@@ -2,6 +2,14 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.47.0
+
+Which plane: a default Lumen launch starts on Kern's equator, and the Kepler-452 and TRAPPIST-1 planets now orbit in their star's plane (UX cycle 3 wave B slice B5, tracking `#512`; PR `#535`; tag `v0.47.0`).
+
+- **Every existing save is rejected.** The body catalog changed, so a save made before this version will not load ("created under a different body catalog"). Start a new game. On the multiplayer server every fleet was reset.
+- **Lumen launches equatorial.** The spawn form's LAUNCHPAD default (and a bare `--launchpad`) in Lumen is now the Equator instead of KSC's 28.6° N, so a plain ascent from Kern reaches Cursor flat instead of in a 32° tilted orbit. Sol and the exoplanet systems keep KSC (#461).
+- **Exoplanets are coplanar.** The 11 Kepler-452 and TRAPPIST-1 planets had their sky-plane inclinations (about 89°) read as orbital tilts; they are now 0°. The `depart:` row on an exoplanet pad no longer shows a sweep that never changed, and hides like any other dead row (#497).
+
 ### v0.46.0
 
 A UX pass: the screens say what they mean, the VAB reads like the rest of the game, `P` plots to your Target, shed stages stay shed, and Flight School teaches the right key to lift off (UX cycle 3 wave A, tracking `#512`; PRs `#513`-`#518`, `#520`-`#525`, review fixes `#526`-`#530`; tag `v0.46.0`).
