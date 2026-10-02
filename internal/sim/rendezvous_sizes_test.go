@@ -47,6 +47,13 @@ func rendezvousSizesWorld(t *testing.T, altMover, altHolder, phaseDeg float64) *
 // tick quantisation, fixed-nose thrust): a separate effect that the impulsive
 // planner model does not carry (see the finite-burn test's note).
 func flyRow(t *testing.T, w *World, place planner.RendezvousOrbit, laps int, impulsive bool) (flownCA float64, plan *RendezvousBurnPlan) {
+	return flyRowBurnWarp(t, w, place, laps, impulsive, -1)
+}
+
+// flyRowBurnWarp is flyRow with the warp index held at burnIdx (0 = 1x,
+// 1 = 10x) from 60 s before the burn trigger until the node burn is done;
+// burnIdx < 0 keeps flyRow's original policy.
+func flyRowBurnWarp(t *testing.T, w *World, place planner.RendezvousOrbit, laps int, impulsive bool, burnIdx int) (flownCA float64, plan *RendezvousBurnPlan) {
 	t.Helper()
 	if impulsive {
 		w.ActiveCraft().Thrust = 0
@@ -76,6 +83,13 @@ func flyRow(t *testing.T, w *World, place planner.RendezvousOrbit, laps int, imp
 			w.Clock.WarpIdx = 2
 		default:
 			w.Clock.WarpIdx = 1
+		}
+		if burnIdx >= 0 {
+			c := w.ActiveCraft()
+			sinceTrig := now.Sub(n.TriggerTime)
+			if c.ActiveBurn != nil || (sinceTrig > -60*time.Second && sinceTrig < 0) || (sinceTrig >= 0 && sinceTrig < 5*time.Second) {
+				w.Clock.WarpIdx = burnIdx
+			}
 		}
 		w.Tick()
 		if len(w.Crafts) < 2 { // fused: closest approach is zero
@@ -137,30 +151,33 @@ func TestRendezvousDifferentSizes_FlownCAMatchesAdvertised(t *testing.T) {
 	}
 }
 
-// The same rows flown with the real finite burn. NOT asserted against the Ok
-// gate: the planner's model is an impulse, and the live burn is centred on the
-// trigger, thrusts along a fixed nose, and is quantised to the 50 ms tick
-// (about 1 m/s per tick at this vessel's acceleration), so a row of 10+ laps
-// misses by kilometres to megametres in live flight. Same-size rows on main
-// show the identical gap; it is a finite-burn matter, not a different-size
-// one. Logged so the gap stays visible, with a sanity bound that the vessels
-// still end up in the same orbital neighbourhood for the shortest plantable
-// row.
-func TestRendezvousDifferentSizes_FiniteBurnFlown_Reported(t *testing.T) {
-	w := rendezvousSizesWorld(t, 500e3, 700e3, 200)
-	ladder, err := w.RecommendRendezvousLadder(planner.RendezvousTheirOrbit)
-	if err != nil {
-		t.Fatalf("ladder refused: %v", err)
-	}
-	for _, row := range ladder.Rows {
-		if !row.Ok {
-			continue
+// #537: the same rows flown with the real finite burn (centred on the
+// trigger, fixed nose, 50 ms ticks), at 1x and at the 10x burn cap, close to
+// the advertised distance within the planner's own Ok gate (0.1% of the orbit
+// radius). Before the final burn tick was split at DVRemaining the last tick
+// over-delivered up to 1 m/s (1x) or 10 m/s (10x) and these rows missed by
+// 17 km to 2.7 Mm.
+func TestRendezvousDifferentSizes_FiniteBurnFlown_MatchesAdvertised(t *testing.T) {
+	for _, burnIdx := range []int{0, 1} {
+		w := rendezvousSizesWorld(t, 500e3, 700e3, 200)
+		ladder, err := w.RecommendRendezvousLadder(planner.RendezvousTheirOrbit)
+		if err != nil {
+			t.Fatalf("ladder refused: %v", err)
 		}
-		fw := rendezvousSizesWorld(t, 500e3, 700e3, 200)
-		flown, plan := flyRow(t, fw, planner.RendezvousTheirOrbit, row.Laps, false)
-		t.Logf("finite burn: laps=%d dv=%.1f m/s: flown CA %.0f m, advertised %.2f m", row.Laps, row.DV, flown, plan.AchievableCA)
-		if math.IsInf(flown, 1) {
-			t.Fatalf("laps=%d: no separation sample taken", row.Laps)
+		for _, row := range ladder.Rows {
+			if !row.Ok {
+				continue
+			}
+			fw := rendezvousSizesWorld(t, 500e3, 700e3, 200)
+			flown, plan := flyRowBurnWarp(t, fw, planner.RendezvousTheirOrbit, row.Laps, false, burnIdx)
+			t.Logf("finite burn at %gx: laps=%d dv=%.1f m/s: flown CA %.0f m, advertised %.2f m", WarpFactors[burnIdx], row.Laps, row.DV, flown, plan.AchievableCA)
+			if math.IsInf(flown, 1) {
+				t.Fatalf("laps=%d: no separation sample taken", row.Laps)
+			}
+			tol := 0.001 * (fw.ActiveCraft().Primary.RadiusMeters() + 500e3)
+			if flown > tol {
+				t.Errorf("finite burn at %gx laps=%d: flown CA %.0f m, want < %.0f m (the Ok gate)", WarpFactors[burnIdx], row.Laps, flown, tol)
+			}
 		}
 	}
 }

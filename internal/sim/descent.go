@@ -748,12 +748,7 @@ func predictPoweredStopFrom(state physics.StateVector, c *spacecraft.Spacecraft,
 			if outcome == StopStopped && primary.Atmosphere == nil {
 				res.LandApplies = true
 				g := mu / (stopState.R.Norm() * stopState.R.Norm())
-				aPost := thrustFull / massKg
-				if aPost <= g {
-					res.LandDVMps = math.Inf(1)
-				} else {
-					res.LandDVMps = math.Sqrt(2*g*res.MarginM) * aPost / (aPost - g)
-				}
+				res.LandDVMps = landDVMps(g, res.MarginM, thrustFull/massKg)
 				res.StageDVMps = ispSec * stdGravityMps2 * math.Log(startMassKg/(startMassKg-startFuelKg))
 				if fuelKg > 0 {
 					res.StageDVAfterStopMps = ispSec * stdGravityMps2 * math.Log(massKg/(massKg-fuelKg))
@@ -1148,4 +1143,15 @@ func NextFuelStageName(c *spacecraft.Spacecraft) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// landDVMps is the Δv of a constant-thrust suicide burn from rest at height h
+// under gravity g with engine acceleration a: free-fall to v0^2 = 2gh(a-g)/a,
+// then burn for v0/(a-g), costing a*v0/(a-g) = sqrt(2gh) * sqrt(a/(a-g)).
+// +Inf when the engine cannot out-thrust gravity.
+func landDVMps(g, h, a float64) float64 {
+	if a <= g {
+		return math.Inf(1)
+	}
+	return math.Sqrt(2*g*h) * math.Sqrt(a/(a-g))
 }

@@ -48,7 +48,10 @@ func TestNavigationStopNamesTheLitStage(t *testing.T) {
 		wantRow   string
 		wantTitle string
 	}{
-		{"tight", 477, "(Descent)", "⚠ TIGHT"},
+		// 460 kg, not the 57-6 capture's 477: with the corrected suicide-burn cost
+		// (review LOW 57) 477 kg leaves 29 m/s spare in this harness (OK, over the
+		// 10% line); 460 kg is TIGHT.
+		{"tight", 460, "(Descent)", "⚠ TIGHT"},
 		{"no land", 250, "(Descent)", "⚠ NO LAND"},
 		{"dry", 0, "Descent dry", "Descent dry, Ascent aboard"},
 	}

@@ -130,3 +130,43 @@ func TestCutClearsDryOrder(t *testing.T) {
 		t.Error("stage press lit an engine after the order was cut")
 	}
 }
+
+// Review LOW 59: a standing dry order belongs to the vessel you are flying.
+// Switching away with [ / ] (or a slot key) drops it, so coming back and
+// pressing space later cannot relight an engine at a throttle nothing on
+// screen showed the vessel was still holding.
+func TestSwitchingVesselDropsDryOrder(t *testing.T) {
+	for _, name := range []string{"cycle", "slot"} {
+		t.Run(name, func(t *testing.T) {
+			w := mustWorld(t)
+			c := dryLanderStack(t, w)
+			if _, err := w.SpawnCraft(SpawnSpec{AltitudeM: 600e3}); err != nil {
+				t.Fatalf("SpawnCraft: %v", err)
+			}
+			w.SetActiveCraftIdx(0) // back on the lander
+			if _, ok := tickUntil(w, 400, func() bool { return c.ActiveStageFuel() <= 0 }); !ok {
+				t.Fatal("descent stage never ran dry")
+			}
+			w.Tick()
+			if !StackDryArmed(c) {
+				t.Fatal("setup: lander must be dry-armed")
+			}
+			if name == "cycle" {
+				w.CycleActiveCraft(1)
+			} else if !w.SwitchToCraftIdx(1) {
+				t.Fatal("slot switch refused")
+			}
+			if c.DryOrder {
+				t.Error("DryOrder survived switching away from the vessel")
+			}
+			// And back: a stage press must not relight.
+			w.SetActiveCraftIdx(0)
+			if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+				t.Fatalf("StageActive: %v", err)
+			}
+			if c.ManualBurn != nil {
+				t.Error("stage press relit an engine from an order the player walked away from")
+			}
+		})
+	}
+}
