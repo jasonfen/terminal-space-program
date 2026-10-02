@@ -2,6 +2,18 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.48.0
+
+Same keys in every view, a help screen that starts somewhere, descents that tell the truth, and a Rendezvous Planner that plants the row you read and flies where it said (UX cycle 3 wave B, tracking `#512`; PRs `#531`-`#534`, `#536`, `#538`, review fixes `#539`-`#541`; tag `v0.48.0`).
+
+- **Keys.** The arrow keys trim the nose in every flight view (←/→ pitch west/east, ↑/↓ heading north/south); the map pans with shift+arrows; the 3D view tilts with `<` `>` and yaws with `{` `}`. The pause menu takes ↑/↓ + enter, and Keyboard layout moved from `c` to `k`. `D` (transpose) and `Y` (deploy) ask `[y/n]` first. The STAGES row names what `space` will drop (#493).
+- **Help.** F1 opens on an index: "Your first flight" first, then every section with a note on when you would want it; `1`-`9` jump to a page (#494).
+- **Body info acts on the body it shows.** `t` targets that body, then `H` plans a transfer and `P` opens its porkchop (#495).
+- **Descent.** When the lit stage runs dry with the throttle set, the throttle row shows `✕ DRY` and `space` relights the next engine at that throttle. The stop margin names the stage it judges, and green now means that stage can land you, not just stop you (#465, #466).
+- **Rendezvous Planner.** Rows aim about five minutes ahead and each shows its own `burn T-…`; opening the planner drops warp to 1x and Enter plants exactly the row you read (`K` re-solves if it has passed). "The crossing" now works. Vessels in different-sized round orbits get rows instead of a dead end, and different shapes point you at `[C]`. The TARGET box shows the plan's arrival and miss until you change course (#416, #418, #407).
+- **Burns deliver what they planned.** A planted burn used to over-deliver up to one tick of Δv (about 1 m/s at 1x, 10 m/s at 10x), which sent rendezvous plans hundreds of kilometres wide. Flown rendezvous rows now land within a few hundred metres of plan, and under 2 km in the worst case measured (#537).
+- **Saves move to schema 14.** Older saves migrate on load with nothing lost.
+
 ### v0.47.0
 
 Which plane: a default Lumen launch starts on Kern's equator, and the Kepler-452 and TRAPPIST-1 planets now orbit in their star's plane (UX cycle 3 wave B slice B5, tracking `#512`; PR `#535`; tag `v0.47.0`).
