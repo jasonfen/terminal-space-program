@@ -152,14 +152,14 @@ Dvorak, and free per-key remapping aren't supported yet.
 
 | Key | Action |
 |---|---|
-| `shift+↑` `shift+↓` `shift+←` `shift+→` | Pan the map. The camera keeps following your focus, just displaced; `g` or any refocus snaps it back. The plain arrows are the flight trims (see Manual flight), in every view |
+| `shift+↑` `shift+↓` `shift+←` `shift+→` | Pan the map. The camera keeps following your focus, just displaced; `g` or any refocus snaps it back. The plain arrows are the flight trims (see Manual flight), in every flight view; a menu, the mission ladder, body info or the Rendezvous Planner picker keeps them while it is open |
 | `+` / `-` | Zoom in / out. Zoom is remembered per focus |
 | `f` / `F` | Cycle what the camera follows, forward / back (whole system → each body → your vessel). Focusing a body your trajectory passes fits the camera to its sphere of influence so the capture curve fills the canvas. Also the way back from spectating another player |
 | `g` | Reset the camera to the whole system (clears any pan) |
 | `v` | Cycle the projection: Tilted (default, a 3D-style perspective) → Top → Right → Bottom → Left → Orbit-flat. The camera re-frames once when focus, view, or system changes and otherwise stays where you put it |
 | `>` / `<` | Tilt the 3D view up / down (tilted view only). Camera only: a missed shift can move the view, never the vessel |
 | `{` / `}` | Yaw the 3D view left / right in 5° steps, wrapping (tilted view only) |
-| `o` | **Proximity view** for the last kilometres of a rendezvous: the target vessel sits dead centre, its direction of travel runs right, the planet is below, so you read your drift the way the physics works. Needs a vessel target; a `CLOSE RANGE` chip reminds you once within 35 km. Press again to return to the map as you left it |
+| `o` | **Proximity view** for the last kilometres of a rendezvous: the target vessel sits dead centre, its direction of travel runs right, the planet is below, so you read your drift the way the physics works. Needs a vessel target; a `CLOSE RANGE` chip reminds you once within 35 km. The plain arrows still trim your vessel here; the PROXIMITY chip's `trim:` row and the bottom legend show it. Press again to return to the map as you left it |
 | `V` | **Launch / surface view**: chase-cam on your active vessel with a curved horizon, pad marker, and breadcrumb trail, scaled tight at liftoff and pulled back high up. Lifting off routes you here automatically. Press again to return to the map |
 | `j` | **Inspect**: each press steps a bright highlight onto the next thing drawn (bodies, vessels, other players' ghosts, planned burns, the closest-approach `✕`) and names it in a chip. One press past the last item clears it; `Esc` clears immediately. Clicking any orbit line or marker jumps the highlight there |
 | `Enter` | While inspecting: make the highlighted thing your target and clear the highlight. Works on vessels and other players, not just bodies. Things that can't be a target say so |
@@ -188,7 +188,7 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 | `a` / `d` | Point normal+ / normal- (perpendicular to your orbit) |
 | `q` / `e` | Point radial+ / radial- (away from / toward the body) |
 | `W` / `S` | Point along / against your ground speed (velocity relative to the spinning atmosphere). Use this for the launch gravity turn |
-| `→` / `←` | Tip the nose 5° east / west on top of whatever the autopilot is doing (hold to ramp). Works the same in the map, the `V` launch view and every projection |
+| `→` / `←` | Tip the nose 5° east / west on top of whatever the autopilot is doing (hold to ramp). Works the same in the map, the `V` launch view, the Proximity view (its PROXIMITY chip shows the trim) and every projection. A menu, the mission ladder, body info or the Rendezvous Planner picker takes the arrows while it is open |
 | `↑` / `↓` | Nudge your commanded launch heading 5° toward north / south off due east (hold to ramp), on the pad or mid-ascent |
 | `\|` | Clear the manual tip and the commanded heading (both trims back to 0) |
 | `;` | Autopilot reference: Orbit → Surface → Target (skips Target when none is set) |
@@ -422,6 +422,8 @@ Round orbits of different sizes (say you at 500 km and your partner at 700 km) w
 | `↑` / `↓` | Walk the Lap Ladder |
 | `Enter` | Plant the highlighted row's burn |
 | `Esc` | Close without planting |
+
+While the picker is open it holds the plain arrows, so the flight trims and the pan are unavailable until you plant or press `Esc`.
 
 "Your orbit" computes a plan for your *target*, not you — since this
 session has no way to plant a node on someone else's vessel, planting there
