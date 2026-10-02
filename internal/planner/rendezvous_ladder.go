@@ -397,6 +397,11 @@ func rendezvousCoplanar(stateA, stateB orbital.Vec3State) bool {
 	return angleDeg <= rendezvousPlaneTolDeg
 }
 
+// rendezvousSameSizeFrac is the fractional radius difference below which two
+// round orbits are "the same size" and take the same-radius phasing solve
+// (1e-4: ~690 m at 500 km altitude), not the different-sizes resize solve.
+const rendezvousSameSizeFrac = 1e-4
+
 // rendezvousLadderCore is the shared solve behind every RendezvousOrbit: mover
 // burns TANGENTIALLY (prograde/retrograde — along its own current
 // velocity direction, magnitude only) at its CURRENT position, holder
@@ -455,10 +460,17 @@ func rendezvousLadderCore(moverState, holderState orbital.Vec3State, primary bod
 	// Tolerance: floating point can put an EXACTLY-matched-radius r0
 	// a few ULPs outside [holderPeri, holderApo] (the calibration
 	// scenario's whole point — same-radius circular orbits).
-	const reachTol = 1.0 // 1 m
+	//
+	// It is also the "same size" band: a holder within
+	// rendezvousSameSizeFrac of the mover's radius (a few hundred metres
+	// in LEO) is the same size for the pilot. Without that, 500 vs 500.5
+	// km took the different-sizes solve and the ladder jumped (20 laps:
+	// 14 m/s exact-match, 113 m/s at +2 m); the same-radius rows show the
+	// radial offset honestly in their own AchievableCA. (Wave B review LOW 163.)
+	reachTol := math.Max(1.0, rendezvousSameSizeFrac*r0mag)
 	if r0mag < holderPeri-reachTol || r0mag > holderApo+reachTol {
 		// Different sizes (G4 Q4, #407): one tangential burn reaches the
-		// holder's altitude and the rows time the meeting there.
+		// holder's altitude and the rows time the rendezvous there.
 		return rendezvousLadderResize(moverState, holderState, hEl, primary, mu, moverRemainingDV)
 	}
 

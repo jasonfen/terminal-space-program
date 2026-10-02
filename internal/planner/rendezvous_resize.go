@@ -42,7 +42,7 @@ type rendezvousResizePoint struct {
 // TANGENTIAL burn at the burn point instead puts the mover on a transfer
 // orbit that reaches the holder's altitude (raise: burn point is the
 // periapsis side and the far side climbs to their altitude; lower: the
-// reverse). The row times the meeting at that altitude crossing, N laps
+// reverse). The row times the rendezvous at that altitude crossing, N laps
 // later: arrival T = (N-1)·P' + tCross(Δv), where P' is the post-burn period,
 // and the holder (circular, never burning) must reach the crossing point at
 // that same instant: T = t0(Δv) + m·P_holder for a whole m.
