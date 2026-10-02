@@ -663,6 +663,13 @@ func (w *World) SetActiveCraftIdx(idx int) {
 	if w.ActiveCraftIdx >= 0 && w.ActiveCraftIdx < len(w.Crafts) {
 		if outgoing := w.Crafts[w.ActiveCraftIdx]; outgoing != nil {
 			outgoing.Target = w.Target
+			// Review LOW 59: the standing dry-throttle order belongs to the
+			// vessel being flown; walking away drops it (nothing on screen
+			// shows it on a non-active vessel, and a later space press
+			// must not relight a stale order).
+			if idx != w.ActiveCraftIdx {
+				outgoing.DryOrder = false
+			}
 		}
 	}
 	w.ActiveCraftIdx = idx

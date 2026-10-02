@@ -50,6 +50,11 @@ func (v *OrbitView) buildStagesBox(w *sim.World) []string {
 	keyHint := ""
 	if len(c.Stages) > 1 {
 		keyHint = " [space]"
+		// Review LOW 58: under a standing dry order that one press also
+		// lights the next engine at the standing throttle; say so.
+		if sim.StackDryArmed(c) {
+			keyHint = " [space] relights"
+		}
 	}
 	fixed := lipgloss.Width("STAGES") + 2 + lipgloss.Width(pips) + 2 + lipgloss.Width("▸ ") + lipgloss.Width(count) + lipgloss.Width(keyHint)
 	active = truncateCells(active, tierBottomLeftWidth-2-fixed)
