@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"math"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -105,8 +106,49 @@ func TestStopMarginTurnsBeforeDry(t *testing.T) {
 		if m.State != s.want {
 			t.Errorf("%s: state %v, want %v", s.name, m.State, s.want)
 		}
+		// Review LOW 57: suicide-burn cost at the LM's TWR is ~173 m/s (the
+		// old a/(a-g) form read 193).
+		if s.name == "57-6" && (stop.LandDVMps < 165 || stop.LandDVMps > 180) {
+			t.Errorf("57-6: LandDVMps %.1f, want ~173", stop.LandDVMps)
+		}
 		if s.want == MarginInsufficient && stop.Outcome == StopStopped && m.Limiter != LimitLanding {
 			t.Errorf("%s: limiter %v, want landing", s.name, m.Limiter)
 		}
+	}
+}
+
+// Review LOW 57: landDVMps is the Δv of a constant-thrust suicide burn from
+// rest at height h: free-fall until v^2 = 2(a-g)(h-d), then burn to a stop at
+// the ground. Pinned against a brute-force integration of exactly that
+// manoeuvre, across the TWR range (the old a/(a-g) factor was 12% high at the
+// LM's TWR and 40%+ high near TWR 1.5).
+func TestLandDVMatchesNumericSuicideBurn(t *testing.T) {
+	const g, h = 1.62, 7451.0
+	for _, a := range []float64{2.4, 3.0, 5.0, 8.3, 15.0} {
+		const dt = 0.0005
+		v, hh, dv := 0.0, h, 0.0
+		burning := false
+		for hh > 0 {
+			if !burning && v*v >= 2*(a-g)*hh {
+				burning = true
+			}
+			acc := g
+			if burning {
+				acc = g - a
+				dv += a * dt
+			}
+			v += acc * dt
+			hh -= v * dt
+			if burning && v <= 0 {
+				break
+			}
+		}
+		got := landDVMps(g, h, a)
+		if math.Abs(got-dv)/dv > 0.01 {
+			t.Errorf("a=%.1f (TWR %.2f): landDVMps = %.1f m/s, numeric suicide burn = %.1f m/s", a, a/g, got, dv)
+		}
+	}
+	if !math.IsInf(landDVMps(g, h, g), 1) {
+		t.Errorf("a == g must be unaffordable (+Inf)")
 	}
 }
