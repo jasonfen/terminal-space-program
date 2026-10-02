@@ -49,10 +49,10 @@ func v11Fixture(t *testing.T) string {
 		{`"rendezvous_orbit_label"`, `"meeting_place_label"`},
 		{`"rendezvous_laps"`, `"meeting_laps"`},
 		{`"rendezvous-burn"`, `"meeting-burn"`},
-		{`"version": 13`, `"version": 11`},
+		{`"version": 14`, `"version": 11`},
 	} {
 		if !strings.Contains(s, r[0]) {
-			t.Fatalf("v13 save lacks %s; cannot build the v11 fixture:\n%s", r[0], s[:min(len(s), 400)])
+			t.Fatalf("v14 save lacks %s; cannot build the v11 fixture:\n%s", r[0], s[:min(len(s), 400)])
 		}
 		s = strings.ReplaceAll(s, r[0], r[1])
 	}

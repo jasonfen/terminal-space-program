@@ -68,6 +68,18 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 		DecouplePlan:       c.DecouplePlan,
 		ChuteState:         int(c.ChuteState),
 	}
+	if rp := c.RendezvousPlan; rp != nil {
+		wc.RendezvousPlan = &RendezvousPlan{
+			NodeID:           rp.NodeID,
+			TriggerTimeNano:  rp.TriggerTime.UnixNano(),
+			ArrivalTimeNano:  rp.ArrivalTime.UnixNano(),
+			SeparationM:      rp.SeparationM,
+			TargetCraftID:    rp.TargetCraftID,
+			TargetGhostOwner: rp.TargetGhostOwner,
+			Fired:            rp.Fired,
+			BurnActive:       rp.BurnActive,
+		}
+	}
 	// v0.9.1+: serialize Stages so v6 saves carry per-stage detail.
 	// Single-stage craft still wire out a one-element Stages — round-trips
 	// through the same migrate path that v5 craft fall through. Shares
@@ -303,6 +315,18 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 		LandedLonDeg:       wc.LandedLonDeg,
 		DecouplePlan:       wc.DecouplePlan,
 		ChuteState:         spacecraft.ChuteState(wc.ChuteState),
+	}
+	if rp := wc.RendezvousPlan; rp != nil {
+		c.RendezvousPlan = &spacecraft.RendezvousPlan{
+			NodeID:           rp.NodeID,
+			TriggerTime:      time.Unix(0, rp.TriggerTimeNano).UTC(),
+			ArrivalTime:      time.Unix(0, rp.ArrivalTimeNano).UTC(),
+			SeparationM:      rp.SeparationM,
+			TargetCraftID:    rp.TargetCraftID,
+			TargetGhostOwner: rp.TargetGhostOwner,
+			Fired:            rp.Fired,
+			BurnActive:       rp.BurnActive,
+		}
 	}
 	c.SyncFields()
 	// v0.8.2+: pre-v0.8.2 saves carry no Glyph/Color; backfill from the

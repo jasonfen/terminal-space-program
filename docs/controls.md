@@ -411,16 +411,19 @@ the **Lap Ladder** for that orbit, more laps for less Δv but a longer
 wait. Every row shows its own `burn T-` countdown (about 5 minutes out by
 default, so the row stays valid while you read it) and its `wait` from now;
 Enter plants exactly the row you read, and `G` afterwards warps to the burn.
-A row whose burn time passes before you press Enter refuses, reopen with `K`. Unaffordable or unsafe rows still show, dimmed, with the reason,
+A row whose burn time passes before you press Enter refuses; press `K` again (it works inside the planner) to re-solve the rows from now. Unaffordable or unsafe rows still show, dimmed, with the reason,
 rather than being hidden.
 
-Round orbits of different sizes (say you at 500 km and your partner at 700 km) work too: one burn at the row's burn time puts you on a transfer that reaches their altitude, and the row times the rendezvous at that crossing, the lap count later. Raising burns prograde and lowering burns retrograde (lowering rows are often unsafe, since the transfer dips below your orbit). A stretched orbit on either side is refused with `circularize [C] first`.
+Round orbits of different sizes (say you at 500 km and your partner at 700 km) work too: one burn at the row's burn time puts you on a transfer that reaches their altitude, and the row times the rendezvous at that crossing, the lap count later. Raising burns prograde and lowering burns retrograde (lowering rows are often unsafe, since the transfer dips below your orbit). A stretched orbit on either side is refused with `circularize [C] first`. Orbits within about 0.01% of each other's radius count as the same size.
+
+Once you plant a row, the TARGET box's last line reads the plan (`plan:` the arrival countdown, `miss:` the predicted separation) instead of the 4 hour closest-approach search, from planting until the planned arrival passes (also after the burn has fired).
 
 | Key | Action |
 |---|---|
 | `←` / `→` | Walk the Rendezvous Orbit: their orbit / your orbit / the crossing |
 | `↑` / `↓` | Walk the Lap Ladder |
 | `Enter` | Plant the highlighted row's burn |
+| `K` | Re-solve every row from now (after a row expired) |
 | `Esc` | Close without planting |
 
 While the picker is open it holds the plain arrows, so the flight trims and the pan are unavailable until you plant or press `Esc`.

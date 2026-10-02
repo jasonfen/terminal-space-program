@@ -2,6 +2,7 @@ package sim
 
 import (
 	"errors"
+	"math"
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -31,7 +32,7 @@ var (
 	ErrRendezvousUnaffordable  = transferError("rendezvous burn exceeds remaining Δv budget")
 	ErrRendezvousNoSolution    = transferError("no rendezvous solution on this lap count")
 	ErrRendezvousNoSuchLap     = transferError("no such lap count on the ladder")
-	ErrRendezvousRowExpired    = transferError("that burn time has passed, reopen the plan [K]")
+	ErrRendezvousRowExpired    = transferError("that burn time has passed, press [K] to re-solve the plan")
 )
 
 // rendezvousPlanLeadSec is the default lead time a Rendezvous Planner row
@@ -256,5 +257,106 @@ func (w *World) PlanRendezvousFromLadder(place planner.RendezvousOrbit, ladder p
 		RendezvousLaps:       laps,
 	}
 	w.PlanNode(node)
+	w.recordRendezvousPlan(active, row, triggerTime)
 	return &RendezvousBurnPlan{RendezvousBurnOption: row, ForActive: true}, nil
 }
+
+// recordRendezvousPlan stamps the just-planted Rendezvous Burn's plan onto its
+// craft so the TARGET chip can keep reading the plan's arrival after the node
+// has fired (RendezvousPlanReading). PlanNode may refuse (a non-commanding
+// seat), so the record only lands when the node did.
+func (w *World) recordRendezvousPlan(c *spacecraft.Spacecraft, row planner.RendezvousBurnOption, triggerTime time.Time) {
+	for _, n := range c.Nodes {
+		if n.AdvisoryKey != AdvisoryKeyRendezvousBurn || !n.TriggerTime.Equal(triggerTime) {
+			continue
+		}
+		c.RendezvousPlan = &spacecraft.RendezvousPlan{
+			NodeID:           n.ID,
+			TriggerTime:      n.TriggerTime,
+			ArrivalTime:      n.TriggerTime.Add(time.Duration(n.RendezvousArrivalSec * float64(time.Second))),
+			SeparationM:      row.AchievableCA,
+			TargetCraftID:    n.TargetCraftID,
+			TargetGhostOwner: n.TargetGhostOwner,
+		}
+		return
+	}
+}
+
+// RendezvousPlanReading is the plan the active vessel is flying toward: the
+// planned arrival instant and the predicted separation there, while a
+// Rendezvous Burn from the picker is planted, or was the last one flown,
+// toward the CURRENT target and its arrival has not passed. ok=false
+// otherwise (no plan, other target, arrival past, or the planted node was
+// deleted before it fired). The TARGET chip prefers this to the 4 h
+// closest-approach search, which reads a pass inside its window rather than
+// a rendezvous that is further out (Wave B review MEDIUM 2).
+func (w *World) RendezvousPlanReading() (arrival time.Time, separationM float64, ok bool) {
+	c := w.ActiveCraft()
+	if c == nil || c.RendezvousPlan == nil {
+		return time.Time{}, 0, false
+	}
+	p := c.RendezvousPlan
+	now := w.Clock.SimTime
+	if !now.Before(p.ArrivalTime) {
+		return time.Time{}, 0, false
+	}
+	switch w.Target.Kind {
+	case TargetCraft:
+		if w.Target.CraftID != p.TargetCraftID || p.TargetGhostOwner != "" {
+			return time.Time{}, 0, false
+		}
+	case TargetGhost:
+		if w.Target.CraftID != p.TargetCraftID || w.Target.GhostOwner != p.TargetGhostOwner {
+			return time.Time{}, 0, false
+		}
+	default:
+		return time.Time{}, 0, false
+	}
+	if !p.Fired {
+		found := false
+		for _, n := range c.Nodes {
+			if n.ID == p.NodeID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return time.Time{}, 0, false // deleted, or lost without firing
+		}
+	}
+	return p.ArrivalTime, p.SeparationM, true
+}
+
+// noteRendezvousNodeFired is called when a planted node is dispatched on c.
+// The plan's own node marks it Fired (and BurnActive when finite); any OTHER
+// node's burn makes the plan stale, so it is withdrawn.
+func (w *World) noteRendezvousNodeFired(c *spacecraft.Spacecraft, n ManeuverNode) {
+	p := c.RendezvousPlan
+	if p == nil {
+		return
+	}
+	if n.ID != p.NodeID {
+		c.RendezvousPlan = nil
+		return
+	}
+	p.Fired = true
+	p.BurnActive = n.Duration != 0
+}
+
+// noteBurnFinished is called when c's ActiveBurn ends normally. A plan whose
+// own burn ends with Δv still owed is no longer the course: withdrawn.
+func (w *World) noteBurnFinished(c *spacecraft.Spacecraft) {
+	p := c.RendezvousPlan
+	if p == nil || !p.BurnActive {
+		return
+	}
+	ab := c.ActiveBurn
+	if ab != nil && ab.DVRemaining > math.Max(0.01*ab.PlannedDV, 0.5) {
+		c.RendezvousPlan = nil
+		return
+	}
+	p.BurnActive = false
+}
+
+// withdrawRendezvousPlan clears c's plan (manual thrust, an aborted burn).
+func (w *World) withdrawRendezvousPlan(c *spacecraft.Spacecraft) { c.RendezvousPlan = nil }

@@ -213,7 +213,11 @@ func (v *OrbitView) buildRendezvousPickerChip() []string {
 		fmt.Sprintf("  ← %s →", mp.place.String()),
 	}
 	if mp.ladderErr != nil {
-		lines = append(lines, "  "+v.theme.Warning.Render(mp.ladderErr.Error()))
+		// Word-wrapped here (the bay would otherwise cut the long line at
+		// a cell) to the chip's content width.
+		for _, l := range wrapChipText(mp.ladderErr.Error(), rendezvousPickerTextWidth) {
+			lines = append(lines, "  "+v.theme.Warning.Render(l))
+		}
 		return lines
 	}
 	for i, row := range mp.ladder.Rows {
@@ -230,7 +234,9 @@ func (v *OrbitView) buildRendezvousPickerChip() []string {
 		burn := readout.Countdown(time.Duration((row.TBurn - elapsed) * float64(time.Second)))
 		wait := readout.Duration(time.Duration((row.TArrival - elapsed) * float64(time.Second)))
 		if row.TArrival <= 0 {
-			wait = readout.Duration(0)
+			// A refusal row that never solved an arrival has no wait: a
+			// dash, not a "wait 0s" that reads as an instant rendezvous.
+			wait = "—"
 		}
 		var body string
 		if row.Ok {
@@ -242,7 +248,7 @@ func (v *OrbitView) buildRendezvousPickerChip() []string {
 			dvNum, dvUnit, _ := strings.Cut(readout.DeltaV(row.DV), " ")
 			body = fmt.Sprintf("%s %2d laps  burn %s  wait %s %5s %s", marker, row.Laps, padRightCells(burn, 7), padRightCells(wait, 6), dvNum, dvUnit)
 		} else {
-			body = fmt.Sprintf("%s %2d laps  burn %s  wait %s (%s)", marker, row.Laps, padRightCells(burn, 7), padRightCells(wait, 6), row.Reason)
+			body = fmt.Sprintf("%s %2d laps  burn %s  wait %s (%s)", marker, row.Laps, padRightCells(burn, 7), padRightCells(wait, 6), rendezvousRowReason(row.Reason))
 		}
 		if i == mp.rowIdx {
 			lines = append(lines, v.theme.Primary.Render(body))
@@ -256,6 +262,24 @@ func (v *OrbitView) buildRendezvousPickerChip() []string {
 		lines = append(lines, fmt.Sprintf("  arriving ~%s", readout.Speed(sel.ArrivalSpeed)))
 	}
 	return lines
+}
+
+// rendezvousPickerTextWidth is the widest a picker line may be so the bay's
+// 56-cell chip never has to wrap it (two cells of slack for the border).
+const rendezvousPickerTextWidth = 52
+
+// rendezvousRowReason is a refusal row's reason in the short form the chip
+// has room for: the longest row (10 laps, wait 14h53m) plus the planner's
+// full "burn drops periapsis unsafely" overran the chip and wrapped. The
+// full sentence still reaches the pilot through the Enter refusal flash.
+func rendezvousRowReason(reason string) string {
+	switch reason {
+	case "burn drops periapsis unsafely":
+		return "low periapsis"
+	case "no rendezvous solution":
+		return "no solution"
+	}
+	return reason
 }
 
 func (mp rendezvousPickerState) selectedRow() (planner.RendezvousBurnOption, bool) {

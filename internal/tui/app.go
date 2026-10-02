@@ -3181,9 +3181,14 @@ func (a *App) handlePlanRendezvousKey() {
 		// run away, so the picker drops to 1x. Rows burn ~5 min out; [G]
 		// after Enter auto-warps to the burn.
 		a.world.DropWarpForPlanning()
-		a.flash("rendezvous plan: warp 1x, burns ~5 min out. Walk the ladder [←→↑↓], Enter to plant, Esc to cancel, then [G] to warp to the burn")
+		a.flash(rendezvousPickerOpenFlash)
 	}
 }
+
+// rendezvousPickerOpenFlash is the footer line K's picker opens with. Kept
+// under ~105 cells so it fits the 140-cell Design Size floor with room
+// (Wave B review LOW 147: the first wording was 118).
+const rendezvousPickerOpenFlash = "rendezvous plan: warp 1x, burns ~5 min out. [←→↑↓] walk, Enter plant, Esc cancel, then [G] warp to the burn"
 
 // handleRendezvousPickerKey routes every keypress while the Rendezvous Planner
 // picker (ADR 0045 S6, #399) is open. Mirrors the chat/end-flight-confirm
@@ -3201,6 +3206,14 @@ func (a *App) handleRendezvousPickerKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.orbitView.RendezvousPickerUp()
 	case key.Matches(m, a.keys.PickerDown):
 		a.orbitView.RendezvousPickerDown()
+	case key.Matches(m, a.keys.PlanRendezvous):
+		// The expired-row refusal says "press [K]": K inside the open
+		// picker re-solves the ladder from now (same Place), so the
+		// pilot never has to Esc out and back in. Warp drops to 1x again
+		// for the same reason it does on open (G4 Q1b).
+		a.world.DropWarpForPlanning()
+		a.refreshRendezvousPickerLadder()
+		a.flash("rendezvous plan: rows re-solved from now, burns ~5 min out")
 	case m.Type == tea.KeyEnter:
 		a.planRendezvousPickerSelection()
 	case key.Matches(m, a.keys.Back):
@@ -3238,6 +3251,13 @@ func (a *App) planRendezvousPickerSelection() {
 	// #418), not a fresh solve against wherever the clock has got to.
 	plan, err := a.world.PlanRendezvousFromLadder(place, a.orbitView.RendezvousPickerLadder(), laps)
 	if err != nil {
+		if place == planner.RendezvousYourOrbit && errors.Is(err, sim.ErrRendezvousUnsafePeriapsis) {
+			// "your orbit": the PARTNER burns, so the generic "circularize
+			// [C] first" names the wrong vessel. Lowering rows are often
+			// unsafe; say where the safe rows are (Wave B review LOW 164).
+			a.flash("rendezvous: their burn would drop their periapsis unsafely: try another lap row, or [←] their orbit so you burn instead")
+			return
+		}
 		a.flash(fmt.Sprintf("rendezvous: %v", err))
 		return
 	}
