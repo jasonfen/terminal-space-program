@@ -23,6 +23,7 @@ type SpawnCraft struct {
 	fieldIdx int // 0=loadout, 1=position, 2=parent, 3=alt/lat, 4=direction, 5=stack(custom only)
 
 	loadoutIdx   int
+	systemName   string                 // set by Reset; names the default launch pad
 	posMode      spawnPosMode           // v0.9.2+: tri-state — orbit / alongside / launchpad
 	parentBodies []bodies.CelestialBody // populated by Reset
 	parentIdx    int
@@ -168,6 +169,7 @@ func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID 
 	s.systemScale = systemScale
 	s.showAll = false
 	s.posMode = posOrbit
+	s.systemName = systemName
 	s.latIdx = sim.DefaultLaunchSiteIndex(systemName) // KSC, except Lumen (equatorial, #461)
 	s.retrograde = false
 	s.parentBodies = systemBodies
@@ -1191,6 +1193,7 @@ func (s *SpawnCraft) renderTail(width int) []string {
 	if s.posMode == posLaunchpad {
 		lines = append(lines, s.fieldHeader(3, "LAUNCH SITE"))
 		site := sim.LaunchSites[s.latIdx]
+		siteName := sim.LaunchSiteLabel(s.systemName, site)
 		hemi := "N"
 		latAbs := site.LatitudeDeg
 		if latAbs < 0 {
@@ -1209,10 +1212,10 @@ func (s *SpawnCraft) renderTail(width int) []string {
 		// readable.
 		var siteLabel string
 		if site.LongitudeEastDeg == 0 && (site.LatitudeDeg == 0 || site.LatitudeDeg == 90) {
-			siteLabel = fmt.Sprintf("%s  (%.2f° %s)", site.Name, latAbs, hemi)
+			siteLabel = fmt.Sprintf("%s  (%.2f° %s)", siteName, latAbs, hemi)
 		} else {
 			siteLabel = fmt.Sprintf("%s  (%.2f° %s, %.2f° %s)",
-				site.Name, latAbs, hemi, lonAbs, lonHemi)
+				siteName, latAbs, hemi, lonAbs, lonHemi)
 		}
 		lines = append(lines, "  "+s.fieldValueDimmed(3, siteLabel, false))
 	} else {

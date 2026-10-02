@@ -2,6 +2,7 @@ package tui
 
 import (
 	"math"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -53,5 +54,14 @@ func TestDefaultPadForKernIsEquatorial(t *testing.T) {
 	sol := openLaunchpadSpawn(t, nil)
 	if got := sol.spawn.SelectedLatitudeDeg(); math.Abs(got-sim.DefaultLaunchpadLatitude) > 1e-9 {
 		t.Fatalf("Sol default pad latitude = %v, want KSC %v", got, sim.DefaultLaunchpadLatitude)
+	}
+}
+
+// TestKernPadNamedInSpawnForm (review LOW 98): the Lumen form's LAUNCH SITE
+// row names the default pad Kern Space Center, not the generic Equator.
+func TestKernPadNamedInSpawnForm(t *testing.T) {
+	lumen := openLaunchpadSpawn(t, &sim.StartScenario{SystemName: "Lumen"})
+	if v := lumen.spawn.Render(140, 40); !strings.Contains(v, "Kern Space Center") {
+		t.Fatalf("Lumen spawn form does not name Kern Space Center:\n%s", v)
 	}
 }

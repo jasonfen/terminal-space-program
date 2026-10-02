@@ -32,6 +32,12 @@ import (
 // followed as the cue slice; hull sprites at true relative scale are this
 // slice. View seams (jump-key polish) are the one after.
 
+// proximityHintStripText is the Proximity View's legend: the map's fixed
+// strip, led by the arrow trims, which work here (ADR 0052 decision 2) but
+// are the first thing a pilot reaching for the arrows to look around would
+// not expect to steer the vessel.
+const proximityHintStripText = "[←→↑↓] trim · [o] map · [F1] help · [t] target · [./,] warp"
+
 // proximityFitMarginFrac is how much room past the current range the
 // entry fit leaves. Canvas.FitTo frames a circle of the given radius at
 // ~90% of the SHORTER pixel axis, and the terminal's shorter axis is the
@@ -154,7 +160,7 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 	// label, so it carries the same Hint Strip (#425), right of whatever
 	// this row's label ended up being (the fixed "view: Proximity" form,
 	// or the longer sceneOK form with target name + axis legend).
-	v.paintHintStrip(utf8.RuneCountInString(label), hintStripText)
+	v.paintHintStrip(utf8.RuneCountInString(label), proximityHintStripText)
 
 	canvasStr := v.canvas.String()
 
@@ -834,7 +840,22 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 		chipRow("range:", readout.Distance(st.RangeM)),
 		chipRow(readout.LabelRelSpeed, readout.Speed(st.VRelMS)+proximityOverSpeedSuffix(st)),
 		chipRow("closing:", readout.SignedSpeed(st.ClosingMS)),
+		proximityTrimRow(w),
 	}
+}
+
+// proximityTrimRow is the pitch trim and heading the plain arrows move
+// (ADR 0052 decision 2: the trims work in every flight view). Proximity has
+// no GUIDANCE box, and without this row an arrow press here steered the
+// vessel with nothing on the screen to show it (wave B review MEDIUM 3).
+func proximityTrimRow(w *sim.World) string {
+	c := w.ActiveCraft()
+	if c == nil {
+		return chipRow("trim:", "—")
+	}
+	pitchDeg := c.PitchTrim * 180 / math.Pi
+	headingDeg := (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi
+	return chipRow("trim:", readout.TrimAngle(pitchDeg)+"  hdg: "+readout.Heading(headingDeg))
 }
 
 // buildProximityChipCompact is PROXIMITY's Compact Form (ADR 0046 /
@@ -865,6 +886,11 @@ func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
 	lines := []string{
 		v.theme.Primary.Render("PROXIMITY") + "  " + st.TargetName,
 		chipRow("range:", readout.Distance(st.RangeM)),
+	}
+	// A trim that is on stays visible even in the Compact Form: it is the
+	// one reading that says why the vessel is not holding its attitude.
+	if c := w.ActiveCraft(); c != nil && (c.PitchTrim != 0 || c.HeadingTrim != 0) {
+		lines = append(lines, proximityTrimRow(w))
 	}
 	if suffix := proximityOverSpeedSuffix(st); suffix != "" {
 		lines = append(lines, chipRow(readout.LabelRelSpeed, readout.Speed(st.VRelMS)+suffix))

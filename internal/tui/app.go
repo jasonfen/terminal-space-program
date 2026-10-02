@@ -24,6 +24,31 @@ import (
 
 type screenID int
 
+// askContext is what a transpose / deploy ask was raised about.
+type askContext struct {
+	active screenID
+	world  *sim.World
+	craft  *spacecraft.Spacecraft
+}
+
+func (a *App) currentAskContext() askContext {
+	return askContext{active: a.active, world: a.world, craft: a.world.ActiveCraft()}
+}
+
+// dropStaleAsks clears an armed transpose / deploy ask whose context
+// (screen, world, active vessel) changed since it was raised. Runs at the
+// top of every Update, so a tick, click or key after the change drops it
+// before anything can answer it.
+func (a *App) dropStaleAsks() {
+	if !a.transposeConfirm && a.deployConfirm == "" {
+		return
+	}
+	if a.askStamp != a.currentAskContext() {
+		a.transposeConfirm = false
+		a.deployConfirm = ""
+	}
+}
+
 const (
 	screenOrbit screenID = iota
 	screenBodyInfo
@@ -192,6 +217,11 @@ type App struct {
 	// Session-only state, not persisted.
 	transposeConfirm bool
 	deployConfirm    string
+	// askStamp records what the transpose / deploy ask was raised about
+	// (screen, world, active vessel). dropStaleAsks clears the ask when any
+	// of them has changed, so a later y never commits against a view the
+	// player was not looking at (review LOW 122/123).
+	askStamp askContext
 
 	// quitConfirm (#474) gates every quit path — ctrl+c and the menu's
 	// Quit row both arm it — behind one prompt with one wording: [y]
@@ -330,6 +360,7 @@ func (a *App) sizeGated() bool {
 // Update routes every tea.Msg. Globals handled here; screen-scoped
 // keys delegate to the active screen.
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	a.dropStaleAsks()
 	switch m := msg.(type) {
 	case sim.TickMsg:
 		a.world.Tick()
@@ -1804,6 +1835,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			a.deployConfirm = name
+			a.askStamp = a.currentAskContext()
 			return a, nil
 		case key.Matches(m, a.keys.Transpose):
 			// v0.12 / ADR 0009: one-shot Apollo transposition. Reorders
@@ -1813,6 +1845,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			switch err := a.world.TransposeRefusal(a.world.ActiveCraftIdx); {
 			case err == nil:
 				a.transposeConfirm = true
+				a.askStamp = a.currentAskContext()
 			case errors.Is(err, sim.ErrTransposeNotReady):
 				a.flash("transpose: drop the launch vehicle first (stack must be Descent/Ascent/SM/CM)")
 			default:
@@ -3253,7 +3286,11 @@ func (a *App) View() string {
 	case screenHelp:
 		base = a.help.Render(a.width, a.height, a.layout)
 	case screenBodyInfo:
-		base = a.bodyInfo.Render(a.world, a.selectedBody, a.width, a.height)
+		// The flash overlay (below) overwrites the LAST row of a non-canvas
+		// screen, so reserve an empty one: the footer that advertises t/H/P
+		// must never be the row a "target: Mars" flash lands on. Owned here,
+		// next to the overlay, not by the screen's trailing newline.
+		base = reserveFlashRow(a.bodyInfo.Render(a.world, a.selectedBody, a.width, a.height))
 	case screenManeuver:
 		base = a.maneuver.Render(a.world, a.width, a.height, a.selectedBody)
 	case screenPorkchop:
@@ -3604,4 +3641,14 @@ func (a *App) doRefinePlan() {
 		a.flash(fmt.Sprintf("refined — correction %.1f m/s, arrival %.1f m/s", corr, arr))
 	}
 	a.world.RecordAction(missions.ActionRefinePlan) // ADR 0025 §7
+}
+
+// reserveFlashRow makes sure the last row of a non-canvas screen is empty,
+// so the status flash / confirm overlay (which replaces the last row)
+// cannot land on content the screen wants to keep.
+func reserveFlashRow(base string) string {
+	if strings.HasSuffix(base, "\n") {
+		return base
+	}
+	return base + "\n"
 }

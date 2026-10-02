@@ -223,3 +223,21 @@ func TestMenuRendersHighlightAndKeyedFooter(t *testing.T) {
 		t.Errorf("menu still advertises the old c key:\n%s", out)
 	}
 }
+
+// TestMenuLetterKIsKeyboardLayoutAndHasNoVimCursor (review LOW 120, no code
+// change): the finding observes that `k` is the menu's Keyboard-layout
+// shortcut (ADR 0052 decision 6) while it is SAS on the orbit screen. The
+// menu is modal and prints (k) beside the row, and it has no vim cursor
+// keys, so `j`/`k` can never mean "move" here. Pins both so a later vim
+// binding cannot silently steal `k`.
+func TestMenuLetterKIsKeyboardLayoutAndHasNoVimCursor(t *testing.T) {
+	m := NewMenu(Theme{})
+	if got := m.HandleKey("k"); got != MenuActionControls {
+		t.Errorf("k = %v, want MenuActionControls (keyboard layout)", got)
+	}
+	m = NewMenu(Theme{})
+	before := m.cursor
+	if got := m.HandleKey("j"); got != MenuActionNone || m.cursor != before {
+		t.Errorf("j moved or fired in the menu (action %v, cursor %d -> %d)", got, before, m.cursor)
+	}
+}
