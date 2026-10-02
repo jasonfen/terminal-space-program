@@ -971,9 +971,10 @@ Park, Grounded.
 
 **Heading Trim** (grilled 2026-09-09, ADR 0049; resolves #453):
 The player's control over which way an ascent goes. A commanded launch
-heading, default 090° (due east), nudged ±5° per tap with `{` / `}` on
-the pad or mid-ascent, the same idiom as pitch trim; `|` resets both
-trims. Persisted on the Vessel. Pitch trim tilts thrust first, then
+heading, default 090° (due east), nudged ±5° per tap with `↑` / `↓`
+(toward north / south) on the pad or mid-ascent, the same idiom as pitch
+trim (`←` / `→`, west / east); both work in every flight view, and `|`
+resets both trims. Persisted on the Vessel. Pitch trim tilts thrust first, then
 thrust is rotated about local up onto the commanded heading, so pitch
 always tilts in the heading's vertical plane; the reverse order is a
 no-op on any vertical-start hold, including the pad's default. Heading
@@ -1113,7 +1114,9 @@ surface placements), Ground spawn.
 A (latitude, longitude) pair on a Body that a **Launchpad** spawn
 places the Vessel at. The spawn form ships a preset cycle — default
 is "KSC" (28.6083°N, -80.604°E east of the Body's prime meridian),
-matching Kennedy Space Center's LC-39A. Latitude is degrees north
+matching Kennedy Space Center's LC-39A. Lumen's default is instead the
+Equator preset, labelled "Kern Space Center" (`sim.LaunchSiteLabel`; the
+catalog is untouched, so `body_catalog_hash` does not move). Latitude is degrees north
 positive; longitude is degrees east positive of the Body's
 **pseudo-Greenwich** prime meridian (the longitude line that aligns
 with world +X at simTime = 0). Without an explicit longitude offset
@@ -2434,10 +2437,11 @@ Which craft's orbit the **Rendezvous Planner**'s rendezvous point lives
 on: **"their orbit"** (the target holds, the active craft burns to
 arrive), **"your orbit"** (the active craft holds, the burn is for the
 *partner*, so planting it on a remote craft is out of scope), or
-**"the crossing"** (the two current, unburned courses' own natural
-intersection, which refuses today, `ErrRendezvousCrossingNotImplemented`;
-a solver existed briefly, PR #412, and was reverted rather than fixed
-forward after it planted burns that only matched at one instant). The
+**"the crossing"** (`planner.RendezvousCrossing`, G4 Q3, #416: the active
+craft coasts to the point where the two orbits meet and burns there; two
+orbits with no single crossing refuse with `ErrRendezvousNoCrossing`).
+A first solver (PR #412) was reverted for planting burns that only
+matched at one instant; the shipped one is a different construction. The
 picker's `←`/`→` walk these three.
 _Avoid_: Meeting Place (retired), Meeting point (ambiguous with
 **Closest Approach**), Rally point.
@@ -2460,10 +2464,15 @@ the ordinary Nudge. An unaffordable or otherwise unsafe row still
 shows, dimmed, with its reason (`ErrRendezvousUnaffordable`,
 `ErrRendezvousUnsafePeriapsis`, `ErrRendezvousNoSolution`), rather than
 being hidden, so the trade stays visible even when it isn't legal
-right now. Refused outright, structurally, when the mover's current
-orbital radius sits outside the holder's periapsis-to-apoapsis range:
-`ErrRendezvousSizeMismatch`, surfaced as `radius outside target's
-apsides: plan a transfer [H] first`.
+right now. Round orbits of different sizes get rows too (one burn at
+the row's burn time onto a transfer that reaches the other altitude; orbits
+within 1e-4 of each other's radius count as the same size). Refused
+outright, structurally, only when the orbits differ in *shape*:
+`ErrRendezvousShapeMismatch`, surfaced as `orbits differ in shape:
+circularize [C] first`. (The old radius-outside-apsides refusal,
+`ErrRendezvousSizeMismatch`, is gone.) Each row's burn lies about five
+minutes ahead (the lead time) and shows its own `burn T-` countdown; `K`
+inside the open picker re-solves every row from now.
 _Avoid_: Meeting Ladder, Burn ladder (bare).
 
 **Rendezvous Advisory**:
@@ -3022,7 +3031,9 @@ Step-by-step instruction is the **MISSION** box's job. Sits on the last
 canvas row, so it never collides with an **Event Flash** (which rides the
 border row below it). Clips on the right below the **Design Size**; it is
 not a numeric field, so right-clipping is safe. `?` opens the same help
-overlay as F1 everywhere F1 does.
+overlay as F1 everywhere F1 does. The **Proximity View** swaps in its
+own strip (`[←→↑↓] trim · [o] map · [F1] help · [t] target · [./,]
+warp`) so the arrows' meaning there is on screen.
 _Avoid_: Footer (the pre-v0.13 cheat-sheet row, which was removed),
 Cheat sheet, Key bar, Rotating hints (rejected: a moving row that
 duplicates the MISSION box).
@@ -3098,6 +3109,9 @@ exists. Outranks a queued node on that same row; outranked by a live
 burn. Retired: the alarm words (`TIGHT`, `CAN'T STOP (...)`) moved off
 the NAVIGATION `stop:` cell onto its title, in a **Title badge**,
 shortened to `⚠ TIGHT` / `⚠ NO STOP` where the full form wouldn't fit.
+A fuel-limited stop names the stage it judges: `⚠ NO STOP · S-IC dry,
+S-II aboard`; ENGINE's throttle row reads `✕ DRY` while the lit stage is
+dry and `space` relights the next one.
 _Avoid_: burn at (the retired row label), stop margin.
 
 **Launch strip**:
