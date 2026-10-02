@@ -244,3 +244,21 @@ func TestHelpHeadingTrimNamesBothDirections(t *testing.T) {
 		t.Errorf("heading trim row must name north then south for ↑ then ↓: %q", hdesc)
 	}
 }
+
+// TestHelpRendezvousPlannerNamesKReSolve (v0.48.0 docs parity): `K` inside
+// the open Rendezvous Planner re-solves every row from now (review fix
+// #541); docs/controls.md says so, and F1 is the source of truth.
+func TestHelpRendezvousPlannerNamesKReSolve(t *testing.T) {
+	for _, s := range helpSections {
+		if !strings.HasPrefix(s.header, "RENDEZVOUS PLANNER") {
+			continue
+		}
+		for _, r := range s.rows {
+			if r[0] == "K" && strings.Contains(r[1], "re-solve") {
+				return
+			}
+		}
+		t.Fatalf("RENDEZVOUS PLANNER section has no `K` re-solve row: %v", s.rows)
+	}
+	t.Fatal("no RENDEZVOUS PLANNER section")
+}

@@ -137,6 +137,7 @@ var helpSections = []helpSection{
 		{"← / →", "walk the Rendezvous: their orbit / your orbit / the crossing"},
 		{"↑ / ↓", "walk the Lap Ladder"},
 		{"enter", "plant the highlighted row's burn"},
+		{"K", "re-solve every row from now (once a row's burn time has passed)"},
 		{"esc", "close without planting"},
 	}},
 	{"VESSEL", [][2]string{
