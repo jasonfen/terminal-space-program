@@ -5,7 +5,7 @@ How to fly the thing, then every key grouped by what it does. The in-game
 more explanation. Multiplayer has its own guide in
 [multiplayer.md](multiplayer.md).
 
-**Terminal size:** the game is designed for a 140×40 terminal — that's the
+**Terminal size:** the game is designed for a 140×40 terminal; that's the
 size every screen is laid out and reviewed at. It runs down to a hard floor
 of 104×24 (below that it refuses to render and shows a "terminal too small"
 screen instead); between the floor and the design size, HUD chips shrink to
@@ -139,13 +139,13 @@ Dvorak, and free per-key remapping aren't supported yet.
 | Key | Action |
 |---|---|
 | `Esc` | Back; on the main view, open the pause menu: save / load / build / settings / keyboard layout / help / quit. `↑`/`↓` pick a row (it is highlighted) and `Enter` opens it; the letter beside each row (`s` `l` `b` `t` `k` `h` `q`) is a shortcut |
-| `Ctrl+C` | Quit — asks whether to save first ([y] save and quit, [n] quit without saving, [esc] stay). The pause menu's Quit row asks the same question |
+| `Ctrl+C` | Quit: asks whether to save first ([y] save and quit, [n] quit without saving, [esc] stay). The pause menu's Quit row asks the same question |
 | `F1` or `?` | Toggle the help overlay. It opens on an index: "Your first flight" first, then every section with a note on when you would want it. `1`-`9` jump to a page, `↑`/`↓` + `Enter` reach the rest, `Esc` goes back to the index (and closes from the index), `F1` closes from anywhere. Long pages scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`. `?` opens the same overlay as `F1` everywhere `F1` does |
 | `F2` | Declutter: hide all eight instrument boxes and the navball together for a clean look at the orbit. Press again to restore. ENGINE and PROPELLANT stay up while an engine is lit, so fuel and a live burn are never hidden mid-burn |
 | `` ` `` | **Boss key**: instantly swap the screen for a convincing fake developer shell. Type `exit`, `logout`, or `Ctrl+D` to come back where you left off. Left out of the `F1` overlay on purpose |
 | `Tab` | Switch star system (Sol first, then alphabetical: Alpha Centauri, Kepler-452, Lumen, TRAPPIST-1). A camera toggle only; vessels stay in the system they spawned in |
 | `i` | Body info screen for the body under the map cursor |
-| `M` | Mission ladder: program and objective progress, the active mission's checklist, and locked rungs with what unlocks them. Same as the `[Missions]` button. Flight School (the tutorial) is **on unless switched off**; the Challenge ladder stays opt-in — enable it in `[Menu]` → Settings |
+| `M` | Mission ladder: program and objective progress, the active mission's checklist, and locked rungs with what unlocks them. Same as the `[Missions]` button. Flight School (the tutorial) is **on unless switched off**; the Challenge ladder stays opt-in; enable it in `[Menu]` → Settings |
 | `O` | Session roster (multiplayer). See [Multiplayer](#multiplayer) |
 
 ### Camera and views
@@ -215,7 +215,7 @@ refuse in one phrase.
 
 | Key | Action |
 |---|---|
-| `t` / `T` | Pick / clear your target. `t` cycles nearest-first: the moons of whatever you're currently orbiting, then other vessels, then the rest of the system's bodies outward (each followed by its own moons), then none. Your own primary is never offered — from LEO the first press is the Moon; from lunar orbit it's Earth. `T` clears (no reverse cycle) |
+| `t` / `T` | Pick / clear your target. `t` cycles nearest-first: the moons of whatever you're currently orbiting, then other vessels, then the rest of the system's bodies outward (each followed by its own moons), then none. Your own primary is never offered: from LEO the first press is the Moon; from lunar orbit it's Earth. `T` clears (no reverse cycle) |
 | `l` / `h` | Move the map cursor to the next / previous body |
 
 ### Planning burns
@@ -259,7 +259,7 @@ docking, chat) are in [multiplayer.md](multiplayer.md). The keys:
 | `t` | roster | Target a player's vessel (expands to a picker when they have several in your system; `esc` backs out) |
 | `v` | roster | Spectate: fit the camera to their ghost orbit and follow it. `f` returns to your own vessel |
 | `s` | roster | Sync-warp forward to a player's time (forward only; a player behind you syncs to you) |
-| `w` | roster | Agree to a rendezvous warp with them — commits to an encounter when one's found (a planted node's own arrival, or the current course inside 4 h), otherwise arms with no plan yet; they answer `y` on their main screen |
+| `w` | roster | Agree to a rendezvous warp with them: commits to an encounter when one's found (a planted node's own arrival, or the current course inside 4 h), otherwise arms with no plan yet; they answer `y` on their main screen |
 | `y` | flight view | Accept a rendezvous warp |
 | `/` | flight view | Cancel a rendezvous warp (either side) |
 | `h` | roster | Host: start hosting from single-player in place, or stop hosting (drops guests, keeps progress) |
@@ -279,7 +279,7 @@ Click only; no dragging, no scroll-to-zoom.
 | `[»Burn]` (top-right) | Toggle auto-warp to the next burn (same as `G`). Shows `[■Burn]` while running, dimmed with no burn planned |
 | `[Menu]` (top-right) | Save / load / build / settings / keyboard layout / help / quit menu |
 | Settings → **Empty readings** | What the instrument boxes do with boxes and rows that have nothing to say. **Full**: every box and row always drawn, dashes and all, TARGET included. **Tidy** (default): no TARGET box while nothing is targeted, and NAVIGATION drops its trailing dash rows while TARGET is absent. **Compact**: Tidy, plus every box drops its trailing dash rows. Rows fold from the bottom of a box only; box widths never change |
-| `[Missions]` (top-right) | Mission ladder (same as `M`). Flight School is on unless switched off; the Challenge ladder stays opt-in — enable it in `[Menu]` → Settings |
+| `[Missions]` (top-right) | Mission ladder (same as `M`). Flight School is on unless switched off; the Challenge ladder stays opt-in; enable it in `[Menu]` → Settings |
 | A body | Follow it with the camera, and inspect it |
 | A vessel | Follow it with the camera, and inspect it |
 | A planned burn | Open the planner for that burn (fire time kept), and inspect it |
@@ -353,12 +353,12 @@ and direction.
 | `Esc` | Cancel and go back |
 | `Ctrl+D` | Delete the node under the Plan Cursor |
 | `Ctrl+K` | Clear every planned burn for this vessel |
-| `c` | Refuses — clear-all is `Ctrl+K` now, not this key |
+| `c` | Refuses: clear-all is `Ctrl+K` now, not this key |
 | `H` `I` `C` `K` `P` `R` | Run that one-key planner (see [Planning burns](#planning-burns)) right here, then return to the map. Only fires when a text field (Δv / throttle) doesn't have focus |
 
 The **Plan Cursor** is the highlighted row in PLANNED NODES: `↑`/`↓` move it,
 the header names which node it's on ("BURN PLAN — node 2 of 3"), and
-PROJECTED ORBIT always shows the orbit *after that node* — never a leftover
+PROJECTED ORBIT always shows the orbit *after that node*, never a leftover
 draft from an earlier edit. The list ends in a blank **+ new node** row; with
 the cursor there, PROJECTED ORBIT shows the form's own draft instead, labelled
 as such. A node whose Δv is more than the vessel can currently afford still
@@ -428,7 +428,7 @@ Once you plant a row, the TARGET box's last line reads the plan (`plan:` the arr
 
 While the picker is open it holds the plain arrows, so the flight trims and the pan are unavailable until you plant or press `Esc`.
 
-"Your orbit" computes a plan for your *target*, not you — since this
+"Your orbit" computes a plan for your *target*, not you, since this
 session has no way to plant a node on someone else's vessel, planting there
 is a later slice; the row still shows what that burn would cost.
 
@@ -486,7 +486,7 @@ Designs are stored as portable files under
 ### Missions ladder (`M`)
 
 The active mission (if any) shows as a checklist card on top; below it, two
-headed lists — **Flight School** and **Challenges** — each with their own
+headed lists, **Flight School** and **Challenges**, each with their own
 progress count. A locked rung is dimmed with what unlocks it; an available
 rung reads bright; completed and failed rungs are marked. Each program
 carries a one-key row: `turn on` in place of its list while it's off,
