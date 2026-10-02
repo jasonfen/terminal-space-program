@@ -75,7 +75,7 @@ var helpSections = []helpSection{
 		{"v", "cycle view (Tilted / Top / Right / Bottom / Left / Orbit-flat), projections only"},
 		{"V", "launch / surface view — chase-cam on your active vessel (press again to return)"},
 		{"o", "proximity view — close-range picture of your target vessel (press again to return)"},
-		{"shift+← / shift+→", "pan the view left / right — displaces the tracked center; [g] or any refocus clears it"},
+		{"shift+← / shift+→", "pan the view left / right (displaces the tracked center; [g] or any refocus clears it)"},
 		{"shift+↑ / shift+↓", "pan the view up / down (plain arrows are the flight trims, see MANUAL FLIGHT)"},
 		{"> / <", "tilt the 3D view up / down (tilted view only; moves the camera, never the vessel)"},
 		{"{ / }", "yaw the 3D view left / right, wraps 360° (tilted view only)"},
@@ -260,7 +260,7 @@ var firstFlight = []helpSection{
 		{"t", "tap until TARGET reads Moon ([T] clears it)"},
 		{"H", "with the Moon targeted, plant a transfer: two burn markers appear"},
 		{"G", "once a burn is planted, warp to 30 s before it; the burn fires itself"},
-		{"b", "to fly the burn by hand instead, light the engine until you pass 700 km"},
+		{"b", "to fly the burn by hand instead, light the engine at the burn marker and cut it when the node row's Δv reads 0; the Flight School step clears once you are above 700 km"},
 	}},
 	{"THE PAD (a Saturn V on the launchpad)", [][2]string{
 		{"n", "open the spawn form: pick Saturn V, position launchpad"},
@@ -384,7 +384,7 @@ func (h *Help) indexLines() []string {
 // and footer, and truncates each row to width. Clamps + caches the scroll
 // geometry so HandleKey paging stays in range.
 func (h *Help) Render(width, height int, layout keylayout.Layout) string {
-	title := h.theme.Title.Render("terminal-space-program — keybindings")
+	title := h.theme.Title.Render("terminal-space-program: keybindings")
 	body := h.bodyLines(layout)
 
 	const topChrome = 2 // title + blank line
@@ -443,7 +443,8 @@ func (h *Help) footer() string {
 	case h.scroll < h.maxScroll:
 		marker = "▼  "
 	}
-	keys := "[1-9] jump   [↑/↓ enter] pick   [F1/esc] close"
+	// Digits reach pages 1-9 only; the rest are reached by cursor.
+	keys := "[1-9] jump   [↑/↓ enter] pages 10-" + strconv.Itoa(helpPageCount()) + "   [F1/esc] close"
 	if h.page != helpIndexPage {
 		keys = "[↑/↓ PgUp/PgDn] scroll  [esc] index  [F1] close"
 	}
