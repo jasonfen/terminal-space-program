@@ -33,6 +33,10 @@ type targetBoxCells struct {
 	apV, peV, inclV        string
 	deltaInclV, leadV      string
 	tcaV, approachV        string
+	// planned: tcaV/approachV carry the Rendezvous Plan's arrival and
+	// predicted separation (labelled plan: / miss:), not the 4 h
+	// closest-approach search.
+	planned bool
 }
 
 func dashTargetBoxCells() targetBoxCells {
@@ -64,6 +68,7 @@ func (v *OrbitView) buildTargetBox(w *sim.World) []string {
 	if c == nil || c.Landed || c.Crashed {
 		cells.closingV, cells.relV, cells.leadV = "—", "—", "—"
 		cells.tcaV, cells.approachV = "—", "—"
+		cells.planned = false
 	}
 	title := v.theme.Primary.Render("TARGET") + "  " + name + titleBadge
 	return []string{
@@ -75,8 +80,31 @@ func (v *OrbitView) buildTargetBox(w *sim.World) []string {
 		chipRow3(targetCols, "range:", cells.rangeV, "close:", cells.closingV, "rel:", cells.relV),
 		chipRow3(targetCols, readout.LabelAp, cells.apV, readout.LabelPe, cells.peV, "incl:", cells.inclV),
 		chipRow2(targetCols, readout.LabelDeltaIncl, cells.deltaInclV, "lead:", cells.leadV),
-		chipRow2(targetCols, readout.LabelTCA, cells.tcaV, "approach:", cells.approachV),
+		cells.lastRow(),
 	}
+}
+
+// lastRow is the TCA / approach row, or the plan arrival / plan separation row
+// while a Rendezvous Plan is being flown (same columns, so the box never
+// shifts).
+func (c targetBoxCells) lastRow() string {
+	if c.planned {
+		return chipRow2(targetCols, "plan:", c.tcaV, "miss:", c.approachV)
+	}
+	return chipRow2(targetCols, readout.LabelTCA, c.tcaV, "approach:", c.approachV)
+}
+
+// planCells reads the active vessel's Rendezvous Plan (World.RendezvousPlanReading)
+// as TARGET cells. The 4 h closest-approach search cannot see a rendezvous
+// further out than its window, so while a plan is planted or was the last
+// burn flown toward this target, the pilot reads the plan (Wave B review
+// MEDIUM 2).
+func (v *OrbitView) planCells(w *sim.World) (tcaV, sepV string, ok bool) {
+	arrival, sep, ok := w.RendezvousPlanReading()
+	if !ok {
+		return "", "", false
+	}
+	return readout.Countdown(arrival.Sub(w.Clock.SimTime)), readout.Distance(sep), true
 }
 
 // targetBodyCells is TARGET's body-target branch: range and Δincl
@@ -203,7 +231,10 @@ func (v *OrbitView) targetCraftCells(w *sim.World, c *spacecraft.Spacecraft) (st
 
 	badge := ""
 	if tc.Primary.ID == c.Primary.ID {
+		planT, planSep, planOK := v.planCells(w)
 		switch {
+		case planOK:
+			cells.tcaV, cells.approachV, cells.planned = planT, planSep, true
 		case c.ActiveBurn != nil:
 			cells.tcaV = v.theme.Dim.Render("recomputing…")
 		case craftHasOrbit(tc):
@@ -267,7 +298,11 @@ func (v *OrbitView) targetGhostCells(w *sim.World, c *spacecraft.Spacecraft) (st
 	cells.closingV = readout.SignedSpeed(closing)
 	cells.leadV = targetLeadLabel(leadDeg, leadOK)
 	if gPrimary.ID == c.Primary.ID {
-		cells.tcaV, cells.approachV = v.closestApproachCells(w, c)
+		if planT, planSep, planOK := v.planCells(w); planOK {
+			cells.tcaV, cells.approachV, cells.planned = planT, planSep, true
+		} else {
+			cells.tcaV, cells.approachV = v.closestApproachCells(w, c)
+		}
 	}
 	return name, cells
 }
