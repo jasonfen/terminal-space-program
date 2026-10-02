@@ -3286,7 +3286,11 @@ func (a *App) View() string {
 	case screenHelp:
 		base = a.help.Render(a.width, a.height, a.layout)
 	case screenBodyInfo:
-		base = a.bodyInfo.Render(a.world, a.selectedBody, a.width, a.height)
+		// The flash overlay (below) overwrites the LAST row of a non-canvas
+		// screen, so reserve an empty one: the footer that advertises t/H/P
+		// must never be the row a "target: Mars" flash lands on. Owned here,
+		// next to the overlay, not by the screen's trailing newline.
+		base = reserveFlashRow(a.bodyInfo.Render(a.world, a.selectedBody, a.width, a.height))
 	case screenManeuver:
 		base = a.maneuver.Render(a.world, a.width, a.height, a.selectedBody)
 	case screenPorkchop:
@@ -3637,4 +3641,14 @@ func (a *App) doRefinePlan() {
 		a.flash(fmt.Sprintf("refined — correction %.1f m/s, arrival %.1f m/s", corr, arr))
 	}
 	a.world.RecordAction(missions.ActionRefinePlan) // ADR 0025 §7
+}
+
+// reserveFlashRow makes sure the last row of a non-canvas screen is empty,
+// so the status flash / confirm overlay (which replaces the last row)
+// cannot land on content the screen wants to keep.
+func reserveFlashRow(base string) string {
+	if strings.HasSuffix(base, "\n") {
+		return base
+	}
+	return base + "\n"
 }

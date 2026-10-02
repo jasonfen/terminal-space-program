@@ -124,3 +124,19 @@ func TestBodyInfoFlashKeepsFooter(t *testing.T) {
 		}
 	}
 }
+
+// Review LOW 78 (no code change): with the active vessel in ANOTHER system,
+// the body shown here is not one you orbit, so `t` must target it instead of
+// refusing "you are orbiting Earth". The CraftVisibleHere gate in
+// doTargetShownBody is what makes that so; this pins the observed behaviour.
+func TestBodyInfoTargetWithVesselInAnotherSystem(t *testing.T) {
+	a, earth := bodyInfoApp(t, "earth")
+	a.world.ActiveCraft().SystemIdx = a.world.SystemIdx + 1
+	if a.world.CraftVisibleHere() {
+		t.Fatal("setup: vessel should not be visible here")
+	}
+	pressKey(a, 't')
+	if a.world.Target.Kind != sim.TargetBody || a.world.Target.BodyIdx != earth {
+		t.Fatalf("target = %+v, want Earth %d (statusMsg %q)", a.world.Target, earth, a.statusMsg)
+	}
+}
