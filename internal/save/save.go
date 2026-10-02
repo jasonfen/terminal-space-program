@@ -96,6 +96,8 @@ type RendezvousPlan struct {
 	SeparationM      float64 `json:"separation_m"`
 	TargetCraftID    uint64  `json:"target_craft_id,omitempty"`
 	TargetGhostOwner string  `json:"target_ghost_owner,omitempty"`
+	Fired            bool    `json:"fired,omitempty"`
+	BurnActive       bool    `json:"burn_active,omitempty"`
 }
 
 // File is the on-disk envelope.

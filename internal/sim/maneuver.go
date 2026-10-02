@@ -89,6 +89,7 @@ func (w *World) StartManualBurn() {
 		w.DisengageRendezvousWarp()
 	}
 	c.DryOrder = false
+	w.withdrawRendezvousPlan(c) // manual thrust: a planted rendezvous is no longer the course
 	c.ManualBurn = &ManualBurn{StartTime: w.Clock.SimTime}
 }
 
@@ -163,6 +164,9 @@ func (w *World) SetThrottle(t float64) {
 	if t == 0 {
 		w.StopManualBurn()
 		if c.BurnStalled() || (c.ActiveBurn != nil && !w.activeBurnTargetReady(c)) {
+			if c.ActiveBurn != nil && c.RendezvousPlan != nil && c.RendezvousPlan.BurnActive {
+				w.withdrawRendezvousPlan(c) // the planted burn was aborted
+			}
 			c.ActiveBurn = nil
 		}
 	}
@@ -2835,6 +2839,7 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 		// craft is parked" scenario doesn't strand the integrator.
 		// v0.11.4+ (ADR 0004): clear OnPad here too so a post-flight
 		// soft-landing doesn't trip the ViewLaunch auto-route.
+		w.noteRendezvousNodeFired(c, n)
 		c.Landed = false
 		c.OnPad = false
 		// fired — not appended to kept.

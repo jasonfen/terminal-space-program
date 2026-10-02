@@ -28,7 +28,8 @@ func TestTargetBox_ReadsThePlannedRendezvous(t *testing.T) {
 	c := w.ActiveCraft()
 	now := w.Clock.SimTime
 	c.RendezvousPlan = &spacecraft.RendezvousPlan{
-		TriggerTime:   now.Add(-time.Minute), // burn already flown
+		TriggerTime:   now.Add(-time.Minute),
+		Fired:         true, // burn already flown
 		ArrivalTime:   now.Add(6*time.Hour + 30*time.Minute),
 		SeparationM:   120,
 		TargetCraftID: w.Target.CraftID,

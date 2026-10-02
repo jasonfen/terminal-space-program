@@ -1890,6 +1890,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 				DV:             c.ActiveBurn.PlannedDV,
 				NodesRemaining: len(c.Nodes),
 			})
+			w.noteBurnFinished(c) // a planted rendezvous burn that ended short withdraws its plan
 			c.ActiveBurn = nil
 		} else if c.ActiveStageFuel() <= 0 || !burnReady {
 			// #294 review finding 1: an unresolved target-relative burn is

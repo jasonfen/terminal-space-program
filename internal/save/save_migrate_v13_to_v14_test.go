@@ -31,6 +31,8 @@ func TestRoundtripRendezvousPlan(t *testing.T) {
 		SeparationM:      42.5,
 		TargetCraftID:    3,
 		TargetGhostOwner: "",
+		Fired:            true,
+		BurnActive:       true,
 	}
 	w.ActiveCraft().RendezvousPlan = want
 	path := filepath.Join(t.TempDir(), "save.json")
@@ -45,7 +47,7 @@ func TestRoundtripRendezvousPlan(t *testing.T) {
 	if p == nil {
 		t.Fatal("RendezvousPlan lost in round-trip")
 	}
-	if p.NodeID != 7 || p.TargetCraftID != 3 || p.SeparationM != 42.5 ||
+	if p.NodeID != 7 || p.TargetCraftID != 3 || p.SeparationM != 42.5 || !p.Fired || !p.BurnActive ||
 		!p.TriggerTime.Equal(want.TriggerTime) || !p.ArrivalTime.Equal(want.ArrivalTime) {
 		t.Errorf("RendezvousPlan = %+v, want %+v", *p, *want)
 	}
@@ -78,5 +80,29 @@ func TestMigrateV13ToV14_NoPlan(t *testing.T) {
 	}
 	if got.ActiveCraft().RendezvousPlan != nil {
 		t.Error("v13 save loaded with a plan")
+	}
+}
+
+// A withdrawn plan (nil) stays withdrawn across save/load.
+func TestRoundtripRendezvousPlan_WithdrawnStaysWithdrawn(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := w.ActiveCraft()
+	c.RendezvousPlan = &spacecraft.RendezvousPlan{ArrivalTime: w.Clock.SimTime.Add(time.Hour), Fired: true}
+	c.Throttle = 1
+	w.StartManualBurn() // withdraws if the burn starts; force the withdrawal either way below
+	c.RendezvousPlan = nil
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.ActiveCraft().RendezvousPlan != nil {
+		t.Error("withdrawn plan came back after load")
 	}
 }

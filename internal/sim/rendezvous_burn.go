@@ -2,6 +2,7 @@ package sim
 
 import (
 	"errors"
+	"math"
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -311,7 +312,7 @@ func (w *World) RendezvousPlanReading() (arrival time.Time, separationM float64,
 	default:
 		return time.Time{}, 0, false
 	}
-	if now.Before(p.TriggerTime) {
+	if !p.Fired {
 		found := false
 		for _, n := range c.Nodes {
 			if n.ID == p.NodeID {
@@ -320,8 +321,42 @@ func (w *World) RendezvousPlanReading() (arrival time.Time, separationM float64,
 			}
 		}
 		if !found {
-			return time.Time{}, 0, false // deleted before it fired
+			return time.Time{}, 0, false // deleted, or lost without firing
 		}
 	}
 	return p.ArrivalTime, p.SeparationM, true
 }
+
+// noteRendezvousNodeFired is called when a planted node is dispatched on c.
+// The plan's own node marks it Fired (and BurnActive when finite); any OTHER
+// node's burn makes the plan stale, so it is withdrawn.
+func (w *World) noteRendezvousNodeFired(c *spacecraft.Spacecraft, n ManeuverNode) {
+	p := c.RendezvousPlan
+	if p == nil {
+		return
+	}
+	if n.ID != p.NodeID {
+		c.RendezvousPlan = nil
+		return
+	}
+	p.Fired = true
+	p.BurnActive = n.Duration != 0
+}
+
+// noteBurnFinished is called when c's ActiveBurn ends normally. A plan whose
+// own burn ends with Δv still owed is no longer the course: withdrawn.
+func (w *World) noteBurnFinished(c *spacecraft.Spacecraft) {
+	p := c.RendezvousPlan
+	if p == nil || !p.BurnActive {
+		return
+	}
+	ab := c.ActiveBurn
+	if ab != nil && ab.DVRemaining > math.Max(0.01*ab.PlannedDV, 0.5) {
+		c.RendezvousPlan = nil
+		return
+	}
+	p.BurnActive = false
+}
+
+// withdrawRendezvousPlan clears c's plan (manual thrust, an aborted burn).
+func (w *World) withdrawRendezvousPlan(c *spacecraft.Spacecraft) { c.RendezvousPlan = nil }

@@ -9,10 +9,12 @@ import "time"
 // toward, so the TARGET chip reads it instead of the 4 h closest-approach
 // search, which cannot see a wait longer than its window.
 //
-// It is withdrawn implicitly: a reading is offered only while ArrivalTime is
-// in the future, the target is the one the plan was made against, and either
-// the planted node (NodeID) still exists or its TriggerTime has passed (it
-// fired). Persists in saves (schema v14).
+// A reading is offered only while ArrivalTime is in the future, the target is
+// the one the plan was made against, and either the planted node (NodeID)
+// still exists or it Fired. The record is cleared (nil) as soon as the plan
+// stops being the vessel's course: any other burn starts (manual, another
+// node), the planted burn is cut short of its Δv, or the node is lost
+// without firing. Persists in saves (schema v14).
 type RendezvousPlan struct {
 	NodeID           uint64
 	TriggerTime      time.Time
@@ -20,4 +22,9 @@ type RendezvousPlan struct {
 	SeparationM      float64 // the row's predicted separation at ArrivalTime
 	TargetCraftID    uint64
 	TargetGhostOwner string
+
+	// Fired: the planted node was dispatched (impulsive, or its finite burn
+	// started). BurnActive: that finite burn is still in flight.
+	Fired      bool
+	BurnActive bool
 }

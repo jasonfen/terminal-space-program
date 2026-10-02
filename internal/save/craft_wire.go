@@ -76,6 +76,8 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 			SeparationM:      rp.SeparationM,
 			TargetCraftID:    rp.TargetCraftID,
 			TargetGhostOwner: rp.TargetGhostOwner,
+			Fired:            rp.Fired,
+			BurnActive:       rp.BurnActive,
 		}
 	}
 	// v0.9.1+: serialize Stages so v6 saves carry per-stage detail.
@@ -322,6 +324,8 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			SeparationM:      rp.SeparationM,
 			TargetCraftID:    rp.TargetCraftID,
 			TargetGhostOwner: rp.TargetGhostOwner,
+			Fired:            rp.Fired,
+			BurnActive:       rp.BurnActive,
 		}
 	}
 	c.SyncFields()
