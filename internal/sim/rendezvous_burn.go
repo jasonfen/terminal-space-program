@@ -256,5 +256,72 @@ func (w *World) PlanRendezvousFromLadder(place planner.RendezvousOrbit, ladder p
 		RendezvousLaps:       laps,
 	}
 	w.PlanNode(node)
+	w.recordRendezvousPlan(active, row, triggerTime)
 	return &RendezvousBurnPlan{RendezvousBurnOption: row, ForActive: true}, nil
+}
+
+// recordRendezvousPlan stamps the just-planted Rendezvous Burn's plan onto its
+// craft so the TARGET chip can keep reading the plan's arrival after the node
+// has fired (RendezvousPlanReading). PlanNode may refuse (a non-commanding
+// seat), so the record only lands when the node did.
+func (w *World) recordRendezvousPlan(c *spacecraft.Spacecraft, row planner.RendezvousBurnOption, triggerTime time.Time) {
+	for _, n := range c.Nodes {
+		if n.AdvisoryKey != AdvisoryKeyRendezvousBurn || !n.TriggerTime.Equal(triggerTime) {
+			continue
+		}
+		c.RendezvousPlan = &spacecraft.RendezvousPlan{
+			NodeID:           n.ID,
+			TriggerTime:      n.TriggerTime,
+			ArrivalTime:      n.TriggerTime.Add(time.Duration(n.RendezvousArrivalSec * float64(time.Second))),
+			SeparationM:      row.AchievableCA,
+			TargetCraftID:    n.TargetCraftID,
+			TargetGhostOwner: n.TargetGhostOwner,
+		}
+		return
+	}
+}
+
+// RendezvousPlanReading is the plan the active vessel is flying toward: the
+// planned arrival instant and the predicted separation there, while a
+// Rendezvous Burn from the picker is planted, or was the last one flown,
+// toward the CURRENT target and its arrival has not passed. ok=false
+// otherwise (no plan, other target, arrival past, or the planted node was
+// deleted before it fired). The TARGET chip prefers this to the 4 h
+// closest-approach search, which reads a pass inside its window rather than
+// a rendezvous that is further out (Wave B review MEDIUM 2).
+func (w *World) RendezvousPlanReading() (arrival time.Time, separationM float64, ok bool) {
+	c := w.ActiveCraft()
+	if c == nil || c.RendezvousPlan == nil {
+		return time.Time{}, 0, false
+	}
+	p := c.RendezvousPlan
+	now := w.Clock.SimTime
+	if !now.Before(p.ArrivalTime) {
+		return time.Time{}, 0, false
+	}
+	switch w.Target.Kind {
+	case TargetCraft:
+		if w.Target.CraftID != p.TargetCraftID || p.TargetGhostOwner != "" {
+			return time.Time{}, 0, false
+		}
+	case TargetGhost:
+		if w.Target.CraftID != p.TargetCraftID || w.Target.GhostOwner != p.TargetGhostOwner {
+			return time.Time{}, 0, false
+		}
+	default:
+		return time.Time{}, 0, false
+	}
+	if now.Before(p.TriggerTime) {
+		found := false
+		for _, n := range c.Nodes {
+			if n.ID == p.NodeID {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return time.Time{}, 0, false // deleted before it fired
+		}
+	}
+	return p.ArrivalTime, p.SeparationM, true
 }

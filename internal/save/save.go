@@ -83,7 +83,20 @@ import (
 // v13 refreshes Flight School's tut-launch ladder in saves (#525: the
 // lift-off rung moved from [space] to [b] and a staging rung was added);
 // migrateV12PayloadToV13 rebuilds it from the catalog keeping progress.
-const SchemaVersion = 13
+// v14 adds Craft.RendezvousPlan (the last Rendezvous Burn planted from the
+// picker, kept after the node fires so the TARGET chip can keep reading the
+// plan's arrival); migrateV13PayloadToV14 is an identity pass.
+const SchemaVersion = 14
+
+// RendezvousPlan is spacecraft.RendezvousPlan on the wire (times as UnixNano).
+type RendezvousPlan struct {
+	NodeID           uint64  `json:"node_id,omitempty"`
+	TriggerTimeNano  int64   `json:"trigger_time_nano"`
+	ArrivalTimeNano  int64   `json:"arrival_time_nano"`
+	SeparationM      float64 `json:"separation_m"`
+	TargetCraftID    uint64  `json:"target_craft_id,omitempty"`
+	TargetGhostOwner string  `json:"target_ghost_owner,omitempty"`
+}
 
 // File is the on-disk envelope.
 //
@@ -246,6 +259,11 @@ type Craft struct {
 	// IS the ADR's due-east default — no migration transform needed,
 	// same precedent as PitchTrim's own omitempty comment above.
 	HeadingTrim float64 `json:"heading_trim,omitempty"`
+
+	// RendezvousPlan (schema v13 -> v14, Wave B review MEDIUM 2): the last
+	// Rendezvous Burn planted from the picker, kept after the node fires.
+	// Absent (nil) for any vessel with no plan, including every pre-v14 save.
+	RendezvousPlan *RendezvousPlan `json:"rendezvous_plan,omitempty"`
 
 	// CurrentAttitudeDir (v0.10.0+, schema v6 additive): the craft's
 	// physical nose unit vector. Slew makes attitude load-bearing —
@@ -679,6 +697,11 @@ func Load(path string) (*sim.World, error) {
 	// catalog, keeping each rung's status.
 	if f.Version < 13 {
 		migrateV12PayloadToV13(&f.Payload)
+	}
+	// schema v14: Craft gains RendezvousPlan; absent in older saves (no
+	// plan), so an identity pass whose job is the version gate.
+	if f.Version < 14 {
+		migrateV13PayloadToV14(&f.Payload)
 	}
 	return worldFromPayload(f.Payload, systems)
 }

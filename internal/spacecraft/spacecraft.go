@@ -129,6 +129,10 @@ type Spacecraft struct {
 	ActiveBurn   *ActiveBurn
 	ManualBurn   *ManualBurn
 
+	// RendezvousPlan is the last Rendezvous Burn planted from the picker,
+	// kept after the node fires (see RendezvousPlan).
+	RendezvousPlan *RendezvousPlan
+
 	// DryOrder (#466, ADR G5 Q1): the throttle is a standing order. Set
 	// when a held manual burn ends because the lit stage ran dry; the
 	// next staging relights the new bottom engine at the standing
