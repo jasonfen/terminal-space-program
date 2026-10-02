@@ -108,3 +108,36 @@ func TestRendezvousPickerEnter_ExpiredRow_RefusesPlantsNothing(t *testing.T) {
 		t.Errorf("picker closed on an expired row; it should stay open")
 	}
 }
+
+// Wave B review fix (REVIEW MEDIUM 1): the expired-row refusal names [K], so K
+// must work inside the open picker: it re-solves the ladder from now, and
+// Enter then plants a fresh row. Through App.Update with real ticks.
+func TestRendezvousPickerK_AfterExpiry_ReSolvesAndEnterPlants(t *testing.T) {
+	a := rendezvousPickerPhaseMismatchApp(t)
+	c := a.world.ActiveCraft()
+	pressRune(a, 'K')
+	if !a.orbitView.RendezvousPickerOpen() {
+		t.Fatal("picker did not open")
+	}
+	staleSolved := a.orbitView.RendezvousPickerLadder().SolvedAt
+	a.world.Clock.WarpIdx = 3
+	advanceSimSeconds(t, a, 400) // past the 300 s lead
+	a.world.Clock.WarpIdx = 0
+
+	a.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(c.Nodes) != 0 {
+		t.Fatalf("expired row planted %d nodes, want 0", len(c.Nodes))
+	}
+	pressRune(a, 'K')
+	if !a.orbitView.RendezvousPickerOpen() {
+		t.Fatal("K closed the picker, want it open with fresh rows")
+	}
+	fresh := a.orbitView.RendezvousPickerLadder().SolvedAt
+	if !fresh.After(staleSolved.Add(300 * time.Second)) {
+		t.Fatalf("K did not re-solve: SolvedAt %v, stale %v, clock %v", fresh, staleSolved, a.world.Clock.SimTime)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if len(c.Nodes) != 1 {
+		t.Fatalf("Enter after K planted %d nodes, want 1", len(c.Nodes))
+	}
+}

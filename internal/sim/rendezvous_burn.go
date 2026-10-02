@@ -31,7 +31,7 @@ var (
 	ErrRendezvousUnaffordable  = transferError("rendezvous burn exceeds remaining Δv budget")
 	ErrRendezvousNoSolution    = transferError("no rendezvous solution on this lap count")
 	ErrRendezvousNoSuchLap     = transferError("no such lap count on the ladder")
-	ErrRendezvousRowExpired    = transferError("that burn time has passed, reopen the plan [K]")
+	ErrRendezvousRowExpired    = transferError("that burn time has passed, press [K] to re-solve the plan")
 )
 
 // rendezvousPlanLeadSec is the default lead time a Rendezvous Planner row

@@ -3201,6 +3201,14 @@ func (a *App) handleRendezvousPickerKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 		a.orbitView.RendezvousPickerUp()
 	case key.Matches(m, a.keys.PickerDown):
 		a.orbitView.RendezvousPickerDown()
+	case key.Matches(m, a.keys.PlanRendezvous):
+		// The expired-row refusal says "press [K]": K inside the open
+		// picker re-solves the ladder from now (same Place), so the
+		// pilot never has to Esc out and back in. Warp drops to 1x again
+		// for the same reason it does on open (G4 Q1b).
+		a.world.DropWarpForPlanning()
+		a.refreshRendezvousPickerLadder()
+		a.flash("rendezvous plan: rows re-solved from now, burns ~5 min out")
 	case m.Type == tea.KeyEnter:
 		a.planRendezvousPickerSelection()
 	case key.Matches(m, a.keys.Back):
