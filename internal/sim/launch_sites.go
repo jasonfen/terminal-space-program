@@ -53,6 +53,35 @@ var systemDefaultSiteKey = map[string]string{
 	"lumen": "Equator",
 }
 
+// systemDefaultSiteName gives a system's default pad its own display name
+// where the generic preset label would read wrong: Lumen's default pad is
+// the Kern Space Center, not "Equator". Go-side for the same reason as
+// systemDefaultSiteKey (the catalog hash).
+var systemDefaultSiteName = map[string]string{
+	"lumen": "Kern Space Center",
+}
+
+// LaunchSiteLabel is the display name of site as the spawn form should show
+// it for the named system: the system's own pad name when site is that
+// system's default pad, otherwise the preset's Name.
+func LaunchSiteLabel(systemName string, site LaunchSitePreset) string {
+	k := strings.ToLower(strings.TrimSpace(systemName))
+	if name, ok := systemDefaultSiteName[k]; ok && systemDefaultSiteKey[k] == site.Key {
+		return name
+	}
+	return site.Name
+}
+
+// launchSiteIndex finds key in sites.
+func launchSiteIndex(sites []LaunchSitePreset, key string) (int, bool) {
+	for i, s := range sites {
+		if s.Key == key {
+			return i, true
+		}
+	}
+	return 0, false
+}
+
 // DefaultLaunchSiteIndex returns the index into LaunchSites of the default
 // launch site for the named system (case-insensitive; "" is the default
 // system). Unlisted systems get KSC (index 1).
@@ -61,12 +90,13 @@ func DefaultLaunchSiteIndex(systemName string) int {
 	if !ok {
 		key = "KSC"
 	}
-	for i, s := range LaunchSites {
-		if s.Key == key {
-			return i
-		}
+	if i, found := launchSiteIndex(LaunchSites, key); found {
+		return i
 	}
-	return 1
+	// A key that names no preset is a programming error (a renamed or
+	// removed preset); returning a magic index would silently put the pad
+	// somewhere else, so fail loudly instead.
+	panic("sim: default launch site key " + key + " is not in LaunchSites")
 }
 
 // DefaultLaunchSite is LaunchSites[DefaultLaunchSiteIndex(systemName)].
