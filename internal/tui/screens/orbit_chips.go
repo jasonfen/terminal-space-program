@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -755,11 +756,10 @@ func wrapBayLines(lines []string, maxWidth int) []string {
 // cellIsBlank reports whether a splitStyledCells cell's own rendered
 // character is a plain space, regardless of any SGR wrapper around it.
 func cellIsBlank(cell string) bool {
-	const sgrReset = "\x1b[0m"
-	if strings.HasSuffix(cell, sgrReset) {
-		cell = cell[:len(cell)-len(sgrReset)]
-	}
-	return cell == " "
+	// A styled space is "\x1b[...m \x1b[0m": strip every SGR/CSI wrapper,
+	// not only the trailing reset, or a coloured row never reads blank and
+	// the bay hard-breaks it mid-word (Wave B review LOW 148).
+	return ansi.Strip(cell) == " "
 }
 
 // wrapBayLine wraps one line to at most maxWidth cells, breaking on the
