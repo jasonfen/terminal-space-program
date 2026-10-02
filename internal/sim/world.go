@@ -2101,25 +2101,41 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 	accelFn := func(r, v orbital.Vec3, t float64) orbital.Vec3 {
 		return thrustFn(r, v, t).Add(physics.DragAccel(r, v, primary, bc))
 	}
-	c.State = physics.StepRK4(c.State, dt, accelFn, 0)
-
+	// #537: a planted burn must deliver exactly DVRemaining. When this
+	// sub-step's full-thrust Δv would overshoot it, split the step: RK4
+	// thrust for the fraction that delivers the remainder, then free-flight
+	// (Verlet, drag only) for the rest, instead of thrusting the whole step
+	// and clamping only the bookkeeping (which over-delivered up to one
+	// step of Δv: ~1 m/s at 1x, ~10 m/s at 10x). Manual burns have no
+	// target Δv and always thrust the whole step.
+	thrustDt := dt
 	if c.ActiveBurn != nil {
-		mass := c.TotalMass()
-		if mass > 0 {
-			dvApplied := (c.Thrust * throttle / mass) * dt
-			if dvApplied > c.ActiveBurn.DVRemaining {
-				dvApplied = c.ActiveBurn.DVRemaining
+		if mass := c.TotalMass(); mass > 0 {
+			dvFull := (c.Thrust * throttle / mass) * dt
+			if dvFull > c.ActiveBurn.DVRemaining {
+				thrustDt = dt * c.ActiveBurn.DVRemaining / dvFull
+				dvFull = c.ActiveBurn.DVRemaining
 			}
-			c.ActiveBurn.DVRemaining -= dvApplied
+			c.ActiveBurn.DVRemaining -= dvFull
+			if c.ActiveBurn.DVRemaining < 0 {
+				c.ActiveBurn.DVRemaining = 0
+			}
 		}
 	}
+	c.State = physics.StepRK4(c.State, thrustDt, accelFn, 0)
+	if coastDt := dt - thrustDt; coastDt > 0 {
+		c.State = physics.StepVerletWithAccel(c.State, mu, coastDt, func(r, v orbital.Vec3) orbital.Vec3 {
+			return physics.DragAccel(r, v, primary, bc)
+		})
+	}
+
 	// v0.9.1+: route fuel burn through BurnFuel so Stages[0].FuelMass
 	// (the source of truth) decrements + SyncFields keeps the flat
 	// shadow fields coherent. Pre-v0.9.1 wrote `c.Fuel -= fuelBurned`
 	// directly; with Stages now authoritative, that path would leave
 	// the bottom stage's tank artificially full and the burn would
 	// never terminate from fuel exhaustion.
-	fuelBurned := c.MassFlowRateAt(throttle) * dt
+	fuelBurned := c.MassFlowRateAt(throttle) * thrustDt
 	c.BurnFuel(fuelBurned)
 	c.State.M = c.TotalMass()
 }
