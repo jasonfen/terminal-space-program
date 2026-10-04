@@ -229,3 +229,56 @@ func TestLaunchWindowLeadAtPassMatchesFlownTruth(t *testing.T) {
 		t.Errorf("lead at pass %.3f, flown truth %.3f (Kepler-warp path through Tick)", lead, truth)
 	}
 }
+
+// TestLaunchWindowBestDoesNotStickOnZero (#548 review line 85): with no
+// pass, the row used to read `best 9.17° T-0s` and re-solve every frame for
+// about 90 s after the best moment, then jump a day. The sample grid starts
+// at "now", so which side of the grid the minimum fell on depended on the
+// phase: scan every second from 1 s to 400 s past the best moment, each
+// solved cold (cache emptied), and require the answer to be the NEXT best
+// moment (hours away), never a countdown stuck on zero. Then walk the
+// player's path (warm cache, 1 s frames across the moment) and bound the
+// solves.
+func TestLaunchWindowBestDoesNotStickOnZero(t *testing.T) {
+	w, pad := padWindowWorld(t, DefaultLaunchpadLatitude, 0)
+	for i, b := range w.System().Bodies {
+		if b.ID == "moon" {
+			w.SetTargetBody(i)
+		}
+	}
+	first, ok := w.LaunchWindow()
+	if !ok || first.Open {
+		t.Fatalf("fixture: want a no-pass window, got %+v ok=%v", first, ok)
+	}
+	best := first.BestAt
+	stuck := 0
+	for s := 1; s <= 400; s++ {
+		w.lwCache = launchWindowCache{}
+		movePad(w, pad, best.Add(time.Duration(s)*time.Second))
+		lw, ok := w.LaunchWindow()
+		if !ok {
+			t.Fatalf("t+%ds: no reading", s)
+		}
+		if d := lw.BestAt.Sub(w.Clock.SimTime); d < 6*time.Hour {
+			if stuck == 0 {
+				t.Errorf("t+%ds past the best moment the row counts down to %v, want the next day's", s, d)
+			}
+			stuck++
+		}
+	}
+	if stuck > 0 {
+		t.Errorf("%d of 400 phases stuck near zero", stuck)
+	}
+
+	w.lwCache = launchWindowCache{}
+	startSolves := w.LaunchWindowSolves()
+	for s := -60; s <= 400; s++ {
+		movePad(w, pad, best.Add(time.Duration(s)*time.Second))
+		if _, ok := w.LaunchWindow(); !ok {
+			t.Fatalf("walk t%+ds: no reading", s)
+		}
+	}
+	if n := w.LaunchWindowSolves() - startSolves; n > 3 {
+		t.Errorf("%d solves across 461 one-second frames over the best moment, want at most 3", n)
+	}
+}
