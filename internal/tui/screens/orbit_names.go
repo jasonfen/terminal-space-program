@@ -1,0 +1,240 @@
+package screens
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/sim"
+)
+
+// Names on the wide map (UX cycle 3 slice B9, #506, grill G7 Q2 + Q4;
+// ADR 0041 §1 amendment 2026-10-04).
+//
+// The star and planets carry a dim one-word name while the camera is
+// System-wide ("g"), moons never at that zoom (they fold into their
+// planet's cell, a moon label would only mislabel the planet), and the
+// Target body keeps its name at every zoom. A name goes beside its body,
+// right then left then above then below, and only where every cell is
+// clear: other names, body disks, markers and vessels, the instrument
+// boxes, the navball, and the bottom row (the view label and Hint Strip
+// live there). When nothing fits the body stays unnamed and `j` Inspect
+// still answers for it. A wrong or clipped name is worse than none.
+
+// nameLabel is one name placed on the canvas this frame.
+type nameLabel struct {
+	Name     string
+	Col, Row int
+}
+
+// nameCandidate is a body that wants a name, in priority order.
+type nameCandidate struct {
+	idx  int
+	r    int // drawn disk radius, px
+	px   int // projected pixel position
+	py   int
+	name string
+}
+
+// cellRect is an inclusive canvas-cell rectangle.
+type cellRect struct{ c0, c1, r0, r1 int }
+
+func (r cellRect) contains(col, row int) bool {
+	return col >= r.c0 && col <= r.c1 && row >= r.r0 && row <= r.r1
+}
+
+func floorDiv(a, b int) int {
+	q := a / b
+	if a%b != 0 && (a < 0) != (b < 0) {
+		q--
+	}
+	return q
+}
+
+// wideMapNameCandidates lists the bodies that want a name this frame:
+// the Target body first (any zoom), then, at System-wide focus, the star
+// and planets in catalog order. Only bodies that project onto the canvas.
+func (v *OrbitView) wideMapNameCandidates(w *sim.World, scale float64, canvasReach int) []nameCandidate {
+	sys := w.System()
+	want := make([]int, 0, len(sys.Bodies))
+	if w.Target.Kind == sim.TargetBody && w.Target.BodyIdx > 0 && w.Target.BodyIdx < len(sys.Bodies) {
+		want = append(want, w.Target.BodyIdx)
+	}
+	if w.Focus.Kind == sim.FocusSystem {
+		for i, b := range sys.Bodies {
+			if b.BodyType == "Moon" || i == w.Target.BodyIdx && w.Target.Kind == sim.TargetBody {
+				continue
+			}
+			want = append(want, i)
+		}
+	}
+	var out []nameCandidate
+	for _, i := range want {
+		b := sys.Bodies[i]
+		px, py, ok := v.canvas.Project(w.BodyPosition(b))
+		if !ok {
+			continue
+		}
+		out = append(out, nameCandidate{
+			idx: i, r: mapBodyPixelRadius(b, i == 0, scale, canvasReach),
+			px: px, py: py, name: b.EnglishName,
+		})
+	}
+	return out
+}
+
+// blockedByInstruments returns the canvas-cell rectangles the HUD will
+// cover after the canvas string is built: every chip box and the navball
+// panel. Chips are composited from strings after the canvas is drawn, so
+// the layout is replayed here onto a blank canvas (same chips, same sizes,
+// zero screen offset) to learn where they land. composeChips resets and
+// refills v.chipRects; the real composition later in Render does it again.
+func (v *OrbitView) blockedByInstruments(w *sim.World, chips []builtChip, cCols, cRows int) []cellRect {
+	var out []cellRect
+	blank := strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", cCols)+"\n", cRows), "\n")
+	navballReserved := v.navballReservedRows(w, cCols, cRows)
+	composed := v.composeChips(blank, cCols, cRows, navballReserved, 0, 0, chips)
+	for _, r := range v.chipRects {
+		out = append(out, cellRect{r.colStart, r.colEnd, r.rowStart, r.rowEnd})
+	}
+	// Hidden Stubs have no rect; anything the dry composition inked is
+	// blocked too.
+	for row, ln := range strings.Split(composed, "\n") {
+		for col, ch := range []rune(ansi.Strip(ln)) {
+			if ch != ' ' {
+				out = append(out, cellRect{col, col, row, row})
+			}
+		}
+	}
+	if !v.declutter && navballReserved > chipStubHeight {
+		g := navballGeometry(cCols, cRows)
+		out = append(out, cellRect{cCols - g.panelW, cCols - 1, cRows - g.panelH - 1, cRows - 2})
+	}
+	return out
+}
+
+// paintBodyNames stamps the names onto the canvas, after every map layer
+// and before the canvas string is built. It records what it placed in
+// v.nameLabels (tests and captures read it).
+func (v *OrbitView) paintBodyNames(w *sim.World, chips []builtChip, scale float64, canvasReach int) {
+	v.nameLabels = v.nameLabels[:0]
+	v.nameDropped = v.nameDropped[:0]
+	if v.declutter {
+		return // F2 clears standing overlays; names are standing ink
+	}
+	cands := v.wideMapNameCandidates(w, scale, canvasReach)
+	if len(cands) == 0 {
+		return
+	}
+	cCols, cRows := v.canvas.Cols(), v.canvas.Rows()
+	blocked := v.blockedByInstruments(w, chips, cCols, cRows)
+	sys := w.System()
+	placed := map[[2]int]bool{}
+
+	free := func(col, row, n int) bool {
+		if row < 0 || row >= cRows-1 { // never the bottom row
+			return false
+		}
+		for c := col; c < col+n; c++ {
+			if c < 0 || c >= cCols || v.canvas.CellOccupied(c, row) {
+				return false
+			}
+			// Names keep one empty cell between them (diagonals too): two
+			// names touching read as one, or as the wrong body's.
+			for dr := -1; dr <= 1; dr++ {
+				for dc := -1; dc <= 1; dc++ {
+					if placed[[2]int{c + dc, row + dr}] {
+						return false
+					}
+				}
+			}
+			for _, r := range blocked {
+				if r.contains(c, row) {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	// bodyCell maps each non-moon body's own cell to its index, so a name is
+	// never placed flush against a DIFFERENT body (it would read as that
+	// body's name: "Sun" abutting Earth's marker).
+	bodyCell := map[[2]int][]int{}
+	for i, b := range sys.Bodies {
+		if b.BodyType == "Moon" {
+			continue
+		}
+		if px, py, ok := v.canvas.Project(w.BodyPosition(b)); ok {
+			k := [2]int{px / 2, py / 4}
+			bodyCell[k] = append(bodyCell[k], i)
+		}
+	}
+	touchesOther := func(self, col, row int) bool {
+		for _, i := range bodyCell[[2]int{col, row}] {
+			if i != self {
+				return true
+			}
+		}
+		return false
+	}
+	for _, cd := range cands {
+		n := lipgloss.Width(cd.name)
+		cx := cd.px / 2
+		row := cd.py / 4
+		// near is the cell just on the body's side of a side-by-side name
+		// (-1 for above/below, where a crowd of bodies shares the row).
+		type spot struct{ col, row, nearCol, nearRow int }
+		right := floorDiv(cd.px+cd.r, 2) + 1
+		left := floorDiv(cd.px-cd.r, 2) - n
+		above := floorDiv(cd.py-cd.r, 4) - 1
+		below := floorDiv(cd.py+cd.r, 4) + 1
+		spots := []spot{
+			{right, row, right - 1, row}, // right
+			{left, row, left + n, row},   // left
+			{cx - n/2, above, -1, -1},    // above
+			{cx - n/2, below, -1, -1},    // below
+		}
+		ok := false
+		for _, s := range spots {
+			if !free(s.col, s.row, n) || touchesOther(cd.idx, s.nearCol, s.nearRow) {
+				continue
+			}
+			v.canvas.SetCellLabelColored(s.col, s.row, cd.name, dimBodyColor(sys.Bodies[cd.idx]))
+			for c := s.col; c < s.col+n; c++ {
+				placed[[2]int{c, s.row}] = true
+			}
+			v.nameLabels = append(v.nameLabels, nameLabel{cd.name, s.col, s.row})
+			ok = true
+			break
+		}
+		if !ok {
+			v.nameDropped = append(v.nameDropped, cd.name)
+		}
+	}
+}
+
+// dimBodyColor is the body's palette colour pulled 30% toward the dim
+// grey, so a name reads as the body's own and stays quieter than any
+// instrument text (clarity 60: no third grey). Non-hex colours pass
+// through unchanged.
+func dimBodyColor(b bodies.CelestialBody) lipgloss.TerminalColor {
+	c := render.ColorFor(b)
+	s := string(c)
+	if len(s) != 7 || s[0] != '#' {
+		return c
+	}
+	var ch [3]int
+	for i := 0; i < 3; i++ {
+		x, err := strconv.ParseUint(s[1+2*i:3+2*i], 16, 8)
+		if err != nil {
+			return c
+		}
+		ch[i] = int(float64(x)*0.7 + 95*0.3)
+	}
+	return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", ch[0], ch[1], ch[2]))
+}

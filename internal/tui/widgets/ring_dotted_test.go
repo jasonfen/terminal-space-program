@@ -79,7 +79,9 @@ func TestRingDottedColoredIsSparse(t *testing.T) {
 	if nDotted == 0 || nSolid == 0 {
 		t.Fatalf("empty rings: dotted=%d solid=%d", nDotted, nSolid)
 	}
-	if nDotted*2 >= nSolid {
+	// G7 Q3 (#506): at the 2 px scenery cadence a dotted ring is about half
+	// the ink of a solid one; still clearly sparser, no longer a third.
+	if nDotted*4 >= nSolid*3 {
 		t.Errorf("dotted ring has %d pixels vs solid %d — not visibly dotted", nDotted, nSolid)
 	}
 	// And roughly the commanded density: one dot per ~ringDotSpacingPx of
