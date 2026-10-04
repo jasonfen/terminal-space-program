@@ -2,10 +2,13 @@ package tui
 
 import (
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
+	"github.com/muesli/termenv"
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -71,7 +74,6 @@ func TestFormScreensWearTheSharedTitleRow(t *testing.T) {
 		screen screenID
 		want   string
 	}{
-		{"menu", screenMenu, "Menu"},
 		{"settings", screenSettings, "Settings"},
 		{"controls", screenControls, "Keyboard layout"},
 		{"missions", screenMissions, "Missions"},
@@ -315,5 +317,154 @@ func TestFormsUseOneCursorAndOneCyclingMark(t *testing.T) {
 		if !strings.Contains(stripANSIForTest(a.View()), "‹ ") {
 			t.Errorf("%s: no ‹ value › cycling mark on screen", tc.name)
 		}
+	}
+}
+
+// TestPauseMenuReallyPauses (B11 / G9 Q6): the "pause menu" now pauses. Esc on
+// the map stops the clock, a world tick through the real Update path does not
+// advance sim time while it is open, the flight bar reads PAUSED, and esc
+// hands the clock back exactly as it was (also when it was already stopped).
+func TestPauseMenuReallyPauses(t *testing.T) {
+	for _, wasPaused := range []bool{false, true} {
+		a := newChromeApp(t, 140, 40)
+		a.world.Clock.Paused = wasPaused
+		esc(a)
+		if a.active != screenMenu {
+			t.Fatalf("esc on the map opened %v, want the menu", a.active)
+		}
+		if !a.world.Clock.Paused {
+			t.Fatalf("wasPaused=%v: the menu is open and the clock is running", wasPaused)
+		}
+		t0 := a.world.Clock.SimTime
+		for i := 0; i < 5; i++ {
+			a.Update(sim.TickMsg(time.Now()))
+		}
+		if !a.world.Clock.SimTime.Equal(t0) {
+			t.Errorf("wasPaused=%v: sim time moved %v -> %v behind the open menu", wasPaused, t0, a.world.Clock.SimTime)
+		}
+		if row := firstRow(a); !strings.Contains(row, "PAUSED") {
+			t.Errorf("wasPaused=%v: flight bar does not read PAUSED: %q", wasPaused, row)
+		}
+		esc(a)
+		if a.active != screenOrbit {
+			t.Fatalf("esc in the menu went to %v, want the map", a.active)
+		}
+		if a.world.Clock.Paused != wasPaused {
+			t.Errorf("wasPaused=%v: after closing the menu the clock is paused=%v", wasPaused, a.world.Clock.Paused)
+		}
+	}
+	// The [Menu] button pauses the same way.
+	a := newChromeApp(t, 140, 40)
+	a.View()
+	col, ok := findMenuButtonCol(a)
+	if !ok {
+		t.Fatal("no [Menu] hit range")
+	}
+	a.Update(tea.MouseMsg{X: col, Y: 0, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if a.active != screenMenu || !a.world.Clock.Paused {
+		t.Errorf("[Menu] click: active %v paused %v, want the menu and a stopped clock", a.active, a.world.Clock.Paused)
+	}
+}
+
+func findMenuButtonCol(a *App) (int, bool) {
+	for c := 0; c < a.width; c++ {
+		if a.orbitView.HitMenuButton(c, 0) {
+			return c, true
+		}
+	}
+	return 0, false
+}
+
+// TestPauseCardOverDimmedMap (B11 / G9 Q6): the menu is a 40x13 card centred
+// over the map, which stays in view, dimmed; clicks land on the card's rows.
+func TestPauseCardOverDimmedMap(t *testing.T) {
+	ambient := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(ambient) })
+	const cyan, grey = "38;2;95;215;255", "38;2;95;95;95"
+	for _, sz := range [][2]int{{140, 40}, {181, 49}} {
+		a := newChromeApp(t, sz[0], sz[1])
+		esc(a)
+		raw := a.View()
+		rawLines := strings.Split(raw, "\n")
+		plain := strings.Split(stripANSIForTest(raw), "\n")
+		if len(plain) != sz[1] {
+			t.Fatalf("%dx%d: %d rows", sz[0], sz[1], len(plain))
+		}
+		// The card: find its top edge (the row holding the wordmark minus one).
+		wordRow := -1
+		for i := 1; i < len(plain); i++ {
+			if strings.Contains(plain[i], "Terminal Space Program") {
+				wordRow = i
+			}
+		}
+		if wordRow < 0 {
+			t.Fatalf("%dx%d: no card wordmark on screen", sz[0], sz[1])
+		}
+		wl := plain[wordRow]
+		x := lipgloss.Width(wl[:strings.Index(wl, "Terminal Space Program")]) - 3 // "│  " before the wordmark
+		cell := func(row string, col int) string {
+			return ansi.Truncate(ansi.TruncateLeft(row, col, ""), 1, "")
+		}
+		if cell(plain[wordRow-1], x) != "╭" || cell(plain[wordRow-1], x+39) != "╮" ||
+			cell(plain[wordRow+11], x) != "╰" || cell(plain[wordRow+11], x+39) != "╯" {
+			t.Fatalf("%dx%d: card is not a 40x13 box at col %d:\n%s", sz[0], sz[1], x, strings.Join(plain[wordRow-1:wordRow+12], "\n"))
+		}
+		// Centred (within a cell).
+		if want := (sz[0] - 40) / 2; x < want-1 || x > want+1 {
+			t.Errorf("%dx%d: card left edge at %d, want about %d", sz[0], sz[1], x, want)
+		}
+		// The map is still there under the dim: braille cells outside the card.
+		braille := 0
+		for _, ln := range plain[2 : len(plain)-1] {
+			for _, r := range ln {
+				if r >= 0x2801 && r <= 0x28FF {
+					braille++
+				}
+			}
+		}
+		if braille < 100 {
+			t.Errorf("%dx%d: only %d braille cells visible: the map is gone behind the card", sz[0], sz[1], braille)
+		}
+		// Dimmed: the frame's top edge (row 1, outside the card) is grey, not cyan.
+		if strings.Contains(rawLines[1], cyan) || !strings.Contains(rawLines[1], grey) {
+			t.Errorf("%dx%d: map frame row is not dimmed: %q", sz[0], sz[1], rawLines[1])
+		}
+		// Clicking the Settings row opens Settings.
+		settingsRow := -1
+		for i, ln := range plain {
+			if strings.Contains(ln, "Keyboard layout") {
+				settingsRow = i - 1 // Settings is the row above
+			}
+		}
+		a.Update(tea.MouseMsg{X: x + 5, Y: settingsRow, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+		if a.active != screenSettings {
+			t.Errorf("%dx%d: click on the Settings row opened %v", sz[0], sz[1], a.active)
+		}
+	}
+}
+
+// TestQuitFromThePauseMenuStillAutosaves (B11 / G9 Q6): the menu now holds
+// the clock, and autosave refuses a paused world, so quitting from the menu
+// must give the menu's hold back first or the quit would silently write
+// nothing (and a restart mid-menu would come back frozen).
+func TestQuitFromThePauseMenuStillAutosaves(t *testing.T) {
+	dir := testStateDirs(t)
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	esc(a)
+	press(a, "q")
+	if !a.quitConfirm {
+		t.Fatal("q in the menu did not arm the quit prompt")
+	}
+	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if cmd == nil {
+		t.Fatal("y did not quit")
+	}
+	if n := len(savesDirFiles(t, dir)); n == 0 {
+		t.Error("quitting from the pause menu wrote no autosave")
 	}
 }

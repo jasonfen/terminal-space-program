@@ -2,6 +2,8 @@ package screens
 
 import (
 	"strings"
+
+	"github.com/jasonfen/terminal-space-program/internal/version"
 )
 
 // Menu is the splash / pause menu surfaced when the player presses Esc
@@ -93,16 +95,16 @@ type menuRow struct {
 // decision 6). Keyboard layout moved from c to k so no letter is a
 // near-miss for the flight keys around it.
 var menuRows = []menuRow{
-	{"s", "[Save Game]", MenuActionSave},
-	{"l", "[Load Game]", MenuActionLoad},
-	{"b", "[Build (VAB)]", MenuActionVAB},
-	{"t", "[Settings]", MenuActionSettings},
+	{"s", "Save Game", MenuActionSave},
+	{"l", "Load Game", MenuActionLoad},
+	{"b", "Build (VAB)", MenuActionVAB},
+	{"t", "Settings", MenuActionSettings},
 	// #425: renamed from "[Controls]": that label read like the keybinding
 	// list, but it's only the QWERTY/QWERTZ picker.
-	{"k", "[Keyboard layout]", MenuActionControls},
+	{"k", "Keyboard layout", MenuActionControls},
 	// #425: a real pointer to the F1 overlay, the actual keybinding list.
-	{"h", "[Help (F1)]", MenuActionHelp},
-	{"q", "[Quit]", MenuActionQuit},
+	{"h", "Help", MenuActionHelp},
+	{"q", "Quit", MenuActionQuit},
 }
 
 // HandleKey maps a raw key string to a MenuAction. Lower- and
@@ -159,60 +161,50 @@ func (m *Menu) HandleClick(col, row int) MenuAction {
 	return MenuActionNone
 }
 
-// Render returns the menu screen for the current mode. width is the
-// terminal width — used to right-align the [Back] button on row 0
-// the same way the orbit-screen title bar does.
-func (m *Menu) Render(width int) string {
-	var lines []string
+// MenuCardW / MenuCardH are the pause card's size (B11 / G9 Q6).
+const (
+	MenuCardW = 40
+	MenuCardH = 13
+)
 
-	// rowOffset is the count of rows already in `lines` (the title row).
-	// renderList records buttonRange.row in absolute terms, so it needs
-	// to know how many rows precede its output.
-	rowOffset := len(lines)
-	lines = append(lines, m.renderList(rowOffset)...)
-
-	return strings.Join(lines, "\n")
+// menuKeyHint is the letters column of a row: the shortcut, plus F1 beside
+// Help.
+func menuKeyHint(r menuRow) string {
+	if r.action == MenuActionHelp {
+		return r.key + "  F1"
+	}
+	return r.key
 }
 
-// renderList composes the action-list mode body (everything below
-// the title row). Records the row + column span of each clickable
-// button so HandleClick can hit-test them. rowOffset is the number
-// of rows already rendered above this output (currently the title
-// row) so button rows are stored in absolute terms.
-func (m *Menu) renderList(rowOffset int) []string {
-	var lines []string
-	lines = append(lines, m.theme.Dim.Render("─── menu ───"))
-	lines = append(lines, "")
-
+// Render returns the pause card (B11 / G9 Q6): a rounded MenuCardW x
+// MenuCardH box holding the wordmark and version, the seven items with
+// their shortcut letters in a column, and the legend. The App composites
+// it over the dimmed map. Click ranges are recorded relative to the
+// card's top-left corner (row 0 is its top edge); the App subtracts the
+// card's origin before calling HandleClick. The highlighted row carries a
+// ▸ in the indent; the label column does not move.
+func (m *Menu) Render() string {
+	const inner = MenuCardW - 2
+	title := "  " + m.theme.Title.Render(wordmark) + "  " + m.theme.Dim.Render(menuVersion())
+	lines := []string{""}
 	btns := []*buttonRange{&m.saveBtn, &m.loadBtn, &m.vabBtn, &m.settingsBtn,
 		&m.controlsBtn, &m.helpBtn, &m.quitBtn}
-	rows := menuRows
-	for i, r := range rows {
-		// The highlighted row carries a ▸ in the indent; the label column
-		// does not move, so click ranges are identical for every row.
-		indent := "  "
+	for i, r := range menuRows {
+		cursor := "  "
+		label := r.label
 		if i == m.cursor {
-			indent = m.theme.Primary.Render("▸") + " "
+			cursor = m.theme.Primary.Render("▸") + " "
+			label = m.theme.Primary.Render(label)
 		}
-		colStart := 2
-		colEnd := colStart + len([]rune(r.label))
-		*btns[i] = buttonRange{
-			row:      rowOffset + len(lines),
-			colStart: colStart,
-			colEnd:   colEnd,
-			set:      true,
-		}
-		shortcut := m.theme.Dim.Render("  (" + r.key + ")")
-		lines = append(lines, indent+m.theme.Primary.Render(r.label)+shortcut)
-		// Blank row between buttons so they're easier to click
-		// individually — the v0.7.4 list was tight enough that
-		// adjacent rows blurred under thumbs / trackpads.
-		if i < len(rows)-1 {
-			lines = append(lines, "")
-		}
+		// Rows are full-width click targets inside the card; rows 0 (top
+		// edge), 1 (title) and 2 (blank) precede the first item.
+		*btns[i] = buttonRange{row: 3 + i, colStart: 1, colEnd: 1 + inner, set: true}
+		lines = append(lines, "  "+cursor+padCells(label, 20)+m.theme.Dim.Render(menuKeyHint(r)))
 	}
-
 	lines = append(lines, "")
-	lines = append(lines, m.theme.Footer.Render("[↑/↓] pick · [enter] open · [esc] back to orbit"))
-	return lines
+	lines = append(lines, "  "+m.theme.Footer.Render("[↑/↓] pick  [enter] open  [esc] fly"))
+	return strings.Join(formBox(m.theme, title, lines, MenuCardW), "\n")
 }
+
+// menuVersion is the version string on the card.
+func menuVersion() string { return version.Version }

@@ -38,10 +38,7 @@ func TestMenuHandleKey(t *testing.T) {
 
 // TestMenuButtonRowsMatchRenderedLines: the row stored in each
 // buttonRange must equal the index of the line in the rendered
-// output that visually contains that button. Pre-fix, the helpers
-// recorded local row indices that didn't account for the title row
-// prepended by Render — clicks fired one row above the visual
-// button.
+// card that visually contains that button (card-relative, B11).
 func TestMenuButtonRowsMatchRenderedLines(t *testing.T) {
 	th := Theme{
 		Primary: lipgloss.NewStyle(),
@@ -53,16 +50,16 @@ func TestMenuButtonRowsMatchRenderedLines(t *testing.T) {
 
 	// List state: Save / Load / Quit labels should be on the rows
 	// the buttonRange records.
-	out := m.Render(80)
+	out := m.Render()
 	lines := strings.Split(out, "\n")
 	for _, b := range []struct {
 		name  string
 		btn   buttonRange
 		label string
 	}{
-		{"save", m.saveBtn, "[Save Game]"},
-		{"load", m.loadBtn, "[Load Game]"},
-		{"quit", m.quitBtn, "[Quit]"},
+		{"save", m.saveBtn, "Save Game"},
+		{"load", m.loadBtn, "Load Game"},
+		{"quit", m.quitBtn, "Quit"},
 	} {
 		if b.btn.row >= len(lines) {
 			t.Errorf("%s: row %d out of bounds (len=%d)", b.name, b.btn.row, len(lines))
@@ -94,24 +91,24 @@ func TestMenuControlsRowRenamedAndHelpRowAdded(t *testing.T) {
 		Footer:  lipgloss.NewStyle(),
 	}
 	m := NewMenu(th)
-	out := m.Render(80)
+	out := m.Render()
 
-	if strings.Contains(out, "[Controls]") {
-		t.Error("menu still shows the old [Controls] label")
+	if strings.Contains(out, "Controls") {
+		t.Error("menu still shows the old Controls label")
 	}
-	if !strings.Contains(out, "[Keyboard layout]") {
-		t.Errorf("menu missing [Keyboard layout] row:\n%s", out)
+	if !strings.Contains(out, "Keyboard layout") {
+		t.Errorf("menu missing Keyboard layout row:\n%s", out)
 	}
-	if !strings.Contains(out, "[Help (F1)]") {
-		t.Errorf("menu missing [Help (F1)] row:\n%s", out)
+	if !strings.Contains(out, "Help") || !strings.Contains(out, "h  F1") {
+		t.Errorf("menu missing the Help row with its F1 hint:\n%s", out)
 	}
 
 	lines := strings.Split(out, "\n")
-	if m.controlsBtn.row >= len(lines) || !strings.Contains(lines[m.controlsBtn.row], "[Keyboard layout]") {
-		t.Errorf("controlsBtn row %d doesn't contain [Keyboard layout]: %q", m.controlsBtn.row, lines[min(m.controlsBtn.row, len(lines)-1)])
+	if m.controlsBtn.row >= len(lines) || !strings.Contains(lines[m.controlsBtn.row], "Keyboard layout") {
+		t.Errorf("controlsBtn row %d doesn't contain Keyboard layout: %q", m.controlsBtn.row, lines[min(m.controlsBtn.row, len(lines)-1)])
 	}
-	if m.helpBtn.row >= len(lines) || !strings.Contains(lines[m.helpBtn.row], "[Help (F1)]") {
-		t.Errorf("helpBtn row %d doesn't contain [Help (F1)]: %q", m.helpBtn.row, lines[min(m.helpBtn.row, len(lines)-1)])
+	if m.helpBtn.row >= len(lines) || !strings.Contains(lines[m.helpBtn.row], "Help") {
+		t.Errorf("helpBtn row %d doesn't contain Help: %q", m.helpBtn.row, lines[min(m.helpBtn.row, len(lines)-1)])
 	}
 
 	// Both mouse click and key letter must fire the same action.
@@ -119,7 +116,7 @@ func TestMenuControlsRowRenamedAndHelpRowAdded(t *testing.T) {
 		t.Errorf("HandleKey(h) = %v, want MenuActionHelp", got)
 	}
 	m.Reset()
-	m.Render(80) // repopulate button ranges after Reset cleared them
+	m.Render() // repopulate button ranges after Reset cleared them
 	col := (m.helpBtn.colStart + m.helpBtn.colEnd) / 2
 	if got := m.HandleClick(col, m.helpBtn.row); got != MenuActionHelp {
 		t.Errorf("HandleClick(helpBtn) = %v, want MenuActionHelp", got)
@@ -151,7 +148,7 @@ func TestMenuQuitFiresDirectlyBothPaths(t *testing.T) {
 		Footer:  lipgloss.NewStyle(),
 	}
 	m := NewMenu(th)
-	_ = m.Render(80) // populate button ranges
+	_ = m.Render() // populate button ranges
 
 	for _, key := range []string{"q", "Q"} {
 		if got := m.HandleKey(key); got != MenuActionQuit {
@@ -204,23 +201,49 @@ func TestMenuRendersHighlightAndKeyedFooter(t *testing.T) {
 	th := Theme{Primary: lipgloss.NewStyle(), Title: lipgloss.NewStyle(), Dim: lipgloss.NewStyle(), Footer: lipgloss.NewStyle()}
 	m := NewMenu(th)
 	m.HandleKey("down") // Load
-	out := m.Render(80)
+	out := m.Render()
 	var marked []string
 	for _, ln := range strings.Split(out, "\n") {
 		if strings.Contains(ln, "▸") {
 			marked = append(marked, ln)
 		}
 	}
-	if len(marked) != 1 || !strings.Contains(marked[0], "[Load Game]") {
+	if len(marked) != 1 || !strings.Contains(marked[0], "Load Game") {
 		t.Errorf("want exactly one ▸ row and it is Load; got %q", marked)
 	}
-	for _, want := range []string{"(s)", "(l)", "(b)", "(t)", "(k)", "(h)", "(q)", "[↑/↓]", "[enter]"} {
+	// Every row carries its shortcut letter in a column to the right.
+	lines := strings.Split(out, "\n")
+	for _, r := range menuRows {
+		found := false
+		for _, ln := range lines {
+			if strings.Contains(ln, r.label) && strings.HasSuffix(strings.TrimRight(strings.TrimSpace(strings.TrimRight(ln, "│ ")), " "), menuKeyHint(r)) {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("row %q has no shortcut %q at its right:\n%s", r.label, menuKeyHint(r), out)
+		}
+	}
+	for _, want := range []string{"[↑/↓]", "[enter]", "[esc] fly"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("menu render lacks %q:\n%s", want, out)
 		}
 	}
 	if strings.Contains(out, "(c)") || strings.Contains(out, "s/l/b/t/c/h/q") {
 		t.Errorf("menu still advertises the old c key:\n%s", out)
+	}
+	// The card is the size the grill fixed (G9 Q6): 40x13, wordmark and
+	// version on its first inner row.
+	if len(lines) != MenuCardH {
+		t.Errorf("card is %d rows, want %d", len(lines), MenuCardH)
+	}
+	for i, ln := range lines {
+		if w := lipgloss.Width(ln); w != MenuCardW {
+			t.Errorf("card row %d is %d cells wide, want %d: %q", i, w, MenuCardW, ln)
+		}
+	}
+	if !strings.Contains(lines[1], "Terminal Space Program") {
+		t.Errorf("card has no wordmark on its first inner row: %q", lines[1])
 	}
 }
 

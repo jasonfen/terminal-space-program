@@ -3,6 +3,7 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"github.com/charmbracelet/x/ansi"
 	"io/fs"
 	"strings"
 	"time"
@@ -114,6 +115,12 @@ type App struct {
 	// fromMenu: the active screen was opened from the pause menu, so
 	// back returns there (backToOpener).
 	fromMenu bool
+	// menuHeld: the pause menu owns the clock's pause (openMenu), and
+	// menuPrevPaused is the state to give back on closeMenu.
+	menuHeld, menuPrevPaused bool
+	// menuOriginX/Y: the pause card's top-left, in the screen's body
+	// coordinates (below the Title Row), for click translation.
+	menuOriginX, menuOriginY int
 
 	orbitView  *screens.OrbitView
 	launchView *screens.LaunchView
@@ -659,8 +666,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// B11 / G9 Q1: the launch Title Row carries [Menu] and
 				// [Missions] like the map's.
 				if a.launchView.HitMenuButton(m.X, m.Y) {
-					a.menu.Reset()
-					a.active = screenMenu
+					a.openMenu()
 					return a, nil
 				}
 				if a.launchView.HitMissionsButton(m.X, m.Y) {
@@ -680,8 +686,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// priority over canvas / HUD hits, since they sit at
 			// row 0 above the body region.
 			if a.orbitView.HitMenuButton(m.X, m.Y) {
-				a.menu.Reset()
-				a.active = screenMenu
+				a.openMenu()
 				return a, nil
 			}
 			if a.orbitView.HitMissionsButton(m.X, m.Y) {
@@ -806,7 +811,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.porkchop.SetSelection(depIdx, tofIdx)
 			}
 		case screenMenu:
-			action := a.menu.HandleClick(m.X, m.Y)
+			action := a.menu.HandleClick(m.X-a.menuOriginX, m.Y-a.menuOriginY)
 			if action != screens.MenuActionNone {
 				return a.applyMenuAction(action)
 			}
@@ -1265,8 +1270,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// returns to orbit first, so a second Esc opens the
 			// menu.
 			if a.active == screenOrbit {
-				a.menu.Reset()
-				a.active = screenMenu
+				a.openMenu()
 				return a, nil
 			}
 			a.active = screenOrbit
@@ -2192,6 +2196,7 @@ func (a *App) loadWorldByID(id string) error {
 	// the player's program toggles so a load respects them. v0.21 Slice 7.
 	a.world.SetEnabledMissionPrograms(enabledProgramsFromSettings(a.orbitView.Settings()))
 	a.fromMenu = false // a load lands on the map, never back on the menu (Q3)
+	a.menuHeld = false // the new world's own pause state applies
 	a.active = screenOrbit
 	return nil
 }
@@ -2215,6 +2220,12 @@ func (a *App) handleQuitConfirmKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 		// session resumes exactly as it was running.
 		if a.active == screenSaves {
 			a.world.Clock.Paused = a.savesPrevPaused
+		}
+		// Likewise the pause menu's own hold (B11 / G9 Q6): quitting from
+		// the menu must save the flight as it was running, not as a frozen
+		// world that autosave's paused-world guard would skip.
+		if a.menuHeld {
+			a.world.Clock.Paused = a.menuPrevPaused
 		}
 		a.autosave()
 		return a, tea.Quit
@@ -2265,6 +2276,14 @@ func (a *App) PersistNow() { a.persistNow() }
 // this directly from a quit path — go through autosave so the guard
 // applies.
 func (a *App) persistNow() {
+	// The pause menu's hold is UI state, not a gameplay pause: persist the
+	// clock as the player left it, so a restart mid-menu does not come back
+	// frozen (B11 / G9 Q6).
+	if a.menuHeld {
+		held := a.world.Clock.Paused
+		a.world.Clock.Paused = a.menuPrevPaused
+		defer func() { a.world.Clock.Paused = held }()
+	}
 	if a.guestSave != nil {
 		_ = a.guestSave(a.world)
 		return
@@ -2426,7 +2445,7 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		if a.guestSave != nil {
 			a.flashStatus("save", errGuestSaves)
 			a.fromMenu = false
-			a.active = screenOrbit
+			a.closeMenu()
 			return a, nil
 		}
 		a.openSaves(screens.SavesModeSave)
@@ -2435,7 +2454,7 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		if a.guestSave != nil {
 			a.flashStatus("load", errGuestSaves)
 			a.fromMenu = false
-			a.active = screenOrbit
+			a.closeMenu()
 			return a, nil
 		}
 		a.openSaves(screens.SavesModeLoad)
@@ -2447,7 +2466,7 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		if a.guestSave != nil {
 			a.flashStatus("settings", errGuestSettings)
 			a.fromMenu = false
-			a.active = screenOrbit
+			a.closeMenu()
 			return a, nil
 		}
 		// Navigating to a screen is harmless + reversible, so unlike
@@ -2460,7 +2479,7 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		if a.guestSave != nil {
 			a.flashStatus("controls", errGuestSettings)
 			a.fromMenu = false
-			a.active = screenOrbit
+			a.closeMenu()
 			return a, nil
 		}
 		a.controls.Reset()
@@ -2488,7 +2507,7 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		a.quitConfirm = true
 		return a, nil
 	case screens.MenuActionCancel:
-		a.active = screenOrbit
+		a.closeMenu()
 		return a, nil
 	}
 	return a, nil
@@ -2527,6 +2546,29 @@ func (a *App) closeSavesToOrbit() {
 // the pause menu (Saves, Settings, Keyboard layout, Help, VAB) goes back to
 // the menu; a screen opened by a key (Missions, Spawn, Maneuver, Body info,
 // Session, ...) goes back to the map. A second esc from the menu flies.
+// openMenu opens the pause menu and really pauses (B11 / G9 Q6): the clock
+// stops, remembering whether it was already stopped, and closeMenu hands
+// that state back. Per client: in a --serve session each seat owns its own
+// Clock.Paused (the relay reports it to partners, who see the seat hold,
+// the same as while the maneuver planner is open).
+func (a *App) openMenu() {
+	a.menu.Reset()
+	a.menuPrevPaused = a.world.Clock.Paused
+	a.menuHeld = true
+	a.world.Clock.Paused = true
+	a.active = screenMenu
+}
+
+// closeMenu flies again: the map returns and the clock goes back to the
+// state it had when the menu opened.
+func (a *App) closeMenu() {
+	if a.menuHeld {
+		a.world.Clock.Paused = a.menuPrevPaused
+		a.menuHeld = false
+	}
+	a.active = screenOrbit
+}
+
 func (a *App) backToOpener() {
 	if a.fromMenu {
 		a.fromMenu = false
@@ -3405,7 +3447,7 @@ func (a *App) View() string {
 	case screenPorkchop:
 		base = a.formScreen("Porkchop plot", a.porkchop.TitleContext(), a.porkchop.Render(a.world, a.width, bodyH))
 	case screenMenu:
-		base = a.formScreen("Menu", "", a.menu.Render(a.width))
+		base = a.menuOverMap()
 	case screenSpawn:
 		base = a.formScreen("Spawn vessel", "", a.spawn.Render(a.width, bodyH))
 	case screenMissions:
@@ -3510,6 +3552,42 @@ func (a *App) formScreen(screen, context, body string) string {
 	row, bs, be := screens.RenderFormTitleRow(a.screensTheme(), a.world, screen, context, a.width)
 	a.backStart, a.backEnd = bs, be
 	return row + "\n" + body
+}
+
+// menuOverMap draws the pause card centred over the dimmed map (B11 / G9
+// Q6). The flight Title Row stays as it is, reading PAUSED; everything under
+// it goes grey, and the card is spliced in by cell.
+func (a *App) menuOverMap() string {
+	a.backStart, a.backEnd = 0, 0 // no [Back] on the flight bar
+	var under string
+	if a.world.ViewMode == sim.ViewLaunch {
+		under = a.launchView.Render(a.world, a.width, a.height)
+	} else {
+		under = a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
+	}
+	lines := strings.Split(under, "\n")
+	card := strings.Split(a.menu.Render(), "\n")
+	x := (a.width - screens.MenuCardW) / 2
+	if x < 0 {
+		x = 0
+	}
+	// Centre the card in the rows below the Title Row.
+	y := 1 + (a.height-1-len(card))/2
+	if y < 1 {
+		y = 1
+	}
+	a.menuOriginX, a.menuOriginY = x, y-1
+	dim := a.theme.Dim
+	for i := 1; i < len(lines); i++ {
+		plain := ansi.Strip(lines[i])
+		if r := i - y; r >= 0 && r < len(card) {
+			lines[i] = dim.Render(ansi.Truncate(plain, x, "")) + card[r] +
+				dim.Render(ansi.TruncateLeft(plain, x+screens.MenuCardW, ""))
+			continue
+		}
+		lines[i] = dim.Render(plain)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // bodyInfoName is the selected body's name for the Body info Title Row.
