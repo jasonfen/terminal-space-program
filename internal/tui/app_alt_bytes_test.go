@@ -8,6 +8,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
 // keyRecorder is a throwaway tea.Model that records every KeyMsg Bubble Tea's
@@ -85,5 +87,53 @@ func TestBareBAndFKeepTheirMeaning(t *testing.T) {
 	a.Update(keyRunes("b"))
 	if c.PitchTrim != 0 {
 		t.Errorf("plain b moved the pitch trim: %v", c.PitchTrim)
+	}
+}
+
+// TestPlanInclinationOnThePadRefusesInPlainWords (#548 review line 88): `I`
+// on the pad with the Moon targeted flashed
+// `inclination: planinclination: source already at target inclination`
+// while TARGET read a 47 degree gap. A vessel on the ground has no orbit to
+// tilt; say so, point at the plan: row, and plant nothing. Through the real
+// key handler.
+func TestPlanInclinationOnThePadRefusesInPlainWords(t *testing.T) {
+	a, c := padApp(t)
+	for i, b := range a.world.System().Bodies {
+		if b.ID == "moon" {
+			a.world.SetTargetBody(i)
+		}
+	}
+	pressKey(a, 'I')
+	got := a.statusMsg
+	if strings.Contains(got, "planinclination") || strings.Contains(got, "already at target") {
+		t.Errorf("pad refusal still reads as a no-op: %q", got)
+	}
+	if !strings.HasPrefix(got, "inclination: ") || !strings.Contains(got, "pad") || !strings.Contains(got, "plan:") {
+		t.Errorf("pad refusal %q should say the vessel is on the pad and point at the plan: row", got)
+	}
+	if n := len(c.Nodes); n != 0 {
+		t.Errorf("a refused I planted %d nodes", n)
+	}
+}
+
+// TestPlanInclinationNoOpFlashHasNoPackagePrefix: the planner's own error
+// strings carry a "planinclination: " package prefix that the flash must
+// not repeat after "inclination: ". Orbiting vessel, no target, already
+// equatorial: the real no-op.
+func TestPlanInclinationNoOpFlashHasNoPackagePrefix(t *testing.T) {
+	a, _ := padApp(t)
+	pad := a.world.ActiveCraft()
+	idx := len(a.world.Crafts)
+	if _, err := a.world.SpawnCraft(sim.SpawnSpec{AltitudeM: 400e3, Inclination: 0.0}); err != nil {
+		t.Fatal(err)
+	}
+	_ = pad
+	a.world.ActiveCraftIdx = idx
+	pressKey(a, 'I')
+	if strings.Contains(a.statusMsg, "planinclination") {
+		t.Errorf("flash repeats the package prefix: %q", a.statusMsg)
+	}
+	if !strings.HasPrefix(a.statusMsg, "inclination: ") {
+		t.Errorf("flash %q does not start with the key label", a.statusMsg)
 	}
 }
