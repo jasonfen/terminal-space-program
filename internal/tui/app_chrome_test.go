@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
@@ -141,6 +142,26 @@ func TestTitleRowClockStaysInOneColumn(t *testing.T) {
 	a.world.ViewMode = sim.ViewLaunch
 	if d := fromRight(); d != mapDist {
 		t.Errorf("launch clock is %d cells from the right edge, map's is %d", d, mapDist)
+	}
+	// Paused (B11 follow-up): the clock must not move when PAUSED appears,
+	// and the middle reads the warp you will resume at, never 0x.
+	a.world.ViewMode = sim.ViewTilted
+	a.world.Clock.WarpIdx = 2
+	runningDist := fromRight()
+	a.world.Clock.Paused = true
+	for name, screen := range map[string]screenID{"map": screenOrbit, "settings": screenSettings, "help": screenHelp} {
+		a.active = screen
+		if d := fromRight(); d != runningDist {
+			t.Errorf("paused %s clock is %d cells from the right edge, running map's is %d", name, d, runningDist)
+		}
+		row := firstRow(a)
+		want := fmt.Sprintf("warp %.0fx", sim.WarpFactors[2])
+		if !strings.Contains(row, want+"  ") || !strings.Contains(row, "PAUSED") || strings.Contains(row, "warp 0x") {
+			t.Errorf("paused %s row = %q, want %q then PAUSED and no warp 0x", name, row, want)
+		}
+		if strings.Index(row, "PAUSED") < strings.Index(row, want) {
+			t.Errorf("paused %s row = %q, PAUSED should follow the warp", name, row)
+		}
 	}
 }
 

@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"fmt"
 	"github.com/charmbracelet/x/ansi"
 	"strings"
 
@@ -12,7 +13,7 @@ import (
 
 // B11 / G9 Q1+Q2: one Title Row on every screen. The left field names the
 // game (title case, with the version), then the screen and its context; the
-// clock and warp sit in the middle (PAUSED while the clock is stopped); the
+// clock and warp sit in the middle (`warp 1x  PAUSED` while the clock is stopped); the
 // way out is on the right ([Back] on a form, [»Burn] [Menu] [Missions] in
 // flight). The right-hand button zone has a fixed width, so the clock stays
 // in the same column when the player changes screens.
@@ -73,13 +74,22 @@ func renderTitleRow(th Theme, sp titleSpec, cols int) titleLayout {
 	const clockGap = "    "
 
 	clockPlain, clockRendered := "", ""
-	pausePlain, pauseRendered := "", ""
 	if sp.w != nil {
-		clockPlain = "T+" + sp.w.Clock.SimTime.Format("2006-01-02") + "  " + warpField(sp.w)
-		clockRendered = th.Primary.Render(clockPlain)
+		datePlain := "T+" + sp.w.Clock.SimTime.Format("2006-01-02") + "  "
 		if sp.w.Clock.Paused {
-			pausePlain = "  PAUSED"
-			pauseRendered = "  " + th.Warning.Render("PAUSED")
+			// Paused: the warp you will resume at, then PAUSED, inside the
+			// same fixed-width field so the clock never changes column.
+			// Clock.Warp() reads 0 while paused, so ask for the request.
+			warp := fmt.Sprintf("warp %.0fx  ", sim.WarpFactors[sp.w.Clock.WarpIdx])
+			gap := ""
+			if g := warpFieldWidth - lipgloss.Width(warp) - len("PAUSED"); g > 0 {
+				gap = strings.Repeat(" ", g)
+			}
+			clockPlain = datePlain + warp + "PAUSED" + gap
+			clockRendered = th.Primary.Render(datePlain+warp) + th.Warning.Render("PAUSED") + th.Primary.Render(gap)
+		} else {
+			clockPlain = datePlain + warpField(sp.w)
+			clockRendered = th.Primary.Render(clockPlain)
 		}
 	}
 
@@ -96,13 +106,13 @@ func renderTitleRow(th Theme, sp titleSpec, cols int) titleLayout {
 		zoneLead = strings.Repeat(" ", d)
 	}
 
-	rightPlain := clockPlain + pausePlain + sp.extraPlain + clockGap + zoneLead + btnPlain
+	rightPlain := clockPlain + sp.extraPlain + clockGap + zoneLead + btnPlain
 	leftW := lipgloss.Width(sp.left)
 	pad := cols - leftW - lipgloss.Width(rightPlain)
 	if pad < 1 {
 		pad = 1
 	}
-	btnStart := leftW + pad + lipgloss.Width(clockPlain+pausePlain+sp.extraPlain+clockGap+zoneLead)
+	btnStart := leftW + pad + lipgloss.Width(clockPlain+sp.extraPlain+clockGap+zoneLead)
 
 	lay := titleLayout{}
 	x := btnStart
@@ -114,7 +124,7 @@ func renderTitleRow(th Theme, sp titleSpec, cols int) titleLayout {
 	}
 	lay.row = th.Title.Render(sp.left) +
 		strings.Repeat(" ", pad) +
-		clockRendered + pauseRendered + sp.extraRendered +
+		clockRendered + sp.extraRendered +
 		clockGap + zoneLead + btnRendered
 	return lay
 }
