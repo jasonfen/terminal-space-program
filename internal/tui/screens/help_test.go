@@ -178,3 +178,27 @@ func TestHelpTitleAndFooterAlwaysShown(t *testing.T) {
 		}
 	}
 }
+
+// TestHelpGlossaryHdgRowSaysCommandedVsMeasured (wave C review, LOW): the
+// heading:/hdg glossary row must say which figure is commanded and which is
+// measured, that they agree on the pad, and that the ORBIT ball's rungs are
+// out-of-plane degrees (an ORBIT pitch trim moves the nose along the ball's
+// equator, so its readout and the rungs are different axes).
+func TestHelpGlossaryHdgRowSaysCommandedVsMeasured(t *testing.T) {
+	var desc string
+	for _, sec := range helpSections {
+		for _, r := range sec.rows {
+			if r[0] == "heading: / hdg" {
+				desc = r[1]
+			}
+		}
+	}
+	if desc == "" {
+		t.Fatal("no heading: / hdg glossary row")
+	}
+	for _, want := range []string{"commanded", "measured", "on the pad", "out of the orbit plane"} {
+		if !strings.Contains(desc, want) {
+			t.Errorf("glossary hdg row lacks %q: %q", want, desc)
+		}
+	}
+}

@@ -239,7 +239,7 @@ func (w *World) NavballSubObserver() (latDeg, lonDeg float64, ok bool) {
 // NavballPolePinDeg is the sub-observer latitude at or above which the
 // surface ball's rotation is held to the commanded heading (within a
 // degree of straight up).
-const NavballPolePinDeg = 89.0
+const NavballPolePinDeg = render.RungPoleHideDeg
 
 // wrapLonDeg folds a longitude into (-180, 180].
 func wrapLonDeg(d float64) float64 {

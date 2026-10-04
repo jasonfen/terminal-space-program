@@ -248,7 +248,7 @@ var helpSections = []helpSection{
 		{"rcs", "monoprop's own Δv, from the RCS thrusters rather than the main engine"},
 		{"speed", "inertial speed, alongside vert: and horiz:"},
 		{"(max N)", "the same figure at full throttle, when it differs from the current one"},
-		{"heading: / hdg", "GUIDANCE heading: is the bearing you have commanded; the navball's pitch and hdg are where the nose points now"},
+		{"heading: / hdg", "GUIDANCE heading: is the bearing you have commanded; the navball's pitch and hdg are measured, where the nose points now (they agree on the pad, and differ while the nose slews). In ORBIT the ball's rungs count degrees out of the orbit plane, not above the horizon"},
 		{"● ORBIT READY [C]", "apoapsis has cleared this world's orbit floor: press [C] to plant the circularising burn"},
 	}},
 }

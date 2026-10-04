@@ -387,7 +387,10 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 	}
 	var rungs []rungCand
 	for lat := -80; lat <= 80; lat += 10 {
-		if lat == 0 {
+		if lat == 0 || math.Abs(subLatDeg) >= RungPoleHideDeg {
+			// No rung on the horizon; none at the pole view either, where
+			// the parallels are concentric circles round the centre and
+			// the ladder carries no reading (wave C review).
 			continue
 		}
 		dx, dy, front := projectLatLonToPixel(float64(lat), subLonDeg, pxR, subLatDeg, subLonDeg)
@@ -397,8 +400,20 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 		rungs = append(rungs, rungCand{lat, (dotCx + dx) / 2, (dotCy + dy) / 4})
 	}
 	sort.SliceStable(rungs, func(i, j int) bool {
-		return absInt(rungs[i].row-dotCy/4) < absInt(rungs[j].row-dotCy/4)
+		di, dj := absInt(rungs[i].row-dotCy/4), absInt(rungs[j].row-dotCy/4)
+		if di != dj {
+			return di < dj
+		}
+		// Two rungs on one row: the one nearer the horizon wins, so the
+		// ladder reads the same numbers above and below at level instead
+		// of favouring whichever happened to be appended first.
+		return absInt(rungs[i].lat) < absInt(rungs[j].lat)
 	})
+	type rungDigits struct {
+		row, c0 int
+		label   string
+	}
+	var drawn []rungDigits
 	rungRowTaken := map[int]bool{}
 	for _, rg := range rungs {
 		if rg.row < 0 || rg.row >= rows || rungRowTaken[rg.row] {
@@ -432,6 +447,7 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 		put(l0+2, "─")
 		put(l0+3, "─")
 		rungRowTaken[rg.row] = true
+		drawn = append(drawn, rungDigits{rg.row, l0, label})
 	}
 
 	// Center reticle — small faint `+` at the disk centre, the
@@ -527,12 +543,32 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 		cells[p.row][p.col] = style.Render(glyph)
 	}
 
+	// A glyph that won one digit cell of a rung leaves the other digit
+	// reading as a different number (`6△` for 60). Replace the survivor
+	// with a rung dash; the pitch/hdg readout carries the exact angle.
+	for _, d := range drawn {
+		a := rungStyle.Render(d.label[0:1])
+		b := rungStyle.Render(d.label[1:2])
+		ka, kb := cells[d.row][d.c0] == a, cells[d.row][d.c0+1] == b
+		switch {
+		case ka && !kb:
+			cells[d.row][d.c0] = rungStyle.Render("─")
+		case kb && !ka:
+			cells[d.row][d.c0+1] = rungStyle.Render("─")
+		}
+	}
+
 	lines := make([]string, rows)
 	for row := 0; row < rows; row++ {
 		lines[row] = strings.Join(cells[row], "")
 	}
 	return strings.Join(lines, "\n")
 }
+
+// RungPoleHideDeg is the sub-observer |latitude| at or above which the
+// pitch rungs are not drawn (the pad pole view). sim.NavballPolePinDeg is
+// the same threshold for the rose pin.
+const RungPoleHideDeg = 89.0
 
 func absInt(n int) int {
 	if n < 0 {
