@@ -198,15 +198,23 @@ func (p *Porkchop) SetSelection(depIdx, tofIdx int) {
 	p.selTof = tofIdx
 }
 
+// TitleContext is the Title Row's context for this screen: the route and
+// the plot options (B11 / G9 Q1).
+func (p *Porkchop) TitleContext() string {
+	if p.grid == nil {
+		return ""
+	}
+	return fmt.Sprintf("Earth → %s  %s", p.targetName, p.optsSummary())
+}
+
 // Render draws the grid + axes + selection readout.
 func (p *Porkchop) Render(w *sim.World, cols, rows int) string {
 	if p.errMsg != "" {
-		return p.theme.Title.Render("porkchop plot") + "\n\n" +
-			p.theme.Alert.Render("error: "+p.errMsg) + "\n\n" +
+		return p.theme.Alert.Render("error: "+p.errMsg) + "\n\n" +
 			p.theme.Footer.Render("[esc] back")
 	}
 	if p.grid == nil {
-		return p.theme.Title.Render("porkchop plot") + "\n\n  (grid not loaded)"
+		return "  (grid not loaded)"
 	}
 
 	minDv := math.Inf(1)
@@ -226,9 +234,6 @@ func (p *Porkchop) Render(w *sim.World, cols, rows int) string {
 	}
 
 	var b strings.Builder
-	title := fmt.Sprintf("porkchop plot — Earth → %s  %s", p.targetName, p.optsSummary())
-	b.WriteString(p.theme.Title.Render(title))
-	b.WriteString("\n\n")
 
 	// Grid lead-in width: "tof XXXd │" = 4 + 3 + 2 + 1 = 10 chars
 	// (e.g. "tof 100d │"). v0.5.14 axis-label fix uses this constant

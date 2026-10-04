@@ -211,6 +211,20 @@ func (v *VAB) refreshDesigns() {
 
 // Render returns the VAB screen for the current mode. width is the terminal
 // width.
+// TitleScreen is the Title Row's screen name for the VAB's current mode
+// (B11 / G9 Q1).
+func (v *VAB) TitleScreen() string {
+	switch v.mode {
+	case vabModeNaming:
+		return "Save design"
+	case vabModeLoad:
+		return "Load design"
+	case vabModeTarget:
+		return "Σ Δv target"
+	}
+	return "Vehicle Assembly (VAB)"
+}
+
 func (v *VAB) Render(width, height int) string {
 	switch v.mode {
 	case vabModeNaming:
@@ -240,7 +254,6 @@ func (v *VAB) renderBuild(width, height int) string {
 	}
 
 	var head []string
-	head = append(head, v.theme.Title.Render("terminal-space-program — Vehicle Assembly (VAB)"))
 	name := v.name
 	if name == "" {
 		name = "(unsaved)"
@@ -791,8 +804,6 @@ func (v *VAB) stageLabel(vs vabStage) string {
 
 func (v *VAB) renderNaming(width, height int) string {
 	var lines []string
-	lines = append(lines, v.theme.Title.Render("terminal-space-program — save design"))
-	lines = append(lines, "")
 	lines = append(lines, "  "+v.theme.Primary.Render("name: ")+v.theme.Warning.Render(v.name+"▏"))
 	lines = append(lines, "")
 	if v.flash != "" {
@@ -819,8 +830,6 @@ func (v *VAB) renderNaming(width, height int) string {
 // renderTarget is the Σ Δv target input modal (ADR 0032 §8).
 func (v *VAB) renderTarget(width int) string {
 	var lines []string
-	lines = append(lines, v.theme.Title.Render("terminal-space-program — Σ Δv target"))
-	lines = append(lines, "")
 	lines = append(lines, "  "+v.theme.Primary.Render("target Σ Δv (m/s): ")+v.theme.Warning.Render(v.targetInput+"▏"))
 	lines = append(lines, "")
 	lines = append(lines, "  "+v.theme.Dim.Render(fmt.Sprintf("current Σ Δv: %.0f m/s", v.Stats().TotalDV)))
@@ -835,8 +844,6 @@ func (v *VAB) renderTarget(width int) string {
 
 func (v *VAB) renderLoad(width int) string {
 	var lines []string
-	lines = append(lines, v.theme.Title.Render("terminal-space-program — load design"))
-	lines = append(lines, "")
 	if len(v.designs) == 0 {
 		lines = append(lines, "  "+v.theme.Dim.Render("(no saved designs yet)"))
 	} else {

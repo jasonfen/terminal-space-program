@@ -41,8 +41,8 @@ func TestPorkchopLoadAndRender(t *testing.T) {
 
 	p.Load(w, marsIdx)
 	out := p.Render(w, 120, 40)
-	if !strings.Contains(out, "Mars") {
-		t.Errorf("render didn't mention target name 'Mars':\n%s", out)
+	if !strings.Contains(p.TitleContext(), "Mars") {
+		t.Errorf("Title Row context didn't mention target name 'Mars': %q", p.TitleContext())
 	}
 	hasGlyph := false
 	for _, g := range porkchopLegendRamp[:4] { // skip trailing space

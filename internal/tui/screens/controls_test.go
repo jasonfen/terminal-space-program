@@ -30,9 +30,7 @@ func TestControlsRenderShowsLayout(t *testing.T) {
 	if !strings.Contains(out, "QWERTY") {
 		t.Errorf("render missing active layout label:\n%s", out)
 	}
-	if !strings.Contains(out, "controls") || !strings.Contains(out, "[Back]") {
-		t.Errorf("render missing title chrome:\n%s", out)
-	}
+	// The Title Row (name, screen, [Back]) is the App's now (B11).
 
 	out = c.Render(keylayout.QWERTZ, 80)
 	if !strings.Contains(out, "QWERTZ") {
@@ -48,8 +46,5 @@ func TestControlsClickCyclesRow(t *testing.T) {
 
 	if got := c.HandleClick(2, c.layoutBtn.row); got != ControlsActionCycleLayout {
 		t.Errorf("click on layout row = %v, want ControlsActionCycleLayout", got)
-	}
-	if got := c.HandleClick(c.backBtn.colStart, 0); got != ControlsActionCancel {
-		t.Errorf("click on [Back] = %v, want ControlsActionCancel", got)
 	}
 }

@@ -1006,10 +1006,6 @@ func craftTypeRowsFor(height, fixedLines int) int {
 func (s *SpawnCraft) Render(width, height int) string {
 	var head []string
 
-	const titleText = "terminal-space-program — spawn vessel"
-	head = append(head, s.theme.Title.Render(titleText))
-	head = append(head, "")
-
 	// Field 0: craft type header + the ADR 0031 / S10 system-filter note.
 	// The catalog rows themselves (category headers, loadouts, Custom &
 	// Designs) are windowed below via craftTypeLines/widgets.Window rather

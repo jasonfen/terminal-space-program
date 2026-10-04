@@ -210,10 +210,8 @@ func TestSettingsHandleClick(t *testing.T) {
 		t.Errorf("click row %d = (%v,%q), want (Toggle,%q)", row, a, c, want)
 	}
 
-	// [Back] on row 0 cancels.
-	if a, _ := s.HandleClick(width-3, 0); a != SettingsActionCancel {
-		t.Errorf("click [Back] = %v, want Cancel", a)
-	}
+	// [Back] is the App's Title Row button now (B11); see
+	// TestFormScreensWearTheSharedTitleRow in package tui.
 
 	// A click in dead space (the divider row) is a no-op.
 	if a, _ := s.HandleClick(0, 1); a != SettingsActionNone {

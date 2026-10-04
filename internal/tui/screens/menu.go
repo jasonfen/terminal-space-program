@@ -27,7 +27,6 @@ type Menu struct {
 
 	// Click-target ranges, recomputed each Render so terminal-resize
 	// doesn't stale the hit-tests. Each is (row, colStart, colEnd).
-	backBtn     buttonRange
 	saveBtn     buttonRange
 	loadBtn     buttonRange
 	vabBtn      buttonRange
@@ -139,9 +138,6 @@ func (m *Menu) HandleKey(s string) MenuAction {
 // confirm machinery; the click-confirm gate save/load/quit go through
 // now lives on the single app-level quit prompt instead.
 func (m *Menu) HandleClick(col, row int) MenuAction {
-	if m.backBtn.Hit(col, row) {
-		return MenuActionCancel
-	}
 	switch {
 	case m.vabBtn.Hit(col, row):
 		return MenuActionVAB
@@ -168,24 +164,6 @@ func (m *Menu) HandleClick(col, row int) MenuAction {
 // the same way the orbit-screen title bar does.
 func (m *Menu) Render(width int) string {
 	var lines []string
-
-	// Row 0: title + right-aligned [Back] button.
-	const titleText = "terminal-space-program"
-	const backLabel = "[Back]"
-	pad := width - len([]rune(titleText)) - len([]rune(backLabel))
-	if pad < 1 {
-		pad = 1
-	}
-	backCol := len([]rune(titleText)) + pad
-	m.backBtn = buttonRange{
-		row:      0,
-		colStart: backCol,
-		colEnd:   backCol + len([]rune(backLabel)),
-		set:      true,
-	}
-	lines = append(lines, m.theme.Title.Render(titleText)+
-		strings.Repeat(" ", pad)+
-		m.theme.Primary.Render(backLabel))
 
 	// rowOffset is the count of rows already in `lines` (the title row).
 	// renderList records buttonRange.row in absolute terms, so it needs
@@ -237,13 +215,4 @@ func (m *Menu) renderList(rowOffset int) []string {
 	lines = append(lines, "")
 	lines = append(lines, m.theme.Footer.Render("[↑/↓] pick · [enter] open · [esc] back to orbit"))
 	return lines
-}
-
-// HitBackButton reports whether a click at (col, row) lands on the
-// title-row [Back] button. Kept as a public method for App.Update's
-// mouse cascade — though HandleClick also handles [Back], having a
-// dedicated check lets the dispatcher differentiate "left the menu"
-// vs "clicked something inside it." v0.7.4+.
-func (m *Menu) HitBackButton(col, row int) bool {
-	return m.backBtn.Hit(col, row)
 }

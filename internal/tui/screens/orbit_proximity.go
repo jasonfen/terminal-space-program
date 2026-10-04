@@ -183,7 +183,7 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 
 	craftChip := ""
 	if n := len(w.Crafts); n > 1 {
-		craftChip = fmt.Sprintf(" — VESSEL %d/%d", w.ActiveCraftIdx+1, n)
+		craftChip = fmt.Sprintf(" · VESSEL %d/%d", w.ActiveCraftIdx+1, n)
 	}
 	title := v.renderTitleBar(w.System().Name+craftChip, w, totalCols)
 	return title + "\n" + canvasPanel

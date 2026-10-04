@@ -19,7 +19,6 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
-	"github.com/jasonfen/terminal-space-program/internal/version"
 )
 
 // Theme is the subset of styles OrbitView needs. Passed in from tui.App.
@@ -1605,10 +1604,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// which can differ from the active vessel.
 	craftChip := ""
 	if n := len(w.Crafts); n > 1 {
-		craftChip = fmt.Sprintf(" — VESSEL %d/%d", w.ActiveCraftIdx+1, n)
+		craftChip = fmt.Sprintf(" · VESSEL %d/%d", w.ActiveCraftIdx+1, n)
 	}
 	if c := w.ActiveCraft(); c != nil {
-		craftChip += " — " + c.Name
+		craftChip += " · " + c.Name
 	}
 	title := v.renderTitleBar(sys.Name+craftChip, w, totalCols)
 
@@ -1692,80 +1691,30 @@ func warpField(w *sim.World) string {
 }
 
 func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols int) string {
-	left := fmt.Sprintf("terminal-space-program — %s — %s", version.Version, systemName)
+	// B11 / G9: the shared Title Row (chrome.go). The map names the system
+	// and the focus; there is no screen name on the map itself.
 	// v0.13: the "focus:" readout moved here from the canvas top-left
 	// corner (now home to the pinned VESSEL chip). It still says what the
-	// camera follows — a body or the whole system, not just your craft.
+	// camera follows, a body or the whole system, not just your vessel.
+	parts := []string{systemName}
 	if fn := w.FocusName(); fn != "" {
-		left += " — focus: " + fn
+		parts = append(parts, "focus: "+fn)
 	}
-	const menuLabel = "[Menu]"
-	const missionsLabel = "[Missions]"
-	const gap = "  "
-	const clockGap = "    " // 4-space gap between clock chip and the buttons
+	return v.flightTitleRow(w, totalCols, parts...)
+}
 
-	// v0.10.3+: clock + warp + pause chip, placed between the left
-	// title and the right-aligned buttons (was a HUD CLOCK block).
-	// Warp shows the effective rate when the integrator clamps it
-	// (e.g. ≤10x during burns) so the player sees the actual
-	// propagation speed, not the requested one.
-	// v0.16 / ADR 0016: while Auto-Warp is engaged the warp readout morphs
-	// to AUTO → <effective>x  <time-to-target> so the player sees the
-	// driver and the live rate, not the untouched Selected Warp. The chip
-	// stays emoji-free (single-width runes only) so the rune-counted
-	// button hit-tests below stay aligned.
-	clockChip := "T+" + w.Clock.SimTime.Format("2006-01-02") + "  " + warpField(w)
-	// #498: the clock and warp rate are read constantly; Primary, not Dim.
-	clockChipRendered := v.theme.Primary.Render(clockChip)
-	pauseChipPlain := ""
-	pauseChipRendered := ""
-	if w.Clock.Paused {
-		pauseChipPlain = "  PAUSED"
-		pauseChipRendered = "  " + v.theme.Warning.Render("PAUSED")
-	}
-
-	// decision 6 (grilled 2026-09-06): the `[F2 declutter]` tag, beside
-	// the warp/clock readout. Can be empty; the plain form carries its
-	// own leading gap so an empty one costs nothing in the width sums
-	// below. Decision 2's `● BURN` badge lived here too until playtesting
-	// found the whole-screen treatment (this badge + the canvas border
-	// color) too loud — moved onto the VESSEL chip instead (buildVesselChip),
-	// which is the one place both the active craft's own state (decision
-	// 1's throttle row) and any OTHER slate craft's burn now live
-	// together. See buildVesselChip's doc comment.
-	declutterPlain, declutterRendered := v.declutterTagText()
-
+// flightTitleRow renders the flight Title Row (map, Proximity and the
+// launch view): the wordmark, the given parts, the clock, and the
+// [»Burn] [Menu] [Missions] buttons, recording their hit-test spans on
+// the OrbitView. The » / ■ runes are East-Asian ambiguous width, so
+// columns are measured with lipgloss.Width (the package convention).
+func (v *OrbitView) flightTitleRow(w *sim.World, totalCols int, parts ...string) string {
 	// v0.16 / ADR 0016: the [»Burn] Auto-Warp button. [■Burn] highlighted
-	// while engaged, dimmed when no burn is eligible. The » / ■ runes are
-	// East-Asian *ambiguous* width, so the column math below measures
-	// terminal cells with lipgloss.Width (the package convention) rather
-	// than rune counts — the two diverge under EastAsianWidth mode and a
-	// rune count would drift every button's hit-test off its glyph.
+	// while engaged, dimmed when no burn is eligible.
 	burnLabel := "[»Burn]"
 	if w.AutoWarpEngaged() {
 		burnLabel = "[■Burn]"
 	}
-
-	rightPlain := clockChip + pauseChipPlain + declutterPlain + clockGap + burnLabel + gap + menuLabel + gap + missionsLabel
-
-	// Compute the absolute column where the right group starts so the
-	// hit-test ranges match what the player sees on screen.
-	leftWidth := lipgloss.Width(left)
-	rightWidth := lipgloss.Width(rightPlain)
-	pad := totalCols - leftWidth - rightWidth
-	if pad < 1 {
-		pad = 1
-	}
-	rightStart := leftWidth + pad
-	buttonsStart := rightStart + lipgloss.Width(clockChip+pauseChipPlain+declutterPlain+clockGap)
-
-	v.burnColStart = buttonsStart
-	v.burnColEnd = v.burnColStart + lipgloss.Width(burnLabel)
-	v.menuColStart = v.burnColEnd + lipgloss.Width(gap)
-	v.menuColEnd = v.menuColStart + lipgloss.Width(menuLabel)
-	v.missionsColStart = v.menuColEnd + lipgloss.Width(gap)
-	v.missionsColEnd = v.missionsColStart + lipgloss.Width(missionsLabel)
-
 	burnRendered := v.theme.Primary.Render(burnLabel)
 	switch {
 	case w.AutoWarpEngaged():
@@ -1773,21 +1722,25 @@ func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols in
 	case !w.AutoWarpEligible():
 		burnRendered = v.theme.Dim.Render(burnLabel)
 	}
-
-	rendered := v.theme.Title.Render(left) +
-		strings.Repeat(" ", pad) +
-		clockChipRendered +
-		pauseChipRendered +
-		declutterRendered +
-		clockGap +
-		burnRendered +
-		gap +
-		v.theme.Primary.Render(menuLabel) +
-		gap +
-		v.theme.Primary.Render(missionsLabel)
-	return rendered
+	// decision 6 (grilled 2026-09-06): the `[F2 declutter]` tag, beside the
+	// warp/clock readout. Can be empty.
+	declutterPlain, declutterRendered := v.declutterTagText()
+	lay := renderTitleRow(v.theme, titleSpec{
+		left:          titleLeft(parts...),
+		w:             w,
+		extraPlain:    declutterPlain,
+		extraRendered: declutterRendered,
+		buttons: []titleButton{
+			{label: burnLabel, rendered: burnRendered},
+			{label: "[Menu]", rendered: v.theme.Primary.Render("[Menu]")},
+			{label: "[Missions]", rendered: v.theme.Primary.Render("[Missions]")},
+		},
+	}, totalCols)
+	v.burnColStart, v.burnColEnd = lay.starts[0], lay.end[0]
+	v.menuColStart, v.menuColEnd = lay.starts[1], lay.end[1]
+	v.missionsColStart, v.missionsColEnd = lay.starts[2], lay.end[2]
+	return lay.row
 }
-
 
 // HitMenuButton reports whether a click at (col, row) lands on the
 // title bar's `[Menu]` button. Title bar lives on row 0 of the

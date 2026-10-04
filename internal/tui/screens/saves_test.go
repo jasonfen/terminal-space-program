@@ -386,12 +386,8 @@ func TestSavesClickTargets(t *testing.T) {
 	if cmd.Kind != SavesActionLoad || cmd.ID != "autosave-1.json" {
 		t.Fatalf("[Yes] click = %+v, want Load autosave-1.json", cmd)
 	}
-	// [Back] cancels out of the screen.
-	_ = sc.Render(110, 40)
-	back := sc.backBtn
-	if cmd := sc.HandleClick((back.colStart+back.colEnd)/2, back.row); cmd.Kind != SavesActionCancel {
-		t.Fatalf("[Back] click = %+v, want Cancel", cmd)
-	}
+	// [Back] is the App's Title Row button now (B11), covered by
+	// TestFormScreensWearTheSharedTitleRow in package tui.
 }
 
 // TestSavesPadCellDisplayWidth — finding 8. padCell measures cells by

@@ -44,7 +44,6 @@ type SavesScreen struct {
 
 	// Click-target ranges, recomputed each Render (menu buttonRange
 	// pattern). rowBtns aligns 1:1 with the visible rows.
-	backBtn buttonRange
 	rowBtns []buttonRange
 	yesBtn  buttonRange
 	noBtn   buttonRange
@@ -251,13 +250,10 @@ func (sc *SavesScreen) HandleKey(msg tea.KeyMsg) SavesCommand {
 }
 
 // HandleClick maps a (col, row) click to the same intents as the
-// keyboard: [Back] cancels; a list-row click selects, and a click on
+// keyboard: a list-row click selects, and a click on
 // the already-selected row activates it (Enter-equivalent); the
 // confirm [Yes]/[No] buttons commit / back out.
 func (sc *SavesScreen) HandleClick(col, row int) SavesCommand {
-	if sc.backBtn.Hit(col, row) {
-		return SavesCommand{Kind: SavesActionCancel}
-	}
 	switch sc.state {
 	case savesStateBrowse:
 		for i, btn := range sc.rowBtns {
@@ -454,21 +450,6 @@ func (sc *SavesScreen) listWindow(n, height int) (start, end int) {
 func (sc *SavesScreen) Render(width, height int) string {
 	var lines []string
 
-	// Row 0: title + right-aligned [Back] (menu pattern).
-	titleText := "saves — load a game"
-	if sc.mode == SavesModeSave {
-		titleText = "saves — save your game"
-	}
-	const backLabel = "[Back]"
-	pad := width - len([]rune(titleText)) - len([]rune(backLabel))
-	if pad < 1 {
-		pad = 1
-	}
-	backCol := len([]rune(titleText)) + pad
-	sc.backBtn = buttonRange{row: 0, colStart: backCol, colEnd: backCol + len([]rune(backLabel)), set: true}
-	lines = append(lines, sc.theme.Title.Render(titleText)+strings.Repeat(" ", pad)+sc.theme.Primary.Render(backLabel))
-	lines = append(lines, "")
-
 	// Column header.
 	header := "  " + padCell("NAME", savesColName) + padCell("SAVED", savesColSavedAt) +
 		padCell("IN-GAME", savesColInGame) + "VESSEL"
@@ -600,4 +581,12 @@ func (sc *SavesScreen) displayName(info save.SaveInfo) string {
 		}
 	}
 	return displaySaveName(info, rank)
+}
+
+// TitleContext is the Title Row's context for the current mode (B11).
+func (sc *SavesScreen) TitleContext() string {
+	if sc.mode == SavesModeSave {
+		return "save your game"
+	}
+	return "load a game"
 }

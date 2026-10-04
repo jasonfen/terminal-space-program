@@ -108,6 +108,9 @@ type App struct {
 	selectedBody int
 
 	width, height int
+	// backStart/backEnd: the [Back] button's display-cell span on the
+	// Title Row of the last form screen rendered (B11 / G9 Q1).
+	backStart, backEnd int
 
 	orbitView  *screens.OrbitView
 	launchView *screens.LaunchView
@@ -459,7 +462,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.width, a.height = m.Width, m.Height
 		a.orbitView.Resize(m.Width, m.Height)
 		a.launchView.Resize(m.Width, m.Height)
-		a.maneuver.Resize(m.Width, m.Height)
+		a.maneuver.Resize(m.Width, m.Height-1)
 		return a, nil
 
 	case screens.BurnExecutedMsg:
@@ -610,6 +613,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.sizeGated() {
 			return a, nil
 		}
+		// B11 / G9 Q1: every non-flight screen has the shared Title Row on
+		// row 0 with a [Back] button (the click twin of esc); below it the
+		// screen's own hit-tests see rows counted from the body's top.
+		if a.active != screenOrbit && a.active != screenBoss {
+			if m.Y == 0 {
+				if m.X >= a.backStart && m.X < a.backEnd {
+					return a.Update(tea.KeyMsg{Type: tea.KeyEsc})
+				}
+				return a, nil
+			}
+			m.Y--
+		}
 		switch a.active {
 		case screenOrbit:
 			// #456 fix: while ViewLaunch is showing, the Menu/Missions/
@@ -636,6 +651,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.world.ViewMode == sim.ViewLaunch {
 				if a.launchView.HitBurnButton(m.X, m.Y) {
 					a.toggleAutoWarpBurn()
+					return a, nil
+				}
+				// B11 / G9 Q1: the launch Title Row carries [Menu] and
+				// [Missions] like the map's.
+				if a.launchView.HitMenuButton(m.X, m.Y) {
+					a.menu.Reset()
+					a.active = screenMenu
+					return a, nil
+				}
+				if a.launchView.HitMissionsButton(m.X, m.Y) {
+					a.active = screenMissions
 					return a, nil
 				}
 				if id, ok := a.orbitView.HitChip(m.X, m.Y); ok {
@@ -782,10 +808,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a.applyMenuAction(action)
 			}
 		case screenMissions:
-			if a.missions.HitBackButton(m.X, m.Y) {
-				a.active = screenOrbit
-				return a, nil
-			}
+			// Missions has no clickable body rows; [Back] is the Title Row's.
 		case screenSettings:
 			action, chip := a.settingsScreen.HandleClick(m.X, m.Y)
 			switch action {
@@ -3331,37 +3354,40 @@ func (a *App) View() string {
 		return screens.RenderSizeGate(a.width, a.height)
 	}
 	var base string
+	// B11 / G9 Q1: every non-flight screen wears the shared Title Row; its
+	// body is rendered one row shorter to make room for it.
+	bodyH := a.height - 1
 	switch a.active {
 	case screenHelp:
-		base = a.help.Render(a.width, a.height, a.layout)
+		base = a.formScreen("Help", "", a.help.Render(a.width, bodyH, a.layout))
 	case screenBodyInfo:
 		// The flash overlay (below) overwrites the LAST row of a non-canvas
 		// screen, so reserve an empty one: the footer that advertises t/H/P
 		// must never be the row a "target: Mars" flash lands on. Owned here,
 		// next to the overlay, not by the screen's trailing newline.
-		base = reserveFlashRow(a.bodyInfo.Render(a.world, a.selectedBody, a.width, a.height))
+		base = a.formScreen("Body info", a.bodyInfoName(), reserveFlashRow(a.bodyInfo.Render(a.world, a.selectedBody, a.width, bodyH)))
 	case screenManeuver:
-		base = a.maneuver.Render(a.world, a.width, a.height, a.selectedBody)
+		base = a.formScreen("Maneuver planner", a.maneuver.TitleContext(a.world), a.maneuver.Render(a.world, a.width, bodyH, a.selectedBody))
 	case screenPorkchop:
-		base = a.porkchop.Render(a.world, a.width, a.height)
+		base = a.formScreen("Porkchop plot", a.porkchop.TitleContext(), a.porkchop.Render(a.world, a.width, bodyH))
 	case screenMenu:
-		base = a.menu.Render(a.width)
+		base = a.formScreen("Menu", "", a.menu.Render(a.width))
 	case screenSpawn:
-		base = a.spawn.Render(a.width, a.height)
+		base = a.formScreen("Spawn vessel", "", a.spawn.Render(a.width, bodyH))
 	case screenMissions:
-		base = a.missions.Render(a.world, a.width)
+		base = a.formScreen("Missions", "", a.missions.Render(a.world, a.width))
 	case screenSettings:
-		base = a.settingsScreen.Render(a.orbitView.Settings(), a.width, a.height)
+		base = a.formScreen("Settings", "", a.settingsScreen.Render(a.orbitView.Settings(), a.width, bodyH))
 	case screenControls:
-		base = a.controls.Render(a.layout, a.width)
+		base = a.formScreen("Keyboard layout", "", a.controls.Render(a.layout, a.width))
 	case screenVAB:
-		base = a.vab.Render(a.width, a.height)
+		base = a.formScreen(a.vab.TitleScreen(), "", a.vab.Render(a.width, bodyH))
 	case screenSaves:
-		base = a.saves.Render(a.width, a.height)
+		base = a.formScreen("Saves", a.saves.TitleContext(), a.saves.Render(a.width, bodyH))
 	case screenBoss:
 		base = a.boss.Render(a.width, a.height)
 	case screenSession:
-		base = a.session.Render(a.world, a.width)
+		base = a.formScreen("Session", "", a.session.Render(a.world, a.width))
 	default:
 		if a.world.ViewMode == sim.ViewLaunch {
 			base = a.launchView.Render(a.world, a.width, a.height)
@@ -3431,6 +3457,34 @@ func (a *App) View() string {
 		base = overlayBottomBorder(base, a.theme.Alert.Render(prompt), border)
 	}
 	return base
+}
+
+// screensTheme is the theme the screens package takes, built from the
+// App's own.
+func (a *App) screensTheme() screens.Theme {
+	th := a.theme
+	return screens.Theme{
+		Primary: th.Primary, Warning: th.Warning, Alert: th.Alert, Dim: th.Dim,
+		HUDBox: th.HUDBox, Footer: th.Footer, Title: th.Title,
+	}
+}
+
+// formScreen puts the shared Title Row (B11 / G9 Q1) above a non-flight
+// screen's body and records where its [Back] button sits so a click on it
+// can be routed (esc is the keyboard twin).
+func (a *App) formScreen(screen, context, body string) string {
+	row, bs, be := screens.RenderFormTitleRow(a.screensTheme(), a.world, screen, context, a.width)
+	a.backStart, a.backEnd = bs, be
+	return row + "\n" + body
+}
+
+// bodyInfoName is the selected body's name for the Body info Title Row.
+func (a *App) bodyInfoName() string {
+	sys := a.world.System()
+	if a.selectedBody >= 0 && a.selectedBody < len(sys.Bodies) {
+		return sys.Bodies[a.selectedBody].EnglishName
+	}
+	return ""
 }
 
 // overlayBottomBorder embeds overlay (already styled) into the final row

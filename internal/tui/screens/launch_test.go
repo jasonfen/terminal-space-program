@@ -295,8 +295,8 @@ func TestLaunchViewRenderTitle(t *testing.T) {
 	if len(out) == 0 {
 		t.Fatal("empty render")
 	}
-	if !strings.Contains(out, "LAUNCH") {
-		t.Errorf("expected 'LAUNCH' in title, got:\n%s", out)
+	if !strings.Contains(out, "Terminal Space Program") || !strings.Contains(out, "Launch") {
+		t.Errorf("expected the wordmark and 'Launch' in the Title Row, got:\n%s", out)
 	}
 	if c := w.ActiveCraft(); c != nil && !strings.Contains(out, c.Name) {
 		t.Errorf("expected craft name %q in title, got:\n%s", c.Name, out)

@@ -26,9 +26,7 @@ type SettingsScreen struct {
 	cursor int // index into settings.AllChips of the highlighted row
 
 	// Click-target ranges, recomputed each Render so terminal-resize
-	// can't stale the hit-tests. backBtn is the title-row [Back]; rowBtns
-	// is index-aligned with settings.AllChips, each spanning its full row.
-	backBtn buttonRange
+	// can't stale the hit-tests. rowBtns is index-aligned with settings.AllChips, each spanning its full row.
 	rowBtns []buttonRange
 }
 
@@ -120,9 +118,6 @@ func (s *SettingsScreen) toggleAt(i int) (SettingsAction, settings.Chip) {
 // cursor there and toggles it (rows are full-width click targets so a
 // thumb doesn't have to land on the box). Anything else is a no-op.
 func (s *SettingsScreen) HandleClick(col, row int) (SettingsAction, settings.Chip) {
-	if s.backBtn.Hit(col, row) {
-		return SettingsActionCancel, ""
-	}
 	for i, br := range s.rowBtns {
 		if br.Hit(col, row) {
 			s.cursor = i
@@ -258,29 +253,11 @@ func (s *SettingsScreen) settingsBody(prefs settings.Settings) (lines []widgets.
 func (s *SettingsScreen) Render(prefs settings.Settings, width, height int) string {
 	var lines []string
 
-	// Row 0: title + right-aligned [Back] button.
-	const titleText = "settings"
-	const backLabel = "[Back]"
-	pad := width - len([]rune(titleText)) - len([]rune(backLabel))
-	if pad < 1 {
-		pad = 1
-	}
-	backCol := len([]rune(titleText)) + pad
-	s.backBtn = buttonRange{
-		row:      0,
-		colStart: backCol,
-		colEnd:   backCol + len([]rune(backLabel)),
-		set:      true,
-	}
-	lines = append(lines, s.theme.Title.Render(titleText)+
-		strings.Repeat(" ", pad)+
-		s.theme.Primary.Render(backLabel))
-
 	body, rowSelectable, cursorLine := s.settingsBody(prefs)
 
-	// title(1) + blank(1) + footer(1) — every line Render emits outside the
+	// blank(1) + footer(1) — every line Render emits outside the
 	// windowed body.
-	const fixedLines = 3
+	const fixedLines = 2
 	budget := 0 // widgets.Window treats <=0 as "show everything"
 	if height > 0 {
 		// The window is sized from the terminal, not a fixed row cap: at
@@ -344,11 +321,4 @@ func autosaveIntervalLabel(min int) string {
 		return "off"
 	}
 	return fmt.Sprintf("%d min", min)
-}
-
-// HitBackButton reports whether a click at (col, row) lands on the
-// title-row [Back] button — mirrors Missions.HitBackButton so the App's
-// mouse cascade can treat "left the screen" uniformly across screens.
-func (s *SettingsScreen) HitBackButton(col, row int) bool {
-	return s.backBtn.Hit(col, row)
 }

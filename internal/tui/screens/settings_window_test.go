@@ -23,9 +23,6 @@ func TestSettingsFitsAndKeepsCursorVisibleAt104x24(t *testing.T) {
 	if len(lines) > 24 {
 		t.Errorf("rendered %d lines, want <= 24 (terminal height):\n%s", len(lines), out)
 	}
-	if !strings.Contains(out, "settings") {
-		t.Errorf("title missing from rendered output:\n%s", out)
-	}
 	if !strings.Contains(out, "chips") {
 		t.Errorf("the active section header (\"chips\") is missing from rendered output:\n%s", out)
 	}

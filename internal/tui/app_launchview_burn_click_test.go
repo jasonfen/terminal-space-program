@@ -81,32 +81,35 @@ func TestLaunchViewBurnButtonClickTogglesAutoWarpNotMissions(t *testing.T) {
 	}
 }
 
-// TestLaunchViewIgnoresStaleMapMissionsHit (#456): the orbit map's own
-// [Missions] button hit-test range, left over from rendering the map
-// before this launch, must not fire while Launch View is showing — the
-// exact mechanism behind the reported bug, isolated from whether the
-// two ranges happen to overlap on any particular layout.
-func TestLaunchViewIgnoresStaleMapMissionsHit(t *testing.T) {
-	a, err := New(nil)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
-	a.View() // seed the map's own Menu/Missions/Burn hit-test columns
-
-	col, ok := findHitCol(140, a.orbitView.HitMissionsButton)
-	if !ok {
-		t.Fatal("test setup: orbit map never computed a [Missions] hit-test range")
-	}
-
-	a.world.ViewMode = sim.ViewLaunch
-	a.View()
-	before := a.active
-
-	a.Update(tea.MouseMsg{X: col, Y: 0, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
-
-	if a.active != before {
-		t.Errorf("a click on the map's stale [Missions] column changed the screen while Launch View was showing: %v -> %v", before, a.active)
+// TestLaunchViewTitleRowButtonsOpenMenuAndMissions (B11 / G9 Q1, replaces
+// the #456 TestLaunchViewIgnoresStaleMapMissionsHit): the launch view now
+// carries [Menu] and [Missions] on its own Title Row, so a click on them
+// is routed through LaunchView's own hit-test ranges (never the map's
+// stale ones) and opens the matching screen.
+func TestLaunchViewTitleRowButtonsOpenMenuAndMissions(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want screenID
+		hit  func(a *App) func(col, row int) bool
+	}{
+		{"menu", screenMenu, func(a *App) func(int, int) bool { return a.launchView.HitMenuButton }},
+		{"missions", screenMissions, func(a *App) func(int, int) bool { return a.launchView.HitMissionsButton }},
+	} {
+		a, err := New(nil)
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+		a.world.ViewMode = sim.ViewLaunch
+		a.View() // the launch render computes ITS ranges
+		col, ok := findHitCol(140, tc.hit(a))
+		if !ok {
+			t.Fatalf("%s: launch view never computed a hit-test range", tc.name)
+		}
+		a.Update(tea.MouseMsg{X: col, Y: 0, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+		if a.active != tc.want {
+			t.Errorf("%s: click on the launch Title Row button left screen %v, want %v", tc.name, a.active, tc.want)
+		}
 	}
 }
 

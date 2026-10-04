@@ -551,29 +551,26 @@ func TestFreshPlanFireAtReadsNow(t *testing.T) {
 	}
 }
 
-// TestManeuverRenderFitsHeightAndKeepsTitle: B11 / G9 contradiction 3.
-// Resize reserved 3 rows for title, gap and footer but HUDBox adds two
-// border rows, so the render was rows+1 tall and the alt-screen dropped
-// the title row. At the two design sizes the render must be at most
-// `rows` tall and the first row must be the planner title.
-func TestManeuverRenderFitsHeightAndKeepsTitle(t *testing.T) {
+// TestManeuverRenderFitsBodyHeight: B11 / G9 contradiction 3. Resize
+// reserved too few rows around the HUDBox canvas border, so the render was
+// a row too tall and the alt-screen dropped the top row (the planner's
+// title). The body (everything under the App's Title Row) must fit the
+// rows it is given, at both design sizes; the App-level twin
+// TestManeuverScreenKeepsTitleRow checks the title lands on row 0.
+func TestManeuverRenderFitsBodyHeight(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	for _, sz := range [][2]int{{140, 40}, {181, 49}} {
+	for _, sz := range [][2]int{{140, 39}, {181, 48}} {
 		cols, rows := sz[0], sz[1]
 		// Production's HUDBox is a bordered style; the zero Theme's is
 		// not, which would hide the two border rows this test is about.
 		m := NewManeuver(Theme{HUDBox: lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)})
 		m.Resize(cols, rows)
-		out := m.Render(w, cols, rows, 0)
-		lines := strings.Split(out, "\n")
+		lines := strings.Split(m.Render(w, cols, rows, 0), "\n")
 		if len(lines) > rows {
-			t.Errorf("%dx%d: render is %d rows tall, want <= %d", cols, rows, len(lines), rows)
-		}
-		if !strings.Contains(stripANSI(lines[0]), "maneuver planner") {
-			t.Errorf("%dx%d: first row %q is not the planner title", cols, rows, lines[0])
+			t.Errorf("%dx%d: body is %d rows tall, want <= %d", cols, rows, len(lines), rows)
 		}
 	}
 }

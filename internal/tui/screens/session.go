@@ -635,10 +635,8 @@ func clamp(v, lo, hi int) int {
 // Render draws the roster.
 func (s *SessionScreen) Render(w *sim.World, width int) string {
 	var b strings.Builder
-	title := s.theme.Title.Render(" SESSION ")
 	info := w.Session
 	if info == nil {
-		b.WriteString(title + "\n\n")
 		b.WriteString("  Not in a multiplayer session.\n\n")
 		b.WriteString(s.theme.Dim.Render("  [h] start hosting — accept ssh guests on this machine; invite them with serve invite.") + "\n\n")
 		// item-3 UX batch (features finding 13): half of multiplayer —
@@ -654,7 +652,7 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		return b.String()
 	}
 
-	b.WriteString(title + s.theme.Dim.Render(fmt.Sprintf("  %d players", len(info.Players))) + "\n\n")
+	b.WriteString(s.theme.Dim.Render(fmt.Sprintf("  %d players", len(info.Players))) + "\n\n")
 	b.WriteString(s.theme.Dim.Render(strings.Repeat(" ", rowIndent)+
 		padStyled("PLAYER", colName)+" "+
 		padStyled("LOCATION", colWhere)+" "+

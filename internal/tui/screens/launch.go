@@ -74,7 +74,9 @@ type LaunchView struct {
 	// different title layout. A click on this screen's visually-correct
 	// [»Burn] button could land inside the map's stale [Missions] range
 	// instead. See Render's title-bar block for where these are set.
-	burnColStart, burnColEnd int
+	burnColStart, burnColEnd         int
+	menuColStart, menuColEnd         int
+	missionsColStart, missionsColEnd int
 }
 
 // NewLaunchView constructs the chase-cam screen, paired with the
@@ -247,7 +249,6 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	// works here (App's key switch isn't screen-gated), so this is a
 	// rendering-only parity fix, same color rules as orbit.go: Warning
 	// while engaged, dimmed when no burn is eligible, Primary otherwise.
-	titleLeft := fmt.Sprintf("LAUNCH — %s", craftName)
 	burnLabel := "[»Burn]"
 	if w.AutoWarpEngaged() {
 		burnLabel = "[■Burn]"
@@ -256,21 +257,11 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	// orbit map's title bar carries, via v.hudSource (the shared
 	// OrbitView) so a player flying decluttered gets the same cue here.
 	// Nil-safe: hudSource is only ever nil in a bare test fixture that
-	// doesn't wire one up. Decision 2's `● BURN` badge used to ride here
-	// too; it now lives on the VESSEL chip instead (vesselBurnBadge),
-	// which this screen already shares with the map via hudSource's
-	// side-HUD chips — no separate wiring needed here.
+	// doesn't wire one up.
 	declutterPlain, declutterRendered := "", ""
 	if v.hudSource != nil {
 		declutterPlain, declutterRendered = v.hudSource.declutterTagText()
 	}
-	titleRight := warpField(w) + declutterPlain + "  " + burnLabel
-	titlePad := totalCols - lipgloss.Width(titleLeft) - lipgloss.Width(titleRight)
-	if titlePad < 1 {
-		titlePad = 1
-	}
-	// #498: read constantly, so Primary rather than Dim.
-	warpRendered := v.theme.Primary.Render(warpField(w))
 	burnRendered := v.theme.Primary.Render(burnLabel)
 	switch {
 	case w.AutoWarpEngaged():
@@ -278,14 +269,26 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 	case !w.AutoWarpEligible():
 		burnRendered = v.theme.Dim.Render(burnLabel)
 	}
-	titleRightRendered := warpRendered + declutterRendered + "  " + burnRendered
-	title := v.theme.Title.Render(titleLeft) + strings.Repeat(" ", titlePad) + titleRightRendered
-
-	// #456 fix: this screen's own [»Burn] hit-test, computed from the
-	// exact same pieces the render above just used — burnLabel sits
-	// last in titleRight, so its start column is everything before it.
-	v.burnColStart = lipgloss.Width(titleLeft) + titlePad + lipgloss.Width(titleRight) - lipgloss.Width(burnLabel)
-	v.burnColEnd = v.burnColStart + lipgloss.Width(burnLabel)
+	// B11 / G9 Q1: the launch view wears the same Title Row as the map
+	// (clock, PAUSED, [»Burn] [Menu] [Missions]); G, M and esc already
+	// worked here, now the buttons do too.
+	lay := renderTitleRow(v.theme, titleSpec{
+		left:          titleLeft("Launch", craftName),
+		w:             w,
+		extraPlain:    declutterPlain,
+		extraRendered: declutterRendered,
+		buttons: []titleButton{
+			{label: burnLabel, rendered: burnRendered},
+			{label: "[Menu]", rendered: v.theme.Primary.Render("[Menu]")},
+			{label: "[Missions]", rendered: v.theme.Primary.Render("[Missions]")},
+		},
+	}, totalCols)
+	title := lay.row
+	// #456 fix: this screen's own button hit-tests, computed from the
+	// exact same layout the render above just used.
+	v.burnColStart, v.burnColEnd = lay.starts[0], lay.end[0]
+	v.menuColStart, v.menuColEnd = lay.starts[1], lay.end[1]
+	v.missionsColStart, v.missionsColEnd = lay.starts[2], lay.end[2]
 
 	// The descent half (ADR 0043 §3): one forecast per frame, shared by
 	// the scene (dashed arc + ground marker) and the corridor chip, so
@@ -487,6 +490,16 @@ func visibleWidth(lines []string) int {
 // draws, so the same convention applies.
 func (v *LaunchView) HitBurnButton(col, row int) bool {
 	return row == 0 && col >= v.burnColStart && col < v.burnColEnd
+}
+
+// HitMenuButton / HitMissionsButton: the launch view's Title Row carries
+// the same [Menu] and [Missions] buttons as the map (B11 / G9 Q1).
+func (v *LaunchView) HitMenuButton(col, row int) bool {
+	return row == 0 && col >= v.menuColStart && col < v.menuColEnd
+}
+
+func (v *LaunchView) HitMissionsButton(col, row int) bool {
+	return row == 0 && col >= v.missionsColStart && col < v.missionsColEnd
 }
 
 // renderNoActiveVesselMessage stamps a centered "no active vessel"

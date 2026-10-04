@@ -21,7 +21,6 @@ type ControlsScreen struct {
 	theme  Theme
 	cursor int // index into rows; only the layout row exists in slice 1
 
-	backBtn   buttonRange
 	layoutBtn buttonRange
 }
 
@@ -63,9 +62,6 @@ func (c *ControlsScreen) HandleKey(key string) ControlsAction {
 // HandleClick maps a (col, row) click to a ControlsAction. A click on the
 // title-row [Back] cancels; a click anywhere on the layout row cycles it.
 func (c *ControlsScreen) HandleClick(col, row int) ControlsAction {
-	if c.backBtn.Hit(col, row) {
-		return ControlsActionCancel
-	}
 	if c.layoutBtn.Hit(col, row) {
 		return ControlsActionCycleLayout
 	}
@@ -76,19 +72,6 @@ func (c *ControlsScreen) HandleClick(col, row int) ControlsAction {
 // right-aligned [Back] button and the full-row click target.
 func (c *ControlsScreen) Render(layout keylayout.Layout, width int) string {
 	var lines []string
-
-	// Row 0: title + right-aligned [Back] button.
-	const titleText = "controls"
-	const backLabel = "[Back]"
-	pad := width - len([]rune(titleText)) - len([]rune(backLabel))
-	if pad < 1 {
-		pad = 1
-	}
-	backCol := len([]rune(titleText)) + pad
-	c.backBtn = buttonRange{row: 0, colStart: backCol, colEnd: backCol + len([]rune(backLabel)), set: true}
-	lines = append(lines, c.theme.Title.Render(titleText)+
-		strings.Repeat(" ", pad)+
-		c.theme.Primary.Render(backLabel))
 
 	lines = append(lines, c.theme.Dim.Render("─── keyboard ───"))
 	lines = append(lines, "")
@@ -107,11 +90,4 @@ func (c *ControlsScreen) Render(layout keylayout.Layout, width int) string {
 	lines = append(lines, "")
 	lines = append(lines, c.theme.Footer.Render("[←/→ space] change layout  [esc] back"))
 	return strings.Join(lines, "\n")
-}
-
-// HitBackButton reports whether a click at (col, row) lands on the
-// title-row [Back] button — mirrors the other screens so the App mouse
-// cascade can treat "left the screen" uniformly.
-func (c *ControlsScreen) HitBackButton(col, row int) bool {
-	return c.backBtn.Hit(col, row)
 }

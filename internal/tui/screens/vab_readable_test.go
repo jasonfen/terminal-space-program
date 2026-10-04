@@ -145,7 +145,7 @@ func TestVABNamingScreenShowsVehicle(t *testing.T) {
 	v.addComponentToCurrent("tank")
 	v.HandleKey("s")
 	out := v.Render(140, 40)
-	for _, want := range []string{"save design", "Big Engine", "Big Tank", "Δv"} {
+	for _, want := range []string{"Big Engine", "Big Tank", "Δv"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("naming screen missing %q:\n%s", want, out)
 		}

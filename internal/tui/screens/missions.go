@@ -17,11 +17,6 @@ import (
 // `[Missions]` button or the `M` keybinding (ADR 0025 Slice 5).
 type Missions struct {
 	theme Theme
-
-	// backColStart / backColEnd track the [Back] click-target column
-	// range, recomputed on every Render so terminal-resize doesn't
-	// stale the hit-test. v0.7.4+.
-	backColStart, backColEnd int
 }
 
 func NewMissions(th Theme) *Missions { return &Missions{theme: th} }
@@ -124,21 +119,7 @@ func lockedHint(m missions.Mission, nameByID map[string]string, passed map[strin
 // player sees for BOTH programs at once, replacing the old flat "missions
 // off — enable … in Settings" placeholder.
 func (m *Missions) Render(w *sim.World, width int) string {
-	const titleText = "missions"
-	const backLabel = "[Back]"
 	var b strings.Builder
-	pad := width - len([]rune(titleText)) - len([]rune(backLabel))
-	if pad < 1 {
-		pad = 1
-	}
-	m.backColStart = len([]rune(titleText)) + pad
-	m.backColEnd = m.backColStart + len([]rune(backLabel))
-	b.WriteString(m.theme.Title.Render(titleText))
-	b.WriteString(strings.Repeat(" ", pad))
-	b.WriteString(m.theme.Primary.Render(backLabel))
-	b.WriteString("\n")
-	b.WriteString(m.theme.Dim.Render(strings.Repeat("─", 40)))
-	b.WriteString("\n\n")
 
 	if len(w.Missions) == 0 {
 		b.WriteString(m.theme.Dim.Render("  (no missions loaded)"))
@@ -313,10 +294,4 @@ func (m *Missions) ladderRowLine(r ladderRow) string {
 	default: // ladderAvailable
 		return "  ▸ " + r.Name
 	}
-}
-
-// HitBackButton reports whether a click at (col, row) lands on the
-// title-row [Back] button. v0.7.4+.
-func (m *Missions) HitBackButton(col, row int) bool {
-	return row == 0 && col >= m.backColStart && col < m.backColEnd
 }

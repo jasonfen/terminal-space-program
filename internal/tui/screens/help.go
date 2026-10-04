@@ -391,10 +391,9 @@ func (h *Help) indexLines() []string {
 // and footer, and truncates each row to width. Clamps + caches the scroll
 // geometry so HandleKey paging stays in range.
 func (h *Help) Render(width, height int, layout keylayout.Layout) string {
-	title := h.theme.Title.Render("terminal-space-program: keybindings")
 	body := h.bodyLines(layout)
 
-	const topChrome = 2 // title + blank line
+	const topChrome = 0 // the Title Row is the App's (B11)
 	const botChrome = 1 // footer
 	viewH := height - topChrome - botChrome
 	if viewH < 1 {
@@ -414,8 +413,6 @@ func (h *Help) Render(width, height int, layout keylayout.Layout) string {
 	window := body[h.scroll:end]
 
 	var b strings.Builder
-	b.WriteString(clipLine(title, width))
-	b.WriteString("\n\n")
 	for _, ln := range window {
 		b.WriteString(clipLine(ln, width))
 		b.WriteByte('\n')

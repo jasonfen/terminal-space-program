@@ -275,18 +275,18 @@ func TestVABRenderSmoke(t *testing.T) {
 	v.addComponentToCurrent("tank")
 	v.addComponentToCurrent("core")
 	build := v.Render(100, 40)
-	for _, want := range []string{"Vehicle Assembly", "VEHICLE", "Σ Δv", "PALETTE", "inspect", "[a] add"} {
+	for _, want := range []string{"VEHICLE", "Σ Δv", "PALETTE", "inspect", "[a] add"} {
 		if !contains(build, want) {
 			t.Errorf("build render missing %q", want)
 		}
 	}
 	v.mode = vabModeNaming
-	if !contains(v.Render(100, 40), "save design") {
-		t.Error("naming render missing title")
+	if v.TitleScreen() != "Save design" {
+		t.Errorf("naming TitleScreen = %q", v.TitleScreen())
 	}
 	v.mode = vabModeLoad
-	if !contains(v.Render(100, 40), "load design") {
-		t.Error("load render missing title")
+	if v.TitleScreen() != "Load design" {
+		t.Errorf("load TitleScreen = %q", v.TitleScreen())
 	}
 }
 

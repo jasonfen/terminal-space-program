@@ -38,9 +38,6 @@ func assertSpawnChromeVisible(t *testing.T, out string, height int) {
 		t.Errorf("rendered %d lines, want <= %d (terminal height) — chrome will scroll off the top:\n%s",
 			len(lines), height, out)
 	}
-	if !strings.Contains(out, "spawn vessel") {
-		t.Errorf("title missing from rendered output:\n%s", out)
-	}
 	if !strings.Contains(out, "[f]") {
 		t.Errorf("\"[f]\" system-filter hint missing from rendered output:\n%s", out)
 	}
