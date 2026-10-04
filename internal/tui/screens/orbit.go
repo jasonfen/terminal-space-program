@@ -2601,7 +2601,7 @@ func (v *OrbitView) composeNavballOverlay(w *sim.World, canvasStr string, cCols,
 	}
 	subLat, subLon := v.stickyNavballSubObserver(rawLat, rawLon)
 	disk := navballPanelDisk(g, w, subLat, subLon)
-	panel, boxes := v.buildNavballPanel(g, disk, w.NavMode, w.InstantSAS, w.RCSActive())
+	panel, boxes := v.buildNavballPanel(g, disk, w.NavMode, w.InstantSAS, w.RCSActive(), navballReadoutLabel(w))
 	atCol := cCols - g.panelW
 	atRow := cRows - g.panelH - 1
 	lines := strings.Split(canvasStr, "\n")

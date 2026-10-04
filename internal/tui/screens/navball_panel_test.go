@@ -128,7 +128,7 @@ func TestBuildNavballPanel(t *testing.T) {
 	})
 	g := navballGeometry(designCanvasCols, designCanvasRows)
 	disk := render.NavballString(g.diskCols, g.diskRows, 0, 0, nil)
-	panel, boxes := v.buildNavballPanel(g, disk, sim.NavOrbit, false, false)
+	panel, boxes := v.buildNavballPanel(g, disk, sim.NavOrbit, false, false, "")
 
 	plain := stripANSI(panel)
 	if strings.Contains(plain, "NAVBALL") {
@@ -203,11 +203,11 @@ func TestNavballPanelSASTag(t *testing.T) {
 	g := navballGeometry(designCanvasCols, designCanvasRows)
 	disk := render.NavballString(g.diskCols, g.diskRows, 0, 0, nil)
 
-	man, _ := v.buildNavballPanel(g, disk, sim.NavOrbit, false /*slew*/, false)
+	man, _ := v.buildNavballPanel(g, disk, sim.NavOrbit, false /*slew*/, false, "")
 	if p := stripANSI(man); !strings.Contains(p, "[MAN]") || strings.Contains(p, "[AUT]") {
 		t.Errorf("slew model should show [MAN], not [AUT]:\n%s", p)
 	}
-	aut, _ := v.buildNavballPanel(g, disk, sim.NavOrbit, true /*instant*/, false)
+	aut, _ := v.buildNavballPanel(g, disk, sim.NavOrbit, true /*instant*/, false, "")
 	if p := stripANSI(aut); !strings.Contains(p, "[AUT]") || strings.Contains(p, "[MAN]") {
 		t.Errorf("instant model should show [AUT], not [MAN]:\n%s", p)
 	}
