@@ -31,6 +31,8 @@ func TestChromeRulesAreInF1AndControlsDoc(t *testing.T) {
 			"open your orbit ring", // Q7 follow-up
 			"67° open",             // Q7 follow-up
 			"as it was",            // Q6: closing hands the clock back
+			"N ↑ 42°",              // B11 review L5: the north row's degree figure is explained
+			"toward or away from you",
 		} {
 			if !strings.Contains(text, want) {
 				t.Errorf("%s does not state %q", name, want)
