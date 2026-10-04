@@ -3,6 +3,9 @@ package screens
 import (
 	"fmt"
 	"strconv"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -916,14 +919,6 @@ func altKmLabel(altM float64) string {
 	return sim.CommaKm(altM) + " km"
 }
 
-// craftTypeRowBudget caps how many CRAFT TYPE rows (including category
-// headers) the windowed catalog list shows around the cursor (#373 / ADR
-// 0046's Consequences section: "about 8 rows around the cursor"). Render
-// shrinks this further when the terminal is too short to give the rest of
-// the form (POSITION/PARENT BODY/ALTITUDE/DIRECTION, the footer) room —
-// see craftTypeRowsFor.
-const craftTypeRowBudget = 24
-
 // craftTypeLines flattens the CRAFT TYPE catalog — category headers (ADR
 // 0031 / S8), the "Custom & Designs" group, the synthetic Custom entry,
 // and any saved designs — into widgets.WindowLines suitable for
@@ -931,16 +926,16 @@ const craftTypeRowBudget = 24
 // This is exactly the content the pre-#373 Render loop emitted inline;
 // factoring it out is what lets Render window it instead of emitting
 // every line.
-func (s *SpawnCraft) craftTypeLines() (lines []widgets.WindowLine, cursorLine int) {
+func (s *SpawnCraft) craftTypeLines(avail int) (lines []widgets.WindowLine, cursorLine int) {
 	idx := 0
+	level := s.catalogLevel(avail - 3) // 3 = craftRow's bullet cells
 	for _, g := range s.groupedLoadouts() {
 		lines = append(lines, widgets.WindowLine{Text: "  " + s.theme.Primary.Render(g.label), IsHeader: true})
 		for _, id := range g.ids {
 			l := spacecraft.Loadouts[id]
 			// No row bullet: the ➤ glyph is the vessel's mark on the map,
 			// not a list bullet (B11 / G9 Q5).
-			row := fmt.Sprintf("%s  %s  %s  · %s",
-				l.Name, crewTag(l), l.Role, propulsionSummary(l))
+			row := catalogRowText(l, level)
 			if idx == s.loadoutIdx {
 				cursorLine = len(lines)
 			}
@@ -975,9 +970,46 @@ func (s *SpawnCraft) craftTypeLines() (lines []widgets.WindowLine, cursorLine in
 	return lines, cursorLine
 }
 
+// catalogRowText is one catalog row's label at a compaction level, chosen
+// once for the whole list so the column reads one way: 0 is the full row,
+// 1 drops the "Isp " word, 2 also drops the role column (the group header
+// above the rows already names it). The engine figure is never dropped
+// (M3 / review #555).
+func catalogRowText(l spacecraft.Loadout, level int) string {
+	prop := propulsionSummary(l)
+	if level >= 1 {
+		prop = strings.Replace(prop, "Isp ", "", 1)
+	}
+	if level >= 2 {
+		return fmt.Sprintf("%s  %s  · %s", l.Name, crewTag(l), prop)
+	}
+	return fmt.Sprintf("%s  %s  %s  · %s", l.Name, crewTag(l), l.Role, prop)
+}
+
+// catalogLevel is the least compaction at which every catalog row fits
+// width cells (width<=0: no limit).
+func (s *SpawnCraft) catalogLevel(width int) int {
+	if width <= 0 {
+		return 0
+	}
+	for level := 0; level < 2; level++ {
+		fits := true
+		for _, g := range s.groupedLoadouts() {
+			for _, id := range g.ids {
+				if lipgloss.Width(catalogRowText(spacecraft.Loadouts[id], level)) > width {
+					fits = false
+				}
+			}
+		}
+		if fits {
+			return level
+		}
+	}
+	return 2
+}
+
 // craftTypeRowsFor picks the CRAFT TYPE window's row budget for a given
-// terminal height: craftTypeRowBudget when there's room, shrunk to
-// whatever's left after fixedLines (every other line Render emits — the
+// terminal height: whatever is left after fixedLines (every other line Render emits — the
 // title, VESSEL TYPE header, POSITION/PARENT BODY/ALTITUDE/DIRECTION, the
 // footer, and the STACK editor when Custom is selected) so the rest of the
 // form is never pushed off screen by the catalog window itself. height<=0
@@ -989,9 +1021,6 @@ func craftTypeRowsFor(height, fixedLines int) int {
 		return 0 // widgets.Window treats <=0 as "show everything"
 	}
 	avail := height - fixedLines
-	if avail > craftTypeRowBudget {
-		avail = craftTypeRowBudget
-	}
 	if avail < 1 {
 		avail = 1
 	}
@@ -1039,7 +1068,7 @@ func (s *SpawnCraft) Render(width, height int) string {
 		stack = formBox(s.theme, s.boxTitle(stackFieldIdx, "STACK (bottom → top)"), s.stackLines(), lw)
 	}
 
-	catalogLines, cursorLine := s.craftTypeLines()
+	catalogLines, cursorLine := s.craftTypeLines(lw - 2)
 	// box overhead: top edge + title + bottom edge; the frame adds two rows.
 	budget := craftTypeRowsFor(height, 5+len(head)+len(stack))
 	rendered := widgets.Window(catalogLines, cursorLine, budget)
@@ -1076,7 +1105,7 @@ func (s *SpawnCraft) Render(width, height int) string {
 // column and the field-box column (a one-cell gutter between).
 func spawnWidths(width int) (lw, rw int) {
 	inner := width - 2*frameInset
-	rw = clampI(inner*36/100, 44, 60)
+	rw = clampI(inner*29/100, 40, 48)
 	return inner - rw - 1, rw
 }
 
@@ -1097,7 +1126,7 @@ func (s *SpawnCraft) boxTitle(idx int, label string) string {
 func (s *SpawnCraft) stackLines() []string {
 	var lines []string
 	if len(s.customStages) == 0 {
-		lines = append(lines, "  "+s.theme.Dim.Render("(empty — pick a part below and press [a] to add)"))
+		lines = append(lines, "  "+s.theme.Dim.Render("(empty: pick a part below and press [a] to add)"))
 	} else {
 		// v0.14 / ADR 0011: the Dock Seam splits the stack into the
 		// linear firing core (bottom) and the docked nose payload (top
@@ -1301,13 +1330,13 @@ func (s *SpawnCraft) bandWarning() (text string, isWarning bool) {
 	}
 	switch {
 	case cov <= 0:
-		return "⚠ out of network reach — no signal at this body", true
+		return "⚠ out of network reach, no signal at this body", true
 	case cov < sim.CommBandDegradedThreshold:
 		pct := int(cov*100 + 0.5)
 		if relayClass {
 			return fmt.Sprintf("coverage from here: ~%d%%", pct), false
 		}
-		return fmt.Sprintf("⚠ degraded comms band — ~%d%% coverage, relays advised", pct), true
+		return fmt.Sprintf("⚠ degraded comms band, ~%d%% coverage, relays advised", pct), true
 	}
 	return "", false
 }

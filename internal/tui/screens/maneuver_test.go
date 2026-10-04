@@ -589,3 +589,25 @@ func TestManeuverPlannerMirrorsTheOrientationCue(t *testing.T) {
 		}
 	}
 }
+
+// TestManeuverPlannerLeavesTheLastRowForTheFlash (review #555 L1): the
+// legend is the second-to-last row and the last row is empty, so the App's
+// flash overlay lands on the empty row. Body height stays exact.
+func TestManeuverPlannerLeavesTheLastRowForTheFlash(t *testing.T) {
+	w, _, _ := leoWorld(t)
+	for _, sz := range [][2]int{{140, 39}, {181, 48}} {
+		m := NewManeuver(Theme{HUDBox: lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)})
+		m.Resize(sz[0], sz[1])
+		lines := strings.Split(stripANSI(m.Render(w, sz[0], sz[1], 0)), "\n")
+		if len(lines) != sz[1] {
+			t.Errorf("%dx%d: %d rows, want exactly %d", sz[0], sz[1], len(lines), sz[1])
+			continue
+		}
+		if !strings.Contains(lines[len(lines)-2], "[tab] field") {
+			t.Errorf("%dx%d: legend is not the second-to-last row: %q", sz[0], sz[1], lines[len(lines)-2])
+		}
+		if strings.TrimSpace(lines[len(lines)-1]) != "" {
+			t.Errorf("%dx%d: last row is not empty: %q", sz[0], sz[1], lines[len(lines)-1])
+		}
+	}
+}

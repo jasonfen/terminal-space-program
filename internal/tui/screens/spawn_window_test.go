@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -144,4 +145,60 @@ func spawnRightText(s *SpawnCraft, width int) string {
 		parts = append(parts, strings.Trim(string(r[start:end]), "│╭╮╰╯─ "))
 	}
 	return strings.Join(strings.Fields(strings.Join(parts, " ")), " ")
+}
+
+// enginePat matches a catalog row's engine figure through its Isp value,
+// with or without the "Isp " word (the row drops it before it would clip).
+var enginePat = regexp.MustCompile(`kN @ (Isp )?\d+s`)
+
+// TestSpawnCatalogRowsKeepEngineFigureAtDesignSizes pins review #555 M3:
+// at 140x40 B11 narrowed the catalog box and every launch vehicle lost its
+// engine figure to a "…" clip while the field column sat mostly blank.
+// Every catalog row that has an engine must show it whole, at both Design
+// Sizes, with no clip marker anywhere in the catalog box.
+func TestSpawnCatalogRowsKeepEngineFigureAtDesignSizes(t *testing.T) {
+	for _, sz := range [][2]int{{140, 40}, {181, 49}} {
+		s := spawnFormMidCatalog(t)
+		out := stripANSI(s.Render(sz[0], sz[1]))
+		rows := 0
+		for _, ln := range strings.Split(out, "\n") {
+			if !strings.Contains(ln, "dry ") || strings.Contains(ln, "RCS-only") {
+				continue
+			}
+			rows++
+			if strings.Contains(ln, "…") {
+				t.Errorf("%dx%d: catalog row clipped: %q", sz[0], sz[1], ln)
+			}
+			if !enginePat.MatchString(ln) {
+				t.Errorf("%dx%d: catalog row lost its engine figure: %q", sz[0], sz[1], ln)
+			}
+		}
+		if rows < 8 {
+			t.Fatalf("%dx%d: only %d engine rows found, the guard is not seeing the catalog:\n%s", sz[0], sz[1], rows, out)
+		}
+	}
+}
+
+// TestSpawnCatalogWindowSizedToTheBox pins review #555 L2: the catalog
+// windowed at a fixed 24 rows while the frame had room (140x40 left 6
+// blank rows under the box, 181x49 about 18). The box must now run down to
+// the legend edge with no blank rows between, at both Design Sizes, and
+// still fit the height.
+func TestSpawnCatalogWindowSizedToTheBox(t *testing.T) {
+	for _, sz := range [][2]int{{140, 40}, {181, 49}} {
+		s := spawnFormMidCatalog(t)
+		out := stripANSI(s.Render(sz[0], sz[1]))
+		rows := strings.Split(out, "\n")
+		if len(rows) > sz[1] {
+			t.Errorf("%dx%d: rendered %d rows", sz[0], sz[1], len(rows))
+		}
+		last := len(rows) - 1 // legend edge
+		if !strings.HasPrefix(rows[last], "╰") {
+			t.Fatalf("%dx%d: last row is not the frame's bottom edge: %q", sz[0], sz[1], rows[last])
+		}
+		if !strings.HasPrefix(rows[last-1], "│╰") {
+			t.Errorf("%dx%d: the catalog box stops short of the frame bottom (blank rows under it): %q\n%s",
+				sz[0], sz[1], rows[last-1], out)
+		}
+	}
 }

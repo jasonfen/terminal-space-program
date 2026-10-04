@@ -362,7 +362,13 @@ func (h *Help) bodyLines(layout keylayout.Layout) []string {
 		}
 		return append(lines, "", "  "+h.theme.Footer.Render(firstFlightEnd))
 	}
-	return h.sectionLines(layout, helpSections[h.page-1])
+	sec := helpSections[h.page-1]
+	if sec.header == helpIndexTitle(sec.header) {
+		// The box title already says it (review #555 L4); a header with a
+		// parenthetical keeps its row because it adds the when-clause.
+		return h.renderRows(layout, sec.rows)
+	}
+	return h.sectionLines(layout, sec)
 }
 
 // indexLines is the index: a numbered row per page with its when-clause.

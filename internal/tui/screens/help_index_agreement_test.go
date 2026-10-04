@@ -104,3 +104,26 @@ func TestHelpFirstFlightByHandRowIsTrueAtItsMoment(t *testing.T) {
 		t.Errorf("b row does not name the Δv readout that ends the burn: %q", row)
 	}
 }
+
+// TestHelpPageNamesItselfOnce pins review #555 L4: a page whose body header
+// is the same word as the box title (GENERAL) opened with the word twice on
+// consecutive rows. On every page the first body row must not repeat the
+// box title.
+func TestHelpPageNamesItselfOnce(t *testing.T) {
+	for _, sz := range [][2]int{{140, 40}, {181, 49}} {
+		for n := 0; n < helpPageCount(); n++ {
+			h := NewHelp(chipTestTheme())
+			h.OpenPage(n)
+			rows := strings.Split(ansi.Strip(h.Render(sz[0], sz[1], keylayout.QWERTY)), "\n")
+			// rows: frame top, box top, title, first body row
+			title := strings.Trim(rows[3-1], "│ ")
+			body := strings.Trim(rows[3], "│ ")
+			if title == "" {
+				t.Fatalf("page %d: title row not found:\n%s", n, strings.Join(rows[:5], "\n"))
+			}
+			if body == title {
+				t.Errorf("%dx%d page %d: %q is written twice on consecutive rows", sz[0], sz[1], n, title)
+			}
+		}
+	}
+}

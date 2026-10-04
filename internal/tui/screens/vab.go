@@ -449,7 +449,7 @@ func (v *VAB) Stats() spacecraft.VehicleStats {
 // spawn per EnsureCommandSource), liftoff TWR < 1.
 func (v *VAB) Warnings() []string {
 	if len(v.stages) == 0 {
-		return []string{"empty stack — add a component or part with [a]"}
+		return []string{"empty stack: add a component or part with [a]"}
 	}
 	stages := v.resolvedStages()
 	var w []string
@@ -475,13 +475,13 @@ func (v *VAB) Warnings() []string {
 		}
 	}
 	if !hasEngine {
-		w = append(w, "no engine — vehicle can't maneuver")
+		w = append(w, "no engine: vehicle can't maneuver")
 	}
 	if !hasCommand {
-		w = append(w, "no command source — will default to a probe core on spawn")
+		w = append(w, "no command source: will default to a probe core on spawn")
 	}
 	if vs := spacecraft.StackStats(stages); vs.LiftoffTWR > 0 && vs.LiftoffTWR < 1 {
-		w = append(w, fmt.Sprintf("liftoff TWR %.2f < 1 — won't lift off under g₀", vs.LiftoffTWR))
+		w = append(w, fmt.Sprintf("liftoff TWR %.2f < 1: won't lift off under g₀", vs.LiftoffTWR))
 	}
 	return w
 }
