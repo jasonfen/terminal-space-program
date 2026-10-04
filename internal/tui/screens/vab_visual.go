@@ -13,7 +13,7 @@ import (
 // double-width emoji would desync the two-column lipgloss.Width math the
 // layout depends on, so none are used here.
 var kindGlyph = map[string]string{
-	spacecraft.ComponentEngine:      "➤",
+	spacecraft.ComponentEngine:      "▼", // not ➤: that is the vessel's mark on the map (B11 / G9 Q5)
 	spacecraft.ComponentTank:        "▮",
 	spacecraft.ComponentCommandCore: "◈",
 	spacecraft.ComponentAntenna:     "Ψ",
@@ -51,7 +51,7 @@ func styleForKind(kind string) lipgloss.Style {
 // per-component override (ADR 0030 §6) and falling back to the kind default.
 func (v *VAB) componentGlyph(id string) string {
 	if c, ok := v.comps[id]; ok {
-		if c.Glyph != "" {
+		if c.Glyph != "" && c.Glyph != spacecraft.VesselGlyph {
 			return c.Glyph
 		}
 		return glyphForKind(c.Kind)

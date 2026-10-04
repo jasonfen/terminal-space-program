@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
@@ -41,8 +42,8 @@ func TestPorkchopLoadAndRender(t *testing.T) {
 
 	p.Load(w, marsIdx)
 	out := p.Render(w, 120, 40)
-	if !strings.Contains(out, "Mars") {
-		t.Errorf("render didn't mention target name 'Mars':\n%s", out)
+	if !strings.Contains(p.TitleContext(), "Mars") {
+		t.Errorf("Title Row context didn't mention target name 'Mars': %q", p.TitleContext())
 	}
 	hasGlyph := false
 	for _, g := range porkchopLegendRamp[:4] { // skip trailing space
@@ -144,5 +145,50 @@ func TestPorkchopPendingPlantCarriesOptions(t *testing.T) {
 	}
 	if opts.NRev != 2 || !opts.Retrograde || !opts.LongBranch {
 		t.Errorf("plant did not carry opts forward: got %+v", opts)
+	}
+}
+
+// TestPorkchopHitCellLandsOnTheDrawnCell (B11 / G9 Q4): the grid now sits in
+// a frame and a box, which moved every cell. The selected cell is drawn as
+// "█" (the cursor); the click position of that glyph, read from the actual
+// render, must hit-test to the selection.
+func TestPorkchopHitCellLandsOnTheDrawnCell(t *testing.T) {
+	// The cursor is the only Warning-coloured cell; under go test lipgloss
+	// is colourless unless the profile is forced.
+	ambient := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(ambient) })
+	p := NewPorkchop(Theme{Warning: lipgloss.NewStyle().Foreground(lipgloss.Color("#FFAF00"))})
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	marsIdx := -1
+	for i, b := range w.System().Bodies {
+		if b.EnglishName == "Mars" {
+			marsIdx = i
+		}
+	}
+	if marsIdx < 0 {
+		t.Skip("Mars not in Sol system")
+	}
+	p.Load(w, marsIdx)
+	p.SetSelection(7, 3)
+	cursor := lipgloss.NewStyle().Foreground(lipgloss.Color("#FFAF00")).Render("█")
+	found := false
+	for row, ln := range strings.Split(p.Render(w, 140, 39), "\n") {
+		i := strings.Index(ln, cursor)
+		if i < 0 || !strings.Contains(ln, "tof ") {
+			continue
+		}
+		found = true
+		col := lipgloss.Width(ln[:i])
+		dep, tof, ok := p.HitCell(col, row)
+		if !ok || dep != 7 || tof != 3 {
+			t.Errorf("click on the drawn cursor cell (col %d, row %d) = (%d,%d,%v), want (7,3,true)", col, row, dep, tof, ok)
+		}
+	}
+	if !found {
+		t.Fatal("no cursor cell found in the render")
 	}
 }

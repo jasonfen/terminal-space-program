@@ -17,11 +17,6 @@ import (
 // `[Missions]` button or the `M` keybinding (ADR 0025 Slice 5).
 type Missions struct {
 	theme Theme
-
-	// backColStart / backColEnd track the [Back] click-target column
-	// range, recomputed on every Render so terminal-resize doesn't
-	// stale the hit-test. v0.7.4+.
-	backColStart, backColEnd int
 }
 
 func NewMissions(th Theme) *Missions { return &Missions{theme: th} }
@@ -111,40 +106,26 @@ func lockedHint(m missions.Mission, nameByID map[string]string, passed map[strin
 	return "needs: " + strings.Join(need, ", ")
 }
 
-// Render returns the ladder/program screen. width is the terminal width —
-// used to right-align the [Back] button on row 0. Empty-catalog worlds show
-// a placeholder so the player isn't faced with a blank screen.
+// missionsLegend is the key legend on the frame's bottom edge.
+const missionsLegend = "[1] Flight School on/off · [2] Challenge ladder on/off · [esc] back"
+
+// Render returns the ladder/program screen inside the shared form frame
+// (B11 / G9 Q4). width x height is the whole framed block. Empty-catalog
+// worlds show a placeholder so the player isn't faced with a blank screen.
 //
 // #426 item F reshaped the body: the active mission (if any) still owns a
-// card on top, but the rest of the ladder is now two headed lists — FLIGHT
-// SCHOOL and CHALLENGES — each with its own N/M complete count, instead of
-// one interleaved list gated on both programs being on. A program that's
-// switched off shows one dim offer row under its header (its one-key
-// toggle) instead of its mission list; that offer row is also what a
-// player sees for BOTH programs at once, replacing the old flat "missions
-// off — enable … in Settings" placeholder.
-func (m *Missions) Render(w *sim.World, width int) string {
-	const titleText = "missions"
-	const backLabel = "[Back]"
-	var b strings.Builder
-	pad := width - len([]rune(titleText)) - len([]rune(backLabel))
-	if pad < 1 {
-		pad = 1
-	}
-	m.backColStart = len([]rune(titleText)) + pad
-	m.backColEnd = m.backColStart + len([]rune(backLabel))
-	b.WriteString(m.theme.Title.Render(titleText))
-	b.WriteString(strings.Repeat(" ", pad))
-	b.WriteString(m.theme.Primary.Render(backLabel))
-	b.WriteString("\n")
-	b.WriteString(m.theme.Dim.Render(strings.Repeat("─", 40)))
-	b.WriteString("\n\n")
-
+// box on top, but the rest of the ladder is two headed lists, FLIGHT
+// SCHOOL and CHALLENGES, side by side, each with its own N/M complete
+// count. A program that's switched off shows one dim offer row under its
+// header (its one-key toggle) instead of its mission list; that offer row
+// is also what a player sees for BOTH programs at once, replacing the old
+// flat "missions off, enable … in Settings" placeholder.
+func (m *Missions) Render(w *sim.World, width, height int) string {
+	legend := m.theme.Footer.Render(missionsLegend)
+	inner := width - 2*frameInset
 	if len(w.Missions) == 0 {
-		b.WriteString(m.theme.Dim.Render("  (no missions loaded)"))
-		b.WriteString("\n\n")
-		b.WriteString(m.theme.Footer.Render("[esc] back to orbit"))
-		return b.String()
+		box := formBox(m.theme, "MISSIONS", []string{m.theme.Dim.Render("  (no missions loaded)")}, clampI(inner, 20, 60))
+		return formFrame(m.theme, box, width, height, m.theme.Footer.Render("[esc] back"))
 	}
 
 	activeMission := w.ActiveMission()
@@ -153,34 +134,32 @@ func (m *Missions) Render(w *sim.World, width int) string {
 		activeID = activeMission.ID
 	}
 
-	// Active card on top (ADR 0025 Slice 5 — Jason's "active card" layout):
+	var body []string
+	// Active box on top (ADR 0025 Slice 5, Jason's "active card" layout):
 	// the current mission, expanded to its objective checklist with the
-	// current step's hint, framed in the HUD box so it reads as "what now".
-	// With nothing active, a completed Program's Sendoff takes the same
-	// slot instead of leaving it blank (#426 item F, decision 9).
+	// current step's hint, so it reads as "what now". With nothing active,
+	// a completed Program's Sendoff takes the same slot (#426 item F,
+	// decision 9).
 	switch {
 	case activeMission != nil:
 		row := ladderRow{Name: activeMission.Name, Category: ladderActive, Objectives: activeMission.Objectives}
-		b.WriteString(m.activeCard(row, width))
-		b.WriteString("\n\n")
+		body = append(body, formBox(m.theme, "ACTIVE: "+row.Name, m.activeLines(row, inner-2), inner)...)
 	default:
 		if text, offer, ok := w.LadderSendoff(); ok {
-			b.WriteString(m.sendoffCard(text, offer, width))
-			b.WriteString("\n\n")
+			body = append(body, formBox(m.theme, "SENDOFF", m.sendoffLines(text, offer, inner-2), inner)...)
 		}
 	}
 
-	b.WriteString(m.programSection("FLIGHT SCHOOL", "Flight School", "1",
+	lw := (inner - 1) / 2
+	rw := inner - lw - 1
+	ft, fl := m.programLines("FLIGHT SCHOOL", "Flight School", "1",
 		programMissions(w.Missions, missions.ProgramTutorial),
-		w.MissionProgramEnabled(missions.ProgramTutorial), activeID))
-	b.WriteByte('\n')
-	b.WriteString(m.programSection("CHALLENGES", "the Challenge ladder", "2",
+		w.MissionProgramEnabled(missions.ProgramTutorial), activeID, lw-2)
+	ct, cl := m.programLines("CHALLENGES", "the Challenge ladder", "2",
 		programMissions(w.Missions, missions.ProgramChallenge),
-		w.MissionProgramEnabled(missions.ProgramChallenge), activeID))
-
-	b.WriteString("\n")
-	b.WriteString(m.theme.Footer.Render("[esc] back to orbit"))
-	return b.String()
+		w.MissionProgramEnabled(missions.ProgramChallenge), activeID, rw-2)
+	body = append(body, joinBoxes(formBox(m.theme, ft, fl, lw), formBox(m.theme, ct, cl, rw), lw, 1)...)
+	return formFrame(m.theme, body, width, height, legend)
 }
 
 // programMissions filters ms to the ones tagged with the given Program, in
@@ -211,38 +190,31 @@ func programMissions(ms []missions.Mission, program string) []missions.Mission {
 // the section's all-caps label ("FLIGHT SCHOOL"); label is the lower-case
 // name used in the offer row's "[N] turn on/off <label>" text; key is that
 // digit ("1" or "2").
-func (m *Missions) programSection(heading, label, key string, ms []missions.Mission, enabled bool, activeID string) string {
-	var b strings.Builder
+func (m *Missions) programLines(heading, label, key string, ms []missions.Mission, enabled bool, activeID string, max int) (title string, lines []string) {
 	passed := 0
 	for i := range ms {
 		if ms[i].Status == missions.Passed {
 			passed++
 		}
 	}
-	b.WriteString(m.theme.Primary.Render(fmt.Sprintf("%s  %d/%d complete", heading, passed, len(ms))))
-	b.WriteByte('\n')
+	title = fmt.Sprintf("%s  %d/%d complete", heading, passed, len(ms))
 	if !enabled {
-		b.WriteString(m.theme.Dim.Render(fmt.Sprintf("  [%s] turn on %s", key, label)))
-		b.WriteByte('\n')
-		return b.String()
+		return title, []string{m.theme.Dim.Render(fmt.Sprintf("  [%s] turn on %s", key, label))}
 	}
 	for _, r := range classifyLadder(ms, activeID) {
 		if r.Category == ladderActive {
-			continue // owns the card above
+			continue // owns the box above
 		}
-		b.WriteString(m.ladderRowLine(r))
-		b.WriteByte('\n')
+		lines = append(lines, clipLine(m.ladderRowLine(r), max))
 	}
-	b.WriteString(m.theme.Dim.Render(fmt.Sprintf("  [%s] turn off %s", key, label)))
-	b.WriteByte('\n')
-	return b.String()
+	lines = append(lines, m.theme.Dim.Render(fmt.Sprintf("  [%s] turn off %s", key, label)))
+	return title, lines
 }
 
-// sendoffCard renders the whole-Program-complete state in the same box
-// style as activeCard, so it reads as "what now" the same way the active
-// card did (#426 item F, decision 9).
-func (m *Missions) sendoffCard(text string, offerChallenges bool, width int) string {
-	max := width - 4
+// sendoffLines is the whole-Program-complete state in the same box as the
+// active mission, so it reads as "what now" the same way (#426 item F,
+// decision 9).
+func (m *Missions) sendoffLines(text string, offerChallenges bool, max int) []string {
 	if max < 8 {
 		max = 8
 	}
@@ -250,23 +222,20 @@ func (m *Missions) sendoffCard(text string, offerChallenges bool, width int) str
 	if offerChallenges {
 		lines = append(lines, clipLine(m.theme.Dim.Render("  [2] turn on the Challenge ladder"), max))
 	}
-	return m.theme.HUDBox.Render(strings.Join(lines, "\n"))
+	return lines
 }
 
-// activeCard renders the highlighted active-mission card: an "ACTIVE: <name>"
-// header, each objective with a ✓ (passed) / ▸ (current) / · (upcoming)
+// activeLines renders the active-mission box body: each objective with a ✓ (passed) / ▸ (current) / · (upcoming)
 // marker, and the current objective's hint text indented beneath it (the
 // hint that, by Jason's Slice-5 call, lives on the screen rather than the
 // in-flight chip).
-func (m *Missions) activeCard(r ladderRow, width int) string {
-	// Clamp each content line to the terminal width less the box chrome
-	// (rounded border = 2 cols + Padding(0,1) = 2 cols) so a long objective
-	// hint can't push the box border off a narrow screen.
-	max := width - 4
+func (m *Missions) activeLines(r ladderRow, max int) []string {
+	// Clamp each content line to the box so a long objective hint can't
+	// push the border off a narrow screen.
 	if max < 8 {
 		max = 8
 	}
-	lines := []string{clipLine(m.theme.Primary.Render("ACTIVE: "+r.Name), max)}
+	var lines []string
 	currentSeen := false
 	for _, o := range r.Objectives {
 		marker, isCurrent := "  · ", false
@@ -285,7 +254,7 @@ func (m *Missions) activeCard(r ladderRow, width int) string {
 			lines = append(lines, clipLine(m.theme.Dim.Render("      "+o.Description), max))
 		}
 	}
-	return m.theme.HUDBox.Render(strings.Join(lines, "\n"))
+	return lines
 }
 
 // lockGlyph marks a locked rung — a single-width dingbat (U+26BF SQUARED
@@ -313,10 +282,4 @@ func (m *Missions) ladderRowLine(r ladderRow) string {
 	default: // ladderAvailable
 		return "  ▸ " + r.Name
 	}
-}
-
-// HitBackButton reports whether a click at (col, row) lands on the
-// title-row [Back] button. v0.7.4+.
-func (m *Missions) HitBackButton(col, row int) bool {
-	return row == 0 && col >= m.backColStart && col < m.backColEnd
 }

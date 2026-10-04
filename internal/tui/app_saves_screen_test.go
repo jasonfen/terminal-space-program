@@ -53,7 +53,11 @@ func TestMenuOpensSavesScreenBothModes(t *testing.T) {
 	if a.saves.Mode() != screens.SavesModeSave {
 		t.Errorf("[Save Game] opened mode %v, want save-mode", a.saves.Mode())
 	}
-	press(a, "esc") // back to orbit
+	press(a, "esc") // back to the menu that opened it (B11 / G9 Q3)
+	if a.active != screenMenu {
+		t.Fatalf("esc from Saves went to %v, want the pause menu", a.active)
+	}
+	press(a, "esc") // menu -> map
 
 	openSavesVia(t, a, "l")
 	if a.saves.Mode() != screens.SavesModeLoad {
@@ -74,10 +78,10 @@ func TestSavesScreenSaveAsWritesNamed(t *testing.T) {
 	}
 
 	openSavesVia(t, a, "s")
-	press(a, "enter") // New save row → naming (prefilled default)
-	press(a, "enter") // accept the default
-	if a.active != screenOrbit {
-		t.Fatalf("active = %v after Save-As, want screenOrbit", a.active)
+	press(a, "enter")           // New save row → naming (prefilled default)
+	press(a, "enter")           // accept the default
+	if a.active != screenMenu { // back to the opener (B11 / G9 Q3)
+		t.Fatalf("active = %v after Save-As, want the pause menu that opened Saves", a.active)
 	}
 
 	infos, err := save.List()
@@ -121,8 +125,8 @@ func TestSavesScreenOverwritePreservesOthers(t *testing.T) {
 	press(a, "down")
 	press(a, "enter") // overwrite confirm
 	press(a, "y")
-	if a.active != screenOrbit {
-		t.Fatalf("active = %v after overwrite, want screenOrbit", a.active)
+	if a.active != screenMenu { // back to the opener (B11 / G9 Q3)
+		t.Fatalf("active = %v after overwrite, want the pause menu that opened Saves", a.active)
 	}
 
 	infos, err := save.List()

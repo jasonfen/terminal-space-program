@@ -368,7 +368,7 @@ func TestWorstCaseFrameDoesNotOverflow(t *testing.T) {
 		t.Errorf("frame height = %d rows, want ≤ %d (terminal would scroll, hiding the title)", h, rows)
 	}
 	// The title row must be the first line (not scrolled off the top).
-	if first := strings.SplitN(out, "\n", 2)[0]; !strings.Contains(first, "terminal-space-program") {
+	if first := strings.SplitN(out, "\n", 2)[0]; !strings.Contains(first, "Terminal Space Program") {
 		t.Errorf("title row not first; got %q", first)
 	}
 }

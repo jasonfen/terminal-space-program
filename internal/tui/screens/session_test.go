@@ -60,7 +60,7 @@ func sessionWorld(t *testing.T, isHost bool) *sim.World {
 func TestSessionScreenRows(t *testing.T) {
 	s := NewSessionScreen(sessionTheme())
 	w := sessionWorld(t, true)
-	out := s.Render(w, 120)
+	out := s.Render(w, 140, 0)
 
 	for _, want := range []string{
 		"jason", "(host, you)",
@@ -87,7 +87,7 @@ func TestSessionScreenRows(t *testing.T) {
 func TestSessionScreenHostVsGuestSections(t *testing.T) {
 	s := NewSessionScreen(sessionTheme())
 
-	host := s.Render(sessionWorld(t, true), 120)
+	host := s.Render(sessionWorld(t, true), 140, 0)
 	if !strings.Contains(host, "INVITES") || !strings.Contains(host, "AB2C-DE3F") {
 		t.Errorf("host screen missing invites section:\n%s", host)
 	}
@@ -96,7 +96,7 @@ func TestSessionScreenHostVsGuestSections(t *testing.T) {
 	}
 
 	s2 := NewSessionScreen(sessionTheme())
-	guest := s2.Render(sessionWorld(t, false), 120)
+	guest := s2.Render(sessionWorld(t, false), 140, 0)
 	if strings.Contains(guest, "INVITES") || strings.Contains(guest, "AB2C-DE3F") {
 		t.Errorf("guest screen leaked the invites section:\n%s", guest)
 	}
@@ -113,7 +113,7 @@ func TestSessionScreenSinglePlayer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	out := s.Render(w, 120)
+	out := s.Render(w, 140, 0)
 	if !strings.Contains(out, "Not in a multiplayer session") {
 		t.Errorf("single-player explainer missing:\n%s", out)
 	}
@@ -129,7 +129,7 @@ func TestSessionScreenExplainsJoining(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	out := s.Render(w, 120)
+	out := s.Render(w, 140, 0)
 	if !strings.Contains(out, "ssh -p 23234") {
 		t.Errorf("joining explainer missing the ssh connect step:\n%s", out)
 	}
@@ -231,7 +231,7 @@ func TestSessionScreenSoloStartHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	if out := s.Render(w, 120); !strings.Contains(out, "[h] start hosting") {
+	if out := s.Render(w, 140, 0); !strings.Contains(out, "[h] start hosting") {
 		t.Errorf("solo explainer missing the host hint:\n%s", out)
 	}
 	if cmd := s.HandleKey(w, key("h")); cmd.Kind != SessionCmdStartHost {
@@ -248,10 +248,10 @@ func TestSessionScreenStopHostConfirm(t *testing.T) {
 	if cmd := s.HandleKey(w, key("h")); cmd.Kind != SessionCmdNone {
 		t.Fatalf("[h] emitted %v before confirm", cmd.Kind)
 	}
-	if out := s.Render(w, 120); !strings.Contains(out, "stop hosting? drops 1 guest(s)") {
+	if out := s.Render(w, 140, 0); !strings.Contains(out, "stop hosting? drops 1 guest(s)") {
 		t.Errorf("stop-host confirm prompt missing:\n%s", out)
 	}
-	if !strings.Contains(s.Render(w, 120), "[h] stop hosting") {
+	if !strings.Contains(s.Render(w, 140, 0), "[h] stop hosting") {
 		t.Error("host key hints missing the stop-hosting toggle")
 	}
 	if cmd := s.HandleKey(w, key("y")); cmd.Kind != SessionCmdStopHost {
@@ -288,10 +288,10 @@ func TestSessionScreenPromoteKey(t *testing.T) {
 		t.Errorf("[p] on admin = %+v, want Demote", cmd)
 	}
 
-	if !strings.Contains(s.Render(w, 120), "[p] promote/demote") {
+	if !strings.Contains(s.Render(w, 140, 0), "[p] promote/demote") {
 		t.Error("host footer missing the promote/demote hint")
 	}
-	if !strings.Contains(s.Render(w, 120), "admin") {
+	if !strings.Contains(s.Render(w, 140, 0), "admin") {
 		t.Error("admin role tag missing on the roster row")
 	}
 }
@@ -303,7 +303,7 @@ func TestSessionScreenAdminView(t *testing.T) {
 	w := sessionWorld(t, false)
 	w.Session.CanAdminister = true // promoted admin, still not the host
 
-	out := s.Render(w, 120)
+	out := s.Render(w, 140, 0)
 	if !strings.Contains(out, "INVITES") || !strings.Contains(out, "[i] invite") {
 		t.Errorf("admin screen missing the invites pane:\n%s", out)
 	}
@@ -383,10 +383,10 @@ func TestSessionScreenRestartConfirm(t *testing.T) {
 	if cmd := s.HandleKey(w, key("f4")); cmd.Kind != SessionCmdNone {
 		t.Fatalf("[F4] emitted %v before confirm", cmd.Kind)
 	}
-	if out := s.Render(w, 120); !strings.Contains(out, "restart server? drops 1 player(s)") {
+	if out := s.Render(w, 140, 0); !strings.Contains(out, "restart server? drops 1 player(s)") {
 		t.Errorf("restart confirm prompt missing:\n%s", out)
 	}
-	if !strings.Contains(s.Render(w, 120), "[F4] restart server") {
+	if !strings.Contains(s.Render(w, 140, 0), "[F4] restart server") {
 		t.Error("admin footer missing the restart hint")
 	}
 	if cmd := s.HandleKey(w, key("y")); cmd.Kind != SessionCmdRestart {
@@ -412,7 +412,7 @@ func TestSessionScreenRestartConfirm(t *testing.T) {
 	if cmd := guestScreen.HandleKey(wg, key("f4")); cmd.Kind != SessionCmdToast || guestScreen.confirmRestart {
 		t.Errorf("guest [F4] armed a restart (cmd %+v)", cmd)
 	}
-	if strings.Contains(guestScreen.Render(wg, 120), "restart server") {
+	if strings.Contains(guestScreen.Render(wg, 140, 0), "restart server") {
 		t.Error("guest screen offers the restart key")
 	}
 }
@@ -455,13 +455,13 @@ func TestSessionScreenFlightKeysInactiveFooter(t *testing.T) {
 	const want = "flight controls are inactive on this screen"
 	s := NewSessionScreen(sessionTheme())
 	w := sessionWorld(t, true)
-	if out := s.Render(w, 120); !strings.Contains(out, want) {
+	if out := s.Render(w, 140, 0); !strings.Contains(out, want) {
 		t.Errorf("host roster missing flight-keys-inactive footer:\n%s", out)
 	}
 
 	guestScreen := NewSessionScreen(sessionTheme())
 	wg := sessionWorld(t, false)
-	if out := guestScreen.Render(wg, 120); !strings.Contains(out, want) {
+	if out := guestScreen.Render(wg, 140, 0); !strings.Contains(out, want) {
 		t.Errorf("guest roster missing flight-keys-inactive footer:\n%s", out)
 	}
 }
@@ -475,7 +475,7 @@ func TestSessionScreenVersionSurface(t *testing.T) {
 	s := NewSessionScreen(sessionTheme())
 	w := sessionWorld(t, true)
 	w.Session.RunningVersion = "0.30.0"
-	out := s.Render(w, 120)
+	out := s.Render(w, 140, 0)
 	if !strings.Contains(out, "running v0.30.0") {
 		t.Errorf("running version missing:\n%s", out)
 	}
@@ -490,7 +490,7 @@ func TestSessionScreenVersionSurface(t *testing.T) {
 	s = NewSessionScreen(sessionTheme())
 	w.Session.AvailableVersion = "v0.31.0"
 	w.Session.AdoptCapable = true
-	out = s.Render(w, 120)
+	out = s.Render(w, 140, 0)
 	if !strings.Contains(out, "update available: v0.31.0") {
 		t.Errorf("available version missing:\n%s", out)
 	}
@@ -502,18 +502,18 @@ func TestSessionScreenVersionSurface(t *testing.T) {
 	}
 	// The confirm is adopt-aware.
 	s.HandleKey(w, key("f4"))
-	if !strings.Contains(s.Render(w, 120), "restart to adopt v0.31.0? drops") {
-		t.Errorf("adopt confirm prompt missing:\n%s", s.Render(w, 120))
+	if !strings.Contains(s.Render(w, 140, 0), "restart to adopt v0.31.0? drops") {
+		t.Errorf("adopt confirm prompt missing:\n%s", s.Render(w, 140, 0))
 	}
 
 	// Update available + NOT adopt-capable → manual path, plain restart.
 	s = NewSessionScreen(sessionTheme())
 	w.Session.AdoptCapable = false
-	out = s.Render(w, 120)
+	out = s.Render(w, 140, 0)
 	if !strings.Contains(out, "update available: v0.31.0") {
 		t.Error("readout should still show the available version without adopt tooling")
 	}
-	if !strings.Contains(out, "update manually — "+releasesPageURL) {
+	if !strings.Contains(out, "update manually: "+releasesPageURL) {
 		t.Errorf("manual update path missing:\n%s", out)
 	}
 	if strings.Contains(out, "restart to adopt") {
@@ -532,7 +532,7 @@ func TestSessionScreenGuestNoHost(t *testing.T) {
 	if cmd := s.HandleKey(w, key("h")); cmd.Kind != SessionCmdNone {
 		t.Errorf("[h] as guest = %+v, want no command", cmd)
 	}
-	if strings.Contains(s.Render(w, 120), "stop hosting") {
+	if strings.Contains(s.Render(w, 140, 0), "stop hosting") {
 		t.Error("guest screen offers the stop-hosting toggle")
 	}
 }
@@ -569,7 +569,7 @@ func TestSessionScreenRendezvous(t *testing.T) {
 	w.Session.Players[1].DeltaT = 30 * time.Second
 	w.Ghosts = []sim.Ghost{{Owner: "SHA256:guest", CraftID: 42, Handle: "gern"}}
 
-	if !strings.Contains(s.Render(w, 120), "[w] rendezvous") {
+	if !strings.Contains(s.Render(w, 140, 0), "[w] rendezvous") {
 		t.Error("footer missing the [w] rendezvous hint")
 	}
 
@@ -613,7 +613,7 @@ func TestSessionScreenRendezvousRowMarkers(t *testing.T) {
 	w.Session.Players[1].WantsRendezvous = true
 	w.Session.Players[2].RendezvousOut = true
 
-	out := s.Render(w, 120)
+	out := s.Render(w, 140, 0)
 	if !strings.Contains(out, "wants rendezvous") {
 		t.Errorf("incoming-arm marker missing:\n%s", out)
 	}
@@ -630,7 +630,7 @@ func TestSessionScreenSpectate(t *testing.T) {
 	w := sessionWorld(t, true)
 	w.Ghosts = []sim.Ghost{{Owner: "SHA256:guest", CraftID: 42, Handle: "gern"}}
 
-	if !strings.Contains(s.Render(w, 120), "[v] spectate") {
+	if !strings.Contains(s.Render(w, 140, 0), "[v] spectate") {
 		t.Error("footer missing the [v] spectate hint")
 	}
 
@@ -672,7 +672,7 @@ func TestSessionScreenGhostPicker(t *testing.T) {
 		t.Fatalf("[t] on multi-craft player = %+v, want none (opens picker)", cmd)
 	}
 	// The sub-list enumerates the ghosts by name.
-	out := s.Render(w, 120)
+	out := s.Render(w, 140, 0)
 	for _, want := range []string{"Scout", "Hauler", "Probe"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("picker missing craft %q:\n%s", want, out)
@@ -723,7 +723,7 @@ func TestSessionScreenTargetableCount(t *testing.T) {
 	// a targetable ghost here — the other two are landed.
 	w.Session.Players[1].CraftCount = 3
 	w.Ghosts = []sim.Ghost{{Owner: "SHA256:guest", CraftID: 1, Handle: "gern", Name: "Scout"}}
-	out := s.Render(w, 120)
+	out := s.Render(w, 140, 0)
 	if !strings.Contains(out, "3 vessels (1 here)") {
 		t.Errorf("row should distinguish targetable-here count:\n%s", out)
 	}
@@ -745,7 +745,7 @@ func TestSessionScreenGhostPickerFromInvitesPane(t *testing.T) {
 	s.HandleKey(w, key("tab")) // focus the invites pane
 	s.HandleKey(w, key("t"))   // opens the picker
 
-	out := s.Render(w, 120)
+	out := s.Render(w, 140, 0)
 	for _, want := range []string{"Scout", "Hauler"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("picker opened from the invites pane but never rendered %q:\n%s", want, out)
@@ -918,7 +918,7 @@ func TestTruncWidthFitsColumn(t *testing.T) {
 func TestSessionScreenColumnsStayAligned(t *testing.T) {
 	s := NewSessionScreen(sessionTheme())
 	rowFor := func(w *sim.World, handle string) string {
-		for _, line := range strings.Split(stripANSI(s.Render(w, 140)), "\n") {
+		for _, line := range strings.Split(stripANSI(s.Render(w, 140, 0)), "\n") {
 			if strings.Contains(line, handle) {
 				return line
 			}
@@ -964,7 +964,7 @@ func TestSessionScreenInviteColumnsStayAligned(t *testing.T) {
 		{Code: "AB2C-DE3F", Handle: "newbie", Age: 3 * time.Minute},
 		{Code: "SHORT", Handle: "second", Age: time.Minute},
 	}
-	lines := strings.Split(stripANSI(s.Render(w, 140)), "\n")
+	lines := strings.Split(stripANSI(s.Render(w, 140, 0)), "\n")
 	var a, b string
 	for _, l := range lines {
 		if strings.Contains(l, "newbie") {
@@ -988,7 +988,7 @@ func TestSessionScreenInviteColumnsStayAligned(t *testing.T) {
 func TestSessionScreenSelfRowHasNoTargetableCount(t *testing.T) {
 	s := NewSessionScreen(sessionTheme())
 	w := sessionWorld(t, true) // jason is self, 2 vessels, in Sol
-	out := stripANSI(s.Render(w, 140))
+	out := stripANSI(s.Render(w, 140, 0))
 	for _, line := range strings.Split(out, "\n") {
 		if strings.Contains(line, "jason") && strings.Contains(line, "here)") {
 			t.Errorf("self row claims a targetable count:\n  %q", line)

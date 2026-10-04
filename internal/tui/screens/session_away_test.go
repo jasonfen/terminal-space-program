@@ -48,7 +48,7 @@ func TestSessionScreenMarksAway(t *testing.T) {
 	w := sessionWorld(t, true)
 	w.Session.Players[1].Away = true // gern, still online
 
-	out := s.Render(w, 120)
+	out := s.Render(w, 140, 0)
 
 	if !strings.Contains(out, "away") {
 		t.Errorf("an away player is indistinguishable from an attended one:\n%s", out)
@@ -58,7 +58,7 @@ func TestSessionScreenMarksAway(t *testing.T) {
 	}
 	// Away is not offline: their session is still simulating, and the row
 	// must not imply their craft have stopped.
-	attended := s.Render(sessionWorld(t, true), 120)
+	attended := s.Render(sessionWorld(t, true), 140, 0)
 	if strings.Contains(attended, "away") || strings.Contains(attended, "◐") {
 		t.Errorf("away rendering leaked onto a roster with nobody away:\n%s", attended)
 	}

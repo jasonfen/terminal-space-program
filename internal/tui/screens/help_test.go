@@ -61,8 +61,8 @@ func TestHelpScrollsToLastRow(t *testing.T) {
 	const w, ht = 100, 12
 
 	top := h.Render(w, ht, keylayout.QWERTY)
-	if !strings.Contains(top, "keybindings") {
-		t.Error("title missing from the top of the page")
+	if !strings.Contains(top, "READOUT GLOSSARY") {
+		t.Error("page title (footer position line) missing from the page")
 	}
 	if strings.Contains(top, "orbit floor") {
 		t.Fatalf("setup invalid: last row already visible at height %d", ht)
@@ -167,13 +167,13 @@ func TestHelpTitleAndFooterAlwaysShown(t *testing.T) {
 	for _, ht := range []int{8, 20, 60} {
 		h.ResetScroll()
 		h.OpenPage(15)
-		top := h.Render(80, ht, keylayout.QWERTY)
-		if !strings.Contains(top, "keybindings") || !strings.Contains(top, "close") {
+		top := h.Render(120, ht, keylayout.QWERTY)
+		if !strings.Contains(top, "READOUT GLOSSARY") || !strings.Contains(top, "close") {
 			t.Errorf("height %d: title/footer missing at top:\n%s", ht, top)
 		}
 		h.HandleKey(helpKey("end"))
-		bot := h.Render(80, ht, keylayout.QWERTY)
-		if !strings.Contains(bot, "keybindings") || !strings.Contains(bot, "close") {
+		bot := h.Render(120, ht, keylayout.QWERTY)
+		if !strings.Contains(bot, "READOUT GLOSSARY") || !strings.Contains(bot, "close") {
 			t.Errorf("height %d: title/footer missing at bottom:\n%s", ht, bot)
 		}
 	}

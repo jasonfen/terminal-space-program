@@ -38,14 +38,11 @@ func assertSpawnChromeVisible(t *testing.T, out string, height int) {
 		t.Errorf("rendered %d lines, want <= %d (terminal height) — chrome will scroll off the top:\n%s",
 			len(lines), height, out)
 	}
-	if !strings.Contains(out, "spawn vessel") {
-		t.Errorf("title missing from rendered output:\n%s", out)
-	}
 	if !strings.Contains(out, "[f]") {
 		t.Errorf("\"[f]\" system-filter hint missing from rendered output:\n%s", out)
 	}
-	if !strings.Contains(out, "→ ") {
-		t.Errorf("CRAFT TYPE cursor marker (\"→ \") missing from rendered output — the player can't tell which vessel Enter will spawn:\n%s", out)
+	if !strings.Contains(out, "▸ ") {
+		t.Errorf("CRAFT TYPE cursor marker (\"▸ \") missing from rendered output — the player can't tell which vessel Enter will spawn:\n%s", out)
 	}
 	for _, want := range []string{"POSITION", "PARENT BODY", "ALTITUDE", "DIRECTION"} {
 		if !strings.Contains(out, want) {
@@ -94,8 +91,15 @@ func TestSpawnFormFitsAt140x40DesignSize(t *testing.T) {
 func TestSpawnFormWindowActuallyHidesRowsAtFloor(t *testing.T) {
 	s := spawnFormMidCatalog(t)
 	total := s.visibleCatalogCount()
-	out := s.Render(104, 24)
-	shown := strings.Count(out, "➤")
+	out := s.Render(104, 23)
+	// Every catalog row carries its crew tag ("crewed" also matches
+	// "uncrewed"). The rows used to be counted by their ➤ bullet, which
+	// B11 / G9 Q5 removed; counting a glyph that is never drawn would have
+	// passed vacuously.
+	shown := strings.Count(out, "crewed")
+	if shown == 0 {
+		t.Fatalf("no catalog rows rendered at all:\n%s", out)
+	}
 	if shown >= total {
 		t.Errorf("windowed render shows %d of %d catalog rows, want far fewer:\n%s", shown, total, out)
 	}
@@ -120,4 +124,24 @@ func TestSpawnFormRenderUnboundedHeightShowsWholeCatalog(t *testing.T) {
 			t.Errorf("loadout %q missing from unbounded-height render", l.Name)
 		}
 	}
+}
+
+// spawnRightText renders the form at the given width and returns only the
+// right-hand field-box column's text, ANSI stripped and re-flowed to one
+// line (wrapped notes read as the sentence they are). Tests that check a
+// note "verbatim" use it, since the notes now wrap inside a narrow box.
+func spawnRightText(s *SpawnCraft, width int) string {
+	_, rw := spawnWidths(width)
+	var parts []string
+	for _, ln := range strings.Split(stripANSI(s.Render(width, 0)), "\n") {
+		r := []rune(ln)
+		// the right column ends one cell before the frame's right border
+		end := len(r) - 1
+		start := end - rw
+		if start < 0 || end > len(r) {
+			continue
+		}
+		parts = append(parts, strings.Trim(string(r[start:end]), "│╭╮╰╯─ "))
+	}
+	return strings.Join(strings.Fields(strings.Join(parts, " ")), " ")
 }

@@ -425,8 +425,10 @@ func (m *Maneuver) Resize(cols, rows int) {
 	if canvasCols > 80 {
 		canvasCols = 80
 	}
-	// Reserve 3 rows for title (1) + footer (1) + a 1-row gap between
-	// title and the canvas-panel border.
+	// Reserve 3 rows: footer (1) + the two border rows HUDBox adds around
+	// the canvas. rows is the body height below the App's Title Row. (The
+	// old reserve forgot the border rows, so the render was a row too tall
+	// and the alt-screen dropped the title row; B11 / G9 contradiction 3.)
 	canvasRows := rows - 3
 	if canvasRows < 6 {
 		canvasRows = 6
@@ -806,6 +808,16 @@ func (m *Maneuver) Render(w *sim.World, cols, rows, selectedBody int) string {
 		labelCol = 0
 	}
 	m.canvas.SetCellLabelColored(labelCol, m.canvas.Rows()-1, viewLabel, m.theme.Primary.GetForeground())
+	// B11 / G9 Q7: the Orientation Cue, mirrored above the label.
+	cue := orientationCue(viewBasis(w), w)
+	for i, text := range cue {
+		row := m.canvas.Rows() - 1 - len(cue) + i
+		col := m.canvas.Cols() - len([]rune(text)) - 1
+		if row < 0 || col < 0 {
+			continue
+		}
+		m.canvas.SetCellLabelColored(col, row, text, m.theme.Primary.GetForeground())
+	}
 
 	canvasPanel := m.theme.HUDBox.Render(m.canvas.String())
 
@@ -822,21 +834,27 @@ func (m *Maneuver) Render(w *sim.World, cols, rows, selectedBody int) string {
 		"[tab] field  [←/→] cycle  [↑/↓] cursor  [enter] commit/load  [esc] cancel  [ctrl+d] del node  [ctrl+k] clear all",
 		cols, "…",
 	))
-	// Plan Cursor (ADR 0047 / #428): the title bar names the node under
-	// the cursor, same as the form's own "BURN PLAN" header — see
-	// renderForm's identical switch for why cur/editingIdx can diverge
-	// (browsing a different node than the one loaded in the form).
+	return body + "\n" + footer
+}
+
+// TitleContext is the Title Row's context for the planner: the Plan Cursor
+// (ADR 0047 / #428) names the node under it, same as the form's own "BURN
+// PLAN" header (see renderForm's identical switch for why cur/editingIdx
+// can diverge: browsing a different node than the one loaded in the form).
+func (m *Maneuver) TitleContext(w *sim.World) string {
+	c := w.ActiveCraft()
+	if c == nil {
+		return ""
+	}
 	nNodes := len(c.Nodes)
 	cur := m.cursorRow(nNodes)
-	title := "maneuver planner"
 	switch {
 	case cur < nNodes && cur == m.editingIdx:
-		title = fmt.Sprintf("maneuver planner — editing node %d of %d", cur+1, nNodes)
+		return fmt.Sprintf("editing node %d of %d", cur+1, nNodes)
 	case cur < nNodes:
-		title = fmt.Sprintf("maneuver planner — node %d of %d", cur+1, nNodes)
+		return fmt.Sprintf("node %d of %d", cur+1, nNodes)
 	}
-	title = ansi.Truncate(title, cols, "…")
-	return m.theme.Title.Render(title) + "\n" + body + "\n" + footer
+	return ""
 }
 
 func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVector, shadowPrimary bodies.CelestialBody, mu float64, selectedBody, panelWidth int) string {

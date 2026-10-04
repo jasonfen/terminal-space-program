@@ -26,15 +26,13 @@ func TestControlsCycleAndCancel(t *testing.T) {
 func TestControlsRenderShowsLayout(t *testing.T) {
 	c := NewControlsScreen(chipTestTheme())
 
-	out := c.Render(keylayout.QWERTY, 80)
+	out := c.Render(keylayout.QWERTY, 80, 0)
 	if !strings.Contains(out, "QWERTY") {
 		t.Errorf("render missing active layout label:\n%s", out)
 	}
-	if !strings.Contains(out, "controls") || !strings.Contains(out, "[Back]") {
-		t.Errorf("render missing title chrome:\n%s", out)
-	}
+	// The Title Row (name, screen, [Back]) is the App's now (B11).
 
-	out = c.Render(keylayout.QWERTZ, 80)
+	out = c.Render(keylayout.QWERTZ, 80, 0)
 	if !strings.Contains(out, "QWERTZ") {
 		t.Errorf("render missing QWERTZ label:\n%s", out)
 	}
@@ -44,12 +42,9 @@ func TestControlsRenderShowsLayout(t *testing.T) {
 // [Back] cancels, and the hit ranges are recomputed by Render.
 func TestControlsClickCyclesRow(t *testing.T) {
 	c := NewControlsScreen(chipTestTheme())
-	c.Render(keylayout.QWERTY, 80) // populate click ranges
+	c.Render(keylayout.QWERTY, 80, 0) // populate click ranges
 
-	if got := c.HandleClick(2, c.layoutBtn.row); got != ControlsActionCycleLayout {
+	if got := c.HandleClick(3, c.layoutBtn.row+frameInset); got != ControlsActionCycleLayout {
 		t.Errorf("click on layout row = %v, want ControlsActionCycleLayout", got)
-	}
-	if got := c.HandleClick(c.backBtn.colStart, 0); got != ControlsActionCancel {
-		t.Errorf("click on [Back] = %v, want ControlsActionCancel", got)
 	}
 }

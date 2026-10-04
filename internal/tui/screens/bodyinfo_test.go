@@ -17,10 +17,9 @@ func TestBodyInfoFooterNamesLiveKeys(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	out := NewBodyInfo(chipTestTheme()).Render(w, 0, 100, 40)
-	// The last row is a blank the App overlays flashes on (#495); the footer
-	// is the last non-empty row.
-	footer := out[strings.LastIndex(strings.TrimRight(out, "\n"), "\n")+1:]
-	footer = strings.TrimRight(footer, "\n")
+	// The legend rides the frame's bottom edge (B11); t/H/P live in the
+	// ACTIONS box above it so a flash on that edge cannot hide them.
+	footer := out[strings.LastIndex(out, "\n")+1:]
 	t.Logf("body info footer: %q", footer)
 
 	if !strings.Contains(footer, "[h/l]") {
@@ -33,8 +32,11 @@ func TestBodyInfoFooterNamesLiveKeys(t *testing.T) {
 		t.Errorf("footer still advertises [q] quit; q is radial+ here: %q", footer)
 	}
 	for _, k := range []string{"[t] target", "[H] transfer", "[P] porkchop"} {
-		if !strings.Contains(footer, k) {
-			t.Errorf("footer does not advertise %q: %q", k, footer)
+		if !strings.Contains(out, k) {
+			t.Errorf("screen does not advertise %q:\n%s", k, out)
+		}
+		if strings.Contains(footer, k) {
+			t.Errorf("%q is on the bottom edge, where a flash would hide it: %q", k, footer)
 		}
 	}
 	if !strings.Contains(footer, "[esc]") {

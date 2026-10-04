@@ -147,10 +147,10 @@ func TestReadoutDialectGuard(t *testing.T) {
 // not isIspException, when a real Isp call site moves or a new one is
 // added.
 var ispExceptionLines = map[string]bool{
-	"vab_render.go:638": true,
-	"spawn.go:1111":     true,
-	"spawn.go:1131":     true,
-	"spawn.go:1511":     true,
+	"vab_render.go:610": true,
+	"spawn.go:1125":     true,
+	"spawn.go:1145":     true,
+	"spawn.go:1524":     true,
 }
 
 // isIspException reports whether a `%.0fs` hit at path:lineNo is

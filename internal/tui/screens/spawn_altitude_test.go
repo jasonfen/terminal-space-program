@@ -209,7 +209,7 @@ func TestAltitudeCommitClamps(t *testing.T) {
 	if !strings.Contains(s.altNote, "raised from 60") {
 		t.Errorf("altNote = %q, missing the raised-from-60 clamp sentence", s.altNote)
 	}
-	out := s.Render(80, 0)
+	out := spawnRightText(s, 140)
 	if !strings.Contains(out, "↳") || !strings.Contains(out, s.altNote) {
 		t.Errorf("rendered form does not show the clamp note verbatim:\n%s", out)
 	}
@@ -425,7 +425,7 @@ func TestAltitudeNoOrbitBodyKeepsEnterDead(t *testing.T) {
 		t.Error("Enter opened the edit box over an Empty Orbit Band — there is nothing to edit")
 	}
 
-	out := s.Render(80, 0)
+	out := spawnRightText(s, 140)
 	if !strings.Contains(out, "✕") {
 		t.Errorf("rendered form missing the ✕ no-orbit marker:\n%s", out)
 	}

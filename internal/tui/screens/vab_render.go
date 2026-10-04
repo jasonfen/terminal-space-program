@@ -209,117 +209,102 @@ func (v *VAB) refreshDesigns() {
 	}
 }
 
-// Render returns the VAB screen for the current mode. width is the terminal
-// width.
+// TitleScreen is the Title Row's screen name for the VAB's current mode
+// (B11 / G9 Q1).
+func (v *VAB) TitleScreen() string {
+	switch v.mode {
+	case vabModeNaming:
+		return "Save design"
+	case vabModeLoad:
+		return "Load design"
+	case vabModeTarget:
+		return "Σ Δv target"
+	}
+	return "Vehicle Assembly (VAB)"
+}
+
+// Render returns the VAB screen for the current mode inside the shared form
+// frame (B11 / G9 Q4). width x height is the whole framed block (the App's
+// Title Row sits above it).
 func (v *VAB) Render(width, height int) string {
 	switch v.mode {
 	case vabModeNaming:
 		return v.renderNaming(width, height)
 	case vabModeLoad:
-		return v.renderLoad(width)
+		return v.renderLoad(width, height)
 	case vabModeTarget:
-		return v.renderTarget(width)
+		return v.renderTarget(width, height)
 	default:
 		return v.renderBuild(width, height)
 	}
 }
 
-// renderBuild lays out the VAB as two side-by-side columns — the component
-// palette on the left, the vehicle (glyph view) on the right — with a live
-// stats strip and a full-width footer (ADR 0030 §2). The columns are joined
-// per-line so a single linear cursor reads naturally down whichever column
-// has focus.
+// vabBuildHints are the build screen's two key-hint rows. #373: they used to
+// be single un-wrapped strings that ran off the right edge at 104 columns
+// and hid "[s] save" / "[o] open" outright; wrapFooterHints wraps whole
+// "[key] hint" pairs instead of cutting mid-token.
+const (
+	vabHints1 = "[tab] column  [↑/↓] move  [←/→] swap  [PgUp/Dn] section  [a] add  [n] new stage  [x] remove"
+	vabHints2 = "[+/−] qty  ['['/']'] reorder  [y] duplicate  [enter] crack part  [d] dock seam  [c] fuse  [t] target  [s] save  [o] open"
+)
+
+// renderBuild lays out the VAB as three titled boxes in the frame (B11 / G9
+// Q4): PALETTE and INSPECT stacked on the left, VEHICLE on the right, and a
+// KEYS box along the bottom (the hint rows are too long for the frame's
+// one-row bottom edge, which carries just the way out). The boxes are
+// aligned per row so a single linear cursor reads naturally down whichever
+// column has focus (ADR 0030 §2).
 func (v *VAB) renderBuild(width, height int) string {
-	if width < 64 {
-		width = 64 // floor: keep both columns usable on a narrow terminal
-	}
-	palW := clampI(width*42/100, 30, 48)
-	vehW := width - palW - 3 // 3 = " │ " separator
+	inner := width - 2*frameInset
+	palW := clampI(inner*42/100, 30, 52)
+	vehW := inner - palW - 1
 	if vehW < 28 {
 		vehW = 28
 	}
 
-	var head []string
-	head = append(head, v.theme.Title.Render("terminal-space-program — Vehicle Assembly (VAB)"))
+	var keys []string
+	if v.flash != "" {
+		keys = append(keys, v.theme.Warning.Render(v.flash))
+	}
+	for _, ln := range wrapFooterHints(vabHints1, inner-2) {
+		keys = append(keys, v.theme.Footer.Render(ln))
+	}
+	for _, ln := range wrapFooterHints(vabHints2, inner-2) {
+		keys = append(keys, v.theme.Footer.Render(ln))
+	}
+	keysBox := formBox(v.theme, "KEYS", keys, inner)
+
+	// The vehicle column windows around the cursor into whatever height the
+	// keys box leaves (#501): frame rows, keys box, then the vehicle box's
+	// own top edge, title and bottom edge.
+	vehRows := 0
+	if height > 0 {
+		vehRows = height - 2 - len(keysBox) - 3
+	}
+
 	name := v.name
 	if name == "" {
 		name = "(unsaved)"
 	}
-	head = append(head, v.theme.Dim.Render("design: ")+v.theme.Primary.Render(name))
+	vehLines := append([]string{v.theme.Dim.Render("design: ") + v.theme.Primary.Render(name)},
+		v.renderVehicleColumn(vehW-2, vehRows-1)...)
 
-	var foot []string
-	if v.flash != "" {
-		foot = append(foot, "", v.theme.Warning.Render(v.flash))
-	}
-	foot = append(foot, v.theme.Dim.Render(strings.Repeat("─", clampI(width, 40, 100))))
-	// #373: these two key-hint rows used to be single un-wrapped strings —
-	// at 104 columns the second row (132 chars) ran off the right edge and
-	// was cut off mid-token, hiding "[s] save" / "[o] open" entirely (the
-	// only on-screen way to learn how to keep a build). wrapFooterHints
-	// wraps to as many rows as width needs instead, keeping each "[key]
-	// hint" pair whole rather than splitting it across lines.
-	for _, ln := range wrapFooterHints(
-		"[tab] column  [↑/↓] move  [←/→] swap  [PgUp/Dn] section  [a] add  [n] new stage  [x] remove", width) {
-		foot = append(foot, v.theme.Footer.Render(ln))
-	}
-	for _, ln := range wrapFooterHints(
-		"[+/−] qty  ['['/']'] reorder  [y] duplicate  [enter] crack part  [d] dock seam  [c] fuse  [t] target  [s] save  [o] open  [esc] back", width) {
-		foot = append(foot, v.theme.Footer.Render(ln))
-	}
+	left := formBox(v.theme, v.focusTitle("PALETTE  components · parts", focusPalette), v.renderPalette(palW-2), palW)
+	left = append(left, v.renderInspector(palW)...)
+	right := formBox(v.theme, v.focusTitle("VEHICLE  top → bottom", focusStack), vehLines, vehW)
 
-	// The vehicle column windows around the cursor into whatever height the
-	// head and footer leave (#501): head rows + blank above, footer below.
-	bodyH := height - len(head) - 1 - len(foot)
-	body := v.joinColumns(v.renderPaletteColumn(palW), v.renderVehicleColumn(vehW, bodyH), palW)
-
-	return strings.Join(head, "\n") + "\n\n" + body + "\n" + strings.Join(foot, "\n")
+	body := joinBoxes(left, right, palW, 1)
+	body = append(body, keysBox...)
+	return formFrame(v.theme, body, width, height, v.theme.Footer.Render("[esc] back to the menu"))
 }
 
-// joinColumns stitches the left and right column line-lists side by side,
-// padding the left to leftW (display width) and inserting a dim divider, so
-// the divider stays vertically aligned regardless of ANSI styling or wide
-// runes.
-func (v *VAB) joinColumns(left, right []string, leftW int) string {
-	sep := v.theme.Dim.Render(" │ ")
-	n := maxInt(len(left), len(right))
-	var b strings.Builder
-	for i := 0; i < n; i++ {
-		l, r := "", ""
-		if i < len(left) {
-			l = left[i]
-		}
-		if i < len(right) {
-			r = right[i]
-		}
-		pad := leftW - lipgloss.Width(l)
-		if pad < 0 {
-			pad = 0
-		}
-		b.WriteString(l)
-		b.WriteString(strings.Repeat(" ", pad))
-		b.WriteString(sep)
-		b.WriteString(r)
-		if i < n-1 {
-			b.WriteString("\n")
-		}
+// focusTitle is a box title that goes bold cyan while its column has focus
+// (B11 / G9 Q5: focus needs no triangle of its own).
+func (v *VAB) focusTitle(label string, col vabFocus) string {
+	if v.focus == col {
+		return v.theme.Title.Render(label)
 	}
-	return b.String()
-}
-
-// renderPaletteColumn is the left column: a kind-grouped, windowed component
-// palette plus a live inspector for the item under the cursor (ADR 0030 §7).
-func (v *VAB) renderPaletteColumn(w int) []string {
-	hdr := "PALETTE  components · parts"
-	var lines []string
-	if v.focus == focusPalette {
-		lines = append(lines, v.theme.Warning.Render("▶ "+hdr))
-	} else {
-		lines = append(lines, v.theme.Dim.Render("  "+hdr))
-	}
-	lines = append(lines, v.renderPalette(w)...)
-	lines = append(lines, "")
-	lines = append(lines, v.renderInspector(w)...)
-	return lines
+	return label
 }
 
 // renderPalette windows the palette around the cursor with kind-section
@@ -357,10 +342,10 @@ func (v *VAB) renderPalette(w int) []string {
 		var styled string
 		switch {
 		case i == v.paletteIdx && v.focus == focusPalette:
-			marker = v.theme.Warning.Render("→ ")
+			marker = v.theme.Primary.Render("▸") + " "
 			styled = v.theme.Warning.Render(label)
 		case i == v.paletteIdx:
-			marker = v.theme.Primary.Render("→ ")
+			marker = v.theme.Primary.Render("▸") + " "
 			styled = v.theme.Primary.Render(label)
 		default:
 			styled = label // readable default foreground, not the disabled grey (#500)
@@ -370,7 +355,8 @@ func (v *VAB) renderPalette(w int) []string {
 	return lines
 }
 
-// renderInspector is a whole box (top, sides, bottom) describing the item
+// renderInspector is the INSPECT box (a formBox, the same rounded box every
+// form uses) describing the item
 // under the cursor of the FOCUSED column: the palette item, or the vehicle
 // row (component group or stage) when the vehicle column has focus (#501,
 // ADR 0030 §7).
@@ -378,7 +364,7 @@ func (v *VAB) renderInspector(w int) []string {
 	if w < 12 {
 		return nil
 	}
-	inner := w - 4 // "│ " + content + " │"
+	inner := w - 2 // inside the box borders
 	var body []string
 	add := func(s string) { body = append(body, s) }
 	addText := func(text string) { add(truncWidth(text, inner)) }
@@ -393,23 +379,15 @@ func (v *VAB) renderInspector(w int) []string {
 			v.inspectComponent(it.id, inner, add, addText)
 			add(v.inspectAddLine(inner))
 		} else if m, ok := spacecraft.StageCatalog[it.id]; ok {
-			add(v.theme.Primary.Render(truncWidth(m.Glyph+" "+m.Name, inner)))
+			add(v.theme.Primary.Render(truncWidth(m.Name, inner)))
 			addText("catalog part · " + m.Tier)
-			addText("→ adds as a new opaque stage")
+			addText("adds as a new opaque stage")
 		} else {
 			add(v.theme.Primary.Render(truncWidth(it.id, inner)))
 		}
 	}
 
-	edge := func(s string) string { return v.theme.Dim.Render(s) }
-	title := "┌ inspect "
-	lines := []string{edge(title + strings.Repeat("─", maxInt(0, w-lipgloss.Width(title)-1)) + "┐")}
-	for _, b := range body {
-		pad := maxInt(0, inner-lipgloss.Width(b))
-		lines = append(lines, edge("│ ")+b+strings.Repeat(" ", pad)+edge(" │"))
-	}
-	lines = append(lines, edge("└"+strings.Repeat("─", w-2)+"┘"))
-	return lines
+	return formBox(v.theme, "INSPECT", body, w)
 }
 
 // inspectComponent writes the component's name line, stats and description.
@@ -458,7 +436,7 @@ func (v *VAB) inspectStackRow(inner int, add func(string), addText func(string))
 	}
 	g := groups[r.group]
 	if g.placeholder {
-		add(v.theme.Primary.Render(truncWidth(g.kind+" — empty slot", inner)))
+		add(v.theme.Primary.Render(truncWidth(g.kind+": empty slot", inner)))
 		addText(fmt.Sprintf("[←/→] picks a %s for S%d", g.kind, r.stageIdx+1))
 		return true
 	}
@@ -476,16 +454,16 @@ func (v *VAB) inspectStackRow(inner int, add func(string), addText func(string))
 func (v *VAB) inspectAddLine(w int) string {
 	it := v.palette[v.paletteIdx]
 	if len(v.stages) == 0 {
-		return truncWidth("→ adds to a new stage", w)
+		return truncWidth("adds to a new stage", w)
 	}
 	i := clampI(v.stageIdx, 0, len(v.stages)-1)
 	if v.stages[i].isCatalog() {
-		return truncWidth("→ starts a new stage (block is opaque)", w)
+		return truncWidth("starts a new stage (block is opaque)", w)
 	}
 	if warn := v.fuelConflict(v.stages[i].components, it.id); warn != "" {
 		return v.theme.Warning.Render(truncWidth("✗ "+warn, w))
 	}
-	return truncWidth(fmt.Sprintf("→ adds to S%d", i+1), w)
+	return truncWidth(fmt.Sprintf("adds to S%d", i+1), w)
 }
 
 // paletteItemLabel returns the kind (section header / jump key) and the short
@@ -506,13 +484,7 @@ func (v *VAB) paletteItemLabel(it vabPaletteItem) (kind, label string) {
 // vehicle view — stage headers with their kind-folded component groups, seam
 // and decouple markers, and soft-validation warnings (ADR 0030 §1-§4).
 func (v *VAB) renderVehicleColumn(w, h int) []string {
-	hdr := "VEHICLE  top → bottom"
 	var lines []string
-	if v.focus == focusStack {
-		lines = append(lines, v.theme.Warning.Render("▶ "+hdr))
-	} else {
-		lines = append(lines, v.theme.Dim.Render("  "+hdr))
-	}
 	stages := v.resolvedStages()
 	stats := spacecraft.StackStats(stages)
 	lines = append(lines, v.theme.Primary.Render(truncWidth(v.targetReadout(stats), w)))
@@ -521,7 +493,7 @@ func (v *VAB) renderVehicleColumn(w, h int) []string {
 	}
 	lines = append(lines, "")
 	if len(v.stages) == 0 {
-		lines = append(lines, v.theme.Dim.Render("(empty — [n] new stage · [tab] palette · [a] add)"))
+		lines = append(lines, v.theme.Dim.Render("(empty: [n] new stage · [tab] palette · [a] add)"))
 		return lines
 	}
 	rows := v.stackRows()
@@ -654,9 +626,10 @@ func (v *VAB) stageHeaderLine(i int, stats spacecraft.VehicleStats, sel, cursorO
 	marker := "  "
 	switch {
 	case sel:
-		marker = v.theme.Warning.Render("→ ")
+		marker = v.theme.Primary.Render("▸") + " "
 		text = v.theme.Warning.Render(text)
 	case cursorOn:
+		marker = v.theme.Primary.Render("▸") + " "
 		text = v.theme.Primary.Render(text)
 	default:
 		text = v.theme.Primary.Render(text)
@@ -679,14 +652,16 @@ func (v *VAB) groupLine(g vabGroup, sel, cursorOn bool, w int) string {
 			name += fmt.Sprintf(" ×%d", g.count)
 		}
 	}
-	name = truncWidth(name, w-6)
+	name = truncWidth(name, w-10)
 	marker := "    "
 	if cursorOn {
+		cur := "  " + v.theme.Primary.Render("▸") + " "
 		if sel {
-			marker = v.theme.Warning.Render("  → ")
-			name = v.theme.Warning.Render(name)
+			marker = cur
+			// ‹ name › is the one "left/right swaps this" mark (B11 / G9 Q5).
+			name = v.theme.Warning.Render("‹ " + name + " ›")
 		} else {
-			marker = "  → "
+			marker = cur
 			name = v.theme.Primary.Render(name)
 		}
 	}
@@ -789,54 +764,49 @@ func (v *VAB) stageLabel(vs vabStage) string {
 	return fmt.Sprintf("%d components", len(vs.components))
 }
 
+// vabModalBox puts a modal's lines in one titled box, centred-ish at the top
+// of the frame, with the legend on the bottom edge.
+func (v *VAB) vabModalBox(title string, lines []string, width, height int, legend string) string {
+	inner := width - 2*frameInset
+	return formFrame(v.theme, formBox(v.theme, title, lines, clampI(inner, 30, 100)), width, height, v.theme.Footer.Render(legend))
+}
+
 func (v *VAB) renderNaming(width, height int) string {
 	var lines []string
-	lines = append(lines, v.theme.Title.Render("terminal-space-program — save design"))
-	lines = append(lines, "")
 	lines = append(lines, "  "+v.theme.Primary.Render("name: ")+v.theme.Warning.Render(v.name+"▏"))
 	lines = append(lines, "")
 	if v.flash != "" {
 		lines = append(lines, "  "+v.theme.Warning.Render(v.flash))
 		lines = append(lines, "")
 	}
-	foot := v.theme.Footer.Render("[enter] save  [esc] cancel")
 	// #501: show the vehicle being named, windowed to what the prompt leaves.
-	vehW := clampI(width-2, 28, 100)
+	vehW := clampI(width-2*frameInset-4, 28, 96)
 	room := 0
 	if height > 0 {
-		room = maxInt(0, height-len(lines)-2)
+		room = maxInt(0, height-len(lines)-6)
 	}
 	if room >= 6 || height <= 0 {
 		for _, ln := range v.renderVehicleColumn(vehW, room) {
 			lines = append(lines, "  "+ln)
 		}
-		lines = append(lines, "")
 	}
-	lines = append(lines, foot)
-	return strings.Join(lines, "\n")
+	return v.vabModalBox("SAVE DESIGN", lines, width, height, "[enter] save · [esc] cancel")
 }
 
 // renderTarget is the Σ Δv target input modal (ADR 0032 §8).
-func (v *VAB) renderTarget(width int) string {
+func (v *VAB) renderTarget(width, height int) string {
 	var lines []string
-	lines = append(lines, v.theme.Title.Render("terminal-space-program — Σ Δv target"))
-	lines = append(lines, "")
 	lines = append(lines, "  "+v.theme.Primary.Render("target Σ Δv (m/s): ")+v.theme.Warning.Render(v.targetInput+"▏"))
 	lines = append(lines, "")
 	lines = append(lines, "  "+v.theme.Dim.Render(fmt.Sprintf("current Σ Δv: %.0f m/s", v.Stats().TotalDV)))
-	lines = append(lines, "")
 	if v.flash != "" {
-		lines = append(lines, "  "+v.theme.Warning.Render(v.flash))
-		lines = append(lines, "")
+		lines = append(lines, "", "  "+v.theme.Warning.Render(v.flash))
 	}
-	lines = append(lines, v.theme.Footer.Render("[enter] set  [empty ⏎] clear  [esc] cancel"))
-	return strings.Join(lines, "\n")
+	return v.vabModalBox("Σ Δv TARGET", lines, width, height, "[enter] set · [empty ⏎] clear · [esc] cancel")
 }
 
-func (v *VAB) renderLoad(width int) string {
+func (v *VAB) renderLoad(width, height int) string {
 	var lines []string
-	lines = append(lines, v.theme.Title.Render("terminal-space-program — load design"))
-	lines = append(lines, "")
 	if len(v.designs) == 0 {
 		lines = append(lines, "  "+v.theme.Dim.Render("(no saved designs yet)"))
 	} else {
@@ -844,7 +814,7 @@ func (v *VAB) renderLoad(width int) string {
 			marker := "  "
 			row := fmt.Sprintf("%s  (%d stages)", d.Name(), len(d.Loadout.Parts))
 			if i == v.loadIdx {
-				marker = v.theme.Warning.Render("→ ")
+				marker = v.theme.Primary.Render("▸") + " "
 				row = v.theme.Warning.Render(row)
 			} else {
 				row = v.theme.Dim.Render(row)
@@ -852,11 +822,8 @@ func (v *VAB) renderLoad(width int) string {
 			lines = append(lines, "  "+marker+row)
 		}
 	}
-	lines = append(lines, "")
 	if v.flash != "" {
-		lines = append(lines, "  "+v.theme.Warning.Render(v.flash))
-		lines = append(lines, "")
+		lines = append(lines, "", "  "+v.theme.Warning.Render(v.flash))
 	}
-	lines = append(lines, v.theme.Footer.Render("[↑/↓] pick  [enter] load  [x] delete  [esc] back"))
-	return strings.Join(lines, "\n")
+	return v.vabModalBox("LOAD DESIGN", lines, width, height, "[↑/↓] pick · [enter] load · [x] delete · [esc] back")
 }

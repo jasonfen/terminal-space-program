@@ -18,7 +18,7 @@ import (
 func TestRosterCraftColumnBlankWithoutReport(t *testing.T) {
 	s := NewSessionScreen(sessionTheme())
 	w := sessionWorld(t, true)
-	out := s.Render(w, 120)
+	out := s.Render(w, 140, 0)
 
 	// "pat" is the enrolled-but-never-reported row in the fixture.
 	var patRow string
@@ -40,7 +40,7 @@ func TestRosterCraftColumnBlankWithoutReport(t *testing.T) {
 
 	// A player who DID report keeps a real count — including a genuine zero.
 	w.Session.Players[1].CraftCount = 0
-	out = s.Render(w, 120)
+	out = s.Render(w, 140, 0)
 	if !regexp.MustCompile(`gern.*0 vessels`).MatchString(out) {
 		t.Errorf("a reported empty slate must still read \"0 vessels\":\n%s", out)
 	}

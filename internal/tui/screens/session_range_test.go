@@ -28,7 +28,7 @@ func TestSessionRosterShowsRangeAndTheLockRule(t *testing.T) {
 			{Fingerprint: "SHA256:far", Handle: "far", HasReport: true},
 		},
 	}
-	out := s.Render(w, 120)
+	out := s.Render(w, 140, 0)
 	if !strings.Contains(out, "RANGE") {
 		t.Errorf("roster has no RANGE column:\n%s", out)
 	}

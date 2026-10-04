@@ -255,3 +255,51 @@ func TestHintStripSwapsForInspect(t *testing.T) {
 		t.Errorf("expected the generic Hint Strip back after InspectClear:\n%s", out)
 	}
 }
+
+// TestOrientationCueSaysWhichWayNorthIsAndHowThePlaneIsSeen (B11 / G9 Q7):
+// the six projections of one equatorial orbit are told apart by two rows
+// above `view:`, not by the corner word alone. Mirror pairs differ where
+// they can: Top reads north toward you (⊙), Bottom away (⊗).
+func TestOrientationCueSaysWhichWayNorthIsAndHowThePlaneIsSeen(t *testing.T) {
+	w, _, _ := leoWorld(t)
+	cases := []struct {
+		mode        sim.ViewMode
+		north, wing string
+	}{
+		{sim.ViewTop, "N ⊙", "plane ○ face-on"},
+		{sim.ViewBottom, "N ⊗", "plane ○ face-on"},
+		{sim.ViewRight, "N ↑", "plane ─ edge-on"},
+		{sim.ViewLeft, "N ↑", "plane ─ edge-on"},
+		{sim.ViewOrbitFlat, "N ⊙", "plane ○ face-on"},
+		{sim.ViewTilted, "N ↑", "plane ◠ tilted"},
+	}
+	seen := map[string]bool{}
+	for _, tc := range cases {
+		w.ViewMode = tc.mode
+		v := NewOrbitView(chipTestTheme())
+		v.Resize(140, 40)
+		lines := strings.Split(stripANSI(v.Render(w, 0, 140, 40)), "\n")
+		// The canvas's last row carries `view:`; the cue is the two above it.
+		viewRow := -1
+		for i, ln := range lines {
+			if strings.Contains(ln, "view: ") {
+				viewRow = i
+			}
+		}
+		if viewRow < 2 {
+			t.Fatalf("%v: no view: row", tc.mode)
+		}
+		north, plane := lines[viewRow-2], lines[viewRow-1]
+		if !strings.Contains(north, tc.north) {
+			t.Errorf("%v: north row %q, want %q", tc.mode, north, tc.north)
+		}
+		if !strings.Contains(plane, tc.wing) {
+			t.Errorf("%v: plane row %q, want %q", tc.mode, plane, tc.wing)
+		}
+		seen[tc.north+"|"+tc.wing] = true
+	}
+	// Six views, but the cue tells at least the four distinct pictures apart.
+	if len(seen) < 4 {
+		t.Errorf("only %d distinct cue pairs across six views", len(seen))
+	}
+}

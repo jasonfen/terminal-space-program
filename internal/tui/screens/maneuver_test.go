@@ -550,3 +550,42 @@ func TestFreshPlanFireAtReadsNow(t *testing.T) {
 		}
 	}
 }
+
+// TestManeuverRenderFitsBodyHeight: B11 / G9 contradiction 3. Resize
+// reserved too few rows around the HUDBox canvas border, so the render was
+// a row too tall and the alt-screen dropped the top row (the planner's
+// title). The body (everything under the App's Title Row) must fit the
+// rows it is given, at both design sizes; the App-level twin
+// TestManeuverScreenKeepsTitleRow checks the title lands on row 0.
+func TestManeuverRenderFitsBodyHeight(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	for _, sz := range [][2]int{{140, 39}, {181, 48}} {
+		cols, rows := sz[0], sz[1]
+		// Production's HUDBox is a bordered style; the zero Theme's is
+		// not, which would hide the two border rows this test is about.
+		m := NewManeuver(Theme{HUDBox: lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)})
+		m.Resize(cols, rows)
+		lines := strings.Split(m.Render(w, cols, rows, 0), "\n")
+		if len(lines) > rows {
+			t.Errorf("%dx%d: body is %d rows tall, want <= %d", cols, rows, len(lines), rows)
+		}
+	}
+}
+
+// TestManeuverPlannerMirrorsTheOrientationCue (B11 / G9 Q7): the planner's
+// canvas carries the same two cue rows above its `view:` label as the map.
+func TestManeuverPlannerMirrorsTheOrientationCue(t *testing.T) {
+	w, _, _ := leoWorld(t)
+	w.ViewMode = sim.ViewTop
+	m := NewManeuver(Theme{HUDBox: lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)})
+	m.Resize(140, 39)
+	out := stripANSI(m.Render(w, 140, 39, 0))
+	for _, want := range []string{"N ⊙", "plane ○ face-on", "view: Top"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("planner canvas lacks %q:\n%s", want, out)
+		}
+	}
+}
