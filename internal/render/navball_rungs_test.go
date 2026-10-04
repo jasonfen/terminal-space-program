@@ -88,12 +88,12 @@ func TestNavballMarkerWinsRungCell(t *testing.T) {
 	}
 }
 
-// TestNavballRungsSurviveBackFace: the ladder is a front-hemisphere
-// feature; at the pole view (sub-observer lat 90, the pad) the rungs ring
-// below the centre and none is drawn above it.
+// TestNavballRungsPoleView: the ladder is a front-hemisphere feature; just
+// off the pole (sub-observer lat 88.9, the last degree before the pole hides them) the rungs
+// ring below the centre and none is drawn above it.
 func TestNavballRungsPoleView(t *testing.T) {
 	forceTrueColor(t)
-	out := NavballString(24, 12, 90, -90, nil)
+	out := NavballString(24, 12, 88.9, -90, nil)
 	for r, line := range strings.Split(out, "\n") {
 		has := strings.Contains(line, "─")
 		if r <= 6 && has {
@@ -103,5 +103,100 @@ func TestNavballRungsPoleView(t *testing.T) {
 	a, b := cellAt(t, out, 7, 11), cellAt(t, out, 7, 12)
 	if a.glyph+b.glyph != "80" {
 		t.Errorf("row 7 cols 11-12 = %q%q, want the 80 rung just below the centre", a.glyph, b.glyph)
+	}
+}
+
+// rowGlyphs joins a rendered row's cell glyphs.
+func rowGlyphs(out string, row int) string {
+	var sb strings.Builder
+	for _, c := range navballCells(strings.Split(out, "\n")[row]) {
+		sb.WriteString(c.glyph)
+	}
+	return sb.String()
+}
+
+func isDigit(g string) bool { return len(g) == 1 && g[0] >= '0' && g[0] <= '9' }
+
+// TestNavballRungNeverShowsHalfNumber (wave C review, MEDIUM): when a marker
+// takes one of a rung's two digit cells the surviving digit would read as a
+// different number (`6△`, `4⊕`, `1E`). Sweep a marker across the +60 rung's
+// cells and require that every row shows either both digits or none.
+func TestNavballRungNeverShowsHalfNumber(t *testing.T) {
+	forceTrueColor(t)
+	hits := 0
+	for lon := -100.0; lon <= -80.0; lon += 0.5 {
+		for _, lat := range []float64{58, 60, 62} {
+			m := NavballMarker{LatDeg: lat, LonDeg: lon, Glyph: 'E', Color: ColorNavballMarkerPrograde}
+			out := NavballString(24, 12, 30, -90, []NavballMarker{m})
+			for r := range strings.Split(out, "\n") {
+				cells := navballCells(strings.Split(out, "\n")[r])
+				for c, cell := range cells {
+					if !isDigit(cell.glyph) {
+						continue
+					}
+					l := c > 0 && isDigit(cells[c-1].glyph)
+					rr := c+1 < len(cells) && isDigit(cells[c+1].glyph)
+					if !l && !rr {
+						t.Fatalf("marker lat %g lon %g: row %d col %d lone digit %q in %q", lat, lon, r, c, cell.glyph, rowGlyphs(out, r))
+					}
+				}
+			}
+			if r3 := rowGlyphs(out, 3); strings.ContainsRune(r3, 'E') {
+				hits++
+			}
+		}
+	}
+	if hits == 0 {
+		t.Fatal("instrument check: the marker never landed on row 3; sweep proves nothing")
+	}
+}
+
+// TestNavballRungsSymmetricAtLevel (wave C review, LOW): at a level nose the
+// ladder reads the same numbers above and below the horizon; a row shared by
+// two rungs goes to the one nearer the horizon on both sides.
+func TestNavballRungsSymmetricAtLevel(t *testing.T) {
+	forceTrueColor(t)
+	out := NavballString(24, 12, 0, -90, nil)
+	above, below := map[string]bool{}, map[string]bool{}
+	for r := range strings.Split(out, "\n") {
+		cells := navballCells(strings.Split(out, "\n")[r])
+		for c := 0; c+1 < len(cells); c++ {
+			if isDigit(cells[c].glyph) && isDigit(cells[c+1].glyph) {
+				n := cells[c].glyph + cells[c+1].glyph
+				if r < 6 {
+					above[n] = true
+				} else {
+					below[n] = true
+				}
+			}
+		}
+	}
+	// The horizon row takes one of the 12 rows, so below has one row fewer
+	// than above: exact mirroring is impossible, but a rung nearer the
+	// horizon must never lose its row to a farther one on only one side.
+	for _, n := range []string{"10", "20", "30"} {
+		if !above[n] || !below[n] {
+			t.Errorf("rung %s above=%v below=%v at level, want both (above %v below %v)", n, above[n], below[n], above, below)
+		}
+	}
+	for n := range below {
+		if !above[n] {
+			t.Errorf("rung %s drawn below the horizon only (above %v below %v)", n, above, below)
+		}
+	}
+}
+
+// TestNavballRungsHiddenAtPole (wave C review, LOW): within RungPoleHideDeg
+// of the pole the rungs are concentric circles and carry no information, so
+// none is drawn; one step off the pole the ladder returns.
+func TestNavballRungsHiddenAtPole(t *testing.T) {
+	forceTrueColor(t)
+	for _, lat := range []float64{90, 89.5, -90} {
+		if out := NavballString(24, 12, lat, -90, nil); strings.Contains(out, "─") {
+			t.Errorf("sub-observer lat %g draws rungs (%d dashes)", lat, strings.Count(out, "─"))
+		}
+	}
+	if out := NavballString(24, 12, 80, -90, nil); !strings.Contains(out, "─") {
+		t.Error("sub-observer lat 80 should still draw the ladder (instrument check)")
 	}
 }
