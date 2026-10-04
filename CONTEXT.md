@@ -3092,7 +3092,8 @@ flight bar reads `PAUSED`; closing it hands the clock back as it was.
 
 **Orientation Cue** (G9 Q7): the two rows above `view:` on the map and in
 the maneuver planner: `N` plus a direction (`↑` up the screen, `⊙` toward
-you, `⊗` away) and `plane` edge-on `─`, face-on `○` or tilted `◠`, so six
+you, `⊗` away) and `plane` and the angle the ring looks open (`◠ 67° open`; 0° `─` a flat line,
+90° `○` a full circle), so six
 near-identical projections can be told apart.
 
 **Readout Contract** (grilled 2026-09-09, ADR 0049; extended by ADR

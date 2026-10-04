@@ -24,13 +24,13 @@ func TestChromeRulesAreInF1AndControlsDoc(t *testing.T) {
 	}
 	for name, text := range map[string]string{"F1": f1.String(), "docs/controls.md": string(raw)} {
 		for _, want := range []string{
-			"returns to the menu", // Q3: menu-opened screens go back to the menu
-			"returns to the map",  // Q3: key-opened screens go back to the map
-			"PAUSED",              // Q6: the menu stops the clock and the bar says so
-			"N ⊙",                 // Q7: the cue vocabulary
-			"edge-on",             // Q7
-			"face-on",             // Q7
-			"as it was",           // Q6: closing hands the clock back
+			"returns to the menu",  // Q3: menu-opened screens go back to the menu
+			"returns to the map",   // Q3: key-opened screens go back to the map
+			"PAUSED",               // Q6: the menu stops the clock and the bar says so
+			"N ⊙",                  // Q7: the cue vocabulary
+			"open your orbit ring", // Q7 follow-up
+			"67° open",             // Q7 follow-up
+			"as it was",            // Q6: closing hands the clock back
 		} {
 			if !strings.Contains(text, want) {
 				t.Errorf("%s does not state %q", name, want)

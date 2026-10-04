@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
@@ -13,6 +14,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -140,6 +142,26 @@ func TestTitleRowClockStaysInOneColumn(t *testing.T) {
 	a.world.ViewMode = sim.ViewLaunch
 	if d := fromRight(); d != mapDist {
 		t.Errorf("launch clock is %d cells from the right edge, map's is %d", d, mapDist)
+	}
+	// Paused (B11 follow-up): the clock must not move when PAUSED appears,
+	// and the middle reads the warp you will resume at, never 0x.
+	a.world.ViewMode = sim.ViewTilted
+	a.world.Clock.WarpIdx = 2
+	runningDist := fromRight()
+	a.world.Clock.Paused = true
+	for name, screen := range map[string]screenID{"map": screenOrbit, "settings": screenSettings, "help": screenHelp} {
+		a.active = screen
+		if d := fromRight(); d != runningDist {
+			t.Errorf("paused %s clock is %d cells from the right edge, running map's is %d", name, d, runningDist)
+		}
+		row := firstRow(a)
+		want := fmt.Sprintf("warp %.0fx", sim.WarpFactors[2])
+		if !strings.Contains(row, want+"  ") || !strings.Contains(row, "PAUSED") || strings.Contains(row, "warp 0x") {
+			t.Errorf("paused %s row = %q, want %q then PAUSED and no warp 0x", name, row, want)
+		}
+		if strings.Index(row, "PAUSED") < strings.Index(row, want) {
+			t.Errorf("paused %s row = %q, PAUSED should follow the warp", name, row)
+		}
 	}
 }
 
@@ -528,5 +550,55 @@ func TestFormClicksStillLandAfterTheFrame(t *testing.T) {
 		if a.layout == lay {
 			t.Errorf("%dx%d: clicking the layout row did not change the layout", sz[0], sz[1])
 		}
+	}
+}
+
+// TestSaveFromThePauseMenuLoadsAsFlown (B11 follow-up): the pause menu and
+// the Saves screen both hold the clock while they are up. A save written
+// from there must record the pause state from BEFORE those holds, or every
+// menu save loads frozen. Real key path: menu, Save Game, save as, load it
+// back. A save made while the player had really paused still loads paused.
+func TestSaveFromThePauseMenuLoadsAsFlown(t *testing.T) {
+	for _, wasPaused := range []bool{false, true} {
+		a := newChromeApp(t, 140, 40)
+		a.world.Clock.Paused = wasPaused
+		openSavesVia(t, a, "s")
+		press(a, "enter") // New save row, naming
+		press(a, "enter") // accept the default name
+		if a.active != screenMenu {
+			t.Fatalf("wasPaused=%v: Save-As left %v, want the menu", wasPaused, a.active)
+		}
+		press(a, "esc") // fly on
+		if a.world.Clock.Paused != wasPaused {
+			t.Errorf("wasPaused=%v: live clock paused=%v after the save", wasPaused, a.world.Clock.Paused)
+		}
+		openSavesVia(t, a, "l")
+		press(a, "enter") // the one named save
+		press(a, "enter") // confirm the load
+		if a.active != screenOrbit {
+			t.Fatalf("wasPaused=%v: load left %v, want the map", wasPaused, a.active)
+		}
+		if a.world.Clock.Paused != wasPaused {
+			t.Errorf("wasPaused=%v: the loaded save has Clock.Paused=%v", wasPaused, a.world.Clock.Paused)
+		}
+	}
+	// Overwrite goes through the same hold.
+	a := newChromeApp(t, 140, 40)
+	if _, err := save.WriteNamed(a.world, "Old"); err != nil {
+		t.Fatal(err)
+	}
+	openSavesVia(t, a, "s")
+	press(a, "down")  // onto the existing save
+	press(a, "enter") // overwrite confirm
+	press(a, "enter")
+	if a.active != screenMenu {
+		t.Fatalf("overwrite left %v, want the menu", a.active)
+	}
+	press(a, "esc")
+	openSavesVia(t, a, "l")
+	press(a, "enter")
+	press(a, "enter")
+	if a.active != screenOrbit || a.world.Clock.Paused {
+		t.Errorf("overwritten save loaded: active %v paused %v, want the map running", a.active, a.world.Clock.Paused)
 	}
 }
