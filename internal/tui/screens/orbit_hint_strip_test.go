@@ -1,6 +1,8 @@
 package screens
 
 import (
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -266,12 +268,12 @@ func TestOrientationCueSaysWhichWayNorthIsAndHowThePlaneIsSeen(t *testing.T) {
 		mode        sim.ViewMode
 		north, wing string
 	}{
-		{sim.ViewTop, "N ⊙", "plane ○ face-on"},
-		{sim.ViewBottom, "N ⊗", "plane ○ face-on"},
-		{sim.ViewRight, "N ↑", "plane ─ edge-on"},
-		{sim.ViewLeft, "N ↑", "plane ─ edge-on"},
-		{sim.ViewOrbitFlat, "N ⊙", "plane ○ face-on"},
-		{sim.ViewTilted, "N ↑", "plane ◠ tilted"},
+		{sim.ViewTop, "N ⊙", "plane ○ 90° open"},
+		{sim.ViewBottom, "N ⊗", "plane ○ 90° open"},
+		{sim.ViewRight, "N ↑", "plane ─ 0° open"},
+		{sim.ViewLeft, "N ↑", "plane ─ 0° open"},
+		{sim.ViewOrbitFlat, "N ⊙", "plane ○ 90° open"},
+		{sim.ViewTilted, "N ↑", "plane ◠ 65° open"},
 	}
 	seen := map[string]bool{}
 	for _, tc := range cases {
@@ -301,5 +303,51 @@ func TestOrientationCueSaysWhichWayNorthIsAndHowThePlaneIsSeen(t *testing.T) {
 	// Six views, but the cue tells at least the four distinct pictures apart.
 	if len(seen) < 4 {
 		t.Errorf("only %d distinct cue pairs across six views", len(seen))
+	}
+}
+
+// TestOrientationCuePlaneRowReadsHowOpenTheRingLooks (B11 follow-up): the
+// plane row is an angle, asin(|normal . depth|), 0 = a flat line, 90 = a
+// full circle. An equatorial LEO (the orbit plane tilted 23.44 degrees off
+// the ecliptic, line of nodes along world Y) reads 67 from Top and 23 from
+// Right, and the glyph follows the angle.
+func TestOrientationCuePlaneRowReadsHowOpenTheRingLooks(t *testing.T) {
+	w, _, _ := leoWorld(t)
+	c := w.ActiveCraft()
+	mu := c.Primary.GravitationalParameter()
+	r := c.Primary.RadiusMeters() + 300e3
+	v := math.Sqrt(mu / r)
+	eps := 23.44 * math.Pi / 180
+	c.State.R = orbital.Vec3{Y: r}
+	c.State.V = orbital.Vec3{X: -v * math.Cos(eps), Z: -v * math.Sin(eps)}
+	cases := []struct {
+		mode sim.ViewMode
+		want string
+	}{
+		{sim.ViewTop, "plane ◠ 67° open"},
+		{sim.ViewBottom, "plane ◠ 67° open"},
+		{sim.ViewRight, "plane ◠ 23° open"},
+		{sim.ViewLeft, "plane ◠ 23° open"},
+	}
+	for _, tc := range cases {
+		w.ViewMode = tc.mode
+		var plane string
+		for _, row := range orientationCue(viewBasis(w), w) {
+			if strings.HasPrefix(row, "plane") {
+				plane = row
+			}
+		}
+		if plane != tc.want {
+			t.Errorf("%v: plane row %q, want %q", tc.mode, plane, tc.want)
+		}
+	}
+	// Glyph bands: a flat line under 5 degrees, a full circle over 85.
+	for _, tc := range []struct {
+		deg  float64
+		want string
+	}{{2, "plane ─ 2° open"}, {4.4, "plane ─ 4° open"}, {30, "plane ◠ 30° open"}, {86, "plane ○ 86° open"}} {
+		if got := planeCueRow(math.Sin(tc.deg * math.Pi / 180)); got != tc.want {
+			t.Errorf("%v deg: %q, want %q", tc.deg, got, tc.want)
+		}
 	}
 }

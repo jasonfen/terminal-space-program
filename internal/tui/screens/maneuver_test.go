@@ -583,7 +583,7 @@ func TestManeuverPlannerMirrorsTheOrientationCue(t *testing.T) {
 	m := NewManeuver(Theme{HUDBox: lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)})
 	m.Resize(140, 39)
 	out := stripANSI(m.Render(w, 140, 39, 0))
-	for _, want := range []string{"N ⊙", "plane ○ face-on", "view: Top"} {
+	for _, want := range []string{"N ⊙", "plane ○ 90° open", "view: Top"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("planner canvas lacks %q:\n%s", want, out)
 		}
