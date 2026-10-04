@@ -1542,6 +1542,9 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	v.drawInspectFlare()
 
 	v.canvas.SetCellLabelColored(0, v.canvas.Rows()-1, viewLabel, v.theme.Primary.GetForeground())
+	// B11 / G9 Q7: which way north points and how the orbit plane is seen,
+	// above the label (the maneuver planner mirrors both).
+	v.stampOrientationCue(w)
 	strip := hintStripText
 	if v.Inspecting() {
 		strip = inspectHintStripText

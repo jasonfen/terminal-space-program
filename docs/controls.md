@@ -126,7 +126,7 @@ readout shows you why before you watch it fall back.
 ## Keyboard layout
 
 The keys below are written for **QWERTY**. If you play on a **QWERTZ** keyboard
-(where the physical `Y` and `Z` keys are swapped), open `Esc → [Keyboard layout]` and
+(where the physical `Y` and `Z` keys are swapped), open `Esc → Keyboard layout` and
 switch the layout to QWERTZ. Every binding then stays under the same finger as
 on QWERTY, and the in-game help overlay (`F1`) relabels itself to match your
 keycaps. The choice is saved to your config and applies to every game. AZERTY,
@@ -138,7 +138,7 @@ Dvorak, and free per-key remapping aren't supported yet.
 
 | Key | Action |
 |---|---|
-| `Esc` | Back; on the main view, open the pause menu: save / load / build / settings / keyboard layout / help / quit. `↑`/`↓` pick a row (it is highlighted) and `Enter` opens it; the letter beside each row (`s` `l` `b` `t` `k` `h` `q`) is a shortcut |
+| `Esc` | Back to the screen that opened you: a screen opened from the pause menu (saves, settings, keyboard layout, help, build) returns to the menu, one opened by a key (missions, spawn, body info, session) returns to the map. On the main view, open the pause menu: a card over the dimmed map with save / load / build / settings / keyboard layout / help / quit. While the card is open the clock is stopped (the flight bar reads `PAUSED`); closing it hands the clock back as it was. `↑`/`↓` pick a row (it is highlighted) and `Enter` opens it; the letter beside each row (`s` `l` `b` `t` `k` `h` `q`) is a shortcut. A second `Esc` from the menu flies |
 | `Ctrl+C` | Quit: asks whether to save first ([y] save and quit, [n] quit without saving, [esc] stay). The pause menu's Quit row asks the same question |
 | `F1` or `?` | Toggle the help overlay. It opens on an index: "Your first flight" first, then every section with a note on when you would want it. `1`-`9` jump to a page, `↑`/`↓` + `Enter` reach the rest, `Esc` goes back to the index (and closes from the index), `F1` closes from anywhere. Long pages scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`. `?` opens the same overlay as `F1` everywhere `F1` does |
 | `F2` | Declutter: hide all eight instrument boxes and the navball together for a clean look at the orbit. Press again to restore. ENGINE and PROPELLANT stay up while an engine is lit, so fuel and a live burn are never hidden mid-burn |
@@ -156,7 +156,7 @@ Dvorak, and free per-key remapping aren't supported yet.
 | `+` / `-` | Zoom in / out. Zoom is remembered per focus |
 | `f` / `F` | Cycle what the camera follows, forward / back (whole system → each body → your vessel). Focusing a body your trajectory passes fits the camera to its sphere of influence so the capture curve fills the canvas. Also the way back from spectating another player |
 | `g` | Reset the camera to the whole system (clears any pan) |
-| `v` | Cycle the projection: Tilted (default, a 3D-style perspective) → Top → Right → Bottom → Left → Orbit-flat. The camera re-frames once when focus, view, or system changes and otherwise stays where you put it |
+| `v` | Cycle the projection: Tilted (default, a 3D-style perspective) → Top → Right → Bottom → Left → Orbit-flat. Two rows above the `view:` label read which way north points (`N ↑` up the screen, `N ⊙` toward you, `N ⊗` away) and how your orbit plane is seen (`plane ─` edge-on, `plane ○` face-on, `plane ◠` tilted); the maneuver planner shows the same cue. The camera re-frames once when focus, view, or system changes and otherwise stays where you put it |
 | `>` / `<` | Tilt the 3D view up / down (tilted view only). Camera only: a missed shift can move the view, never the vessel |
 | `{` / `}` | Yaw the 3D view left / right in 5° steps, wrapping (tilted view only) |
 | `o` | **Proximity view** for the last kilometres of a rendezvous: the target vessel sits dead centre, its direction of travel runs right, the planet is below, so you read your drift the way the physics works. Needs a vessel target; a `CLOSE RANGE` chip reminds you once within 35 km. The plain arrows still trim your vessel here; the PROXIMITY chip's `trim:` row and the bottom legend show it. Press again to return to the map as you left it |
@@ -438,7 +438,7 @@ While the picker is open it holds the plain arrows, so the flight trims and the 
 session has no way to plant a node on someone else's vessel, planting there
 is a later slice; the row still shows what that burn would cost.
 
-### Vehicle Assembly Building (`Esc → [Build (VAB)]`)
+### Vehicle Assembly Building (`Esc → Build (VAB)`)
 
 Design a custom vehicle from fine parts and save it to launch later. You
 compose **components** (engines, fuel tanks, command cores, antennas,

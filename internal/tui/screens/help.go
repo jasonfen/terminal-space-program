@@ -56,7 +56,7 @@ type helpSection struct {
 var helpSections = []helpSection{
 	{"GENERAL", [][2]string{
 		{"F1 / ?", "toggle this help"},
-		{"esc", "back / close (or save/load/build/settings/keyboard layout/help/quit menu on home)"},
+		{"esc", "back to the screen that opened you: a screen opened from the pause menu returns to the menu, one opened by a key returns to the map (esc on the map opens the pause menu)"},
 		{"F5 / F9", "quicksave / quickload"},
 		{"ctrl+c", "quit: asks to save first, [esc] stays"},
 	}},
@@ -64,6 +64,7 @@ var helpSections = []helpSection{
 	// (Keymap.AttitudeRadialOut), so it gets a menu-scoped section of its
 	// own rather than a line in GENERAL (#423).
 	{"PAUSE MENU (esc from the map)", [][2]string{
+		{"esc", "fly again: the menu stops the clock while it is open (the flight bar reads PAUSED) and closing it gives the clock back as it was; esc again from a screen the menu opened returns here"},
 		{"↑ / ↓", "pick a row (it is highlighted); [enter] opens it"},
 		{"s / l / b / t / k / h", "shortcuts beside each row: save / load / build (VAB) / settings / keyboard layout / help"},
 		{"q", "quit: asks to save first, same prompt as ctrl+c (menu only; in flight q is radial+)"},
@@ -72,7 +73,7 @@ var helpSections = []helpSection{
 		{"f / F", "cycle camera focus forward / back (system → bodies → vessels; exits spectate)"},
 		{"g", "reset camera to the whole system"},
 		{"+ / -", "zoom in / out"},
-		{"v", "cycle view (Tilted / Top / Right / Bottom / Left / Orbit-flat), projections only"},
+		{"v", "cycle view (Tilted / Top / Right / Bottom / Left / Orbit-flat), projections only; two rows above \"view:\" read which way north points (N ↑ up, N ⊙ toward you, N ⊗ away) and how the orbit plane is seen (─ edge-on, ○ face-on, ◠ tilted)"},
 		{"V", "launch / surface view: chase-cam on your active vessel (press again to return)"},
 		{"o", "proximity view: close-range picture of your target vessel (press again to return)"},
 		{"shift+← / shift+→", "pan the view left / right (displaces the tracked center; [g] or any refocus clears it)"},

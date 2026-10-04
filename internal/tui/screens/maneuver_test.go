@@ -574,3 +574,18 @@ func TestManeuverRenderFitsBodyHeight(t *testing.T) {
 		}
 	}
 }
+
+// TestManeuverPlannerMirrorsTheOrientationCue (B11 / G9 Q7): the planner's
+// canvas carries the same two cue rows above its `view:` label as the map.
+func TestManeuverPlannerMirrorsTheOrientationCue(t *testing.T) {
+	w, _, _ := leoWorld(t)
+	w.ViewMode = sim.ViewTop
+	m := NewManeuver(Theme{HUDBox: lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)})
+	m.Resize(140, 39)
+	out := stripANSI(m.Render(w, 140, 39, 0))
+	for _, want := range []string{"N ⊙", "plane ○ face-on", "view: Top"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("planner canvas lacks %q:\n%s", want, out)
+		}
+	}
+}

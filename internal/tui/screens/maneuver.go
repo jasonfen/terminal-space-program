@@ -808,6 +808,16 @@ func (m *Maneuver) Render(w *sim.World, cols, rows, selectedBody int) string {
 		labelCol = 0
 	}
 	m.canvas.SetCellLabelColored(labelCol, m.canvas.Rows()-1, viewLabel, m.theme.Primary.GetForeground())
+	// B11 / G9 Q7: the Orientation Cue, mirrored above the label.
+	cue := orientationCue(viewBasis(w), w)
+	for i, text := range cue {
+		row := m.canvas.Rows() - 1 - len(cue) + i
+		col := m.canvas.Cols() - len([]rune(text)) - 1
+		if row < 0 || col < 0 {
+			continue
+		}
+		m.canvas.SetCellLabelColored(col, row, text, m.theme.Primary.GetForeground())
+	}
 
 	canvasPanel := m.theme.HUDBox.Render(m.canvas.String())
 
