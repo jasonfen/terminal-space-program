@@ -889,7 +889,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	for i := range sys.Bodies {
 		b := sys.Bodies[i]
 		pos := w.BodyPosition(b)
-		r := BodyPixelRadius(b, i == 0, scale, canvasReach)
+		r := mapBodyPixelRadius(b, i == 0, scale, canvasReach)
 		color := render.ColorFor(b)
 		// v0.6.4: tag body pixels with BodyID so HitAt resolves
 		// mouse clicks back to the body for click-to-focus.
@@ -1024,11 +1024,8 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// generic colored circle. Replaces the i == 0 crosshair-
 		// style ring + center dot the orbit screen used pre-v0.8.5.7.
 		if b.BodyType == "Star" {
-			for _, mult := range []float64{1.4, 1.8} {
-				cpx := int(float64(r) * mult)
-				if cpx > r && cpx < canvasReach {
-					v.canvas.RingColoredOutline(pos, cpx, render.ColorSunCorona)
-				}
+			for _, cpx := range coronaRingRadii(r, canvasReach, innermostOrbitPx(&sys, b, i == 0, scale)) {
+				v.canvas.RingColoredOutline(pos, cpx, render.ColorSunCorona)
 			}
 		}
 		// Draw rings for ringed bodies (v0.5.11). World-scale ring
@@ -1102,7 +1099,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// Also skip when the body has a per-pixel texture rendering
 		// (v0.7.2.1+) — the glyph would blot the centre of the
 		// continent/cloud detail it's meant to highlight.
-		if i != 0 && !render.BodyHasTexture(b, r) {
+		if i != 0 && !render.BodyHasTexture(b, r) && !foldsIntoParent(&sys, b, pos, w, scale) {
 			if g := render.GlyphFor(b); g != 0 {
 				v.canvas.SetCellOverlay(pos, g)
 			}
@@ -1179,7 +1176,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			orbitVisible := el.A > 0 && !math.IsNaN(el.A) && !math.IsInf(el.A, 0) && el.Apoapsis()*scale >= minOrbitPixels
 			if orbitVisible {
 				gPrimaryPos := w.BodyPosition(gp)
-				gPxR := BodyPixelRadius(gp, false, scale, canvasReach)
+				gPxR := mapBodyPixelRadius(gp, false, scale, canvasReach)
 				// Real class (ADR 0041 §2): a ghost's orbit is solid dim
 				// like any other real craft's, promoted to TARGET green —
 				// same pattern, not a denser one — when targeted.
@@ -1245,7 +1242,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// already been drawn (line ~115), the gap reads as natural
 		// occlusion. Apo / peri markers + the craft chevron use the
 		// same check.
-		primaryPxR := BodyPixelRadius(c.Primary, false, scale, canvasReach)
+		primaryPxR := mapBodyPixelRadius(c.Primary, false, scale, canvasReach)
 		// Inspect (ADR 0041 §3): your own vessel is in the cycle — "which
 		// of these is me" is a real question on a crowded map — but it is
 		// not targetable, since a vessel cannot be its own Target.
@@ -1353,7 +1350,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				continue
 			}
 			otherPrimaryPos := w.BodyPosition(other.Primary)
-			otherPxR := BodyPixelRadius(other.Primary, false, scale, canvasReach)
+			otherPxR := mapBodyPixelRadius(other.Primary, false, scale, canvasReach)
 			otherInertial := otherPrimaryPos.Add(other.State.R)
 			otherEl := orbital.ElementsFromState(other.State.R, other.State.V, other.Primary.GravitationalParameter())
 			// #375: same craftHasOrbit exclusion as the active vessel above
@@ -3020,4 +3017,82 @@ func activeCraftElements(w *sim.World) (orbital.Elements, bool) {
 		return orbital.Elements{}, false
 	}
 	return el, true
+}
+
+// mapBodyPixelRadius is BodyPixelRadius as the orbit map draws it. Identical
+// except for stars (G7 Q1, #506): the tier fallback's 6 px star swallows the
+// whole inner system at the "g" fit (Earth's entire orbit is ~2 px across),
+// so a star below the true-size threshold draws at its honest size with a 2
+// px floor.
+func mapBodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64, maxPx int) int {
+	if b.BodyType == "Star" && scale > 0 {
+		if r := b.RadiusMeters(); r > 0 {
+			if truePx := int(math.Round(r * scale)); truePx < 4 {
+				if truePx < 2 {
+					truePx = 2
+				}
+				return truePx
+			}
+		}
+	}
+	return BodyPixelRadius(b, isPrimary, scale, maxPx)
+}
+
+// coronaRingRadii returns the pixel radii of the star's corona rings (1.4x
+// and 1.8x the drawn radius r). A ring is dropped when it would reach the
+// innermost orbit around the star (innerOrbitPx, the smallest periapsis on
+// screen; <= 0 means no orbit to clear). Orbits are drawn tilted, so only
+// half the periapsis distance is counted as guaranteed clear. G7 Q1 / fix 2:
+// a corona over the inner orbits is the knot the wide map used to show, and
+// zooming in must not bring it back while an orbit is inside it.
+func coronaRingRadii(r, canvasReach int, innerOrbitPx float64) []int {
+	var out []int
+	for _, mult := range []float64{1.4, 1.8} {
+		cpx := int(float64(r) * mult)
+		if cpx <= r || cpx >= canvasReach {
+			continue
+		}
+		if innerOrbitPx > 0 && float64(cpx) >= innerOrbitPx*0.5 {
+			continue
+		}
+		out = append(out, cpx)
+	}
+	return out
+}
+
+// innermostOrbitPx is the smallest periapsis, in screen pixels at scale, of
+// any body orbiting the given star (ParentID empty for the system primary,
+// else the star's own ID). 0 when nothing orbits it.
+func innermostOrbitPx(sys *bodies.System, star bodies.CelestialBody, isPrimary bool, scale float64) float64 {
+	best := 0.0
+	for i := range sys.Bodies {
+		b := sys.Bodies[i]
+		if b.ID == star.ID || b.SemimajorAxis == 0 {
+			continue
+		}
+		if !(b.ParentID == star.ID || (isPrimary && b.ParentID == "")) {
+			continue
+		}
+		px := b.SemimajorAxisMeters() * (1 - b.Eccentricity) * scale
+		if best == 0 || px < best {
+			best = px
+		}
+	}
+	return best
+}
+
+// foldsIntoParent reports whether a moon sits within a pixel of its (non-
+// primary) planet on screen. Such a moon shares the planet's cell, and since
+// moons draw after their planet its glyph used to overwrite the planet's:
+// Jupiter and Mars read as hollow moon circles at the "g" fit (G7 fix 1,
+// #506). The planet keeps the cell's glyph; the moon's 1 px disk still draws.
+func foldsIntoParent(sys *bodies.System, b bodies.CelestialBody, pos orbital.Vec3, w *sim.World, scale float64) bool {
+	if b.ParentID == "" {
+		return false
+	}
+	parent := sys.ParentOf(b)
+	if parent == nil || parent.ID == b.ID || parent.ID == sys.Primary().ID {
+		return false
+	}
+	return pos.Sub(w.BodyPosition(*parent)).Norm()*scale < 1
 }
