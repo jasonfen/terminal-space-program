@@ -302,6 +302,15 @@ type World struct {
 	// disconnect; nil in single-player.
 	RendezvousArm *RendezvousArm
 
+	// SeatHold is set by the UI while this seat's own pause menu holds the
+	// clock (B11 review L-mp). While true, a partner-driven unpause (the
+	// Rendezvous Warp mutual arm, Sync) must not run the clock under the
+	// card: it records SeatHoldUnpause instead, and the UI applies it when
+	// the hold is released. Transient, never persisted.
+	SeatHold bool
+	// SeatHoldUnpause is true when an unpause arrived while SeatHold was set.
+	SeatHoldUnpause bool
+
 	// RendezvousInvite is the incoming half of the mutual arm (v0.29 S2):
 	// a peer armed toward the viewer who has not Engaged back yet.
 	// Refreshed each tick by DriveRendezvousWarp from the co-warp peer
