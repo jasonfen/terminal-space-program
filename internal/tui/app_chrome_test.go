@@ -3,6 +3,7 @@ package tui
 import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 	"github.com/muesli/termenv"
 	"regexp"
@@ -466,5 +467,66 @@ func TestQuitFromThePauseMenuStillAutosaves(t *testing.T) {
 	}
 	if n := len(savesDirFiles(t, dir)); n == 0 {
 		t.Error("quitting from the pause menu wrote no autosave")
+	}
+}
+
+// clickOn finds text in the plain View and clicks its first cell through
+// App.Update, the way a mouse would arrive (screen coordinates, row 0 the
+// Title Row). Returns false when the text is not on screen.
+func clickOn(a *App, text string) bool {
+	for y, ln := range strings.Split(stripANSIForTest(a.View()), "\n") {
+		if i := strings.Index(ln, text); i >= 0 {
+			x := lipgloss.Width(ln[:i])
+			a.Update(tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+			return true
+		}
+	}
+	return false
+}
+
+// TestFormClicksStillLandAfterTheFrame (B11 / G9 Q4): the frame, the boxes
+// and the Title Row moved every form row; clicks, which arrive in screen
+// coordinates, must still land on what is drawn. Production seam: real
+// View, real MouseMsg through App.Update.
+func TestFormClicksStillLandAfterTheFrame(t *testing.T) {
+	for _, sz := range [][2]int{{140, 40}, {181, 49}} {
+		// Settings: a chip row toggles, the autosave row cycles.
+		a := newChromeApp(t, sz[0], sz[1])
+		a.active = screenSettings
+		a.settingsScreen.Reset()
+		first := a.orbitView.Settings().ChipEnabled(settings.AllChips[2])
+		if !clickOn(a, settings.AllChips[2].Label()) {
+			t.Fatalf("%dx%d: no %s row on screen", sz[0], sz[1], settings.AllChips[2].Label())
+		}
+		if a.orbitView.Settings().ChipEnabled(settings.AllChips[2]) == first {
+			t.Errorf("%dx%d: clicking the %s row did not toggle it", sz[0], sz[1], settings.AllChips[2].Label())
+		}
+		before := a.orbitView.Settings().AutosaveIntervalMinutes()
+		if !clickOn(a, "Autosave interval") {
+			t.Fatalf("%dx%d: no autosave row on screen", sz[0], sz[1])
+		}
+		if a.orbitView.Settings().AutosaveIntervalMinutes() == before {
+			t.Errorf("%dx%d: clicking the autosave row did not cycle it", sz[0], sz[1])
+		}
+		// Saves (save mode): clicking the already-selected New-save row opens the name prompt.
+		a = newChromeApp(t, sz[0], sz[1])
+		a.active = screenMenu
+		a.applyMenuAction(screens.MenuActionSave)
+		if !clickOn(a, "New save") {
+			t.Fatalf("%dx%d: no New save row", sz[0], sz[1])
+		}
+		if !strings.Contains(stripANSIForTest(a.View()), "name the new save") {
+			t.Errorf("%dx%d: clicking the selected New-save row did not open the name prompt", sz[0], sz[1])
+		}
+		// Keyboard layout: the row cycles QWERTY <-> QWERTZ.
+		a = newChromeApp(t, sz[0], sz[1])
+		a.active = screenControls
+		lay := a.layout
+		if !clickOn(a, "Keyboard layout:") {
+			t.Fatalf("%dx%d: no layout row", sz[0], sz[1])
+		}
+		if a.layout == lay {
+			t.Errorf("%dx%d: clicking the layout row did not change the layout", sz[0], sz[1])
+		}
 	}
 }
