@@ -392,7 +392,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// spawn case chief among them) never welds two vessels together
 		// in total silence.
 		if e := a.world.LastDockEvent; e != nil {
-			a.flash(fmt.Sprintf("docked with %s — now 1 vessel, %d components", e.PartnerName, e.ComponentCount))
+			a.flash(fmt.Sprintf("docked with %s, now 1 vessel, %d components", e.PartnerName, e.ComponentCount))
 			a.world.LastDockEvent = nil
 		}
 		// v0.11.0+: ViewLaunch release toast, names only the view returned to (#468; ADR 0021 D
@@ -2555,16 +2555,29 @@ func (a *App) openMenu() {
 	a.menu.Reset()
 	a.menuPrevPaused = a.world.Clock.Paused
 	a.menuHeld = true
+	a.world.SeatHold, a.world.SeatHoldUnpause = true, false
 	a.world.Clock.Paused = true
 	a.active = screenMenu
+}
+
+// releaseMenuHold gives the clock back after the pause menu. A partner's
+// Rendezvous Warp arm or Sync that arrived while the card was open was
+// deferred (World.SeatHoldUnpause, B11 review L-mp): it starts now, so the
+// player's pause won while the card was up and the partner's warp is not lost.
+func (a *App) releaseMenuHold() {
+	a.world.Clock.Paused = a.menuPrevPaused
+	if a.world.SeatHoldUnpause {
+		a.world.Clock.Paused = false
+	}
+	a.world.SeatHold, a.world.SeatHoldUnpause = false, false
+	a.menuHeld = false
 }
 
 // closeMenu flies again: the map returns and the clock goes back to the
 // state it had when the menu opened.
 func (a *App) closeMenu() {
 	if a.menuHeld {
-		a.world.Clock.Paused = a.menuPrevPaused
-		a.menuHeld = false
+		a.releaseMenuHold()
 	}
 	a.active = screenOrbit
 }
@@ -2794,7 +2807,7 @@ func (a *App) refreshSaves() {
 func defaultSaveName(w *sim.World) string {
 	day := w.Clock.SimTime.Format("2006-01-02")
 	if c := w.ActiveCraft(); c != nil {
-		return c.Name + " — " + day
+		return c.Name + " " + day
 	}
 	return day
 }

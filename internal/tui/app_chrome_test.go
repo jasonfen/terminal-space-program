@@ -706,3 +706,51 @@ func TestPauseCardKeepsAClearMarginOverTheMap(t *testing.T) {
 		}
 	}
 }
+
+// TestPartnerSyncWaitsForThePauseMenu (B11 review L-mp, Jason's rule: your
+// pause wins): a partner-driven unpause arriving while this seat's pause
+// card is open leaves SimTime frozen; closing the menu starts the warp.
+// Drives the real seams: esc opens the card, EngageSyncWarp is the sim call
+// the partner path makes, TickMsg runs the clock, esc closes the card.
+func TestPartnerSyncWaitsForThePauseMenu(t *testing.T) {
+	a := newChromeApp(t, 140, 40)
+	esc(a)
+	t0 := a.world.Clock.SimTime
+	if !a.world.EngageSyncWarp(t0.Add(time.Hour), "o", "h") {
+		t.Fatal("sync refused")
+	}
+	for i := 0; i < 3; i++ {
+		a.Update(sim.TickMsg(time.Now().Add(time.Duration(i) * time.Second)))
+	}
+	if !a.world.Clock.SimTime.Equal(t0) {
+		t.Errorf("clock ran under the pause card: advanced %v", a.world.Clock.SimTime.Sub(t0))
+	}
+	esc(a) // close the card
+	if a.world.Clock.Paused {
+		t.Fatal("closing the menu did not start the deferred warp")
+	}
+	a.Update(sim.TickMsg(time.Now().Add(10 * time.Second)))
+	if !a.world.Clock.SimTime.After(t0) {
+		t.Error("the warp did not run after the menu closed")
+	}
+	if a.world.SeatHold || a.world.SeatHoldUnpause {
+		t.Error("seat hold flags not cleared on close")
+	}
+}
+
+// TestClosingTheMenuRestoresThePreMenuPauseWithNoArm: with no partner arm
+// the old rule stands, both ways.
+func TestClosingTheMenuRestoresThePreMenuPauseWithNoArm(t *testing.T) {
+	for _, was := range []bool{false, true} {
+		a := newChromeApp(t, 140, 40)
+		a.world.Clock.Paused = was
+		esc(a)
+		if !a.world.Clock.Paused {
+			t.Fatalf("was=%v: card did not pause", was)
+		}
+		esc(a)
+		if a.world.Clock.Paused != was {
+			t.Errorf("was=%v: closing the menu left paused=%v", was, a.world.Clock.Paused)
+		}
+	}
+}

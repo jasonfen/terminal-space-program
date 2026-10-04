@@ -683,7 +683,7 @@ func (w *World) driveRendezvousCoast(peers []CoWarpPeer) {
 			RendezvousOwner:  arm.TargetOwner,
 			RendezvousHandle: handle,
 		}
-		w.Clock.Paused = false
+		w.partnerUnpause()
 	case partner == nil && w.rendezvousWarpEngaged():
 		// Arrival window (v0.29 review, re-read for #252): near τ the
 		// partner's arm clearing is their own proximity handoff, not a
@@ -943,7 +943,7 @@ func (w *World) EngageSyncWarp(target time.Time, owner, handle string) bool {
 		return false
 	}
 	w.AutoWarp = &AutoWarpTarget{T: target, Sync: true, SyncOwner: owner, SyncHandle: handle}
-	w.Clock.Paused = false
+	w.partnerUnpause()
 	return true
 }
 
@@ -1031,4 +1031,16 @@ func (w *World) resolveAutoWarp() {
 		w.Clock.WarpIdx = 0 // hand off to 1× to watch the burn arm
 		w.DisengageAutoWarp()
 	}
+}
+
+// partnerUnpause is the unpause a partner-driven path (the Rendezvous Warp
+// mutual arm, Sync) performs. While this seat's pause menu holds the clock
+// the player's pause wins (B11 review L-mp): the unpause is recorded in
+// SeatHoldUnpause and the UI applies it when the hold is released.
+func (w *World) partnerUnpause() {
+	if w.SeatHold {
+		w.SeatHoldUnpause = true
+		return
+	}
+	w.Clock.Paused = false
 }
