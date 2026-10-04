@@ -367,6 +367,29 @@ func (c *Canvas) SetCellLabel(col, row int, text string) {
 	}
 }
 
+// CellOccupied reports whether the cell holds something a text label must
+// not cover: a glyph overlay (marker, vessel, another label) or any pixel
+// tagged as a body disk, a vessel or a maneuver node. Plain orbit-line ink
+// does not count, a label may sit over a dotted track. Out-of-bounds cells
+// report occupied so a label never runs off the canvas.
+func (c *Canvas) CellOccupied(col, row int) bool {
+	if col < 0 || col >= c.cols || row < 0 || row >= c.rows {
+		return true
+	}
+	if _, ok := c.cellOverlays[[2]int{col, row}]; ok {
+		return true
+	}
+	for dx := 0; dx < 2; dx++ {
+		for dy := 0; dy < 4; dy++ {
+			if tag, ok := c.pixelTags.get(col*2+dx, row*4+dy); ok &&
+				(tag.BodyID != "" || tag.IsVessel || tag.NodeIdx != 0) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // SetCellLabelColored is SetCellLabel that also pins the label's
 // foreground to color, so corner-overlay HUD text reads in the theme
 // palette instead of the terminal default. Same right-going,

@@ -214,6 +214,11 @@ type OrbitView struct {
 	// maneuver screen, ADR 0010). Recomputed every composeChips call.
 	chipRects []chipRect
 
+	// nameLabels / nameDropped record the body names the wide-map pass
+	// placed or dropped this frame (orbit_names.go); tests and captures read them.
+	nameLabels  []nameLabel
+	nameDropped []string
+
 	// settings holds the player's per-Chip default-visibility
 	// preferences (ADR 0010, v0.13). Defaults to all-on so the screen
 	// behaves exactly as pre-0010 until SetSettings pushes a loaded
@@ -1514,6 +1519,12 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// — the canvas top-left corner is now home to the pinned VESSEL chip,
 	// and "focus: <craft>" was redundant with the chip's vessel name.
 
+	// Body names (G7 / #506): after every map layer, before the canvas is
+	// built. The chips are assembled here, once, and reused by the real
+	// composition below; the pass replays their layout to keep names clear.
+	chips := v.assembleChips(w)
+	v.paintBodyNames(w, chips, scale, canvasReach)
+
 	canvasStr := v.canvas.String()
 
 	// Framed navball panel, composited into the bottom-right corner
@@ -1537,7 +1548,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// routing (HitChip). Chips paint after the navball so the bottom-right
 	// Nodes chip can stack above it (navballReservedRows).
 	navballReserved := v.navballReservedRows(w, cCols, cRows)
-	canvasStr = v.composeChips(canvasStr, cCols, cRows, navballReserved, 1, 2, v.assembleChips(w))
+	canvasStr = v.composeChips(canvasStr, cCols, cRows, navballReserved, 1, 2, chips)
 	// Inspect's name chip paints last — after the navball and every
 	// corner Chip — because it is the direct answer to a question the
 	// player just asked, and a covered answer is no answer. It is also
