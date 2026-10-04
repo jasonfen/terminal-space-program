@@ -2,6 +2,17 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.49.0
+
+A pad that tells you when to launch, a wide map with names on it, and a navball you can read numbers off (UX cycle 3 wave C, tracking `#512`; PRs `#545`-`#547`, review fixes `#549`-`#552`; tag `v0.49.0`).
+
+- **Launch window on the pad.** With a target set, NAVIGATION's `plan:` row names the next time the pad passes under the target's plane, the heading to fly and, for a vessel, the lead it will have: `window T-11h03m at 045°, lead +25°`. When the pad never passes under it, the row gives the closest approach instead: `window best 9.17° T-2h46m`. TARGET's `lead:` reads live on the pad. Nothing target-shaped draws on the ground any more, and body targets get ◇/◆ plane crossings in orbit (#460).
+- **Fine trims.** Hold alt (Option on a Mac, with Option as Meta on) for 1° steps: alt+↑/↓ heading, alt+←/→ pitch (alt+b/f too, which is what Terminal.app and Ghostty send), alt+Z/X throttle 1%. F1 and the controls page say how to turn Option as Meta on.
+- **Trim reads as a lean.** GUIDANCE's `trim:` shows which way the nose leans, `15° E` / `5° W`, instead of a signed number.
+- **The wide map has names.** At `g` the star and planets are labelled (moons never at that zoom), your Target at every zoom, and a name is dropped rather than drawn over anything. The Sun draws at its true size with no corona over the inner orbits, planet orbits are closer-dotted, and planets keep their own glyph instead of a moon's (#506).
+- **Navball.** Numbered 10° pitch rungs, a continuous horizon line, `pitch` / `hdg` of where the nose points now beside `⊕ PRO`, hold markers at the untrimmed direction so the trim shows as a gap, and a pad compass that follows your commanded heading (#507).
+- **`I` on the pad** says what to do instead of a garbled refusal.
+
 ### v0.48.0
 
 Same keys in every view, a help screen that starts somewhere, descents that tell the truth, and a Rendezvous Planner that plants the row you read and flies where it said (UX cycle 3 wave B, tracking `#512`; PRs `#531`-`#534`, `#536`, `#538`, review fixes `#539`-`#541`; tag `v0.48.0`).
