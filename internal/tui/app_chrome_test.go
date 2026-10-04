@@ -656,3 +656,53 @@ func TestLoadFromThePauseMenuReleasesTheMenuHold(t *testing.T) {
 		t.Error("quitting after a menu load wrote no autosave (stale menu hold paused the clock)")
 	}
 }
+
+// TestPauseCardKeepsAClearMarginOverTheMap (B11 review L11): the card is
+// spliced over the map by cell, so a map box border used to join the card
+// corner (`╭───╭`). One clear cell all round keeps the card's edge its own.
+// Pinned over the map and the launch view at both design sizes, with the
+// card's rows and the rows just above and below it.
+func TestPauseCardKeepsAClearMarginOverTheMap(t *testing.T) {
+	for _, launch := range []bool{false, true} {
+		for _, sz := range [][2]int{{140, 40}, {181, 49}} {
+			a := newChromeApp(t, sz[0], sz[1])
+			if launch {
+				a.world.ViewMode = sim.ViewLaunch
+			}
+			esc(a)
+			plain := strings.Split(stripANSIForTest(a.View()), "\n")
+			top := -1
+			for i, ln := range plain {
+				if strings.Contains(ln, "╭") && i > 0 && strings.Contains(plain[i+1], "Terminal Space Program") {
+					top = i
+				}
+			}
+			if top < 0 {
+				t.Fatalf("launch=%v %dx%d: no card found", launch, sz[0], sz[1])
+			}
+			x := (sz[0] - 40) / 2
+			cell := func(row string, col int) string {
+				return ansi.Truncate(ansi.TruncateLeft(row, col, ""), 1, "")
+			}
+			for r := top - 1; r <= top+13; r++ {
+				if r < 1 || r >= len(plain) {
+					continue
+				}
+				inCard := r >= top && r < top+13
+				cols := []int{x - 1, x + 40}
+				if !inCard {
+					cols = cols[:0]
+					for c := x - 1; c <= x+40; c++ {
+						cols = append(cols, c)
+					}
+				}
+				for _, c := range cols {
+					if got := cell(plain[r], c); got != " " {
+						t.Errorf("launch=%v %dx%d: row %d col %d is %q, want a clear margin cell:\n%s",
+							launch, sz[0], sz[1], r, c, got, plain[r])
+					}
+				}
+			}
+		}
+	}
+}
