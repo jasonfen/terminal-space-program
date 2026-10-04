@@ -164,7 +164,8 @@ func TestHelpGlossaryBlockContent(t *testing.T) {
 // node ⚠, plan/dir/speed, (max N), and ORBIT READY), for 17. #478
 // retired `dir` in favour of `pro / retro` (same row, new token) and
 // added two: the frame-spelling entry and the `rcs` line ADR 0049's own
-// decision-6 comment always meant to include, for 19. Tightened from
+// decision-6 comment always meant to include, for 19. G8 Q3 (#507) added
+// `heading: / hdg` (commanded vs measured), for 20. Tightened from
 // the original loose "at least 7" bound to an exact count so a stray
 // addition or removal is caught rather than silently absorbed.
 func TestHelpGlossarySection(t *testing.T) {
@@ -172,7 +173,7 @@ func TestHelpGlossarySection(t *testing.T) {
 		if s.header != "READOUT GLOSSARY" {
 			continue
 		}
-		const want = 19
+		const want = 20
 		if len(s.rows) != want {
 			t.Errorf("READOUT GLOSSARY has %d rows, want exactly %d", len(s.rows), want)
 		}

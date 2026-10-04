@@ -1,12 +1,15 @@
 package screens
 
 import (
+	"fmt"
+	"math"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // navball_panel.go — the framed, KSP-style navball overlay for the
@@ -219,12 +222,14 @@ func sasTagLabel(instantSAS bool) string {
 //
 // disk is the already-rendered NavballString (navballDiskCols ×
 // g.diskRows). mode drives the [MODE] button label; rcsActive
-// colours the RCS toggle (Warning when on, Dim when off).
+// colours the RCS toggle (Warning when on, Dim when off). noseLine is the
+// measured nose line (navballReadoutLabel, "" for none), drawn in the disk
+// region of the first button's face row, beside "⊕ PRO" (G8 Q3).
 //
 // Every assembled line is exactly g.innerW cells wide so the
 // caller's splitStyledCells / overlayStyledBlock splice stays
 // aligned (the historical right-border-drop invariant).
-func (v *OrbitView) buildNavballPanel(g navballGeom, disk string, mode sim.NavMode, instantSAS, rcsActive bool) (string, []navballControlBox) {
+func (v *OrbitView) buildNavballPanel(g navballGeom, disk string, mode sim.NavMode, instantSAS, rcsActive bool, noseLine string) (string, []navballControlBox) {
 	pad := func(s string, w int) string {
 		n := lipgloss.Width(s)
 		if n >= w {
@@ -332,6 +337,9 @@ func (v *OrbitView) buildNavballPanel(g navballGeom, disk string, mode sim.NavMo
 				" " + btnStyle.Render(label) // 1 + 1 + navballLabelW = navballBtnW
 		}
 		region := strings.Repeat(" ", g.diskRegionW)
+		if j == 0 && noseLine != "" {
+			region = center(noseLine, g.diskRegionW)
+		}
 		if di := j - g.diskTopPad; di >= 0 && di < g.diskRows && di < len(diskLines) {
 			region = center(diskLines[di], g.diskRegionW)
 		}
@@ -453,4 +461,18 @@ func overlayStyledBlock(base []string, block string, atRow, atCol, baseCols int)
 // to make the Render() call site read as panel-scoped.
 func navballPanelDisk(g navballGeom, w *sim.World, subLat, subLon float64) string {
 	return render.NavballString(g.diskCols, g.diskRows, subLat, subLon, w.NavballMarkers())
+}
+
+// navballReadoutLabel is the measured nose line shown beside "⊕ PRO"
+// (G8 Q3, #507): the slewed nose's elevation above the local horizon and
+// its compass bearing, "pitch +62°  hdg 088°". It reads the raw nose, not
+// the ball's sticky dead-band, so it updates as the nose moves. Distinct
+// from GUIDANCE's heading:, which is the commanded bearing. "" when the
+// nose has no defined reading.
+func navballReadoutLabel(w *sim.World) string {
+	pitch, hdg, ok := w.NavballNoseReading()
+	if !ok {
+		return ""
+	}
+	return fmt.Sprintf("pitch %+d°  hdg %s", int(math.Round(pitch)), readout.Heading(hdg))
 }

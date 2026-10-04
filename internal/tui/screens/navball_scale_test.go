@@ -262,7 +262,7 @@ func TestNavballScaledDiskMarkersAndLabels(t *testing.T) {
 		if !strings.ContainsRune(diskRows[0], 'U') {
 			t.Errorf("%d rows: 90 degree marker not on the top row: %q", canvasRows, diskRows[0])
 		}
-		panel, _ := v.buildNavballPanel(g, disk, sim.NavOrbit, false, false)
+		panel, _ := v.buildNavballPanel(g, disk, sim.NavOrbit, false, false, "")
 		plain := stripANSI(panel)
 		for _, ax := range navballAxisRow {
 			if !strings.ContainsRune(plain, ax.glyph) || !strings.Contains(plain, ax.label) {

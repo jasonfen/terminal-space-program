@@ -318,6 +318,7 @@ overlay carries, so you can look one up without leaving the game.
 | `rcs` | Monoprop's own delta-v, from the RCS thrusters rather than the main engine |
 | `speed` | Inertial speed, alongside `vert:` and `horiz:` |
 | `(max N)` | The same figure at full throttle, when it differs from the current one |
+| `heading:` / `hdg` | GUIDANCE `heading:` is the bearing you have commanded; the navball's `pitch` and `hdg` are where the nose points now |
 | `● ORBIT READY [C]` | Apoapsis has cleared this world's orbit floor: press `C` to plant the circularising burn |
 
 ## Screens

@@ -7,6 +7,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // NavballBasis is the orthonormal world-frame basis the navball is
@@ -219,7 +220,36 @@ func (w *World) NavballSubObserver() (latDeg, lonDeg float64, ok bool) {
 		return 0, 0, false
 	}
 	lat, lon := basis.SubObserver(dir)
+	// G8 Q5: on the pad the nose sits on the surface ball's pole, where
+	// the longitude (the compass rose's rotation) is atan2 of near-zero
+	// components, i.e. float noise that also snaps at pitch-over. Within a
+	// degree of vertical, pin the rose to the COMMANDED heading instead:
+	// sub-observer longitude is minus the bearing (the basis' lon-0 is
+	// north and its lon-90 is west), so due east puts the E tick straight
+	// below the centre. Off the pole the real longitude takes over and
+	// matches (the steer-to-heading trim keeps the nose on the commanded
+	// bearing), so there is no jump at pitch-over.
+	if w.NavMode == NavSurface && lat >= NavballPolePinDeg {
+		beta := (spacecraft.HeadingTrimDueEastRad + active.HeadingTrim) * 180 / math.Pi
+		lon = wrapLonDeg(-beta)
+	}
 	return lat, lon, true
+}
+
+// NavballPolePinDeg is the sub-observer latitude at or above which the
+// surface ball's rotation is held to the commanded heading (within a
+// degree of straight up).
+const NavballPolePinDeg = 89.0
+
+// wrapLonDeg folds a longitude into (-180, 180].
+func wrapLonDeg(d float64) float64 {
+	d = math.Mod(d, 360)
+	if d > 180 {
+		d -= 360
+	} else if d <= -180 {
+		d += 360
+	}
+	return d
 }
 
 // Navball glyphs. Mirroring KSP's symbol vocabulary so muscle memory
@@ -257,11 +287,11 @@ const (
 //	             (toward / away from target) and use the target glyphs
 //	             ◉ ◌ in target color so the swap is visible at a glance
 //
-// This makes the marker set match the SAS hold semantics exactly:
-// each glyph sits at the direction the corresponding axis key would
-// aim. The disk center is always "where the craft is currently
-// pointing" — when the player presses the prograde key and the SAS
-// finishes settling, the prograde glyph and the disk center coincide.
+// Each glyph marks the hold direction BEFORE the player's pitch/heading
+// trim (G8 Q6, KSP style); the disk centre is the nose, which carries the
+// trim. With no trim, pressing the prograde key and letting the SAS settle
+// puts the prograde glyph on the disk centre; with a trim the gap between
+// them is the trim, readable against the 10° pitch rungs, and `|` closes it.
 //
 // Returns nil when the basis is unavailable. Individual markers are
 // dropped when their direction is degenerate (zero surface velocity
@@ -329,7 +359,11 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 			continue
 		}
 		mode := w.ResolveAttitudeIntent(e.intent)
-		dir := active.BurnDirectionWithTarget(mode, rT, vT)
+		// G8 Q6 (KSP style): the glyph marks the true hold direction,
+		// before the player's pitch/heading trim. The nose (disk centre)
+		// carries the trim, so the gap between the nose and a glyph reads
+		// the trim against the pitch rungs.
+		dir := active.BurnDirectionUntrimmedWithTarget(mode, rT, vT)
 		if dir.Norm() == 0 {
 			continue
 		}
@@ -423,3 +457,62 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 	}
 	return out
 }
+
+// NavballNoseReading is the measured attitude of the slewed nose against
+// the local horizon, true in every NavMode (G8 Q3, #507): pitchDeg is the
+// elevation above the horizon (+90 straight up) and headingDeg the compass
+// bearing (000 north, 090 east, clockwise from above). It reads the raw
+// slewed nose (not the ball's sticky 2° dead-band) so it updates as the
+// nose moves. Straight up has no bearing, so within a degree of vertical
+// the heading falls back to the commanded one, the same bearing the pad
+// rose is pinned to. ok=false when there is no craft, no nose, or no
+// defined east (a pole).
+func (w *World) NavballNoseReading() (pitchDeg, headingDeg float64, ok bool) {
+	active := w.ActiveCraft()
+	if active == nil || active.State.R.Norm() == 0 {
+		return 0, 0, false
+	}
+	var dir orbital.Vec3
+	if !w.InstantSAS && active.CurrentAttitudeDir.Norm() != 0 {
+		dir = active.CurrentAttitudeDir
+	} else {
+		rT, vT, _ := w.TargetStateRelativeToActivePrimary()
+		dir = active.BurnDirectionWithTarget(active.AttitudeMode, rT, vT)
+	}
+	if n := dir.Norm(); n == 0 {
+		return 0, 0, false
+	} else {
+		dir = dir.Scale(1 / n)
+	}
+	spinR := render.BodyRotationAxisWorld(active.Primary)
+	spin := orbital.Vec3{X: spinR.X, Y: spinR.Y, Z: spinR.Z}
+	if spin.Norm() == 0 {
+		spin = orbital.Vec3{Z: 1}
+	}
+	up := active.State.R.Scale(1 / active.State.R.Norm())
+	east := spin.Cross(up)
+	eN := east.Norm()
+	if eN == 0 {
+		return 0, 0, false
+	}
+	east = east.Scale(1 / eN)
+	north := up.Cross(east)
+
+	u := math.Max(-1, math.Min(1, dir.Dot(up)))
+	pitchDeg = math.Asin(u) * 180 / math.Pi
+	e, n := dir.Dot(east), dir.Dot(north)
+	if math.Hypot(e, n) < math.Sin(navballHeadingFallbackDeg*math.Pi/180) {
+		headingDeg = (spacecraft.HeadingTrimDueEastRad + active.HeadingTrim) * 180 / math.Pi
+	} else {
+		headingDeg = math.Atan2(e, n) * 180 / math.Pi
+	}
+	headingDeg = math.Mod(headingDeg, 360)
+	if headingDeg < 0 {
+		headingDeg += 360
+	}
+	return pitchDeg, headingDeg, true
+}
+
+// navballHeadingFallbackDeg is how close to vertical (degrees) the nose
+// must be before its own bearing is too ill-defined to report.
+const navballHeadingFallbackDeg = 1.0
