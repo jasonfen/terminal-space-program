@@ -233,38 +233,91 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 	skyGridStyle := lipgloss.NewStyle().Foreground(ColorNavballSkyGrid)
 	groundGridStyle := lipgloss.NewStyle().Foreground(ColorNavballGroundGrid)
 
+	// Pre-pass: project every in-disk dot once. The horizon line needs to
+	// compare a dot with its neighbours, so the (lat, lon) field is
+	// computed up front rather than inside the per-cell loop.
+	type dotInfo struct {
+		lat, lon float64
+		in       bool
+	}
+	field := make([]dotInfo, dotsW*dotsH)
+	for y := 0; y < dotsH; y++ {
+		for x := 0; x < dotsW; x++ {
+			dx := x - dotCx
+			dy := y - dotCy
+			if dx*dx+dy*dy > pxR*pxR {
+				continue
+			}
+			// Navball's own local-north (toward +90° lat on the
+			// abstract orientation sphere) is canvas-up by
+			// construction — the ball is drawn flush with the
+			// terminal cell grid and is not a tilted celestial
+			// body. v0.11.2+ (ADR 0003): pass (0, 1) directly so
+			// the navball texture pipeline stays orientation-
+			// preserving and decoupled from any body's spin axis.
+			lat, lon, ok := projectPixelToLatLon(dx, dy, pxR, subLatDeg, subLonDeg, 0, 1)
+			if !ok {
+				continue
+			}
+			field[y*dotsW+x] = dotInfo{lat: lat, lon: lon, in: true}
+		}
+	}
+
+	// Horizon dots (G8 Q4, #507). The equator is drawn as a continuous
+	// line that does not depend on which dot row of a cell it falls in:
+	// wherever sky (lat >= 0) meets ground (lat < 0) between two adjacent
+	// in-disk dots, the dot of the pair nearer the equator is a horizon dot,
+	// and its cell is painted horizon (checked before the limb rule so the
+	// line reaches the rim). The old rule (sky/ground dot counts within 1)
+	// never fired when a level nose put the equator on a cell boundary.
+	horizonDot := make([]bool, dotsW*dotsH)
+	markPair := func(i, j int) {
+		a, b := field[i], field[j]
+		if !a.in || !b.in || (a.lat >= 0) == (b.lat >= 0) {
+			return
+		}
+		if math.Abs(a.lat) <= math.Abs(b.lat) {
+			horizonDot[i] = true
+		} else {
+			horizonDot[j] = true
+		}
+	}
+	for y := 0; y < dotsH; y++ {
+		for x := 0; x < dotsW; x++ {
+			if x+1 < dotsW {
+				markPair(y*dotsW+x, y*dotsW+x+1)
+			}
+			if y+1 < dotsH {
+				markPair(y*dotsW+x, (y+1)*dotsW+x)
+			}
+		}
+	}
+
 	cells := make([][]string, rows)
 	for row := 0; row < rows; row++ {
 		cells[row] = make([]string, cols)
 		for col := 0; col < cols; col++ {
 			var pattern rune
 			var skyCount, groundCount, gridCount int
+			horizon := false
 			for sx := 0; sx < 2; sx++ {
 				for sy := 0; sy < 4; sy++ {
-					dx := col*2 + sx - dotCx
-					dy := row*4 + sy - dotCy
-					if dx*dx+dy*dy > pxR*pxR {
-						continue
-					}
-					// Navball's own local-north (toward +90° lat on the
-					// abstract orientation sphere) is canvas-up by
-					// construction — the ball is drawn flush with the
-					// terminal cell grid and is not a tilted celestial
-					// body. v0.11.2+ (ADR 0003): pass (0, 1) directly so
-					// the navball texture pipeline stays orientation-
-					// preserving and decoupled from any body's spin axis.
-					lat, lon, ok := projectPixelToLatLon(dx, dy, pxR, subLatDeg, subLonDeg, 0, 1)
-					if !ok {
+					idx := (row*4+sy)*dotsW + col*2 + sx
+					d := field[idx]
+					if !d.in {
 						continue
 					}
 					pattern |= brailleBitForDot[sx][sy]
-					if lat >= 0 {
+					if d.lat >= 0 {
 						skyCount++
 					} else {
 						groundCount++
 					}
-					if isGridDot(lat, lon) {
+					if isGridDot(d.lat, d.lon) {
 						gridCount++
+					}
+					if horizonDot[idx] {
+						horizon = true
 					}
 				}
 			}
@@ -274,12 +327,12 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 			}
 			ch := string(rune(0x2800) + pattern)
 			total := skyCount + groundCount
-			diff := skyCount - groundCount
-			if diff < 0 {
-				diff = -diff
-			}
 			var style lipgloss.Style
 			switch {
+			case horizon:
+				// Horizon line: the pale band on the cells the equator
+				// passes through, whatever the cell phase.
+				style = horizonStyle
 			case total <= 3:
 				// Limb cell — most of the cell falls outside the disk,
 				// so it sits on the ball's edge. Darker hemisphere tint
@@ -290,11 +343,6 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 				} else {
 					style = groundEdgeStyle
 				}
-			case diff <= 1:
-				// Horizon band — cell straddles the equator with nearly
-				// balanced sky/ground coverage. Muted transitional tone
-				// draws the horizon as an explicit line.
-				style = horizonStyle
 			case gridCount >= 2:
 				// Grid cell — cell contains enough dots near a 30°
 				// parallel or meridian to read as a grid intersection
