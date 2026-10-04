@@ -2939,14 +2939,18 @@ func (a *App) applySavesCommand(cmd screens.SavesCommand) (tea.Model, tea.Cmd) {
 		}
 		a.refreshSaves()
 	case screens.SavesActionSaveNew:
-		if _, err := save.WriteNamed(a.world, cmd.Name); err != nil {
+		var err error
+		a.withFlightClock(func() { _, err = save.WriteNamed(a.world, cmd.Name) })
+		if err != nil {
 			a.toast(fmt.Sprintf("save failed: %v", err))
 		} else {
 			a.toast(fmt.Sprintf("saved '%s'", cmd.Name))
 			a.closeSavesToOrbit()
 		}
 	case screens.SavesActionOverwrite:
-		if err := save.Overwrite(cmd.ID, a.world); err != nil {
+		var err error
+		a.withFlightClock(func() { err = save.Overwrite(cmd.ID, a.world) })
+		if err != nil {
 			a.toast(fmt.Sprintf("overwrite failed: %v", err))
 		} else {
 			a.toast(fmt.Sprintf("overwrote '%s'", cmd.Name))
@@ -2954,6 +2958,26 @@ func (a *App) applySavesCommand(cmd screens.SavesCommand) (tea.Model, tea.Cmd) {
 		}
 	}
 	return a, nil
+}
+
+// withFlightClock runs fn with Clock.Paused set to what the player was
+// flying with BEFORE the pause menu and the Saves screen took their holds
+// (menuPrevPaused, then savesPrevPaused), and puts the holds back after. A
+// save written from the Saves screen thus loads as it was flying; one made
+// while the player had really paused still loads paused. Same rule as the
+// quit-autosave path.
+func (a *App) withFlightClock(fn func()) {
+	held := a.world.Clock.Paused
+	flying := held
+	if a.active == screenSaves {
+		flying = a.savesPrevPaused
+	}
+	if a.menuHeld {
+		flying = a.menuPrevPaused
+	}
+	a.world.Clock.Paused = flying
+	defer func() { a.world.Clock.Paused = held }()
+	fn()
 }
 
 // brakeRendezvousPair / releaseRendezvousBrake give the warp keys their

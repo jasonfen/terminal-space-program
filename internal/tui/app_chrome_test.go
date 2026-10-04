@@ -13,6 +13,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -528,5 +529,55 @@ func TestFormClicksStillLandAfterTheFrame(t *testing.T) {
 		if a.layout == lay {
 			t.Errorf("%dx%d: clicking the layout row did not change the layout", sz[0], sz[1])
 		}
+	}
+}
+
+// TestSaveFromThePauseMenuLoadsAsFlown (B11 follow-up): the pause menu and
+// the Saves screen both hold the clock while they are up. A save written
+// from there must record the pause state from BEFORE those holds, or every
+// menu save loads frozen. Real key path: menu, Save Game, save as, load it
+// back. A save made while the player had really paused still loads paused.
+func TestSaveFromThePauseMenuLoadsAsFlown(t *testing.T) {
+	for _, wasPaused := range []bool{false, true} {
+		a := newChromeApp(t, 140, 40)
+		a.world.Clock.Paused = wasPaused
+		openSavesVia(t, a, "s")
+		press(a, "enter") // New save row, naming
+		press(a, "enter") // accept the default name
+		if a.active != screenMenu {
+			t.Fatalf("wasPaused=%v: Save-As left %v, want the menu", wasPaused, a.active)
+		}
+		press(a, "esc") // fly on
+		if a.world.Clock.Paused != wasPaused {
+			t.Errorf("wasPaused=%v: live clock paused=%v after the save", wasPaused, a.world.Clock.Paused)
+		}
+		openSavesVia(t, a, "l")
+		press(a, "enter") // the one named save
+		press(a, "enter") // confirm the load
+		if a.active != screenOrbit {
+			t.Fatalf("wasPaused=%v: load left %v, want the map", wasPaused, a.active)
+		}
+		if a.world.Clock.Paused != wasPaused {
+			t.Errorf("wasPaused=%v: the loaded save has Clock.Paused=%v", wasPaused, a.world.Clock.Paused)
+		}
+	}
+	// Overwrite goes through the same hold.
+	a := newChromeApp(t, 140, 40)
+	if _, err := save.WriteNamed(a.world, "Old"); err != nil {
+		t.Fatal(err)
+	}
+	openSavesVia(t, a, "s")
+	press(a, "down")  // onto the existing save
+	press(a, "enter") // overwrite confirm
+	press(a, "enter")
+	if a.active != screenMenu {
+		t.Fatalf("overwrite left %v, want the menu", a.active)
+	}
+	press(a, "esc")
+	openSavesVia(t, a, "l")
+	press(a, "enter")
+	press(a, "enter")
+	if a.active != screenOrbit || a.world.Clock.Paused {
+		t.Errorf("overwritten save loaded: active %v paused %v, want the map running", a.active, a.world.Clock.Paused)
 	}
 }
