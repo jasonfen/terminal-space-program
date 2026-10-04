@@ -3,7 +3,6 @@ package screens
 import (
 	"fmt"
 
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 )
@@ -167,13 +166,20 @@ func (s *SettingsScreen) Render(prefs settings.Settings, width, height int) stri
 		}
 		return "[ ] " + label
 	}
-	desc := func(text string, w int) string {
-		return "  " + s.theme.Dim.Render(ansi.Truncate(text, w-6, "…"))
+	// desc word-wraps a box's description to the box (it used to truncate
+	// with "…", cutting SAVES and DISPLAY off mid-word at 140x40). Rows
+	// below it are placed by len(lines), so click targets follow the wrap.
+	desc := func(text string, w int) []string {
+		var out []string
+		for _, ln := range wrapText(text, w-6) {
+			out = append(out, "  "+s.theme.Dim.Render(ln))
+		}
+		return out
 	}
 
 	// CHIPS (left). Lines start at body row 2 (top edge, title).
 	var chips []string
-	chips = append(chips, desc("Default visibility of each orbit-screen chip.", lw), "")
+	chips = append(append(chips, desc("Default visibility of each orbit-screen chip.", lw)...), "")
 	// When the chip list outgrows the box (a short terminal, or more
 	// Chips than the floor holds), window it around the cursor with
 	// "more" markers instead of letting formFrame clip it silently
@@ -221,7 +227,7 @@ func (s *SettingsScreen) Render(prefs settings.Settings, width, height int) stri
 	// (#425); the Challenge ladder stays opt-in.
 	{
 		var ls []string
-		ls = append(ls, desc("Flight School is on by default. Challenge ladder is opt-in.", rw), "")
+		ls = append(append(ls, desc("Flight School is on by default. Challenge ladder is opt-in.", rw)...), "")
 		ls = append(ls, row(len(settings.AllChips), y+2+len(ls), lw+1, lw+1+rw, checkbox(prefs.TutorialOn(), "Tutorial")))
 		ls = append(ls, row(len(settings.AllChips)+1, y+2+len(ls), lw+1, lw+1+rw, checkbox(prefs.ChallengesEnabled, "Challenge ladder")))
 		stack("GAMEPLAY", ls)
@@ -232,7 +238,7 @@ func (s *SettingsScreen) Render(prefs settings.Settings, width, height int) stri
 	// autosave still fires regardless).
 	{
 		var ls []string
-		ls = append(ls, desc("Periodic autosave into the rotating ring. Off keeps quit-autosave only.", rw), "")
+		ls = append(append(ls, desc("Periodic autosave into the rotating ring. Off keeps quit-autosave only.", rw)...), "")
 		ls = append(ls, row(len(settings.AllChips)+gameplayRows, y+2+len(ls), lw+1, lw+1+rw,
 			"Autosave interval: ‹ "+autosaveIntervalLabel(prefs.AutosaveIntervalMinutes())+" ›"))
 		stack("SAVES", ls)
@@ -241,7 +247,7 @@ func (s *SettingsScreen) Render(prefs settings.Settings, width, height int) stri
 	// autosave: space/enter cycles Full / Tidy / Compact.
 	{
 		var ls []string
-		ls = append(ls, desc("Full: every row. Tidy: no empty TARGET. Compact: no trailing dash rows.", rw), "")
+		ls = append(append(ls, desc("Full: every row. Tidy: no empty TARGET. Compact: no trailing dash rows.", rw)...), "")
 		ls = append(ls, row(len(settings.AllChips)+gameplayRows+savesRows, y+2+len(ls), lw+1, lw+1+rw,
 			"Empty readings: ‹ "+prefs.EmptyReadingsMode().Label()+" ›"))
 		stack("DISPLAY", ls)
