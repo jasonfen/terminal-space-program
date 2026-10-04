@@ -223,3 +223,26 @@ func TestDrawEllipseClassRealMatchesFarSideDashedAtSpacingOne(t *testing.T) {
 			len(a), classRealNearSpacingPx, len(b))
 	}
 }
+
+// TestSceneryCadence pins the scenery dot numbers (G7 Q3, #506): dots every
+// 2 px on the near side and 4 px on the far side, so a body orbit at system
+// zoom reads as a dotted ring rather than dust. Measured through a drawn
+// chord, not just the constants: a lone dot per 2 px means a 1 px gap.
+func TestSceneryCadence(t *testing.T) {
+	if classSceneryNearSpacingPx != 2 || classSceneryFarSpacingPx != 4 {
+		t.Errorf("scenery cadence = %d/%d px, want 2/4", classSceneryNearSpacingPx, classSceneryFarSpacingPx)
+	}
+	xs, _ := classChordXs(t, ClassScenery, 1)
+	_, gaps := runsAndGaps(xs)
+	if len(gaps) == 0 {
+		t.Fatal("no gaps measured on the scenery chord")
+	}
+	for i, g := range gaps {
+		if g != 1 {
+			t.Errorf("scenery gap %d = %d px, want 1 (dots every 2 px)", i, g)
+		}
+	}
+	if ringDotSpacingPx != 2 {
+		t.Errorf("SOI ring spacing = %d px, want 2 (shares the near scenery cadence)", ringDotSpacingPx)
+	}
+}

@@ -67,8 +67,8 @@ const (
 	classRealNearSpacingPx = 1
 	classRealFarSpacingPx  = 2
 
-	classSceneryNearSpacingPx = 5
-	classSceneryFarSpacingPx  = 10
+	classSceneryNearSpacingPx = 2
+	classSceneryFarSpacingPx  = 4
 
 	classPlannedDashPx = 3
 	classPlannedGapPx  = 2
