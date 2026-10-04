@@ -974,7 +974,10 @@ The player's control over which way an ascent goes. A commanded launch
 heading, default 090° (due east), nudged ±5° per tap with `↑` / `↓`
 (toward north / south) on the pad or mid-ascent, the same idiom as pitch
 trim (`←` / `→`, west / east); both work in every flight view, and `|`
-resets both trims. Persisted on the Vessel. Pitch trim tilts thrust first, then
+resets both trims. Holding `alt` makes any trim fine: `alt+↑` / `alt+↓`
+are 1° heading steps, `alt+←` / `alt+→` 1° pitch (and `alt+Z` / `alt+X`
+1% throttle), so the exact heading a **Launch Window** names can be
+commanded. Persisted on the Vessel. Pitch trim tilts thrust first, then
 thrust is rotated about local up onto the commanded heading, so pitch
 always tilts in the heading's vertical plane; the reverse order is a
 no-op on any vertical-start hold, including the pad's default. Heading
@@ -989,6 +992,22 @@ SURFACE chip at all); GUIDANCE is now the one instrument box for both.
 _Avoid_: Yaw trim (yaw is the camera control in the tilted view),
 launch azimuth (as a player-facing label; the row says `heading:`),
 Locked.
+
+**Launch Window** (grilled 2026-10-03, G6, #460): While Landed with a
+target set, the next time the rotating pad sweeps through the target's
+orbital plane, and the heading that pass wants. Shown on NAVIGATION's
+`plan:` row (which has no planted plan to show on the pad):
+`plan:  window T-11h03m at 045°, lead +12°`. The time does not move with
+the commanded **Heading Trim**; it is the nearest pass and rolls to the
+other pass (the mirror heading, e.g. 135°) once the first is gone, and the
+heading follows the target's own direction of travel. `lead` is the target's
+lead angle at that pass. When the pad's latitude is above the plane's tilt
+(KSC to the Moon) no heading ever lines up, and the row reads the best
+the pad will do instead, `window best 9.17° T-2h46m`. TARGET's `Δincl:` keeps
+ticking for the heading actually commanded.
+_Avoid_: Launch azimuth, none (the no-pass row never says "none"),
+launch window as the word for a transfer window (those are Porkchop
+plots).
 
 **Inclination Floor** (grilled 2026-09-09, ADR 0049; extended by ADR
 0050; placement updated by ADR 0051):
