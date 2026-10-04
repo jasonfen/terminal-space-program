@@ -928,14 +928,14 @@ func altKmLabel(altM float64) string {
 // every line.
 func (s *SpawnCraft) craftTypeLines(avail int) (lines []widgets.WindowLine, cursorLine int) {
 	idx := 0
-	noIsp := s.catalogDropsIsp(avail - 3)
+	level := s.catalogLevel(avail - 3) // 3 = craftRow's bullet cells
 	for _, g := range s.groupedLoadouts() {
 		lines = append(lines, widgets.WindowLine{Text: "  " + s.theme.Primary.Render(g.label), IsHeader: true})
 		for _, id := range g.ids {
 			l := spacecraft.Loadouts[id]
 			// No row bullet: the ➤ glyph is the vessel's mark on the map,
 			// not a list bullet (B11 / G9 Q5).
-			row := catalogRowText(l, avail-3, noIsp) // 3 = craftRow's bullet cells
+			row := catalogRowText(l, level)
 			if idx == s.loadoutIdx {
 				cursorLine = len(lines)
 			}
@@ -970,37 +970,42 @@ func (s *SpawnCraft) craftTypeLines(avail int) (lines []widgets.WindowLine, curs
 	return lines, cursorLine
 }
 
-// catalogRowText is one catalog row's label. It always keeps the engine
-// figure (the part a player compares vessels by): when a row would be
-// clipped at width cells it drops the role column rather than lose the
-// tail. noIsp drops the "Isp " word; the caller sets it for the whole
-// list at once so the column reads one way (M3 / review #555).
-func catalogRowText(l spacecraft.Loadout, width int, noIsp bool) string {
+// catalogRowText is one catalog row's label at a compaction level, chosen
+// once for the whole list so the column reads one way: 0 is the full row,
+// 1 drops the "Isp " word, 2 also drops the role column (the group header
+// above the rows already names it). The engine figure is never dropped
+// (M3 / review #555).
+func catalogRowText(l spacecraft.Loadout, level int) string {
 	prop := propulsionSummary(l)
-	if noIsp {
+	if level >= 1 {
 		prop = strings.Replace(prop, "Isp ", "", 1)
 	}
-	full := fmt.Sprintf("%s  %s  %s  · %s", l.Name, crewTag(l), l.Role, prop)
-	if width <= 0 || lipgloss.Width(full) <= width {
-		return full
+	if level >= 2 {
+		return fmt.Sprintf("%s  %s  · %s", l.Name, crewTag(l), prop)
 	}
-	return fmt.Sprintf("%s  %s  · %s", l.Name, crewTag(l), prop)
+	return fmt.Sprintf("%s  %s  %s  · %s", l.Name, crewTag(l), l.Role, prop)
 }
 
-// catalogDropsIsp reports whether any catalog row is too wide for width
-// cells with the "Isp " word in place.
-func (s *SpawnCraft) catalogDropsIsp(width int) bool {
+// catalogLevel is the least compaction at which every catalog row fits
+// width cells (width<=0: no limit).
+func (s *SpawnCraft) catalogLevel(width int) int {
 	if width <= 0 {
-		return false
+		return 0
 	}
-	for _, g := range s.groupedLoadouts() {
-		for _, id := range g.ids {
-			if lipgloss.Width(catalogRowText(spacecraft.Loadouts[id], 0, false)) > width {
-				return true
+	for level := 0; level < 2; level++ {
+		fits := true
+		for _, g := range s.groupedLoadouts() {
+			for _, id := range g.ids {
+				if lipgloss.Width(catalogRowText(spacecraft.Loadouts[id], level)) > width {
+					fits = false
+				}
 			}
 		}
+		if fits {
+			return level
+		}
 	}
-	return false
+	return 2
 }
 
 // craftTypeRowsFor picks the CRAFT TYPE window's row budget for a given
@@ -1100,7 +1105,7 @@ func (s *SpawnCraft) Render(width, height int) string {
 // column and the field-box column (a one-cell gutter between).
 func spawnWidths(width int) (lw, rw int) {
 	inner := width - 2*frameInset
-	rw = clampI(inner*27/100, 36, 48)
+	rw = clampI(inner*29/100, 40, 48)
 	return inner - rw - 1, rw
 }
 
