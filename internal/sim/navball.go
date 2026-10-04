@@ -229,17 +229,17 @@ func (w *World) NavballSubObserver() (latDeg, lonDeg float64, ok bool) {
 	// below the centre. Off the pole the real longitude takes over and
 	// matches (the steer-to-heading trim keeps the nose on the commanded
 	// bearing), so there is no jump at pitch-over.
-	if w.NavMode == NavSurface && lat >= navballPolePinDeg {
+	if w.NavMode == NavSurface && lat >= NavballPolePinDeg {
 		beta := (spacecraft.HeadingTrimDueEastRad + active.HeadingTrim) * 180 / math.Pi
 		lon = wrapLonDeg(-beta)
 	}
 	return lat, lon, true
 }
 
-// navballPolePinDeg is the sub-observer latitude at or above which the
+// NavballPolePinDeg is the sub-observer latitude at or above which the
 // surface ball's rotation is held to the commanded heading (within a
 // degree of straight up).
-const navballPolePinDeg = 89.0
+const NavballPolePinDeg = 89.0
 
 // wrapLonDeg folds a longitude into (-180, 180].
 func wrapLonDeg(d float64) float64 {

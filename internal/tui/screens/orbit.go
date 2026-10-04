@@ -329,6 +329,21 @@ type OrbitView struct {
 // sub-degree SAS hold jitter that caused the marker flicker.
 const navballSubObserverDeadbandDeg = 2.0
 
+// navballPoleRoseStepDeg is how far the pinned pad rose must turn before the
+// sticky sub-observer follows it (a quarter degree: below one braille dot).
+const navballPoleRoseStepDeg = 0.25
+
+// wrapDeg180 folds an angle difference into (-180, 180].
+func wrapDeg180(d float64) float64 {
+	d = math.Mod(d, 360)
+	if d > 180 {
+		d -= 360
+	} else if d <= -180 {
+		d += 360
+	}
+	return d
+}
+
 // stickyNavballSubObserver applies the great-circle dead-band to the
 // raw (lat, lon) sub-observer point and returns the stabilised value
 // the painter should use. Stateful on the OrbitView so it persists
@@ -341,6 +356,14 @@ func (v *OrbitView) stickyNavballSubObserver(rawLatDeg, rawLonDeg float64) (latD
 		return v.navSubLatDeg, v.navSubLonDeg
 	}
 	if latLonAngularSepDeg(v.navSubLatDeg, v.navSubLonDeg, rawLatDeg, rawLonDeg) > navballSubObserverDeadbandDeg {
+		v.navSubLatDeg, v.navSubLonDeg = rawLatDeg, rawLonDeg
+	} else if rawLatDeg >= sim.NavballPolePinDeg && v.navSubLatDeg >= sim.NavballPolePinDeg &&
+		math.Abs(wrapDeg180(rawLonDeg-v.navSubLonDeg)) > navballPoleRoseStepDeg {
+		// Pad rose (G8 Q5): at the pole the longitude is the commanded
+		// heading (noise-free, see sim.NavballSubObserver), but a heading
+		// trim moves only the longitude, which the great-circle dead-band
+		// cannot see. Adopt it so the rose turns when the heading keys are
+		// pressed.
 		v.navSubLatDeg, v.navSubLonDeg = rawLatDeg, rawLonDeg
 	}
 	return v.navSubLatDeg, v.navSubLonDeg

@@ -92,3 +92,44 @@ func TestNavballReadoutFitsPanel(t *testing.T) {
 		}
 	}
 }
+
+// TestNavballPadRoseFollowsHeadingTrim (G8 Q5): on the pad the nose sits on
+// the pole, so a heading trim moves only the ball's longitude, never its
+// great-circle position. The sticky 2 degree dead-band compares positions,
+// so on its own it would freeze the rose when you press the heading keys.
+// Seam: the same OrbitView composes two frames, as the live screen does.
+func TestNavballPadRoseFollowsHeadingTrim(t *testing.T) {
+	w, c := spawnSaturnVOnPad(t)
+	w.NavMode = sim.NavSurface
+	w.InstantSAS = false
+	v := NewOrbitView(Theme{Primary: lipgloss.NewStyle(), Dim: lipgloss.NewStyle(), Warning: lipgloss.NewStyle()})
+	const cols, rows = 138, 37
+	// The compass E tick: the only 'E' inside the disk region (the panel's
+	// button labels are digits-free caps in the left column, so scan from
+	// the disk's first column rightwards).
+	g := navballGeometry(cols, rows)
+	diskLeft := cols - g.panelW + 1 + navballGlyphColW
+	eCell := func() (int, int) {
+		out := stripANSI(v.ComposeNavballOverlay(w, blankCanvas(cols, rows), cols, rows))
+		for r, l := range strings.Split(out, "\n") {
+			cells := []rune(l)
+			for ci := diskLeft; ci < len(cells); ci++ {
+				if cells[ci] == 'E' {
+					return r, ci
+				}
+			}
+		}
+		return -1, -1
+	}
+	setNose(w, 90, 90)
+	r0, c0 := eCell()
+	if r0 < 0 {
+		t.Fatal("no compass E on the pad ball")
+	}
+	c.HeadingTrim = -40 * math.Pi / 180 // commanded bearing 050
+	setNose(w, 90, 50)
+	r1, c1 := eCell()
+	if r1 == r0 && c1 == c0 {
+		t.Errorf("rose did not move after a 40 degree heading trim: E stayed at row %d col %d", r0, c0)
+	}
+}
