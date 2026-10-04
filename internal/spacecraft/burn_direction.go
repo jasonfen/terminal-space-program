@@ -50,13 +50,25 @@ func (s *Spacecraft) BurnDirection(mode BurnMode) orbital.Vec3 {
 //
 // v0.9.3+.
 func (s *Spacecraft) BurnDirectionWithTarget(mode BurnMode, rT, vT orbital.Vec3) orbital.Vec3 {
+	dir := s.BurnDirectionUntrimmedWithTarget(mode, rT, vT)
+	if dir.Norm() == 0 {
+		return dir
+	}
+	return s.applyTrims(dir)
+}
+
+// BurnDirectionUntrimmedWithTarget is BurnDirectionWithTarget before the
+// player's PitchTrim / HeadingTrim are folded in: the pure hold direction
+// ("where prograde IS"). The navball's hold glyphs mark these (G8 Q6, #507,
+// KSP style) while the nose carries the trim, so the gap between the nose
+// and a glyph reads the trim against the pitch rungs. Zero vector when the
+// mode has no defined direction (e.g. surface-prograde on the pad).
+func (s *Spacecraft) BurnDirectionUntrimmedWithTarget(mode BurnMode, rT, vT orbital.Vec3) orbital.Vec3 {
 	// Body's tilted spin axis — shared with the launchpad spawn
 	// frame, the landed integrator, and physics.AtmosphereOmega
 	// (v0.11.2+ unification, ADR 0003). One ω across the codebase.
 	omegaR := render.BodySpinOmegaWorld(s.Primary)
 	omega := orbital.Vec3{X: omegaR.X, Y: omegaR.Y, Z: omegaR.Z}
-	axisR := render.BodyRotationAxisWorld(s.Primary)
-	spinAxis := orbital.Vec3{X: axisR.X, Y: axisR.Y, Z: axisR.Z}
 
 	var dir orbital.Vec3
 	switch mode {
@@ -75,6 +87,13 @@ func (s *Spacecraft) BurnDirectionWithTarget(mode BurnMode, rT, vT orbital.Vec3)
 	default:
 		dir = DirectionUnit(mode, s.State.R, s.State.V)
 	}
+	return dir
+}
+
+// applyTrims folds the player's PitchTrim then HeadingTrim into dir.
+func (s *Spacecraft) applyTrims(dir orbital.Vec3) orbital.Vec3 {
+	axisR := render.BodyRotationAxisWorld(s.Primary)
+	spinAxis := orbital.Vec3{X: axisR.X, Y: axisR.Y, Z: axisR.Z}
 	// Pitch before heading (item4-B review round 1, findings 1-2;
 	// corrects ADR 0049 decision 8's own prose, which says the reverse
 	// and is wrong: a docs fix lands separately). ApplyPitchTrim always
