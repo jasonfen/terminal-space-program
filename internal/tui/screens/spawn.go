@@ -3,6 +3,9 @@ package screens
 import (
 	"fmt"
 	"strconv"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -916,14 +919,6 @@ func altKmLabel(altM float64) string {
 	return sim.CommaKm(altM) + " km"
 }
 
-// craftTypeRowBudget caps how many CRAFT TYPE rows (including category
-// headers) the windowed catalog list shows around the cursor (#373 / ADR
-// 0046's Consequences section: "about 8 rows around the cursor"). Render
-// shrinks this further when the terminal is too short to give the rest of
-// the form (POSITION/PARENT BODY/ALTITUDE/DIRECTION, the footer) room —
-// see craftTypeRowsFor.
-const craftTypeRowBudget = 24
-
 // craftTypeLines flattens the CRAFT TYPE catalog — category headers (ADR
 // 0031 / S8), the "Custom & Designs" group, the synthetic Custom entry,
 // and any saved designs — into widgets.WindowLines suitable for
@@ -931,16 +926,16 @@ const craftTypeRowBudget = 24
 // This is exactly the content the pre-#373 Render loop emitted inline;
 // factoring it out is what lets Render window it instead of emitting
 // every line.
-func (s *SpawnCraft) craftTypeLines() (lines []widgets.WindowLine, cursorLine int) {
+func (s *SpawnCraft) craftTypeLines(avail int) (lines []widgets.WindowLine, cursorLine int) {
 	idx := 0
+	noIsp := s.catalogDropsIsp(avail - 3)
 	for _, g := range s.groupedLoadouts() {
 		lines = append(lines, widgets.WindowLine{Text: "  " + s.theme.Primary.Render(g.label), IsHeader: true})
 		for _, id := range g.ids {
 			l := spacecraft.Loadouts[id]
 			// No row bullet: the ➤ glyph is the vessel's mark on the map,
 			// not a list bullet (B11 / G9 Q5).
-			row := fmt.Sprintf("%s  %s  %s  · %s",
-				l.Name, crewTag(l), l.Role, propulsionSummary(l))
+			row := catalogRowText(l, avail-3, noIsp) // 3 = craftRow's bullet cells
 			if idx == s.loadoutIdx {
 				cursorLine = len(lines)
 			}
@@ -975,9 +970,41 @@ func (s *SpawnCraft) craftTypeLines() (lines []widgets.WindowLine, cursorLine in
 	return lines, cursorLine
 }
 
+// catalogRowText is one catalog row's label. It always keeps the engine
+// figure (the part a player compares vessels by): when a row would be
+// clipped at width cells it drops the role column rather than lose the
+// tail. noIsp drops the "Isp " word; the caller sets it for the whole
+// list at once so the column reads one way (M3 / review #555).
+func catalogRowText(l spacecraft.Loadout, width int, noIsp bool) string {
+	prop := propulsionSummary(l)
+	if noIsp {
+		prop = strings.Replace(prop, "Isp ", "", 1)
+	}
+	full := fmt.Sprintf("%s  %s  %s  · %s", l.Name, crewTag(l), l.Role, prop)
+	if width <= 0 || lipgloss.Width(full) <= width {
+		return full
+	}
+	return fmt.Sprintf("%s  %s  · %s", l.Name, crewTag(l), prop)
+}
+
+// catalogDropsIsp reports whether any catalog row is too wide for width
+// cells with the "Isp " word in place.
+func (s *SpawnCraft) catalogDropsIsp(width int) bool {
+	if width <= 0 {
+		return false
+	}
+	for _, g := range s.groupedLoadouts() {
+		for _, id := range g.ids {
+			if lipgloss.Width(catalogRowText(spacecraft.Loadouts[id], 0, false)) > width {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // craftTypeRowsFor picks the CRAFT TYPE window's row budget for a given
-// terminal height: craftTypeRowBudget when there's room, shrunk to
-// whatever's left after fixedLines (every other line Render emits — the
+// terminal height: whatever is left after fixedLines (every other line Render emits — the
 // title, VESSEL TYPE header, POSITION/PARENT BODY/ALTITUDE/DIRECTION, the
 // footer, and the STACK editor when Custom is selected) so the rest of the
 // form is never pushed off screen by the catalog window itself. height<=0
@@ -989,9 +1016,6 @@ func craftTypeRowsFor(height, fixedLines int) int {
 		return 0 // widgets.Window treats <=0 as "show everything"
 	}
 	avail := height - fixedLines
-	if avail > craftTypeRowBudget {
-		avail = craftTypeRowBudget
-	}
 	if avail < 1 {
 		avail = 1
 	}
@@ -1039,7 +1063,7 @@ func (s *SpawnCraft) Render(width, height int) string {
 		stack = formBox(s.theme, s.boxTitle(stackFieldIdx, "STACK (bottom → top)"), s.stackLines(), lw)
 	}
 
-	catalogLines, cursorLine := s.craftTypeLines()
+	catalogLines, cursorLine := s.craftTypeLines(lw - 2)
 	// box overhead: top edge + title + bottom edge; the frame adds two rows.
 	budget := craftTypeRowsFor(height, 5+len(head)+len(stack))
 	rendered := widgets.Window(catalogLines, cursorLine, budget)
@@ -1076,7 +1100,7 @@ func (s *SpawnCraft) Render(width, height int) string {
 // column and the field-box column (a one-cell gutter between).
 func spawnWidths(width int) (lw, rw int) {
 	inner := width - 2*frameInset
-	rw = clampI(inner*36/100, 44, 60)
+	rw = clampI(inner*27/100, 36, 48)
 	return inner - rw - 1, rw
 }
 
