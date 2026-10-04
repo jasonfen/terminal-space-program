@@ -358,3 +358,48 @@ func TestTargetPlaneNodesRenderAtNarrowCanvas(t *testing.T) {
 		t.Error("descending-node marker missing at 80x24")
 	}
 }
+
+// TestVesselWinsItsCellOverNodeMarker (#548 review line 122, B8 x B9): at
+// the moment the vessel sits on a plane-crossing, the ◇/◆ marker landed on
+// the vessel's own cell and overwrote its chevron. The vessel wins the cell.
+func TestVesselWinsItsCellOverNodeMarker(t *testing.T) {
+	v := NewOrbitView(Theme{HUDBox: lipgloss.NewStyle()})
+	v.Resize(200, 60)
+	w := inclinedCircularEarthOrbitCraft(t, 45, 500e3)
+	for i, b := range w.System().Bodies {
+		if b.ID == "moon" {
+			w.SetTargetBody(i)
+		}
+	}
+	c := w.ActiveCraft()
+	vesselColor := render.ColorCraftMarker
+
+	// Control: off the node, both markers and the vessel are drawn.
+	v.Render(w, 0, 200, 60)
+	an, dn, _ := markerCounts(v)
+	if an == 0 || dn == 0 || v.canvas.CountOverlayColor(vesselColor) == 0 {
+		t.Fatalf("control failed: AN=%d DN=%d vessel=%d", an, dn, v.canvas.CountOverlayColor(vesselColor))
+	}
+
+	// Park the vessel exactly on the ascending node, same plane and speed.
+	anPos, _, hasAN, _ := w.TargetPlaneNodePositions()
+	if !hasAN {
+		t.Fatal("no ascending node")
+	}
+	h := c.State.R.Cross(c.State.V)
+	speed := c.State.V.Norm()
+	c.State.R = anPos.Sub(w.BodyPosition(c.Primary))
+	c.State.V = h.Cross(c.State.R).Unit().Scale(speed)
+
+	v.Render(w, 0, 200, 60)
+	an, dn, _ = markerCounts(v)
+	if v.canvas.CountOverlayColor(vesselColor) == 0 {
+		t.Error("vessel glyph missing")
+	}
+	if an != 0 {
+		t.Errorf("ascending-node marker overwrote the vessel on its own cell (AN=%d)", an)
+	}
+	if dn == 0 {
+		t.Error("the other node marker vanished too")
+	}
+}
