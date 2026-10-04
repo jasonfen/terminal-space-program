@@ -469,13 +469,21 @@ func Angle(deg float64) string {
 	return fmt.Sprintf("%.*f°", dec, Nzero(deg, dec))
 }
 
-// TrimAngle renders a signed, whole-degree pitch-trim readout with an
-// explicit sign on positive values and zero, matching the existing
-// PitchTrim formatter's "%+.1f°" convention (orbit_chip_builders.go:1392)
-// at decision 12's integer precision: "+12°", "-10°", "+0°". Distinct
-// from FPA, whose existing formatters print no plus sign.
+// TrimAngle renders the pitch trim as the way the nose leans, whole
+// degrees: "12° E", "10° W", "0°". ←/→ tip the nose east/west about local
+// north from wherever the hold points it, so an east lean LOWERS an
+// eastbound nose; a signed "+15°" beside the navball's "pitch -15°" read
+// as a contradiction (#548 review LOW 115, Jason 2026-10-04: "say it as a
+// lean"). Amends ADR 0049 decision 4's signed form for this one readout.
 func TrimAngle(deg float64) string {
-	return fmt.Sprintf("%+.0f°", Nzero(deg, 0))
+	r := math.Round(deg)
+	switch {
+	case r > 0:
+		return fmt.Sprintf("%.0f° E", r)
+	case r < 0:
+		return fmt.Sprintf("%.0f° W", -r)
+	}
+	return "0°"
 }
 
 // FPA renders a whole-degree flight-path-angle readout with a minus sign
