@@ -383,3 +383,94 @@ func TestWideMapNeverNamesOnTheBottomRow(t *testing.T) {
 		t.Error("positive control: no body ever sat on the bottom row during the sweep")
 	}
 }
+
+// BenchmarkWideMapRender is the cost of one System-wide frame (names on) at
+// both Design sizes; wave C review fix: the name pass used to replay the chip
+// layout onto a blank canvas every frame (+0.28 ms, +9.1k allocs).
+func BenchmarkWideMapRender(b *testing.B) {
+	for _, sz := range []struct{ cols, rows int }{{140, 40}, {181, 49}} {
+		b.Run(fmt.Sprintf("%dx%d", sz.cols, sz.rows), func(b *testing.B) {
+			w, err := sim.NewWorld()
+			if err != nil {
+				b.Fatal(err)
+			}
+			w.ViewMode = sim.ViewTilted
+			w.ResetFocus()
+			v := NewOrbitView(plainTheme())
+			v.Resize(sz.cols, sz.rows)
+			v.Render(w, 0, sz.cols, sz.rows)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				v.Render(w, 0, sz.cols, sz.rows)
+			}
+		})
+	}
+}
+
+// TestWideMapChipLayoutReplayIsCached: the name pass learns where the
+// instrument boxes land by replaying the chip layout. Identical chip shapes
+// must not replay it every frame (wave C review, LOW 53: +0.28 ms and +9.1k
+// allocs per frame at "g").
+func TestWideMapChipLayoutReplayIsCached(t *testing.T) {
+	v, w, _ := wideMapRender(t, "Sol", 140, 40)
+	after1 := v.nameReplays
+	if after1 == 0 {
+		t.Fatal("precondition: first frame must run the replay (counter wiring)")
+	}
+	for i := 0; i < 5; i++ {
+		v.Render(w, 0, 140, 40)
+	}
+	if v.nameReplays != after1 {
+		t.Errorf("replays after 5 identical frames = %d, want %d (cache miss on unchanged chips)", v.nameReplays, after1)
+	}
+}
+
+// TestWideMapCachedLayoutMatchesFreshAcrossResizes: the chip-layout cache
+// must never serve a stale layout. One long-lived view, resized back and
+// forth and with the Moon targeted and untargeted (a TARGET chip appears),
+// must place exactly the names a brand-new view (empty cache) places.
+func TestWideMapCachedLayoutMatchesFreshAcrossResizes(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.ViewMode = sim.ViewTilted
+	w.ResetFocus()
+	moonIdx := -1
+	for i, b := range w.System().Bodies {
+		if b.EnglishName == "Moon" {
+			moonIdx = i
+		}
+	}
+	long := NewOrbitView(plainTheme())
+	steps := []struct {
+		cols, rows int
+		target     bool
+	}{{140, 40, false}, {181, 49, false}, {140, 40, true}, {181, 49, true}, {140, 40, false}, {150, 42, false}, {140, 40, true}, {141, 40, true}, {141, 41, true}, {142, 41, true}}
+	for i, st := range steps {
+		if st.target {
+			w.SetTargetBody(moonIdx)
+		} else {
+			w.ClearTarget()
+		}
+		long.Resize(st.cols, st.rows)
+		long.Render(w, 0, st.cols, st.rows)
+		fresh := NewOrbitView(plainTheme())
+		fresh.Resize(st.cols, st.rows)
+		fresh.Render(w, 0, st.cols, st.rows)
+		a, b := fmt.Sprint(long.nameLabels), fmt.Sprint(fresh.nameLabels)
+		if a != b {
+			t.Errorf("step %d (%dx%d target=%v): cached view placed %s, fresh view %s", i, st.cols, st.rows, st.target, a, b)
+		}
+		// The cached rectangles themselves must equal a fresh replay's (the
+		// names can agree by luck when the boxes sit far from every body).
+		cached := fmt.Sprint(long.blockedCache)
+		cCols, cRows := long.canvas.Cols(), long.canvas.Rows()
+		long.blockedCacheOK = false
+		want := fmt.Sprint(long.blockedByInstruments(w, long.assembleChips(w), cCols, cRows))
+		if cached != want {
+			t.Errorf("step %d (%dx%d target=%v): cached layout rects differ from a fresh replay (%d vs %d bytes)", i, st.cols, st.rows, st.target, len(cached), len(want))
+		}
+	}
+}

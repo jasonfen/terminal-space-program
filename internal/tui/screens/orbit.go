@@ -219,6 +219,16 @@ type OrbitView struct {
 	nameLabels  []nameLabel
 	nameDropped []string
 
+	// nameReplays counts chip-layout replays the name pass has run (tests
+	// read it to prove the layout cache hits).
+	nameReplays int
+	// blockedCache* memoise the instrument rectangles the name pass avoids
+	// (orbit_names.go blockedByInstruments), keyed on the chip layout shape.
+	blockedCache     []cellRect
+	blockedCacheKey  uint64
+	blockedCacheDecl bool
+	blockedCacheOK   bool
+
 	// settings holds the player's per-Chip default-visibility
 	// preferences (ADR 0010, v0.13). Defaults to all-on so the screen
 	// behaves exactly as pre-0010 until SetSettings pushes a loaded
