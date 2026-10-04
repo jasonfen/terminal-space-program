@@ -320,16 +320,13 @@ func (c *Canvas) SetCellOverlayColored(w orbital.Vec3, glyph rune, color lipglos
 	c.cellOverlayColors[[2]int{cellX, cellY}] = color
 }
 
-// CellOverlayAt reports the overlay glyph already set on the cell that
-// contains the world coord, if any. Lets a later pass avoid overwriting a
-// glyph that must win its cell (the active vessel).
-func (c *Canvas) CellOverlayAt(w orbital.Vec3) (rune, bool) {
-	px, py, ok := c.Project(w)
-	if !ok {
-		return 0, false
-	}
-	g, has := c.cellOverlays[[2]int{px / 2, py / 4}]
-	return g, has
+// SameCell reports whether two world coords project into the same canvas
+// cell. Lets a marker pass leave the cell of a glyph that must win it (the
+// active vessel).
+func (c *Canvas) SameCell(a, b orbital.Vec3) bool {
+	ax, ay, okA := c.Project(a)
+	bx, by, okB := c.Project(b)
+	return okA && okB && ax/2 == bx/2 && ay/4 == by/4
 }
 
 // ClearCellOverlay removes any overlay glyph at the cell containing

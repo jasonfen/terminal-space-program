@@ -113,14 +113,9 @@ func (v *OrbitView) drawTargetPlaneNodes(w *sim.World) {
 	// The active vessel wins its cell (#548 review): a node under the
 	// vessel is the vessel's own position, and its chevron is the one
 	// glyph the player must not lose.
-	vesselHere := func(pos orbital.Vec3) bool {
-		g := []rune(w.ActiveCraft().Glyph)
-		if len(g) == 0 {
-			return false
-		}
-		o, ok := v.canvas.CellOverlayAt(pos)
-		return ok && o == g[0]
-	}
+	c := w.ActiveCraft()
+	vesselPos := w.BodyPosition(c.Primary).Add(c.State.R)
+	vesselHere := func(pos orbital.Vec3) bool { return v.canvas.SameCell(pos, vesselPos) }
 	if hasAN && !vesselHere(anPos) {
 		drawMarker(v.canvas, anPos, render.MarkerAscendingNode, render.MarkerNominal, "", widgets.CellTag{})
 	}
