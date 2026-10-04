@@ -174,8 +174,37 @@ func (s *SettingsScreen) Render(prefs settings.Settings, width, height int) stri
 	// CHIPS (left). Lines start at body row 2 (top edge, title).
 	var chips []string
 	chips = append(chips, desc("Default visibility of each orbit-screen chip.", lw), "")
-	for i, c := range settings.AllChips {
-		chips = append(chips, row(i, 2+len(chips), 0, lw, checkbox(prefs.ChipEnabled(c), c.Label())))
+	// When the chip list outgrows the box (a short terminal, or more
+	// Chips than the floor holds), window it around the cursor with
+	// "more" markers instead of letting formFrame clip it silently
+	// (review #555 L3). height<=0 means no budget: show them all.
+	first, last := 0, len(settings.AllChips)
+	if room := height - 2 - 3 - len(chips); height > 0 && len(settings.AllChips) > room {
+		vis := room - 2 // a marker row above and below
+		if vis < 1 {
+			vis = 1
+		}
+		first = 0
+		if s.cursor < len(settings.AllChips) {
+			first = clampI(s.cursor-vis/2, 0, len(settings.AllChips)-vis)
+		}
+		last = first + vis
+		marker := func(on bool, glyph string, n int) string {
+			if !on {
+				return ""
+			}
+			return "  " + s.theme.Dim.Render(fmt.Sprintf("%s %d more", glyph, n))
+		}
+		chips = append(chips, marker(first > 0, "▲", first))
+		for i := first; i < last; i++ {
+			c := settings.AllChips[i]
+			chips = append(chips, row(i, 2+len(chips), 0, lw, checkbox(prefs.ChipEnabled(c), c.Label())))
+		}
+		chips = append(chips, marker(last < len(settings.AllChips), "▼", len(settings.AllChips)-last))
+	} else {
+		for i, c := range settings.AllChips {
+			chips = append(chips, row(i, 2+len(chips), 0, lw, checkbox(prefs.ChipEnabled(c), c.Label())))
+		}
 	}
 	left := formBox(s.theme, "CHIPS", chips, lw)
 
