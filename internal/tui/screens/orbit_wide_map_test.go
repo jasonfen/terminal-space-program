@@ -474,3 +474,42 @@ func TestWideMapCachedLayoutMatchesFreshAcrossResizes(t *testing.T) {
 		}
 	}
 }
+
+// TestWideMapTargetedMoonNeverMislabelsItsPlanet: with the Moon targeted
+// (the Flight School target) and "g" pressed, the Moon folds into Earth's
+// dot. The one name on that dot must be Earth's, never "Moon" (G7 Q2: moons
+// are never named at that zoom; the Target is named at every zoom, and where
+// it shares a dot the dot's planet carries the name; the TARGET chip names
+// the Moon). Wave C review MEDIUM 52: Moon took Earth's dot and Earth was
+// dropped.
+func TestWideMapTargetedMoonNeverMislabelsItsPlanet(t *testing.T) {
+	for _, fx := range []struct{ cols, rows int }{{140, 40}, {181, 49}} {
+		w, err := sim.NewWorld()
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.ViewMode = sim.ViewTilted
+		moonIdx := -1
+		for i, b := range w.System().Bodies {
+			if b.EnglishName == "Moon" {
+				moonIdx = i
+			}
+		}
+		w.ResetFocus()
+		w.SetTargetBody(moonIdx)
+		v := NewOrbitView(plainTheme())
+		v.Resize(fx.cols, fx.rows)
+		v.Render(w, 0, fx.cols, fx.rows)
+		names := labelNames(v)
+		have := map[string]bool{}
+		for _, n := range names {
+			have[n] = true
+		}
+		if have["Moon"] {
+			t.Errorf("%dx%d: Moon named at the g fit where it shares Earth's dot (placed %v)", fx.cols, fx.rows, names)
+		}
+		if !have["Earth"] {
+			t.Errorf("%dx%d: Earth not named while the Moon is targeted (placed %v, dropped %v)", fx.cols, fx.rows, names, v.nameDropped)
+		}
+	}
+}

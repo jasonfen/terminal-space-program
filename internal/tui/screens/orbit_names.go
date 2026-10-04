@@ -62,12 +62,28 @@ func floorDiv(a, b int) int {
 func (v *OrbitView) wideMapNameCandidates(w *sim.World, scale float64, canvasReach int) []nameCandidate {
 	sys := w.System()
 	want := make([]int, 0, len(sys.Bodies))
+	targetIdx := -1
 	if w.Target.Kind == sim.TargetBody && w.Target.BodyIdx > 0 && w.Target.BodyIdx < len(sys.Bodies) {
-		want = append(want, w.Target.BodyIdx)
+		targetIdx = w.Target.BodyIdx
+		// A targeted moon that folds into its planet's dot (its own disk is
+		// hidden under the planet's glyph) cannot carry a name of its own
+		// there: "Moon" beside Earth's dot mislabels Earth, and it used to
+		// take Earth's name spot (wave C review MEDIUM 52). The planet whose
+		// dot it is takes the Target's slot instead; the TARGET chip names
+		// the moon.
+		if tb := sys.Bodies[targetIdx]; tb.BodyType == "Moon" && foldsIntoParent(&sys, tb, w.BodyPosition(tb), w, scale) {
+			for i, b := range sys.Bodies {
+				if b.ID == tb.ParentID {
+					targetIdx = i
+					break
+				}
+			}
+		}
+		want = append(want, targetIdx)
 	}
 	if w.Focus.Kind == sim.FocusSystem {
 		for i, b := range sys.Bodies {
-			if b.BodyType == "Moon" || i == w.Target.BodyIdx && w.Target.Kind == sim.TargetBody {
+			if b.BodyType == "Moon" || i == targetIdx {
 				continue
 			}
 			want = append(want, i)
