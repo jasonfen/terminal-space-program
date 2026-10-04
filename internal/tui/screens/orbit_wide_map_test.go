@@ -157,6 +157,9 @@ var wideMapFixtures = []struct {
 	cols, rows int
 }{
 	{"Sol", 140, 40}, {"Sol", 181, 49}, {"Lumen", 140, 40}, {"Lumen", 181, 49},
+	// Alpha Centauri stacks three stars at the origin (catalog data, wave C
+	// review LOW 54): two names may share one disk, but never overlap.
+	{"Alpha Centauri", 140, 40}, {"Alpha Centauri", 181, 49},
 }
 
 func labelNames(v *OrbitView) []string {
@@ -229,7 +232,9 @@ func TestWideMapLabelsNeverOverlap(t *testing.T) {
 // TestWideMapLabelCounts pins how many bodies are named on each fixture,
 // measured on this branch (not copied from the grill mocks): the star and
 // planets only, never a moon, and the ones the grill expects to read are
-// always among them.
+// always among them. The mustHave lists carry the intent; the exact count is
+// a deliberate tripwire (wave C review LOW 55) so a layout change that drops
+// or adds a name is looked at, not absorbed.
 func TestWideMapLabelCounts(t *testing.T) {
 	cases := []struct {
 		system     string
@@ -246,7 +251,7 @@ func TestWideMapLabelCounts(t *testing.T) {
 		v, w, _ := wideMapRender(t, c.system, c.cols, c.rows)
 		got := labelNames(v)
 		if len(got) != c.want {
-			t.Errorf("%s %dx%d: %d names %v, want %d", c.system, c.cols, c.rows, len(got), got, c.want)
+			t.Errorf("%s %dx%d: %d names %v, want %d (the exact count is a tripwire: it moves with any chip width or body position change at the fixed epoch; if every mustHave name is still placed and nothing overlaps, re-measure and update the count)", c.system, c.cols, c.rows, len(got), got, c.want)
 		}
 		have := map[string]bool{}
 		for _, n := range got {
@@ -381,5 +386,171 @@ func TestWideMapNeverNamesOnTheBottomRow(t *testing.T) {
 	}
 	if !sawBodyOnBottom {
 		t.Error("positive control: no body ever sat on the bottom row during the sweep")
+	}
+}
+
+// BenchmarkWideMapRender is the cost of one System-wide frame (names on) at
+// both Design sizes; wave C review fix: the name pass used to replay the chip
+// layout onto a blank canvas every frame (+0.28 ms, +9.1k allocs).
+func BenchmarkWideMapRender(b *testing.B) {
+	for _, sz := range []struct{ cols, rows int }{{140, 40}, {181, 49}} {
+		b.Run(fmt.Sprintf("%dx%d", sz.cols, sz.rows), func(b *testing.B) {
+			w, err := sim.NewWorld()
+			if err != nil {
+				b.Fatal(err)
+			}
+			w.ViewMode = sim.ViewTilted
+			w.ResetFocus()
+			v := NewOrbitView(plainTheme())
+			v.Resize(sz.cols, sz.rows)
+			v.Render(w, 0, sz.cols, sz.rows)
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				v.Render(w, 0, sz.cols, sz.rows)
+			}
+		})
+	}
+}
+
+// TestWideMapChipLayoutReplayIsCached: the name pass learns where the
+// instrument boxes land by replaying the chip layout. Identical chip shapes
+// must not replay it every frame (wave C review, LOW 53: +0.28 ms and +9.1k
+// allocs per frame at "g").
+func TestWideMapChipLayoutReplayIsCached(t *testing.T) {
+	v, w, _ := wideMapRender(t, "Sol", 140, 40)
+	after1 := v.nameReplays
+	if after1 == 0 {
+		t.Fatal("precondition: first frame must run the replay (counter wiring)")
+	}
+	for i := 0; i < 5; i++ {
+		v.Render(w, 0, 140, 40)
+	}
+	if v.nameReplays != after1 {
+		t.Errorf("replays after 5 identical frames = %d, want %d (cache miss on unchanged chips)", v.nameReplays, after1)
+	}
+}
+
+// TestWideMapCachedLayoutMatchesFreshAcrossResizes: the chip-layout cache
+// must never serve a stale layout. One long-lived view, resized back and
+// forth and with the Moon targeted and untargeted (a TARGET chip appears),
+// must place exactly the names a brand-new view (empty cache) places.
+func TestWideMapCachedLayoutMatchesFreshAcrossResizes(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.ViewMode = sim.ViewTilted
+	w.ResetFocus()
+	moonIdx := -1
+	for i, b := range w.System().Bodies {
+		if b.EnglishName == "Moon" {
+			moonIdx = i
+		}
+	}
+	long := NewOrbitView(plainTheme())
+	steps := []struct {
+		cols, rows int
+		target     bool
+	}{{140, 40, false}, {181, 49, false}, {140, 40, true}, {181, 49, true}, {140, 40, false}, {150, 42, false}, {140, 40, true}, {141, 40, true}, {141, 41, true}, {142, 41, true}}
+	for i, st := range steps {
+		if st.target {
+			w.SetTargetBody(moonIdx)
+		} else {
+			w.ClearTarget()
+		}
+		long.Resize(st.cols, st.rows)
+		long.Render(w, 0, st.cols, st.rows)
+		fresh := NewOrbitView(plainTheme())
+		fresh.Resize(st.cols, st.rows)
+		fresh.Render(w, 0, st.cols, st.rows)
+		a, b := fmt.Sprint(long.nameLabels), fmt.Sprint(fresh.nameLabels)
+		if a != b {
+			t.Errorf("step %d (%dx%d target=%v): cached view placed %s, fresh view %s", i, st.cols, st.rows, st.target, a, b)
+		}
+		// The cached rectangles themselves must equal a fresh replay's (the
+		// names can agree by luck when the boxes sit far from every body).
+		cached := fmt.Sprint(long.blockedCache)
+		cCols, cRows := long.canvas.Cols(), long.canvas.Rows()
+		long.blockedCacheOK = false
+		want := fmt.Sprint(long.blockedByInstruments(w, long.assembleChips(w), cCols, cRows))
+		if cached != want {
+			t.Errorf("step %d (%dx%d target=%v): cached layout rects differ from a fresh replay (%d vs %d bytes)", i, st.cols, st.rows, st.target, len(cached), len(want))
+		}
+	}
+}
+
+// TestWideMapTargetedMoonNeverMislabelsItsPlanet: with the Moon targeted
+// (the Flight School target) and "g" pressed, the Moon folds into Earth's
+// dot. The one name on that dot must be Earth's, never "Moon" (G7 Q2: moons
+// are never named at that zoom; the Target is named at every zoom, and where
+// it shares a dot the dot's planet carries the name; the TARGET chip names
+// the Moon). Wave C review MEDIUM 52: Moon took Earth's dot and Earth was
+// dropped.
+func TestWideMapTargetedMoonNeverMislabelsItsPlanet(t *testing.T) {
+	for _, fx := range []struct{ cols, rows int }{{140, 40}, {181, 49}} {
+		w, err := sim.NewWorld()
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.ViewMode = sim.ViewTilted
+		moonIdx := -1
+		for i, b := range w.System().Bodies {
+			if b.EnglishName == "Moon" {
+				moonIdx = i
+			}
+		}
+		w.ResetFocus()
+		w.SetTargetBody(moonIdx)
+		v := NewOrbitView(plainTheme())
+		v.Resize(fx.cols, fx.rows)
+		v.Render(w, 0, fx.cols, fx.rows)
+		names := labelNames(v)
+		have := map[string]bool{}
+		for _, n := range names {
+			have[n] = true
+		}
+		if have["Moon"] {
+			t.Errorf("%dx%d: Moon named at the g fit where it shares Earth's dot (placed %v)", fx.cols, fx.rows, names)
+		}
+		if !have["Earth"] {
+			t.Errorf("%dx%d: Earth not named while the Moon is targeted (placed %v, dropped %v)", fx.cols, fx.rows, names, v.nameDropped)
+		}
+	}
+}
+
+// TestWideMapSideNamesAbutOnlyTheirOwnBody: a name beside a dot must read as
+// that dot's name. Where two small bodies sit next to each other (Lumen's
+// Rust and Kern read "Rust.o.Kern" at 140x40, wave C review LOW 56) the pass
+// may not put a name flush against a DIFFERENT body's dot; each name's
+// neighbouring cell on its dot's side is its own body or empty.
+func TestWideMapSideNamesAbutOnlyTheirOwnBody(t *testing.T) {
+	sawSide := 0
+	for _, fx := range wideMapFixtures {
+		v, w, _ := wideMapRender(t, fx.system, fx.cols, fx.rows)
+		cells := map[[2]int][]string{}
+		for _, b := range w.System().Bodies {
+			if b.BodyType == "Moon" {
+				continue
+			}
+			if px, py, ok := v.canvas.Project(w.BodyPosition(b)); ok {
+				k := [2]int{px / 2, py / 4}
+				cells[k] = append(cells[k], b.EnglishName)
+			}
+		}
+		for _, l := range v.nameLabels {
+			n := len([]rune(l.Name))
+			for _, nb := range [][2]int{{l.Col - 1, l.Row}, {l.Col + n, l.Row}} {
+				for _, who := range cells[nb] {
+					sawSide++
+					if who != l.Name {
+						t.Errorf("%s %dx%d: name %s sits flush against %s's dot", fx.system, fx.cols, fx.rows, l.Name, who)
+					}
+				}
+			}
+		}
+	}
+	if sawSide == 0 {
+		t.Error("positive control: no name sat beside a dot in any fixture")
 	}
 }

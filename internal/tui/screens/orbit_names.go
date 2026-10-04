@@ -62,12 +62,28 @@ func floorDiv(a, b int) int {
 func (v *OrbitView) wideMapNameCandidates(w *sim.World, scale float64, canvasReach int) []nameCandidate {
 	sys := w.System()
 	want := make([]int, 0, len(sys.Bodies))
+	targetIdx := -1
 	if w.Target.Kind == sim.TargetBody && w.Target.BodyIdx > 0 && w.Target.BodyIdx < len(sys.Bodies) {
-		want = append(want, w.Target.BodyIdx)
+		targetIdx = w.Target.BodyIdx
+		// A targeted moon that folds into its planet's dot (its own disk is
+		// hidden under the planet's glyph) cannot carry a name of its own
+		// there: "Moon" beside Earth's dot mislabels Earth, and it used to
+		// take Earth's name spot (wave C review MEDIUM 52). The planet whose
+		// dot it is takes the Target's slot instead; the TARGET chip names
+		// the moon.
+		if tb := sys.Bodies[targetIdx]; tb.BodyType == "Moon" && foldsIntoParent(&sys, tb, w.BodyPosition(tb), w, scale) {
+			for i, b := range sys.Bodies {
+				if b.ID == tb.ParentID {
+					targetIdx = i
+					break
+				}
+			}
+		}
+		want = append(want, targetIdx)
 	}
 	if w.Focus.Kind == sim.FocusSystem {
 		for i, b := range sys.Bodies {
-			if b.BodyType == "Moon" || i == w.Target.BodyIdx && w.Target.Kind == sim.TargetBody {
+			if b.BodyType == "Moon" || i == targetIdx {
 				continue
 			}
 			want = append(want, i)
@@ -88,33 +104,103 @@ func (v *OrbitView) wideMapNameCandidates(w *sim.World, scale float64, canvasRea
 	return out
 }
 
+// chipLayoutKey hashes everything the chip layout reads: the canvas size,
+// the navball reservation, and each chip's shape (id, corner, tier, line
+// widths of the full and compact forms). Bay chips also hash their text,
+// since the bay wraps by word. Chip text that only changes digits (a clock,
+// an altitude) keeps the same key, so the replay runs on a layout change,
+// not on every frame. FNV-1a, inline, allocation-free.
+func chipLayoutKey(chips []builtChip, cCols, cRows, navballReserved int) uint64 {
+	h := uint64(14695981039346656037)
+	mix := func(n uint64) {
+		h ^= n
+		h *= 1099511628211
+	}
+	mixStr := func(s string) {
+		for i := 0; i < len(s); i++ {
+			mix(uint64(s[i]))
+		}
+		mix(0xff)
+	}
+	mix(uint64(cCols))
+	mix(uint64(cRows))
+	mix(uint64(navballReserved))
+	for _, c := range chips {
+		mixStr(string(c.id))
+		mix(uint64(c.corner))
+		mix(uint64(c.tier))
+		if c.neverShrink {
+			mix(1)
+		}
+		mix(uint64(len(c.lines)))
+		for _, ln := range c.lines {
+			mix(uint64(ansi.StringWidth(ln)))
+			if c.corner == cornerBay {
+				mixStr(ln)
+			}
+		}
+		mix(uint64(len(c.compact)) + 1<<32)
+		for _, ln := range c.compact {
+			mix(uint64(ansi.StringWidth(ln)))
+		}
+	}
+	return h
+}
+
 // blockedByInstruments returns the canvas-cell rectangles the HUD will
 // cover after the canvas string is built: every chip box and the navball
 // panel. Chips are composited from strings after the canvas is drawn, so
 // the layout is replayed here onto a blank canvas (same chips, same sizes,
 // zero screen offset) to learn where they land. composeChips resets and
 // refills v.chipRects; the real composition later in Render does it again.
+// The rectangles are cached on chipLayoutKey (wave C review, LOW 53): the
+// replay was +0.28 ms and +9.1k allocations per frame at "g".
 func (v *OrbitView) blockedByInstruments(w *sim.World, chips []builtChip, cCols, cRows int) []cellRect {
+	navballReserved := v.navballReservedRows(w, cCols, cRows)
+	key := chipLayoutKey(chips, cCols, cRows, navballReserved)
+	if v.blockedCacheOK && v.blockedCacheKey == key && v.blockedCacheDecl == v.declutter {
+		return v.blockedCache
+	}
+	v.nameReplays++
 	var out []cellRect
 	blank := strings.TrimSuffix(strings.Repeat(strings.Repeat(" ", cCols)+"\n", cRows), "\n")
-	navballReserved := v.navballReservedRows(w, cCols, cRows)
 	composed := v.composeChips(blank, cCols, cRows, navballReserved, 0, 0, chips)
 	for _, r := range v.chipRects {
 		out = append(out, cellRect{r.colStart, r.colEnd, r.rowStart, r.rowEnd})
 	}
-	// Hidden Stubs have no rect; anything the dry composition inked is
-	// blocked too.
-	for row, ln := range strings.Split(composed, "\n") {
-		for col, ch := range []rune(ansi.Strip(ln)) {
-			if ch != ' ' {
-				out = append(out, cellRect{col, col, row, row})
+	// Hidden Stubs and the bay's fold line have no rect; ink the dry
+	// composition left outside every box is blocked too, one rect per
+	// contiguous run.
+	boxes := len(out)
+	inBox := func(col, row int) bool {
+		for _, r := range out[:boxes] {
+			if r.contains(col, row) {
+				return true
 			}
+		}
+		return false
+	}
+	for row, ln := range strings.Split(composed, "\n") {
+		run := -1
+		for col, ch := range []rune(ansi.Strip(ln)) {
+			ink := ch != ' ' && !inBox(col, row)
+			switch {
+			case ink && run < 0:
+				run = col
+			case !ink && run >= 0:
+				out = append(out, cellRect{run, col - 1, row, row})
+				run = -1
+			}
+		}
+		if run >= 0 {
+			out = append(out, cellRect{run, cCols - 1, row, row})
 		}
 	}
 	if !v.declutter && navballReserved > chipStubHeight {
 		g := navballGeometry(cCols, cRows)
 		out = append(out, cellRect{cCols - g.panelW, cCols - 1, cRows - g.panelH - 1, cRows - 2})
 	}
+	v.blockedCache, v.blockedCacheKey, v.blockedCacheDecl, v.blockedCacheOK = out, key, v.declutter, true
 	return out
 }
 
