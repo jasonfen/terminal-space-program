@@ -234,13 +234,17 @@ func TestMenuRendersHighlightAndKeyedFooter(t *testing.T) {
 	}
 	// The card is the size the grill fixed (G9 Q6): 40x13, wordmark and
 	// version on its first inner row.
-	if len(lines) != MenuCardH {
-		t.Errorf("card is %d rows, want %d", len(lines), MenuCardH)
+	// Literal numbers, not the constants: the pin must not move with them.
+	if len(lines) != 13 {
+		t.Errorf("card is %d rows, want 13", len(lines))
 	}
 	for i, ln := range lines {
-		if w := lipgloss.Width(ln); w != MenuCardW {
-			t.Errorf("card row %d is %d cells wide, want %d: %q", i, w, MenuCardW, ln)
+		if w := lipgloss.Width(ln); w != 40 {
+			t.Errorf("card row %d is %d cells wide, want 40: %q", i, w, ln)
 		}
+	}
+	if MenuCardW != 40 || MenuCardH != 13 {
+		t.Errorf("MenuCardW/H = %dx%d, want 40x13", MenuCardW, MenuCardH)
 	}
 	if !strings.Contains(lines[1], "Terminal Space Program") {
 		t.Errorf("card has no wordmark on its first inner row: %q", lines[1])

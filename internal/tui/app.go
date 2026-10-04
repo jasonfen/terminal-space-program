@@ -3602,11 +3602,27 @@ func (a *App) menuOverMap() string {
 	}
 	a.menuOriginX, a.menuOriginY = x, y-1
 	dim := a.theme.Dim
+	// One clear cell all round the card (B11 review L11): without it a map
+	// box border meets the card corner (`╭───╭`). The margin is real spaces,
+	// so braille dots and box lines stop a cell short of the card.
+	ml, mr := 1, 1
+	if x < 1 {
+		ml = 0
+	}
+	if x+screens.MenuCardW+1 > a.width {
+		mr = 0
+	}
 	for i := 1; i < len(lines); i++ {
 		plain := ansi.Strip(lines[i])
 		if r := i - y; r >= 0 && r < len(card) {
-			lines[i] = dim.Render(ansi.Truncate(plain, x, "")) + card[r] +
-				dim.Render(ansi.TruncateLeft(plain, x+screens.MenuCardW, ""))
+			lines[i] = dim.Render(ansi.Truncate(plain, x-ml, "")+strings.Repeat(" ", ml)) + card[r] +
+				dim.Render(strings.Repeat(" ", mr)+ansi.TruncateLeft(plain, x+screens.MenuCardW+mr, ""))
+			continue
+		}
+		if r := i - y; r == -1 || r == len(card) {
+			lines[i] = dim.Render(ansi.Truncate(plain, x-ml, "") +
+				strings.Repeat(" ", screens.MenuCardW+ml+mr) +
+				ansi.TruncateLeft(plain, x+screens.MenuCardW+mr, ""))
 			continue
 		}
 		lines[i] = dim.Render(plain)
