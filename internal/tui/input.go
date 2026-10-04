@@ -122,6 +122,12 @@ type Keymap struct {
 	ThrottleCut         key.Binding // throttle 0 % (also stops a manual burn)
 	ThrottleUp          key.Binding // +10 % step
 	ThrottleDown        key.Binding // -10 % step
+	// ThrottleUpFine / ThrottleDownFine (#460, G6 Q6b; ADR 0052
+	// amendment): alt makes any trim fine, so alt+Z / alt+X step the
+	// throttle +/-1 % where Z / X step 10 %. Needs the terminal to send
+	// Option as Meta/Alt on macOS (see the F1 and controls.md note).
+	ThrottleUpFine   key.Binding
+	ThrottleDownFine key.Binding
 	AttitudePrograde    key.Binding
 	AttitudeRetrograde  key.Binding
 	AttitudeNormalPlus  key.Binding
@@ -242,6 +248,14 @@ type Keymap struct {
 	// (widened, not a new binding, see its comment).
 	HeadingTrimNorth key.Binding
 	HeadingTrimSouth key.Binding
+
+	// The alt-modified FINE trims (#460, G6 Q6b; ADR 0052 amendment):
+	// alt+arrows are the same four trims in 1° steps, so the exact
+	// heading the pad's plan: row names can be commanded.
+	PitchTrimEastFine    key.Binding
+	PitchTrimWestFine    key.Binding
+	HeadingTrimNorthFine key.Binding
+	HeadingTrimSouthFine key.Binding
 
 	// ToggleInstantSAS (v0.10.0+): flip the manual-flight attitude
 	// model between rate-limited slew (MANUAL, the v0.10 default) and
@@ -410,6 +424,8 @@ func DefaultKeymap() Keymap {
 		ThrottleCut:         key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "throttle 0% / cut burn")),
 		ThrottleUp:          key.NewBinding(key.WithKeys("Z"), key.WithHelp("Z", "throttle +10%")),
 		ThrottleDown:        key.NewBinding(key.WithKeys("X"), key.WithHelp("X", "throttle -10%")),
+		ThrottleUpFine:      key.NewBinding(key.WithKeys("alt+Z"), key.WithHelp("alt+Z", "throttle +1%")),
+		ThrottleDownFine:    key.NewBinding(key.WithKeys("alt+X"), key.WithHelp("alt+X", "throttle -1%")),
 		AttitudePrograde:    key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "attitude: prograde")),
 		AttitudeRetrograde:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "attitude: retrograde")),
 		AttitudeNormalPlus:  key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "attitude: normal+")),
@@ -438,6 +454,10 @@ func DefaultKeymap() Keymap {
 		PitchTrimWest:             key.NewBinding(key.WithKeys("left"), key.WithHelp("←", "pitch trim -5° west")),
 		HeadingTrimNorth:          key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "heading trim -5° (toward north)")),
 		HeadingTrimSouth:          key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "heading trim +5° (toward south)")),
+		PitchTrimEastFine:         key.NewBinding(key.WithKeys("alt+right"), key.WithHelp("alt+→", "pitch trim +1° east")),
+		PitchTrimWestFine:         key.NewBinding(key.WithKeys("alt+left"), key.WithHelp("alt+←", "pitch trim -1° west")),
+		HeadingTrimNorthFine:      key.NewBinding(key.WithKeys("alt+up"), key.WithHelp("alt+↑", "heading trim -1° (toward north)")),
+		HeadingTrimSouthFine:      key.NewBinding(key.WithKeys("alt+down"), key.WithHelp("alt+↓", "heading trim +1° (toward south)")),
 		// #425: moved off `?` (now the Help alias below) to `|` — "vertical
 		// bar = straight up" is the mnemonic Jason gave for the reset.
 		// ADR 0049 decision 9 widened it to reset heading trim too.

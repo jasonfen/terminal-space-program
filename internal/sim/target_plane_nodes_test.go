@@ -119,13 +119,50 @@ func TestTargetPlaneNodePositions_DifferentPrimaries_NotMeaningful(t *testing.T)
 	}
 }
 
-// TestTargetPlaneNodePositions_BodyTarget_NotMeaningful: a body target
-// (not a craft/ghost) must never produce plane-node markers.
-func TestTargetPlaneNodePositions_BodyTarget_NotMeaningful(t *testing.T) {
+// TestTargetPlaneNodePositions_BodyTarget (#460, G6 Q5 option 1): a body
+// target gets the same ◇/◆ crossing points as a vessel target, against
+// the body's catalog plane. Both points lie on the craft's own orbit
+// radius and in the body's plane (n . r ~ 0), and are 180 degrees apart.
+func TestTargetPlaneNodePositions_BodyTarget(t *testing.T) {
 	w := mustWorld(t)
+	c := w.ActiveCraft()
+	moonIdx := -1
+	for i, b := range w.System().Bodies {
+		if b.ID == "moon" {
+			moonIdx = i
+		}
+	}
+	if moonIdx < 0 {
+		t.Fatal("no moon")
+	}
+	w.SetTargetBody(moonIdx)
+	an, dn, hasAN, hasDN := w.TargetPlaneNodePositions()
+	if !hasAN || !hasDN {
+		t.Fatalf("body target: want both nodes, got AN=%v DN=%v (craft landed=%v)", hasAN, hasDN, c.Landed)
+	}
+	n := orbital.OrbitNormalWorld(w.System().Bodies[moonIdx]).Unit()
+	prim := w.BodyPosition(c.Primary)
+	for name, p := range map[string]orbital.Vec3{"AN": an, "DN": dn} {
+		rel := p.Sub(prim)
+		if off := math.Abs(n.Dot(rel)) / rel.Norm(); off > 1e-3 {
+			t.Errorf("%s is %.4f (sin) off the body's plane", name, off)
+		}
+	}
+	if cosang := an.Sub(prim).Dot(dn.Sub(prim)) / (an.Sub(prim).Norm() * dn.Sub(prim).Norm()); cosang > -0.99 {
+		t.Errorf("AN and DN not opposite: cos=%.3f", cosang)
+	}
+}
+
+// TestTargetPlaneNodePositions_LandedVessel_NoMarkers (#460): the pad's
+// co-rotation pseudo-orbit used to find "crossings" and plant both
+// markers on the ground; a Landed vessel has no orbit to cross on.
+func TestTargetPlaneNodePositions_LandedVessel_NoMarkers(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	c.Landed = true
 	w.SetTargetBody(1)
 	if _, _, hasAN, hasDN := w.TargetPlaneNodePositions(); hasAN || hasDN {
-		t.Error("expected no nodes for a body target")
+		t.Error("Landed vessel must not get plane-node markers")
 	}
 }
 

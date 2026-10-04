@@ -1685,6 +1685,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.world.AdjustThrottle(-0.1)
 			a.world.RecordAction(missions.ActionThrottleDown) // ADR 0025 §7
 			return a, nil
+		case key.Matches(m, a.keys.ThrottleUpFine):
+			a.world.AdjustThrottle(0.01)
+			a.world.RecordAction(missions.ActionThrottleUp) // ADR 0025 §7
+			return a, nil
+		case key.Matches(m, a.keys.ThrottleDownFine):
+			a.world.AdjustThrottle(-0.01)
+			a.world.RecordAction(missions.ActionThrottleDown) // ADR 0025 §7
+			return a, nil
 		case key.Matches(m, a.keys.AttitudePrograde):
 			a.handleAttitudeIntent(sim.IntentPrograde)
 			return a, nil
@@ -1929,6 +1937,27 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			if c := a.world.ActiveCraft(); c != nil {
 				c.HeadingTrim += spacecraft.HeadingTrimStepRad
+			}
+			return a, nil
+		case key.Matches(m, a.keys.PitchTrimEastFine, a.keys.PitchTrimWestFine,
+			a.keys.HeadingTrimNorthFine, a.keys.HeadingTrimSouthFine):
+			// #460 (G6 Q6b, ADR 0052 amendment): alt makes any trim fine,
+			// 1° per press. Same flight-screen-only gate and same signs as
+			// the plain arrows above.
+			if a.active != screenOrbit {
+				return a, nil
+			}
+			if c := a.world.ActiveCraft(); c != nil {
+				switch {
+				case key.Matches(m, a.keys.PitchTrimEastFine):
+					c.PitchTrim += spacecraft.PitchTrimFineStepRad
+				case key.Matches(m, a.keys.PitchTrimWestFine):
+					c.PitchTrim -= spacecraft.PitchTrimFineStepRad
+				case key.Matches(m, a.keys.HeadingTrimNorthFine):
+					c.HeadingTrim -= spacecraft.HeadingTrimFineStepRad
+				case key.Matches(m, a.keys.HeadingTrimSouthFine):
+					c.HeadingTrim += spacecraft.HeadingTrimFineStepRad
+				}
 			}
 			return a, nil
 		case key.Matches(m, a.keys.PitchTrimReset):

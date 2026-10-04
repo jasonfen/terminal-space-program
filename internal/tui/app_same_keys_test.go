@@ -2,11 +2,15 @@ package tui
 
 import (
 	"math"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -16,6 +20,8 @@ import (
 // Every key here is driven through the real App.Update path.
 
 func keyType(t tea.KeyType) tea.KeyMsg { return tea.KeyMsg{Type: t} }
+
+func keyAlt(t tea.KeyType) tea.KeyMsg { return tea.KeyMsg{Type: t, Alt: true} }
 
 func keyRunes(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
 
@@ -224,8 +230,10 @@ func TestModalsOwningArrowsLeaveTrimsAlone(t *testing.T) {
 		{name: "quit confirm", enter: func(t *testing.T, a *App) { a.quitConfirm = true }},
 		{name: "boss shell", enter: func(t *testing.T, a *App) { a.Update(keyRunes("`")) }},
 	}
-	arrows := []tea.KeyType{tea.KeyLeft, tea.KeyRight, tea.KeyUp, tea.KeyDown,
-		tea.KeyShiftLeft, tea.KeyShiftRight, tea.KeyShiftUp, tea.KeyShiftDown}
+	arrows := []tea.KeyMsg{keyType(tea.KeyLeft), keyType(tea.KeyRight), keyType(tea.KeyUp), keyType(tea.KeyDown),
+		keyType(tea.KeyShiftLeft), keyType(tea.KeyShiftRight), keyType(tea.KeyShiftUp), keyType(tea.KeyShiftDown),
+		// #460: the alt FINE trims are claimed by the same modals.
+		keyAlt(tea.KeyLeft), keyAlt(tea.KeyRight), keyAlt(tea.KeyUp), keyAlt(tea.KeyDown)}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			a, c := padApp(t)
@@ -234,7 +242,7 @@ func TestModalsOwningArrowsLeaveTrimsAlone(t *testing.T) {
 				if tc.rearm {
 					tc.enter(t, a)
 				}
-				if _, _, panicked := safeUpdate(a, keyType(kt)); panicked {
+				if _, _, panicked := safeUpdate(a, kt); panicked {
 					t.Fatalf("%v panicked in %s", kt, tc.name)
 				}
 				// Checked after EVERY press: left/right and up/down would
@@ -430,5 +438,121 @@ func TestUndockAndTransferStayInstant(t *testing.T) {
 	a.Update(keyRunes("J"))
 	if strings.Contains(a.View(), "[y/n]") {
 		t.Error("J raised an ask")
+	}
+}
+
+// TestAltArrowsAreFineTrims (#460, G6 Q6b; ADR 0052 amendment): alt makes
+// any trim fine. Through the real App.Update path: alt+up/down move the
+// commanded heading 1 degree (same signs as the plain arrows), alt+left/right
+// the pitch trim 1 degree, and the plain 5 degree arrows are unchanged.
+func TestAltArrowsAreFineTrims(t *testing.T) {
+	a, c := padApp(t)
+	deg := func() float64 { return (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi }
+	a.Update(keyAlt(tea.KeyUp))
+	if got := deg(); math.Abs(got-89) > 1e-6 {
+		t.Errorf("alt+up: heading %.4f, want 89", got)
+	}
+	a.Update(keyAlt(tea.KeyDown))
+	a.Update(keyAlt(tea.KeyDown))
+	if got := deg(); math.Abs(got-91) > 1e-6 {
+		t.Errorf("alt+down x2 from 89: heading %.4f, want 91", got)
+	}
+	a.Update(keyType(tea.KeyUp)) // plain arrow still 5 degrees
+	if got := deg(); math.Abs(got-86) > 1e-6 {
+		t.Errorf("plain up after fine: heading %.4f, want 86", got)
+	}
+	a.Update(keyAlt(tea.KeyRight))
+	if !near(c.PitchTrim, math.Pi/180) {
+		t.Errorf("alt+right: PitchTrim %v, want 1 degree east", c.PitchTrim)
+	}
+	a.Update(keyAlt(tea.KeyLeft))
+	a.Update(keyAlt(tea.KeyLeft))
+	if !near(c.PitchTrim, -math.Pi/180) {
+		t.Errorf("alt+left x2: PitchTrim %v, want -1 degree", c.PitchTrim)
+	}
+}
+
+// TestAltZXFineThrottle: Z / X stay 10 percent, alt+Z / alt+X step 1 percent.
+func TestAltZXFineThrottle(t *testing.T) {
+	a, c := padApp(t)
+	c.Throttle = 0.5
+	a.Update(keyRunes("Z"))
+	if !near(c.Throttle, 0.6) {
+		t.Fatalf("Z: throttle %v, want 0.6", c.Throttle)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("Z"), Alt: true})
+	if !near(c.Throttle, 0.61) {
+		t.Errorf("alt+Z: throttle %v, want 0.61", c.Throttle)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X"), Alt: true})
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("X"), Alt: true})
+	if !near(c.Throttle, 0.59) {
+		t.Errorf("alt+X x2: throttle %v, want 0.59", c.Throttle)
+	}
+	a.Update(keyRunes("X"))
+	if !near(c.Throttle, 0.49) {
+		t.Errorf("X: throttle %v, want 0.49", c.Throttle)
+	}
+}
+
+// TestPadWindowHeadingCommandableToTheDegreeAndZeroesDeltaIncl (#460): the
+// whole player loop through the real key handler and the rendered frame.
+// Read the heading off NAVIGATION's plan: row, command it with the fine
+// keys, warp (set the clock) to the pass, and TARGET's Δincl reads ~0.
+// Pad pinning is re-done by hand the way integrateLanded does it each tick.
+func TestPadWindowHeadingCommandableToTheDegreeAndZeroesDeltaIncl(t *testing.T) {
+	a, pad := padApp(t)
+	w := a.world
+	padIdx := w.ActiveCraftIdx
+	if _, err := w.SpawnCraft(sim.SpawnSpec{AltitudeM: 400e3, Inclination: 51.6}); err != nil {
+		t.Fatal(err)
+	}
+	w.ActiveCraftIdx = padIdx
+	w.SetTargetCraft(len(w.Crafts) - 1)
+
+	planRe := regexp.MustCompile(`plan:\s+window T-\S+ at (\d{3})°`)
+	view := a.View()
+	m := planRe.FindStringSubmatch(view)
+	if m == nil {
+		t.Fatalf("no plan: window row in the 140x40 frame:\n%s", view)
+	}
+	want, _ := strconv.Atoi(m[1])
+	cur := func() int {
+		return int(math.Round((spacecraft.HeadingTrimDueEastRad + pad.HeadingTrim) * 180 / math.Pi))
+	}
+	for i := 0; i < 400 && cur() != want; i++ {
+		switch d := want - cur(); {
+		case d <= -5:
+			a.Update(keyType(tea.KeyUp))
+		case d >= 5:
+			a.Update(keyType(tea.KeyDown))
+		case d < 0:
+			a.Update(keyAlt(tea.KeyUp))
+		default:
+			a.Update(keyAlt(tea.KeyDown))
+		}
+	}
+	if cur() != want {
+		t.Fatalf("could not command heading %d (at %d)", want, cur())
+	}
+	lw, ok := w.LaunchWindow()
+	if !ok {
+		t.Fatal("no window")
+	}
+	// Warp to the pass: advance the clock and re-pin the pad.
+	w.Clock.SimTime = lw.PassAt
+	lat, lon := pad.SurfaceLatLon()
+	d := render.BodyFixedToWorld(pad.Primary, lat, lon, lw.PassAt)
+	r := pad.Primary.RadiusMeters()
+	pad.State.R = orbital.Vec3{X: r * d.X, Y: r * d.Y, Z: r * d.Z}
+	om := render.BodySpinOmegaWorld(pad.Primary)
+	pad.State.V = orbital.Vec3{X: om.X, Y: om.Y, Z: om.Z}.Cross(pad.State.R)
+	out := a.View()
+	dm := regexp.MustCompile(`Δincl:\s+([0-9]+\.[0-9]+)°`).FindStringSubmatch(out)
+	if dm == nil {
+		t.Fatalf("no Δincl in frame:\n%s", out)
+	}
+	if v, _ := strconv.ParseFloat(dm[1], 64); v > 0.1 {
+		t.Errorf("at the pass with heading %d commanded by key, Δincl = %.2f, want ~0", want, v)
 	}
 }

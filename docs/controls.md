@@ -183,6 +183,7 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 |---|---|
 | `z` / `x` | Throttle to full / cut to zero |
 | `Z` / `X` | Throttle up / down 10% |
+| `alt+Z` / `alt+X` | Throttle up / down 1% (the fine step) |
 | `b` | Light / cut the main engine (needs throttle above zero) |
 | `w` / `s` | Point prograde / retrograde (with / against your motion) |
 | `a` / `d` | Point normal+ / normal- (perpendicular to your orbit) |
@@ -190,6 +191,9 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 | `W` / `S` | Point along / against your ground speed (velocity relative to the spinning atmosphere). Use this for the launch gravity turn |
 | `→` / `←` | Tip the nose 5° east / west on top of whatever the autopilot is doing (hold to ramp). Works the same in the map, the `V` launch view, the Proximity view (its PROXIMITY chip shows the trim) and every projection. A menu, the mission ladder, body info or the Rendezvous Planner picker takes the arrows while it is open |
 | `↑` / `↓` | Nudge your commanded launch heading 5° toward north / south off due east (hold to ramp), on the pad or mid-ascent |
+| `alt+←` / `alt+→` | Fine pitch trim: 1° west / east (alt makes any trim fine) |
+| `alt+↑` / `alt+↓` | Fine heading trim: 1° toward north / south, so you can command the exact heading the pad window names on NAVIGATION's `plan:` row |
+| `alt` on a Mac | The terminal must send Option as Meta for the alt keys to arrive: Terminal.app, Profiles > Keyboard > "Use Option as Meta key"; iTerm2, Profiles > Keys > Left Option key = Esc+; Ghostty, `macos-option-as-alt = true` |
 | `\|` | Clear the manual tip and the commanded heading (both trims back to 0) |
 | `;` | Autopilot reference: Orbit → Surface → Target (skips Target when none is set) |
 | `k` | Steering style: smooth turning (default) or instant snap |

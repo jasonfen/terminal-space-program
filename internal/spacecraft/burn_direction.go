@@ -379,3 +379,12 @@ const HeadingTrimDueEastRad = math.Pi / 2
 // PitchTrimStepRad (ADR 0049 decision 8/9: "↑ / ↓ nudge the
 // commanded heading ±5°... with the pitch-trim idiom").
 const HeadingTrimStepRad = math.Pi / 36
+
+// PitchTrimFineStepRad / HeadingTrimFineStepRad are the alt-modified
+// ("fine") trim steps: 1° (= π/180) per press, so a launch heading named
+// to the degree on the pad's plan: row can be commanded exactly
+// (#460, G6 Q6b; ADR 0052 amendment: alt makes any trim fine).
+const (
+	PitchTrimFineStepRad   = math.Pi / 180
+	HeadingTrimFineStepRad = math.Pi / 180
+)

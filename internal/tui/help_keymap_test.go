@@ -18,6 +18,7 @@ var rawKeyDisplay = map[string]string{
 	"left": "←", "right": "→", "up": "↑", "down": "↓",
 	"shift+left": "shift+←", "shift+right": "shift+→",
 	"shift+up": "shift+↑", "shift+down": "shift+↓",
+	"alt+left": "alt+←", "alt+right": "alt+→", "alt+up": "alt+↑", "alt+down": "alt+↓",
 	" ":  "space",
 	"f1": "F1", "f2": "F2", "f4": "F4", "f5": "F5", "f9": "F9",
 }

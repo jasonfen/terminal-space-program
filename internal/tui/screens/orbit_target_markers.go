@@ -37,7 +37,10 @@ const closestApproachHorizonSec = 4 * 3600.0
 // test.
 func (v *OrbitView) drawClosestApproachMarker(w *sim.World) {
 	c := w.ActiveCraft()
-	if c == nil || !w.TargetSharesActivePrimary() {
+	// #460 (G6 Q5): nothing target-shaped draws while Landed. The pad's
+	// co-rotation pseudo-orbit finds a "closest approach" and planted the
+	// ✕ pair inside the disk; the pad's instrument is the plan: row.
+	if !craftHasOrbit(c) || !w.TargetSharesActivePrimary() {
 		return
 	}
 	// #375 follow-up: mirrors the TARGET chip's closestApproachRows guard
@@ -97,11 +100,14 @@ func (v *OrbitView) drawClosestApproachMarker(w *sim.World) {
 // bound target's orbital plane — reusing World.TargetPlaneNodePositions,
 // which itself reuses the navball / PlanPlaneMatch node-crossing
 // primitives (orbital.FrameFromNormal + orbital.TimeToNodeCrossing)
-// against the target craft/ghost's plane instead of the primary's usual
-// reference plane. No-op when neither crossing resolves (no target,
+// against the target craft/ghost's plane (or a body target's catalog
+// plane, #460) instead of the primary's usual reference plane. No-op when neither crossing resolves (no target,
 // cross-primary target, or the two orbits are already coplanar — see
 // TargetPlaneNodePositions for the full list of refusal cases).
 func (v *OrbitView) drawTargetPlaneNodes(w *sim.World) {
+	if !craftHasOrbit(w.ActiveCraft()) { // #460: nothing target-shaped while Landed
+		return
+	}
 	anPos, dnPos, hasAN, hasDN := w.TargetPlaneNodePositions()
 	if hasAN {
 		drawMarker(v.canvas, anPos, render.MarkerAscendingNode, render.MarkerNominal, "", widgets.CellTag{})
