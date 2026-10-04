@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 	"strings"
 	"testing"
 
@@ -133,5 +134,74 @@ func TestTitleRowClockStaysInOneColumn(t *testing.T) {
 	a.world.ViewMode = sim.ViewLaunch
 	if d := fromRight(); d != mapDist {
 		t.Errorf("launch clock is %d cells from the right edge, map's is %d", d, mapDist)
+	}
+}
+
+func esc(a *App) { a.Update(tea.KeyMsg{Type: tea.KeyEsc}) }
+
+// TestBackReturnsToTheScreenThatOpenedYou (B11 / G9 Q3): screens opened
+// from the pause menu go back to the menu, a second esc reaches the map;
+// screens opened by a key on the map go straight back to the map. Drives
+// the real seam: the menu's own action dispatch and the esc key.
+func TestBackReturnsToTheScreenThatOpenedYou(t *testing.T) {
+	fromMenu := []struct {
+		name   string
+		action screens.MenuAction
+		screen screenID
+	}{
+		{"settings", screens.MenuActionSettings, screenSettings},
+		{"keyboard layout", screens.MenuActionControls, screenControls},
+		{"saves (save)", screens.MenuActionSave, screenSaves},
+		{"saves (load)", screens.MenuActionLoad, screenSaves},
+		{"help", screens.MenuActionHelp, screenHelp},
+		{"vab", screens.MenuActionVAB, screenVAB},
+	}
+	for _, tc := range fromMenu {
+		a := newChromeApp(t, 140, 40)
+		a.menu.Reset()
+		a.active = screenMenu
+		a.applyMenuAction(tc.action)
+		if a.active != tc.screen {
+			t.Fatalf("%s: action opened screen %v, want %v", tc.name, a.active, tc.screen)
+		}
+		esc(a)
+		if a.active != screenMenu {
+			t.Errorf("%s: esc went to %v, want the pause menu", tc.name, a.active)
+		}
+		esc(a)
+		if a.active != screenOrbit {
+			t.Errorf("%s: second esc went to %v, want the map", tc.name, a.active)
+		}
+	}
+	// [Back] on the Title Row is the same rule.
+	a := newChromeApp(t, 140, 40)
+	a.active = screenMenu
+	a.applyMenuAction(screens.MenuActionSettings)
+	a.View()
+	a.Update(tea.MouseMsg{X: a.backStart, Y: 0, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if a.active != screenMenu {
+		t.Errorf("[Back] from settings went to %v, want the pause menu", a.active)
+	}
+	// Key-opened screens go straight back to the map.
+	for _, scr := range []screenID{screenMissions, screenSpawn, screenBodyInfo, screenSession} {
+		a := newChromeApp(t, 140, 40)
+		a.active = scr
+		esc(a)
+		if a.active != screenOrbit {
+			t.Errorf("screen %v: esc went to %v, want the map", scr, a.active)
+		}
+	}
+	// A screen opened from the map after a menu trip must not inherit the
+	// menu as its opener (stale-flag guard).
+	a = newChromeApp(t, 140, 40)
+	a.active = screenMenu
+	a.applyMenuAction(screens.MenuActionHelp)
+	esc(a) // help -> menu
+	esc(a) // menu -> map
+	a.active = screenHelp
+	a.fromMenu = false
+	esc(a)
+	if a.active != screenOrbit {
+		t.Errorf("help opened from the map went back to %v, want the map", a.active)
 	}
 }

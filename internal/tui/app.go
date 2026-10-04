@@ -111,6 +111,9 @@ type App struct {
 	// backStart/backEnd: the [Back] button's display-cell span on the
 	// Title Row of the last form screen rendered (B11 / G9 Q1).
 	backStart, backEnd int
+	// fromMenu: the active screen was opened from the pause menu, so
+	// back returns there (backToOpener).
+	fromMenu bool
 
 	orbitView  *screens.OrbitView
 	launchView *screens.LaunchView
@@ -823,14 +826,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case screens.SettingsActionCycleEmptyReadings:
 				a.cycleEmptyReadings()
 			case screens.SettingsActionCancel:
-				a.active = screenOrbit
+				a.backToOpener()
 			}
 		case screenControls:
 			switch a.controls.HandleClick(m.X, m.Y) {
 			case screens.ControlsActionCycleLayout:
 				a.cycleLayout()
 			case screens.ControlsActionCancel:
-				a.active = screenOrbit
+				a.backToOpener()
 			}
 		case screenSaves:
 			return a.applySavesCommand(a.saves.HandleClick(m.X, m.Y))
@@ -838,6 +841,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
+		// A key on the map clears any stale menu-opener (backToOpener).
+		if a.active == screenOrbit {
+			a.fromMenu = false
+		}
 		// Keyboard-layout normalization (ADR 0022): translate the keypress
 		// from the player's layout back to its QWERTY position before any
 		// matching, so the Keymap and every raw-string handler stay QWERTY.
@@ -1074,7 +1081,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case screens.SettingsActionCycleEmptyReadings:
 				a.cycleEmptyReadings()
 			case screens.SettingsActionCancel:
-				a.active = screenOrbit
+				a.backToOpener()
 			}
 			return a, nil
 		}
@@ -1086,7 +1093,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case screens.ControlsActionCycleLayout:
 				a.cycleLayout()
 			case screens.ControlsActionCancel:
-				a.active = screenOrbit
+				a.backToOpener()
 			}
 			return a, nil
 		}
@@ -1097,8 +1104,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// controls.
 		if a.active == screenVAB {
 			if a.vab.HandleKey(m.String()) == screens.VABActionCancel {
-				a.menu.Reset()
-				a.active = screenMenu
+				a.backToOpener()
 			}
 			return a, nil
 		}
@@ -1193,7 +1199,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			if key.Matches(m, a.keys.Help) || key.Matches(m, a.keys.Back) {
-				a.active = screenOrbit
+				a.backToOpener()
 				return a, nil
 			}
 			a.help.HandleKey(m)
@@ -1236,7 +1242,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case key.Matches(m, a.keys.Help):
 			if a.active == screenHelp {
-				a.active = screenOrbit
+				a.backToOpener()
 			} else {
 				a.help.ResetScroll() // always open at the top
 				a.active = screenHelp
@@ -2185,6 +2191,7 @@ func (a *App) loadWorldByID(id string) error {
 	// The loaded world starts with the nil ("all enabled") default; re-apply
 	// the player's program toggles so a load respects them. v0.21 Slice 7.
 	a.world.SetEnabledMissionPrograms(enabledProgramsFromSettings(a.orbitView.Settings()))
+	a.fromMenu = false // a load lands on the map, never back on the menu (Q3)
 	a.active = screenOrbit
 	return nil
 }
@@ -2400,6 +2407,15 @@ func (a *App) dispatchNavballControl(ctrl screens.NavballControlID) {
 // quit).
 func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 	switch action {
+	case screens.MenuActionSave, screens.MenuActionLoad, screens.MenuActionSettings,
+		screens.MenuActionControls, screens.MenuActionHelp, screens.MenuActionVAB:
+		// Whatever opens next remembers the menu as its opener (Q3). The
+		// refusal paths below fall back to the map and clear it again.
+		a.fromMenu = true
+	case screens.MenuActionCancel, screens.MenuActionQuit:
+		a.fromMenu = false
+	}
+	switch action {
 	// v0.26 S3 (ADR 0033 §F): both menu items open the unified Saves
 	// screen; the entry point selects save-mode vs load-mode. Opening a
 	// screen is reversible, so like Settings/VAB there is no confirm
@@ -2409,6 +2425,7 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		// as F5/F9, surfaced as a toast over the orbit screen.
 		if a.guestSave != nil {
 			a.flashStatus("save", errGuestSaves)
+			a.fromMenu = false
 			a.active = screenOrbit
 			return a, nil
 		}
@@ -2417,6 +2434,7 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 	case screens.MenuActionLoad:
 		if a.guestSave != nil {
 			a.flashStatus("load", errGuestSaves)
+			a.fromMenu = false
 			a.active = screenOrbit
 			return a, nil
 		}
@@ -2428,6 +2446,7 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		// session (v0.27 review follow-up).
 		if a.guestSave != nil {
 			a.flashStatus("settings", errGuestSettings)
+			a.fromMenu = false
 			a.active = screenOrbit
 			return a, nil
 		}
@@ -2440,6 +2459,7 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 	case screens.MenuActionControls:
 		if a.guestSave != nil {
 			a.flashStatus("controls", errGuestSettings)
+			a.fromMenu = false
 			a.active = screenOrbit
 			return a, nil
 		}
@@ -2500,6 +2520,20 @@ func (a *App) openSaves(mode screens.SavesMode) {
 // state applies.
 func (a *App) closeSavesToOrbit() {
 	a.world.Clock.Paused = a.savesPrevPaused
+	a.backToOpener()
+}
+
+// backToOpener is the one back rule (B11 / G9 Q3): a screen opened from
+// the pause menu (Saves, Settings, Keyboard layout, Help, VAB) goes back to
+// the menu; a screen opened by a key (Missions, Spawn, Maneuver, Body info,
+// Session, ...) goes back to the map. A second esc from the menu flies.
+func (a *App) backToOpener() {
+	if a.fromMenu {
+		a.fromMenu = false
+		a.menu.Reset()
+		a.active = screenMenu
+		return
+	}
 	a.active = screenOrbit
 }
 

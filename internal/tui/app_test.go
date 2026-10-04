@@ -173,10 +173,15 @@ func TestSettingsScreenRoundTripPersists(t *testing.T) {
 		t.Errorf("%q still enabled after toggle (persisted)", first)
 	}
 
-	// Esc returns to orbit without losing the edit.
+	// Esc goes back to the menu that opened Settings (B11 / G9 Q3), a
+	// second esc to the map, without losing the edit.
+	a.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if a.active != screenMenu {
+		t.Errorf("after esc, active = %v, want the pause menu", a.active)
+	}
 	a.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if a.active != screenOrbit {
-		t.Errorf("after esc, active = %v, want screenOrbit", a.active)
+		t.Errorf("after second esc, active = %v, want screenOrbit", a.active)
 	}
 	if a.orbitView.Settings().ChipEnabled(first) {
 		t.Errorf("%q re-enabled after leaving the screen", first)
@@ -246,8 +251,8 @@ func TestMenuHelpRowOpensHelpOverlay(t *testing.T) {
 		t.Fatalf("after menu `h`, active = %v, want screenHelp", a.active)
 	}
 	a.Update(tea.KeyMsg{Type: tea.KeyEsc})
-	if a.active != screenOrbit {
-		t.Errorf("after esc from help (opened via menu), active = %v, want screenOrbit", a.active)
+	if a.active != screenMenu { // B11 / G9 Q3: back to the opener
+		t.Errorf("after esc from help (opened via menu), active = %v, want the pause menu", a.active)
 	}
 }
 
