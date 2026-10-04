@@ -286,3 +286,51 @@ func TestTargetPlaneNodesCacheInvalidates(t *testing.T) {
 		t.Error("a plane-change burn did not trigger a new solve")
 	}
 }
+
+// TestTargetPlaneNodes_BodyTargetOfOwnPrimaryOrAncestorDrawsNothing (#548
+// review line 89): a vessel in Moon orbit targeting Earth used to draw its
+// Moon-orbit crossings of Earth's heliocentric plane, which nobody can fly
+// to. The primary itself and every ancestor of it are not plane targets.
+// Positive controls: the same Moon-orbit vessel does get nodes against a
+// sibling planet's plane, and an Earth-orbit vessel against the Moon.
+func TestTargetPlaneNodes_BodyTargetOfOwnPrimaryOrAncestorDrawsNothing(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	moon := moonIndex(w)
+	earth := -1
+	other := -1
+	for i, b := range w.System().Bodies {
+		switch {
+		case b.ID == "earth":
+			earth = i
+		case i > 0 && b.ID != "moon" && b.ID != "earth" && other < 0:
+			other = i
+		}
+	}
+	if moon < 0 || earth < 0 || other < 0 {
+		t.Fatalf("fixture: moon %d earth %d other %d", moon, earth, other)
+	}
+
+	// Control: Earth-orbit vessel, Moon targeted, both nodes.
+	w.SetTargetBody(moon)
+	if _, _, ha, hd := w.TargetPlaneNodePositions(); !ha || !hd {
+		t.Fatalf("control failed: Earth-orbit vs Moon plane AN=%v DN=%v", ha, hd)
+	}
+
+	// Park the vessel in an inclined Moon orbit.
+	moonBody := w.System().Bodies[moon]
+	c.Primary = moonBody
+	r := moonBody.RadiusMeters() + 100e3
+	v := math.Sqrt(moonBody.GravitationalParameter() / r)
+	c.State.R = orbital.Vec3{X: r}
+	c.State.V = orbital.Vec3{Y: v * math.Cos(0.6), Z: v * math.Sin(0.6)}
+
+	w.SetTargetBody(earth)
+	if _, _, ha, hd := w.TargetPlaneNodePositions(); ha || hd {
+		t.Errorf("Moon-orbit vessel targeting Earth drew nodes AN=%v DN=%v", ha, hd)
+	}
+	w.SetTargetBody(other)
+	if _, _, ha, hd := w.TargetPlaneNodePositions(); !ha || !hd {
+		t.Errorf("control failed: Moon-orbit vessel vs a sibling planet's plane AN=%v DN=%v", ha, hd)
+	}
+}
