@@ -425,9 +425,10 @@ func (m *Maneuver) Resize(cols, rows int) {
 	if canvasCols > 80 {
 		canvasCols = 80
 	}
-	// Reserve 3 rows for title (1) + footer (1) + a 1-row gap between
-	// title and the canvas-panel border.
-	canvasRows := rows - 3
+	// Reserve 4 rows: title (1) + footer (1) + the two border rows HUDBox
+	// adds around the canvas. (It was 3, so the render was rows+1 tall and
+	// the alt-screen dropped the title row; B11 / G9 contradiction 3.)
+	canvasRows := rows - 4
 	if canvasRows < 6 {
 		canvasRows = 6
 	}
