@@ -676,7 +676,8 @@ func (w *World) TargetPlaneNormal() (orbital.Vec3, bool) {
 // the target CRAFT/ghost's relative angular momentum (rT × vT) standing
 // in for a body's catalog-derived orbit normal.
 //
-// ok (hasAN / hasDN) is false when: there's no active craft, no bound
+// ok (hasAN / hasDN) is false when: there is no active craft, it is Landed
+// (#460), no bound
 // craft/ghost target, the target orbits a different primary (see
 // TargetSharesActivePrimary), the target's relative state is degenerate
 // (coincident position, zero relative angular momentum), or the two
@@ -685,20 +686,39 @@ func (w *World) TargetPlaneNormal() (orbital.Vec3, bool) {
 // independently in case only one resolves.
 func (w *World) TargetPlaneNodePositions() (anPos, dnPos orbital.Vec3, hasAN, hasDN bool) {
 	c := w.ActiveCraft()
-	if c == nil || !w.TargetSharesActivePrimary() {
+	// #460 (G6 Q5): a Landed vessel has no orbit to cross a plane on; its
+	// co-rotation pseudo-orbit used to plant both markers on the ground.
+	if c == nil || c.Landed {
 		return orbital.Vec3{}, orbital.Vec3{}, false, false
 	}
-	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
-	if !ok {
-		return orbital.Vec3{}, orbital.Vec3{}, false, false
-	}
-	// ADR 0050 decision 8: shared pole guard (relative to the primary's
-	// own spin rate and radius), not an exact Norm() == 0 test: see
-	// targetPlaneNormalRelativeTo / orbital.PlaneNormalOK's doc comments.
 	var nTarget orbital.Vec3
-	nTarget, ok = targetPlaneNormalRelativeTo(c.Primary, rT, vT)
-	if !ok {
-		return orbital.Vec3{}, orbital.Vec3{}, false, false
+	if w.Target.Kind == TargetBody {
+		// A body target's plane is its fixed catalog plane (the one
+		// Δincl and the `I` planner already use); no same-primary gate,
+		// the plane is a direction in world axes either way.
+		sys := w.System()
+		if w.Target.BodyIdx <= 0 || w.Target.BodyIdx >= len(sys.Bodies) {
+			return orbital.Vec3{}, orbital.Vec3{}, false, false
+		}
+		nTarget = orbital.OrbitNormalWorld(sys.Bodies[w.Target.BodyIdx])
+		if nTarget.Norm() == 0 {
+			return orbital.Vec3{}, orbital.Vec3{}, false, false
+		}
+	} else {
+		if !w.TargetSharesActivePrimary() {
+			return orbital.Vec3{}, orbital.Vec3{}, false, false
+		}
+		rT, vT, ok := w.TargetStateRelativeToActivePrimary()
+		if !ok {
+			return orbital.Vec3{}, orbital.Vec3{}, false, false
+		}
+		// ADR 0050 decision 8: shared pole guard (relative to the primary's
+		// own spin rate and radius), not an exact Norm() == 0 test: see
+		// targetPlaneNormalRelativeTo / orbital.PlaneNormalOK's doc comments.
+		nTarget, ok = targetPlaneNormalRelativeTo(c.Primary, rT, vT)
+		if !ok {
+			return orbital.Vec3{}, orbital.Vec3{}, false, false
+		}
 	}
 	mu := c.Primary.GravitationalParameter()
 	planeFrame := orbital.FrameFromNormal(nTarget)

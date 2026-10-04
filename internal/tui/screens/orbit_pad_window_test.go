@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"github.com/charmbracelet/lipgloss"
 	"regexp"
 	"strings"
 	"testing"
@@ -126,5 +127,49 @@ func TestTargetLeadLiveOnPad(t *testing.T) {
 	box = strings.Join(v.buildTargetBox(w), "\n")
 	if !regexp.MustCompile(`lead:\s+—`).MatchString(box) {
 		t.Errorf("a crashed vessel's lead: must dash:\n%s", box)
+	}
+}
+
+func markerCounts(v *OrbitView) (an, dn, ca int) {
+	an = v.canvas.CountOverlayColor(render.MarkerColor(render.MarkerAscendingNode, render.MarkerNominal, ""))
+	dn = v.canvas.CountOverlayColor(render.MarkerColor(render.MarkerDescendingNode, render.MarkerNominal, ""))
+	ca = v.canvas.CountOverlayColor(render.MarkerColor(render.MarkerClosestApproach, render.MarkerNominal, ""))
+	return
+}
+
+// TestTargetMarkersAbsentWhileLanded (#460, G6 Q5): on the pad with a
+// vessel target the map used to plant ◇ ◆ and the ✕ pair on the ground
+// from the co-rotation pseudo-orbit. Nothing target-shaped draws.
+func TestTargetMarkersAbsentWhileLanded(t *testing.T) {
+	w, pad, v := padWindowFixture(t)
+	v.Resize(200, 60)
+	v.Render(w, 0, 200, 60)
+	if an, dn, ca := markerCounts(v); an+dn+ca != 0 {
+		t.Errorf("Landed pad drew target markers: AN=%d DN=%d CA=%d", an, dn, ca)
+	}
+	// Positive control: the instrument returns a positive once airborne
+	// in a real orbit (same world, pad vessel lifted off into orbit).
+	pad.Landed = false
+	pad.State.R, pad.State.V = orbital.Vec3{X: 6.771e6}, orbital.Vec3{Y: 7670}
+	v.Render(w, 0, 200, 60)
+	if an, dn, ca := markerCounts(v); an+dn+ca == 0 {
+		t.Error("control failed: no target markers even in orbit, the counter cannot see them")
+	}
+}
+
+// TestTargetPlaneNodesRenderForBodyTarget (#460, G6 Q5): a body target
+// gets ◇/◆ in orbit like a vessel target does.
+func TestTargetPlaneNodesRenderForBodyTarget(t *testing.T) {
+	v := NewOrbitView(Theme{HUDBox: lipgloss.NewStyle()})
+	v.Resize(200, 60)
+	w := inclinedCircularEarthOrbitCraft(t, 45, 500e3)
+	for i, b := range w.System().Bodies {
+		if b.ID == "moon" {
+			w.SetTargetBody(i)
+		}
+	}
+	v.Render(w, 0, 200, 60)
+	if an, dn, _ := markerCounts(v); an == 0 || dn == 0 {
+		t.Errorf("body target in orbit: want both node markers, got AN=%d DN=%d", an, dn)
 	}
 }
