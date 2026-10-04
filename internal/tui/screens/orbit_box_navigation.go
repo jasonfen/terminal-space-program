@@ -92,7 +92,7 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 	if predOK {
 		apCell, peCell, inclCell, periodCell = v.appendPlanArrows(predState, predPrimary, apCell, peCell, inclCell, periodCell)
 	}
-	planRow := v.navigationPlanRow(c, predState, predPrimary, predOK)
+	planRow := v.navigationPlanRow(w, c, predState, predPrimary, predOK)
 
 	// horiz: carries the same CRASH-on-contact alert the retired DESCENT
 	// chip's horiz: row did: a sideways speed the vertical-rate check
@@ -483,8 +483,14 @@ const navigationPlanEquatorialToleranceDeg = 0.05
 // "<world> escape" with no angles at all; otherwise it is "<world>
 // orbit" with angles. "Earth orbit" / "Earth escape" wording is the
 // orchestrator's own assumption (told to Jason), implemented as stated.
-func (v *OrbitView) navigationPlanRow(c *spacecraft.Spacecraft, state physics.StateVector, primary bodies.CelestialBody, ok bool) string {
+func (v *OrbitView) navigationPlanRow(w *sim.World, c *spacecraft.Spacecraft, state physics.StateVector, primary bodies.CelestialBody, ok bool) string {
 	if !ok {
+		// ADR 0051 decision 15 amendment (B8, #460, grill G6): while
+		// Landed with nothing planted, plan: carries the pad's Launch
+		// Window against the bound target's plane.
+		if val, wok := v.landedWindowValue(w, c); wok {
+			return chipRowAt("plan:", val, navigationCols.value1)
+		}
 		return chipRowAt("plan:", "—", navigationCols.value1)
 	}
 	el := planElementsInPrimaryFrame(state, primary)
@@ -512,6 +518,36 @@ func (v *OrbitView) navigationPlanRow(c *spacecraft.Spacecraft, state physics.St
 		value += fmt.Sprintf("  AN %s  DN %s", readout.Angle(anDeg), readout.Angle(dnDeg))
 	}
 	return chipRowAt("plan:", value, navigationCols.value1)
+}
+
+// landedWindowValue is plan:'s Landed meaning (#460, G6 Outcome): the
+// next pass of the pad through the target's plane, the heading that pass
+// wants (to 1 degree, the fine-trim step) and the lead the target will
+// have at the pass: "window T-11h03m at 045°, lead +12°". The time does
+// not move with the commanded heading. With no pass (the pad's latitude
+// is above the plane's tilt) the least-bad moment instead, no "none":
+// "window best 9.17° T-2h46m". ok is false off the pad or with no usable
+// target plane, so plan: keeps its dash.
+func (v *OrbitView) landedWindowValue(w *sim.World, c *spacecraft.Spacecraft) (string, bool) {
+	if c == nil || !c.Landed || c.Crashed {
+		return "", false
+	}
+	lw, ok := w.LaunchWindow()
+	if !ok {
+		return "", false
+	}
+	now := w.Clock.SimTime
+	if !lw.Open {
+		return "window best " + readout.Angle(lw.BestDeg) + " " + readout.Countdown(lw.NextPass(now)), true
+	}
+	if lw.Always {
+		return "window open at " + readout.Heading(lw.HeadingDeg), true
+	}
+	val := "window " + readout.Countdown(lw.NextPass(now)) + " at " + readout.Heading(lw.HeadingDeg)
+	if lead, lok := w.LaunchWindowLeadDeg(lw); lok {
+		val += fmt.Sprintf(", lead %+.0f°", lead)
+	}
+	return val, true
 }
 
 // navigationStopCell renders the stop: cell's number+colour per outcome

@@ -66,9 +66,15 @@ func (v *OrbitView) buildTargetBox(w *sim.World) []string {
 	// Rule C: the encounter half needs the ACTIVE craft's own trajectory
 	// to predict against; withhold it uniformly rather than per-branch.
 	if c == nil || c.Landed || c.Crashed {
-		cells.closingV, cells.relV, cells.leadV = "—", "—", "—"
+		cells.closingV, cells.relV = "—", "—"
 		cells.tcaV, cells.approachV = "—", "—"
 		cells.planned = false
+	}
+	// #460 (G6 Q4b): lead: is the one encounter cell lifted off rule C on
+	// the pad: it times a launch to arrive near an orbiting target, so it
+	// reads LIVE while Landed (a crashed vessel still dashes).
+	if c == nil || c.Crashed {
+		cells.leadV = "—"
 	}
 	title := v.theme.Primary.Render("TARGET") + "  " + name + titleBadge
 	return []string{
