@@ -1,7 +1,9 @@
 package render
 
 import (
+	"fmt"
 	"math"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -294,8 +296,10 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 	}
 
 	cells := make([][]string, rows)
+	horizonCell := make([][]bool, rows)
 	for row := 0; row < rows; row++ {
 		cells[row] = make([]string, cols)
+		horizonCell[row] = make([]bool, cols)
 		for col := 0; col < cols; col++ {
 			var pattern rune
 			var skyCount, groundCount, gridCount int
@@ -330,6 +334,7 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 			var style lipgloss.Style
 			switch {
 			case horizon:
+				horizonCell[row][col] = true
 				// Horizon line: the pale band on the cells the equator
 				// passes through, whatever the cell phase.
 				style = horizonStyle
@@ -363,6 +368,70 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 			}
 			cells[row][col] = style.Render(ch)
 		}
+	}
+
+	// Pitch rungs (G8 Q2, #507): a KSP-style ladder, one numbered rung per
+	// 10° of latitude (degrees above/below the horizon in SURF, degrees out
+	// of the orbit plane in ORBIT/TGT). A rung is a short dash run centred on
+	// the vertical through the disk centre (the meridian of the sub-observer)
+	// carrying its two-digit number, drawn in the grid grey so it reads as
+	// structure, not as a marker. The horizon (0°) is the pale line, so it
+	// takes no rung; the poles take none either. Rungs are placed nearest
+	// the centre first and a row already holding a rung is skipped, so the
+	// foreshortened ladder near the limb thins out rather than smearing.
+	// Markers and the reticle are painted after and win a contested cell.
+	rungStyle := lipgloss.NewStyle().Foreground(ColorNavballGrid)
+	type rungCand struct {
+		lat      int
+		col, row int
+	}
+	var rungs []rungCand
+	for lat := -80; lat <= 80; lat += 10 {
+		if lat == 0 {
+			continue
+		}
+		dx, dy, front := projectLatLonToPixel(float64(lat), subLonDeg, pxR, subLatDeg, subLonDeg)
+		if !front {
+			continue
+		}
+		rungs = append(rungs, rungCand{lat, (dotCx + dx) / 2, (dotCy + dy) / 4})
+	}
+	sort.SliceStable(rungs, func(i, j int) bool {
+		return absInt(rungs[i].row-dotCy/4) < absInt(rungs[j].row-dotCy/4)
+	})
+	rungRowTaken := map[int]bool{}
+	for _, rg := range rungs {
+		if rg.row < 0 || rg.row >= rows || rungRowTaken[rg.row] {
+			continue
+		}
+		label := fmt.Sprintf("%02d", absInt(rg.lat))
+		// Label on the two cells straddling the centre vertical (the disk
+		// centre sits between cols dotCx/2-1 and dotCx/2), dashes beyond.
+		// The row holding the reticle shifts its label one cell right so
+		// the reticle stays readable.
+		l0 := rg.col - 1
+		if rg.row == dotCy/4 {
+			l0 = rg.col + 1
+		}
+		put := func(c int, g string) {
+			// Rungs never paint over the horizon line or the blank margin.
+			if c >= 0 && c < cols && cells[rg.row][c] != " " && !horizonCell[rg.row][c] {
+				cells[rg.row][c] = rungStyle.Render(g)
+			}
+		}
+		if l0 < 0 || l0+1 >= cols || cells[rg.row][l0] == " " || cells[rg.row][l0+1] == " " ||
+			horizonCell[rg.row][l0] || horizonCell[rg.row][l0+1] {
+			// A rung that lands on the horizon line (or off the disk)
+			// draws nothing and does not claim the row.
+			continue
+		}
+		put(l0, label[0:1])
+		put(l0+1, label[1:2])
+		put(l0-2, "─")
+		put(l0-1, "─")
+		put(l0+2, "─")
+		put(l0+3, "─")
+		rungRowTaken[rg.row] = true
 	}
 
 	// Center reticle — small faint `+` at the disk centre, the
@@ -463,4 +532,11 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 		lines[row] = strings.Join(cells[row], "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+func absInt(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
