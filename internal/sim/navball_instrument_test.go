@@ -210,3 +210,36 @@ func angSepDeg(lat1, lon1, lat2, lon2 float64) float64 {
 	}
 	return math.Acos(dot) / d
 }
+
+// TestNavballOrbitPitchTrimAxes pins the observed ORBIT-mode margin (wave C
+// review, LOW): a pitch trim rotates the nose about local north, so the
+// readout's elevation moves by the trim while the ORBIT ball's latitude
+// (out-of-plane angle) stays on the equator. The three readings (readout
+// pitch, GUIDANCE trim, ball gap) are one input on different axes; the F1
+// glossary row says so. If this test moves, revisit that row.
+func TestNavballOrbitPitchTrimAxes(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	w.NavMode = NavOrbit
+	w.InstantSAS = true
+	c := w.ActiveCraft()
+	c.AttitudeMode = spacecraft.BurnPrograde
+	c.PitchTrim = 15 * math.Pi / 180
+	lat, _, ok := w.NavballSubObserver()
+	if !ok {
+		t.Fatal("no sub-observer")
+	}
+	pitch, _, ok := w.NavballNoseReading()
+	if !ok {
+		t.Fatal("no reading")
+	}
+	t.Logf("trim +15 in ORBIT: ball lat %.2f, readout pitch %.2f", lat, pitch)
+	if math.Abs(lat) > 1 {
+		t.Errorf("ORBIT ball latitude %.2f, want ~0 (trim moves the nose along the ball's equator)", lat)
+	}
+	if math.Abs(math.Abs(pitch)-15) > 1 {
+		t.Errorf("readout pitch %.2f, want magnitude ~15", pitch)
+	}
+}
