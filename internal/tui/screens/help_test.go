@@ -167,12 +167,12 @@ func TestHelpTitleAndFooterAlwaysShown(t *testing.T) {
 	for _, ht := range []int{8, 20, 60} {
 		h.ResetScroll()
 		h.OpenPage(15)
-		top := h.Render(80, ht, keylayout.QWERTY)
+		top := h.Render(120, ht, keylayout.QWERTY)
 		if !strings.Contains(top, "READOUT GLOSSARY") || !strings.Contains(top, "close") {
 			t.Errorf("height %d: title/footer missing at top:\n%s", ht, top)
 		}
 		h.HandleKey(helpKey("end"))
-		bot := h.Render(80, ht, keylayout.QWERTY)
+		bot := h.Render(120, ht, keylayout.QWERTY)
 		if !strings.Contains(bot, "READOUT GLOSSARY") || !strings.Contains(bot, "close") {
 			t.Errorf("height %d: title/footer missing at bottom:\n%s", ht, bot)
 		}

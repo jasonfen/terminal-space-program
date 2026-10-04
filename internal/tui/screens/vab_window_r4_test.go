@@ -34,7 +34,7 @@ func TestVABWindowStartsOnStageHeader(t *testing.T) {
 	}
 	rows := v.stackRows()
 	isStageLine := func(s string) bool {
-		s = strings.TrimLeft(s, " →")
+		s = strings.TrimLeft(s, " ▸")
 		return strings.HasPrefix(s, "S") && len(s) > 1 && s[1] >= '0' && s[1] <= '9'
 	}
 	for _, h := range []int{18, 22, 27} {
@@ -56,7 +56,7 @@ func TestVABWindowStartsOnStageHeader(t *testing.T) {
 			}
 			seen := false
 			for _, l := range out {
-				if strings.Contains(l, "→ ") && !strings.Contains(l, "→ top") && !strings.Contains(l, "bottom") {
+				if strings.Contains(l, "▸ ") {
 					seen = true
 				}
 			}

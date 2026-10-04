@@ -632,9 +632,14 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
-// Render draws the roster.
-func (s *SessionScreen) Render(w *sim.World, width int) string {
-	var b strings.Builder
+// Render draws the roster inside the shared form frame (B11 / G9 Q4): a
+// ROSTER box, an INVITES box for admins, a NOTES box for the standing
+// reminders and prompts, and a KEYS box; the legend on the bottom edge is
+// the way out. width x height is the whole framed block.
+func (s *SessionScreen) Render(w *sim.World, width, height int) string {
+	var roster, invites, notes strings.Builder
+	b := &roster
+	boxW := width - 2*frameInset
 	info := w.Session
 	if info == nil {
 		b.WriteString("  Not in a multiplayer session.\n\n")
@@ -648,11 +653,10 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		// precedent for clipping at low widths.
 		b.WriteString(s.theme.Dim.Render("  Joining someone else's session: connect with `ssh -p 23234 <their host>`,") + "\n")
 		b.WriteString(s.theme.Dim.Render("  then enroll with the invite code they gave you from `serve invite`.") + "\n\n")
-		b.WriteString(s.theme.Footer.Render("  [h] start hosting   [esc] close"))
-		return b.String()
+		return formFrame(s.theme, formBox(s.theme, "SESSION", splitLines(roster.String()), boxW), width, height,
+			s.theme.Footer.Render("[h] start hosting · [esc] close"))
 	}
 
-	b.WriteString(s.theme.Dim.Render(fmt.Sprintf("  %d players", len(info.Players))) + "\n\n")
 	b.WriteString(s.theme.Dim.Render(strings.Repeat(" ", rowIndent)+
 		padStyled("PLAYER", colName)+" "+
 		padStyled("LOCATION", colWhere)+" "+
@@ -765,7 +769,7 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	}
 
 	if info.CanAdminister {
-		b.WriteString("\n" + s.theme.Title.Render(" INVITES ") + "\n\n")
+		b = &invites
 		// Normalise section focus (review follow-up): revoking the last
 		// invite while focused there must not strand the cursor in an
 		// empty section with tab gated off.
@@ -795,14 +799,14 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 		}
 	}
 
+	b = &notes
 	// State the neighbourhood rule where the ranges are read (ADR 0037 §5).
 	// Quoted from the sim's own gate constants so the sentence can never
 	// drift from the behaviour it describes.
 	b.WriteString(s.theme.Dim.Render(fmt.Sprintf(
-		"\n  warps lock together inside %s when you're closing slower than %s",
+		"  warps lock together inside %s when you're closing slower than %s",
 		readout.Distance(sim.CoWarpCoupleRangeM), readout.Speed(sim.CoWarpCoupleSpeedMs))) + "\n")
 
-	b.WriteString("\n")
 	if s.confirmRemove {
 		if p, ok := s.selectedPlayer(info); ok {
 			b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  remove %s from the session? [y/n]", p.Handle)) + "\n")
@@ -822,11 +826,11 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	if info.RunningVersion != "" {
 		line := "  running " + displayVer(info.RunningVersion)
 		if info.AvailableVersion != "" {
-			line += " — update available: " + displayVer(info.AvailableVersion)
+			line += " · update available: " + displayVer(info.AvailableVersion)
 		}
 		b.WriteString(s.theme.Dim.Render(line) + "\n")
 		if info.AvailableVersion != "" && !info.AdoptCapable {
-			b.WriteString(s.theme.Dim.Render("  update manually — "+releasesPageURL) + "\n")
+			b.WriteString(s.theme.Dim.Render("  update manually: "+releasesPageURL) + "\n")
 		}
 	}
 
@@ -835,9 +839,9 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	// once-annoying overlap (the decision doesn't "fix" it), but worth a
 	// standing reminder since it's the same confusion that misdirected a
 	// player toward [F4] before the restart verb moved off `u`.
-	b.WriteString(s.theme.Dim.Render("  flight controls are inactive on this screen — only the keys below apply") + "\n")
+	b.WriteString(s.theme.Dim.Render("  flight controls are inactive on this screen, only the keys below apply") + "\n")
 
-	keys := "  [t] target vessel  [v] spectate  [s] sync-to  [w] rendezvous warp"
+	keys := "[t] target vessel  [v] spectate  [s] sync-to  [w] rendezvous warp"
 	if info.CanAdminister {
 		keys += "  [i] invite  [r] revoke code  [x] remove player  " + restartKeyLabel(info)
 	}
@@ -847,9 +851,31 @@ func (s *SessionScreen) Render(w *sim.World, width int) string {
 	if info.CanAdminister {
 		keys += "  [tab] section"
 	}
-	keys += "  [esc] close"
-	b.WriteString(s.theme.Footer.Render(keys))
-	return b.String()
+	var body []string
+	body = append(body, formBox(s.theme, "ROSTER  "+fmt.Sprintf("%d players", len(info.Players)), splitLines(roster.String()), boxW)...)
+	if info.CanAdminister {
+		body = append(body, formBox(s.theme, s.sectionTitle("INVITES", s.inInvites), splitLines(invites.String()), boxW)...)
+	}
+	body = append(body, formBox(s.theme, "NOTES", splitLines(notes.String()), boxW)...)
+	var keyLines []string
+	for _, ln := range wrapFooterHints(keys, boxW-4) {
+		keyLines = append(keyLines, s.theme.Footer.Render(ln))
+	}
+	body = append(body, formBox(s.theme, "KEYS", keyLines, boxW)...)
+	return formFrame(s.theme, body, width, height, s.theme.Footer.Render("[esc] close"))
+}
+
+// sectionTitle bolds a box title while its section has the cursor.
+func (s *SessionScreen) sectionTitle(label string, focused bool) string {
+	if focused {
+		return s.theme.Title.Render(label)
+	}
+	return label
+}
+
+// splitLines splits a built block into lines, dropping the trailing newline.
+func splitLines(text string) []string {
+	return strings.Split(strings.TrimRight(text, "\n"), "\n")
 }
 
 // formatDeltaT renders the subspace gap: "+2d4h ahead", "-3h12m

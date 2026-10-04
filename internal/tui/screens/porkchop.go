@@ -163,8 +163,9 @@ func (p *Porkchop) PendingPlant() (targetIdx int, depDay, tofDay float64, opts s
 }
 
 // HitCell maps a screen-space (col, row) onto the porkchop grid's
-// (depIdx, tofIdx). Title + blank line take rows 0 and 1; grid
-// starts at row 2. Each row begins with "tof XXXd │" = 10 chars
+// (depIdx, tofIdx), the position counted from the top-left of the framed
+// block. The frame edge, the box edge and the box title take rows 0-2; the
+// grid starts at row 3. Each row begins with "tof XXXd │" = 10 chars
 // (gridLead) before the first cell. Returns ok=false when the
 // click lands outside the grid's pixel rectangle. v0.6.4 mouse
 // dispatch sets selDep / selTof from the result.
@@ -173,8 +174,11 @@ func (p *Porkchop) HitCell(col, row int) (depIdx, tofIdx int, ok bool) {
 	if p.grid == nil {
 		return 0, 0, false
 	}
-	depIdx = col - gridLead
-	tofIdx = row - 2
+	// The grid sits inside the form frame and its box: frameInset + one
+	// border cell on the left, the frame top edge + box top edge + box title
+	// above it (B11).
+	depIdx = col - gridLead - 2*frameInset
+	tofIdx = row - 3
 	if depIdx < 0 || depIdx >= len(p.depDays) {
 		return 0, 0, false
 	}
@@ -209,12 +213,14 @@ func (p *Porkchop) TitleContext() string {
 
 // Render draws the grid + axes + selection readout.
 func (p *Porkchop) Render(w *sim.World, cols, rows int) string {
+	boxW := cols - 2*frameInset
 	if p.errMsg != "" {
-		return p.theme.Alert.Render("error: "+p.errMsg) + "\n\n" +
-			p.theme.Footer.Render("[esc] back")
+		return formFrame(p.theme, formBox(p.theme, "PORKCHOP PLOT", []string{"  " + p.theme.Alert.Render("error: "+p.errMsg)}, boxW),
+			cols, rows, p.theme.Footer.Render("[esc] back"))
 	}
 	if p.grid == nil {
-		return "  (grid not loaded)"
+		return formFrame(p.theme, formBox(p.theme, "PORKCHOP PLOT", []string{"  (grid not loaded)"}, boxW),
+			cols, rows, p.theme.Footer.Render("[esc] back"))
 	}
 
 	minDv := math.Inf(1)
@@ -296,19 +302,18 @@ func (p *Porkchop) Render(w *sim.World, cols, rows int) string {
 	for _, g := range porkchopLegendRamp {
 		b.WriteString(g)
 	}
-	b.WriteString("  (darker = cheaper; · = no solution)\n\n")
+	b.WriteString("  (darker = cheaper; · = no solution)")
 
+	body := formBox(p.theme, "PORKCHOP PLOT", splitLines(b.String()), boxW)
 	if p.optsOpen {
-		b.WriteString(p.renderOptionsPanel())
-		b.WriteString("\n")
+		body = append(body, formBox(p.theme, "TRANSFER OPTIONS", splitLines(p.renderOptionsPanel()), boxW)...)
 	}
 
-	footer := "[←/→] dep [↑/↓] tof [o] options [enter] plant [esc] back"
+	footer := "[←/→] dep · [↑/↓] tof · [o] options · [enter] plant · [esc] back"
 	if p.optsOpen {
-		footer = "[n] nRev [r] retrograde [b] short/long [enter/o/esc] close"
+		footer = "[n] nRev · [r] retrograde · [b] short/long · [enter/o/esc] close"
 	}
-	b.WriteString(p.theme.Footer.Render(footer))
-	return b.String()
+	return formFrame(p.theme, body, cols, rows, p.theme.Footer.Render(footer))
 }
 
 // optsSummary renders the active TransferOptions as a compact "rev=N
@@ -342,8 +347,6 @@ func (p *Porkchop) renderOptionsPanel() string {
 		branch = "long"
 	}
 	var sb strings.Builder
-	sb.WriteString(p.theme.Warning.Render("transfer options"))
-	sb.WriteString("\n")
 	sb.WriteString(fmt.Sprintf("  [n] revs:      %d (0–%d)\n", p.opts.NRev, porkchopMaxNRev))
 	sb.WriteString(fmt.Sprintf("  [r] direction: %s\n", dir))
 	if p.opts.NRev == 0 {

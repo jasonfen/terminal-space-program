@@ -1,8 +1,6 @@
 package screens
 
 import (
-	"strings"
-
 	"github.com/jasonfen/terminal-space-program/internal/keylayout"
 )
 
@@ -62,32 +60,30 @@ func (c *ControlsScreen) HandleKey(key string) ControlsAction {
 // HandleClick maps a (col, row) click to a ControlsAction. A click on the
 // title-row [Back] cancels; a click anywhere on the layout row cycles it.
 func (c *ControlsScreen) HandleClick(col, row int) ControlsAction {
+	col, row = col-frameInset, row-frameInset // frame-relative -> body
 	if c.layoutBtn.Hit(col, row) {
 		return ControlsActionCycleLayout
 	}
 	return ControlsActionNone
 }
 
-// Render returns the controls screen for the active layout. width sizes the
-// right-aligned [Back] button and the full-row click target.
-func (c *ControlsScreen) Render(layout keylayout.Layout, width int) string {
-	var lines []string
+// controlsLegend is the key legend on the frame's bottom edge.
+const controlsLegend = "[←/→ space] change layout · [esc] back"
 
-	lines = append(lines, c.theme.Dim.Render("─── keyboard ───"))
-	lines = append(lines, "")
-
-	// Layout selector row — a full-width click target.
-	marker := "> " // single row is always the cursor
+// Render returns the keyboard-layout screen inside the shared form frame
+// (B11 / G9 Q4): one KEYBOARD box holding the layout selector. width x
+// height is the whole framed block; a click range is recorded in body
+// coordinates.
+func (c *ControlsScreen) Render(layout keylayout.Layout, width, height int) string {
+	boxW := clampI(width-2*frameInset, 40, 80)
+	var ls []string
+	// Layout selector row, a click target the width of the box.
 	value := "‹ " + keylayout.Label(layout) + " ›"
-	c.layoutBtn = buttonRange{row: len(lines), colStart: 0, colEnd: width, set: true}
-	lines = append(lines, marker+c.theme.Primary.Render("Keyboard layout: "+value))
-
-	lines = append(lines, "")
-	lines = append(lines, c.theme.Dim.Render("  Bindings are authored for QWERTY key positions. QWERTZ"))
-	lines = append(lines, c.theme.Dim.Render("  swaps the physical Y and Z keys; selecting it keeps every"))
-	lines = append(lines, c.theme.Dim.Render("  binding under the same finger and relabels the help (F1)."))
-
-	lines = append(lines, "")
-	lines = append(lines, c.theme.Footer.Render("[←/→ space] change layout  [esc] back"))
-	return strings.Join(lines, "\n")
+	c.layoutBtn = buttonRange{row: 2 + len(ls), colStart: 0, colEnd: boxW, set: true}
+	ls = append(ls, c.theme.Primary.Render("▸")+" "+c.theme.Primary.Render("Keyboard layout: "+value))
+	ls = append(ls, "")
+	ls = append(ls, c.theme.Dim.Render("  Bindings are authored for QWERTY key positions. QWERTZ"))
+	ls = append(ls, c.theme.Dim.Render("  swaps the physical Y and Z keys; selecting it keeps every"))
+	ls = append(ls, c.theme.Dim.Render("  binding under the same finger and relabels the help (F1)."))
+	return formFrame(c.theme, formBox(c.theme, "KEYBOARD", ls, boxW), width, height, c.theme.Footer.Render(controlsLegend))
 }

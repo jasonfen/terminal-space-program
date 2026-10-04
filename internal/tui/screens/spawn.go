@@ -3,7 +3,6 @@ package screens
 import (
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -923,7 +922,7 @@ func altKmLabel(altM float64) string {
 // shrinks this further when the terminal is too short to give the rest of
 // the form (POSITION/PARENT BODY/ALTITUDE/DIRECTION, the footer) room —
 // see craftTypeRowsFor.
-const craftTypeRowBudget = 8
+const craftTypeRowBudget = 24
 
 // craftTypeLines flattens the CRAFT TYPE catalog — category headers (ADR
 // 0031 / S8), the "Custom & Designs" group, the synthetic Custom entry,
@@ -938,8 +937,10 @@ func (s *SpawnCraft) craftTypeLines() (lines []widgets.WindowLine, cursorLine in
 		lines = append(lines, widgets.WindowLine{Text: "  " + s.theme.Primary.Render(g.label), IsHeader: true})
 		for _, id := range g.ids {
 			l := spacecraft.Loadouts[id]
-			row := fmt.Sprintf("%s %s  %s  %s  — %s",
-				l.Glyph, l.Name, crewTag(l), l.Role, propulsionSummary(l))
+			// No row bullet: the ➤ glyph is the vessel's mark on the map,
+			// not a list bullet (B11 / G9 Q5).
+			row := fmt.Sprintf("%s  %s  %s  · %s",
+				l.Name, crewTag(l), l.Role, propulsionSummary(l))
 			if idx == s.loadoutIdx {
 				cursorLine = len(lines)
 			}
@@ -953,7 +954,7 @@ func (s *SpawnCraft) craftTypeLines() (lines []widgets.WindowLine, cursorLine in
 	if idx == s.loadoutIdx {
 		cursorLine = len(lines)
 	}
-	lines = append(lines, widgets.WindowLine{Text: s.craftRow(idx, "✎ Custom…  build-your-own  — assemble a stage stack")})
+	lines = append(lines, widgets.WindowLine{Text: s.craftRow(idx, "✎ Custom…  build-your-own  · assemble a stage stack")})
 	idx++
 	for _, d := range s.designs {
 		if idx == s.loadoutIdx {
@@ -964,9 +965,9 @@ func (s *SpawnCraft) craftTypeLines() (lines []widgets.WindowLine, cursorLine in
 		if len(d.Loadout.Parts) == 1 {
 			noun = "part"
 		}
-		row := fmt.Sprintf("✎ %s  saved design  — %d %s, missing from catalog", d.Name(), len(d.Loadout.Parts), noun)
+		row := fmt.Sprintf("✎ %s  saved design  · %d %s, missing from catalog", d.Name(), len(d.Loadout.Parts), noun)
 		if ds := s.designStagesAt(idx - s.visibleCatalogCount() - 1); len(ds) > 0 {
-			row = fmt.Sprintf("✎ %s  saved design  — %s", d.Name(), stagesSummary(ds))
+			row = fmt.Sprintf("✎ %s  saved design  · %s", d.Name(), stagesSummary(ds))
 		}
 		lines = append(lines, widgets.WindowLine{Text: s.craftRow(idx, row)})
 		idx++
@@ -997,53 +998,58 @@ func craftTypeRowsFor(height, fixedLines int) int {
 	return avail
 }
 
-// Render returns the modal form. width is the terminal width; height is
-// the terminal height (#373 / ADR 0046) — Render windows the CRAFT TYPE
-// catalog to fit height, keeping POSITION/PARENT BODY/ALTITUDE/DIRECTION,
-// the title, the "[f] show all" hint, and the footer on screen. height<=0
-// disables the windowing clamp (shows the whole catalog) — handy for
-// tests and any caller with no height budget.
-func (s *SpawnCraft) Render(width, height int) string {
-	var head []string
+// spawnLegend is the key legend on the frame's bottom edge.
+const spawnLegend = "[tab] field · [←/→] cycle · [f] system filter · [enter] spawn · [esc] cancel"
 
-	// Field 0: craft type header + the ADR 0031 / S10 system-filter note.
-	// The catalog rows themselves (category headers, loadouts, Custom &
-	// Designs) are windowed below via craftTypeLines/widgets.Window rather
-	// than emitted inline — see craftTypeRowsFor's doc comment.
-	head = append(head, s.fieldHeader(0, "VESSEL TYPE"))
+// Render returns the form inside the shared frame (B11 / G9 Q4): the
+// VESSEL TYPE catalog in a box on the left (windowed to the box), the
+// POSITION / PARENT BODY / ALTITUDE (or LAUNCH SITE) / DIRECTION fields as
+// titled boxes on the right, the STACK editor under the catalog when
+// Custom is selected, and the legend on the bottom edge. width x height
+// is the whole framed block (the App's Title Row sits above it); height<=0
+// disables the windowing clamp (shows the whole catalog), handy for tests
+// and any caller with no height budget.
+func (s *SpawnCraft) Render(width, height int) string {
+	lw, rw := spawnWidths(width)
+
+	right := s.positionBoxes(rw)
+
+	// Field 0: the ADR 0031 / S10 system-filter note over the windowed
+	// catalog (category headers, loadouts, Custom & Designs), see
+	// craftTypeLines/widgets.Window.
+	var head []string
 	// The system's Δv-to-orbit, stated once for the whole list (#504); it
 	// used to trail every row, where it read as that vessel's figure.
 	head = append(head, "  "+s.theme.Dim.Render(scaleHint(s.systemScale.Normalize())))
 	if s.showAll {
 		head = append(head, "  "+s.theme.Dim.Render(
-			"showing all systems' vessels — [f] filter to this system"))
+			"showing all systems' vessels · [f] filter to this system"))
 	} else if hidden := len(spacecraft.LoadoutOrder) - s.visibleCatalogCount(); hidden > 0 {
 		noun := "vessels"
 		if hidden == 1 {
 			noun = "vessel"
 		}
 		head = append(head, "  "+s.theme.Dim.Render(fmt.Sprintf(
-			"%d %s from other systems hidden — [f] show all", hidden, noun)))
+			"%d %s from other systems hidden · [f] show all", hidden, noun)))
 	}
 	head = append(head, "")
 
-	var lines []string
-	lines = append(lines, head...)
-
-	tail := s.renderTail(width)
+	var stack []string
+	if s.IsCustomSelected() {
+		stack = formBox(s.theme, s.boxTitle(stackFieldIdx, "STACK (bottom → top)"), s.stackLines(), lw)
+	}
 
 	catalogLines, cursorLine := s.craftTypeLines()
-	budget := craftTypeRowsFor(height, len(head)+len(tail))
+	// box overhead: top edge + title + bottom edge; the frame adds two rows.
+	budget := craftTypeRowsFor(height, 5+len(head)+len(stack))
 	rendered := widgets.Window(catalogLines, cursorLine, budget)
 	// Safety net: widgets.Window's pinned header + "N more" markers add up
 	// to 3 lines on top of budget (documented on Window), which
-	// craftTypeRowsFor's estimate doesn't account for — a terminal with
-	// almost no room to spare after the fixed head+tail chrome can still
-	// overflow height by that much. Drop marker/pin lines first (cheapest
-	// to lose) before ever touching a content row, so the cursor's own row
-	// is the last thing trimmed — see the loop below.
+	// craftTypeRowsFor's estimate doesn't account for. Drop marker/pin
+	// lines first (cheapest to lose) before ever touching a content row,
+	// so the cursor's own row is the last thing trimmed.
 	if height > 0 {
-		if over := len(head) + len(rendered) + len(tail) - height; over > 0 {
+		if over := 5 + len(head) + len(stack) + len(rendered) - height; over > 0 {
 			trimmed := rendered[:0]
 			dropped := 0
 			for _, r := range rendered {
@@ -1056,94 +1062,112 @@ func (s *SpawnCraft) Render(width, height int) string {
 			rendered = trimmed
 		}
 	}
+	ls := append([]string{}, head...)
 	for _, r := range rendered {
-		lines = append(lines, r.Text)
+		ls = append(ls, r.Text)
 	}
-	lines = append(lines, tail...)
+	left := formBox(s.theme, s.boxTitle(0, "VESSEL TYPE"), ls, lw)
+	left = append(left, stack...)
 
-	return strings.Join(lines, "\n")
+	return formFrame(s.theme, joinBoxes(left, right, lw, 1), width, height, s.theme.Footer.Render(spawnLegend))
 }
 
-// renderTail renders everything Render shows AFTER the (possibly
-// windowed) CRAFT TYPE catalog: the STACK editor when Custom is selected,
-// POSITION, PARENT BODY, ALTITUDE/LAUNCH SITE, DIRECTION, and the footer.
-// Factored out of Render so craftTypeRowsFor can measure its length before
-// the catalog window is sized (#373).
-func (s *SpawnCraft) renderTail(width int) []string {
-	var lines []string
+// spawnWidths splits a framed block of the given width into the catalog
+// column and the field-box column (a one-cell gutter between).
+func spawnWidths(width int) (lw, rw int) {
+	inner := width - 2*frameInset
+	rw = clampI(inner*36/100, 44, 60)
+	return inner - rw - 1, rw
+}
 
-	// v0.10.1+ STACK editor — only when Custom is selected. Shows the
-	// working stack bottom→top, the catalog part-picker, and the
-	// add/remove key hints. Field idx 5 (stackFieldIdx).
-	if s.IsCustomSelected() {
-		lines = append(lines, "")
-		lines = append(lines, s.fieldHeader(stackFieldIdx, "STACK (bottom → top)"))
-		if len(s.customStages) == 0 {
-			lines = append(lines, "  "+s.theme.Dim.Render("(empty — pick a part below and press [a] to add)"))
-		} else {
-			// v0.14 / ADR 0011: the Dock Seam splits the stack into the
-			// linear firing core (bottom) and the docked nose payload (top
-			// nosePayloadCount stages). seam == len means no seam (linear).
-			seam := len(s.customStages) - s.nosePayloadCount
-			for i := len(s.customStages) - 1; i >= 0; i-- {
-				if s.nosePayloadCount > 0 && i == seam-1 {
-					lines = append(lines, "  "+s.theme.Warning.Render(
-						"── dock seam ──  (above = nose payload, [U]ndock to release)"))
-				}
-				st := s.customStages[i]
-				var tag string
-				switch {
-				case s.nosePayloadCount > 0 && i >= seam:
-					tag = "nose payload"
-				case i == 0:
-					tag = "bottom/fires first"
-				case s.nosePayloadCount > 0 && i == seam-1:
-					tag = "core survivor"
-				case i == len(s.customStages)-1:
-					tag = "top/core"
-				default:
-					tag = "mid"
-				}
-				eng := fmt.Sprintf("%.0fkN @ %.0fs", st.Thrust/1000, st.Isp)
-				if st.Thrust == 0 {
-					eng = "RCS-only"
-				}
-				lines = append(lines, "  "+s.theme.Primary.Render(
-					fmt.Sprintf("%s %-7s  dry %.0fkg fuel %.0fkg  %s  (%s)",
-						st.Glyph, st.Name, st.DryMass, st.FuelMass, eng, tag)))
-			}
-		}
-		// Catalog part-picker line.
-		lines = append(lines, "")
-		pid := s.pickedPartID()
-		if m, ok := spacecraft.StageCatalog[pid]; ok {
-			// Show combined mass/engine for the module the pick contributes —
-			// a multi-stage module (the 2-stage lander) reads as one unit
-			// with its bottom stage's engine firing first.
-			stages, _ := spacecraft.BuildModule(pid)
-			name := m.Name
-			eng := "RCS-only"
-			if len(stages) > 0 && stages[0].Thrust > 0 {
-				eng = fmt.Sprintf("%.0fkN @ %.0fs", stages[0].Thrust/1000, stages[0].Isp)
-			}
-			if len(stages) > 1 {
-				name = fmt.Sprintf("%s (%d-stage)", m.Name, len(stages))
-			}
-			pickLabel := fmt.Sprintf("%s %s  [%s]  dry %.0fkg fuel %.0fkg  %s",
-				m.Glyph, name, m.Tier,
-				spacecraft.SumDryMass(stages), spacecraft.SumFuelMass(stages), eng)
-			lines = append(lines, "  "+s.fieldValue(stackFieldIdx, "part: "+pickLabel))
-		}
-		lines = append(lines, "  "+s.theme.Footer.Render(
-			"[←/→] pick part  [a] add on top  [x] remove top  [d] dock seam"))
+// boxTitle is a field box's title: bold cyan (the Title style) while the
+// field has focus, plain cyan otherwise, so focus needs no triangle of its
+// own (B11 / G9 Q5). formBox renders titles in Primary; the focused one
+// carries its own bold on top.
+func (s *SpawnCraft) boxTitle(idx int, label string) string {
+	if s.fieldIdx == idx {
+		return s.theme.Title.Render(label)
 	}
+	return label
+}
 
-	// Field 1: position mode — tri-state cycle. orbit (uses PARENT
+// stackLines is the STACK editor's body, shown only when Custom is
+// selected (v0.10.1+): the working stack bottom to top, the catalog
+// part-picker, and the add/remove key hints. Field idx 5 (stackFieldIdx).
+func (s *SpawnCraft) stackLines() []string {
+	var lines []string
+	if len(s.customStages) == 0 {
+		lines = append(lines, "  "+s.theme.Dim.Render("(empty — pick a part below and press [a] to add)"))
+	} else {
+		// v0.14 / ADR 0011: the Dock Seam splits the stack into the
+		// linear firing core (bottom) and the docked nose payload (top
+		// nosePayloadCount stages). seam == len means no seam (linear).
+		seam := len(s.customStages) - s.nosePayloadCount
+		for i := len(s.customStages) - 1; i >= 0; i-- {
+			if s.nosePayloadCount > 0 && i == seam-1 {
+				lines = append(lines, "  "+s.theme.Warning.Render(
+					"── dock seam ──  (above = nose payload, [U]ndock to release)"))
+			}
+			st := s.customStages[i]
+			var tag string
+			switch {
+			case s.nosePayloadCount > 0 && i >= seam:
+				tag = "nose payload"
+			case i == 0:
+				tag = "bottom/fires first"
+			case s.nosePayloadCount > 0 && i == seam-1:
+				tag = "core survivor"
+			case i == len(s.customStages)-1:
+				tag = "top/core"
+			default:
+				tag = "mid"
+			}
+			eng := fmt.Sprintf("%.0fkN @ %.0fs", st.Thrust/1000, st.Isp)
+			if st.Thrust == 0 {
+				eng = "RCS-only"
+			}
+			lines = append(lines, "  "+s.theme.Primary.Render(
+				fmt.Sprintf("%s  dry %.0fkg fuel %.0fkg  %s  (%s)",
+					padCells(st.Name, 7), st.DryMass, st.FuelMass, eng, tag)))
+		}
+	}
+	// Catalog part-picker line.
+	lines = append(lines, "")
+	pid := s.pickedPartID()
+	if m, ok := spacecraft.StageCatalog[pid]; ok {
+		// Show combined mass/engine for the module the pick contributes —
+		// a multi-stage module (the 2-stage lander) reads as one unit
+		// with its bottom stage's engine firing first.
+		stages, _ := spacecraft.BuildModule(pid)
+		name := m.Name
+		eng := "RCS-only"
+		if len(stages) > 0 && stages[0].Thrust > 0 {
+			eng = fmt.Sprintf("%.0fkN @ %.0fs", stages[0].Thrust/1000, stages[0].Isp)
+		}
+		if len(stages) > 1 {
+			name = fmt.Sprintf("%s (%d-stage)", m.Name, len(stages))
+		}
+		pickLabel := fmt.Sprintf("%s  [%s]  dry %.0fkg fuel %.0fkg  %s",
+			name, m.Tier,
+			spacecraft.SumDryMass(stages), spacecraft.SumFuelMass(stages), eng)
+		lines = append(lines, "  "+s.fieldValue(stackFieldIdx, "part: "+pickLabel))
+	}
+	lines = append(lines, "  "+s.theme.Footer.Render(
+		"[←/→] pick part  [a] add on top  [x] remove top  [d] dock seam"))
+	return lines
+}
+
+// positionBoxes is the right-hand column: one titled box per field.
+func (s *SpawnCraft) positionBoxes(rw int) []string {
+	var out []string
+	box := func(idx int, title string, lines []string) {
+		out = append(out, formBox(s.theme, s.boxTitle(idx, title), lines, rw)...)
+	}
+	width := rw
+	// Field 1: position mode, a tri-state cycle. orbit (uses PARENT
 	// + ALTITUDE + DIRECTION below); alongside (drops inside
 	// docking gate, all three ignored); launchpad (surface, parent
-	// + LATITUDE only — direction ignored).
-	lines = append(lines, "")
-	lines = append(lines, s.fieldHeader(1, "POSITION"))
+	// + LATITUDE only, direction ignored).
 	var posLabel string
 	switch s.posMode {
 	case posAlongside:
@@ -1153,17 +1177,20 @@ func (s *SpawnCraft) renderTail(width int) []string {
 	default:
 		posLabel = "circular orbit"
 	}
-	lines = append(lines, "  "+s.fieldValue(1, posLabel))
+	posLines := []string{"  " + s.fieldValue(1, posLabel)}
 	// ADR 0031 / S9: when the selected craft can't lift off the selected
-	// parent, the cycle skips launchpad — note why, so the missing option
+	// parent, the cycle skips launchpad: note why, so the missing option
 	// doesn't read as a bug.
 	if !s.launchpadAllowed() {
-		note := "launchpad unavailable — TWR < 1 on this body"
+		note := "launchpad unavailable, TWR < 1 on this body"
 		if pb := s.currentParent(); pb != nil {
-			note = fmt.Sprintf("launchpad unavailable — can't lift off %s (TWR < 1)", pb.EnglishName)
+			note = fmt.Sprintf("launchpad unavailable, can't lift off %s (TWR < 1)", pb.EnglishName)
 		}
-		lines = append(lines, "  "+s.theme.Dim.Render(note))
+		for _, ln := range wrapText(note, rw-6) {
+			posLines = append(posLines, "  "+s.theme.Dim.Render(ln))
+		}
 	}
+	box(1, "POSITION", posLines)
 
 	// Field-3 + field-4 dim/disable masks vary by mode:
 	// - orbit:     all three orbit-defining fields enabled
@@ -1174,20 +1201,16 @@ func (s *SpawnCraft) renderTail(width int) []string {
 	dimAlt := s.posMode != posOrbit
 	dimDir := s.posMode != posOrbit
 
-	// Field 2: parent body — single-line cycle.
-	lines = append(lines, "")
-	lines = append(lines, s.fieldHeader(2, "PARENT BODY"))
+	// Field 2: parent body, a single-line cycle.
 	parentLabel := "(none)"
 	if pb := s.currentParent(); pb != nil {
 		parentLabel = fmt.Sprintf("%s  (μ %.2e, R %.0f km)",
 			pb.EnglishName, pb.GravitationalParameter(), pb.RadiusMeters()/1000)
 	}
-	lines = append(lines, "  "+s.fieldValueDimmed(2, parentLabel, dimParent))
+	box(2, "PARENT BODY", []string{"  " + s.fieldValueDimmed(2, parentLabel, dimParent)})
 
-	// Field 3: altitude (orbit) or launch site (launchpad) — preset cycle.
-	lines = append(lines, "")
+	// Field 3: altitude (orbit) or launch site (launchpad), a preset cycle.
 	if s.posMode == posLaunchpad {
-		lines = append(lines, s.fieldHeader(3, "LAUNCH SITE"))
 		site := sim.LaunchSites[s.latIdx]
 		siteName := sim.LaunchSiteLabel(s.systemName, site)
 		hemi := "N"
@@ -1203,7 +1226,7 @@ func (s *SpawnCraft) renderTail(width int) []string {
 			lonAbs = -lonAbs
 		}
 		// Special case: Equator + North Pole have no meaningful
-		// longitude (great circle / pole) — show coords without
+		// longitude (great circle / pole): show coords without
 		// the longitude when the offset is 0 to keep the label
 		// readable.
 		var siteLabel string
@@ -1213,30 +1236,22 @@ func (s *SpawnCraft) renderTail(width int) []string {
 			siteLabel = fmt.Sprintf("%s  (%.2f° %s, %.2f° %s)",
 				siteName, latAbs, hemi, lonAbs, lonHemi)
 		}
-		lines = append(lines, "  "+s.fieldValueDimmed(3, siteLabel, false))
+		box(3, "LAUNCH SITE", []string{"  " + s.fieldValueDimmed(3, siteLabel, false)})
 	} else {
-		lines = append(lines, s.fieldHeader(3, "ALTITUDE"))
-		lines = append(lines, "  "+s.altitudeValueLine(dimAlt))
+		altLines := []string{"  " + s.altitudeValueLine(dimAlt)}
 		if !dimAlt {
-			lines = append(lines, s.altitudeNoteLines(width)...)
+			altLines = append(altLines, s.altitudeNoteLines(width)...)
 		}
+		box(3, "ALTITUDE", altLines)
 	}
 
-	// Field 4: direction — toggle. Ignored in launchpad mode.
-	lines = append(lines, "")
-	lines = append(lines, s.fieldHeader(4, "DIRECTION"))
+	// Field 4: direction, a toggle. Ignored in launchpad mode.
 	dirLabel := "prograde"
 	if s.retrograde {
 		dirLabel = "retrograde"
 	}
-	lines = append(lines, "  "+s.fieldValueDimmed(4, dirLabel, dimDir))
-
-	lines = append(lines, "")
-	lines = append(lines, s.theme.Dim.Render(strings.Repeat("─", 60)))
-	lines = append(lines, s.theme.Footer.Render(
-		"[tab] field  [←/→] cycle  [f] system filter  [enter] spawn  [esc] cancel"))
-
-	return lines
+	box(4, "DIRECTION", []string{"  " + s.fieldValueDimmed(4, dirLabel, dimDir)})
+	return out
 }
 
 // bandWarning classifies the focused (parent, altitude) against the
@@ -1363,14 +1378,24 @@ func (s *SpawnCraft) altitudeNoteLines(width int) []string {
 	}
 	var out []string
 	if s.altNote != "" {
-		out = append(out, "    "+s.theme.Warning.Render("↳ "+s.altNote))
+		for i, ln := range wrapText("↳ "+s.altNote, width-6) {
+			if i > 0 {
+				ln = "  " + ln
+			}
+			out = append(out, "    "+s.theme.Warning.Render(ln))
+		}
 	}
 	if warn, isWarning := s.bandWarning(); warn != "" {
 		style := s.theme.Warning
 		if !isWarning {
 			style = s.theme.Dim
 		}
-		out = append(out, "  "+style.Render(warn))
+		for i, ln := range wrapText(warn, width-6) {
+			if i > 0 {
+				ln = "  " + ln
+			}
+			out = append(out, "  "+style.Render(ln))
+		}
 	}
 	return out
 }
@@ -1412,32 +1437,24 @@ func (s *SpawnCraft) craftRow(idx int, label string) string {
 	marker := "  "
 	row := s.theme.Dim.Render(label)
 	if s.loadoutIdx == idx {
-		marker = s.theme.Warning.Render("→ ")
+		marker = s.theme.Primary.Render("▸") + " "
 		if s.fieldIdx == 0 {
 			row = s.theme.Warning.Render(label)
 		} else {
 			row = s.theme.Primary.Render(label)
 		}
 	}
-	return "  " + marker + row
-}
-
-// fieldHeader returns the header label, highlighted when the field
-// is focused.
-func (s *SpawnCraft) fieldHeader(idx int, label string) string {
-	if s.fieldIdx == idx {
-		return s.theme.Warning.Render("▶ " + label)
-	}
-	return s.theme.Primary.Render("  " + label)
+	return " " + marker + row
 }
 
 // fieldValue returns the rendered value, with cycle hints when the
 // field is focused.
 func (s *SpawnCraft) fieldValue(idx int, label string) string {
+	// ‹ value › is the one "left/right changes this" mark (B11 / G9 Q5).
 	if s.fieldIdx == idx {
-		return s.theme.Warning.Render("◀  " + label + "  ▶")
+		return s.theme.Warning.Render("‹ " + label + " ›")
 	}
-	return label
+	return "‹ " + label + " ›"
 }
 
 // fieldValueDimmed is fieldValue with an "inactive" state — used

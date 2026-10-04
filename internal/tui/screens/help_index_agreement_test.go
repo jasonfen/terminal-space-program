@@ -18,7 +18,7 @@ func TestHelpIndexNumbersMatchDigitJump(t *testing.T) {
 	h := NewHelp(chipTestTheme())
 	rows := map[string]string{} // printed number -> the rest of the row
 	for _, ln := range h.indexLines() {
-		plain := strings.TrimSpace(strings.TrimPrefix(strings.TrimLeft(ansi.Strip(ln), " "), ">"))
+		plain := strings.TrimSpace(strings.TrimPrefix(strings.TrimLeft(ansi.Strip(ln), " "), "▸"))
 		f := strings.Fields(plain)
 		if len(f) < 2 {
 			continue

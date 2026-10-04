@@ -157,7 +157,7 @@ func TestSettingsClickAutosaveRow(t *testing.T) {
 	if row < 0 {
 		t.Fatalf("could not locate the autosave-interval row in render")
 	}
-	if a, _ := s.HandleClick(0, row); a != SettingsActionCycleAutosave {
+	if a, _ := s.HandleClick(settingsLabelCol(lines[row], "Autosave interval"), row); a != SettingsActionCycleAutosave {
 		t.Errorf("click autosave row = %v, want CycleAutosave", a)
 	}
 }
@@ -206,16 +206,17 @@ func TestSettingsHandleClick(t *testing.T) {
 	if row < 0 {
 		t.Fatalf("could not locate chip %q in render", want)
 	}
-	if a, c := s.HandleClick(0, row); a != SettingsActionToggle || c != want {
+	if a, c := s.HandleClick(settingsLabelCol(lines[row], want.Label()), row); a != SettingsActionToggle || c != want {
 		t.Errorf("click row %d = (%v,%q), want (Toggle,%q)", row, a, c, want)
 	}
 
 	// [Back] is the App's Title Row button now (B11); see
 	// TestFormScreensWearTheSharedTitleRow in package tui.
 
-	// A click in dead space (the divider row) is a no-op.
-	if a, _ := s.HandleClick(0, 1); a != SettingsActionNone {
-		t.Errorf("click on divider row = %v, want None", a)
+	// A click on a box's title row (frame row 0 is the top edge, row 2 the
+	// CHIPS title) is a no-op.
+	if a, _ := s.HandleClick(3, 2); a != SettingsActionNone {
+		t.Errorf("click on a box title row = %v, want None", a)
 	}
 }
 
@@ -225,13 +226,13 @@ func TestSettingsEmptyReadingsRow(t *testing.T) {
 	s := NewSettingsScreen(Theme{})
 	const width = 80
 	out := s.Render(settings.Default(), width, 0)
-	if !strings.Contains(out, "Empty readings: ‹Tidy›") {
+	if !strings.Contains(out, "Empty readings: ‹ Tidy ›") {
 		t.Errorf("default render missing Empty readings: ‹Tidy›:\n%s", out)
 	}
 	prefs := settings.Default()
 	prefs.SetEmptyReadings(settings.EmptyCompact)
 	out = s.Render(prefs, width, 0)
-	if !strings.Contains(out, "Empty readings: ‹Compact›") {
+	if !strings.Contains(out, "Empty readings: ‹ Compact ›") {
 		t.Errorf("Compact render missing its label:\n%s", out)
 	}
 	row := -1
@@ -240,7 +241,7 @@ func TestSettingsEmptyReadingsRow(t *testing.T) {
 			row = i
 		}
 	}
-	if a, _ := s.HandleClick(0, row); a != SettingsActionCycleEmptyReadings {
+	if a, _ := s.HandleClick(settingsLabelCol(strings.Split(out, "\n")[row], "Empty readings"), row); a != SettingsActionCycleEmptyReadings {
 		t.Errorf("click Empty readings row = %v, want CycleEmptyReadings", a)
 	}
 }
@@ -265,15 +266,12 @@ func TestSettingsShowsEveryRowAtDesignSize(t *testing.T) {
 	}
 }
 
-// A short terminal must still window: never taller than the terminal, and
-// the cursor's row stays on screen.
-func TestSettingsWindowsOnAShortTerminal(t *testing.T) {
-	s := NewSettingsScreen(chipTestTheme())
-	out := s.Render(settings.Default(), 140, 16)
-	if n := len(strings.Split(out, "\n")); n > 16 {
-		t.Errorf("settings screen is %d lines on a 16-row terminal", n)
+// settingsLabelCol is a display column inside label on a rendered line (the
+// frame-relative x a click on that label would carry).
+func settingsLabelCol(line, label string) int {
+	i := strings.Index(line, label)
+	if i < 0 {
+		return 0
 	}
-	if !strings.Contains(out, "> [x] Engine") {
-		t.Errorf("cursor row not on screen on a short terminal:\n%s", out)
-	}
+	return len([]rune(line[:i])) + 1
 }

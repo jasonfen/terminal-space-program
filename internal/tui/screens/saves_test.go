@@ -365,7 +365,7 @@ func TestSavesClickTargets(t *testing.T) {
 	// Click the second row: selects it, no action yet.
 	btn := sc.rowBtns[1]
 	col := (btn.colStart + btn.colEnd) / 2
-	if cmd := sc.HandleClick(col, btn.row); cmd.Kind != SavesActionNone {
+	if cmd := sc.HandleClick(col+frameInset, btn.row+frameInset); cmd.Kind != SavesActionNone {
 		t.Fatalf("first row click returned %v, want None", cmd.Kind)
 	}
 	if sc.cursor != 1 {
@@ -373,7 +373,7 @@ func TestSavesClickTargets(t *testing.T) {
 	}
 	// Click it again: activates (load confirm opens).
 	_ = sc.Render(110, 40)
-	if cmd := sc.HandleClick(col, btn.row); cmd.Kind != SavesActionNone {
+	if cmd := sc.HandleClick(col+frameInset, btn.row+frameInset); cmd.Kind != SavesActionNone {
 		t.Fatalf("second row click returned %v, want None (confirm gate)", cmd.Kind)
 	}
 	if sc.state != savesStateConfirmLoad {
@@ -382,7 +382,7 @@ func TestSavesClickTargets(t *testing.T) {
 	// [Yes] click commits the load of the clicked row.
 	_ = sc.Render(110, 40)
 	yes := sc.yesBtn
-	cmd := sc.HandleClick((yes.colStart+yes.colEnd)/2, yes.row)
+	cmd := sc.HandleClick((yes.colStart+yes.colEnd)/2+frameInset, yes.row+frameInset)
 	if cmd.Kind != SavesActionLoad || cmd.ID != "autosave-1.json" {
 		t.Fatalf("[Yes] click = %+v, want Load autosave-1.json", cmd)
 	}

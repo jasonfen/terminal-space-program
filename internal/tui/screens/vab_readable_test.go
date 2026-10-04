@@ -122,7 +122,7 @@ func TestVABInspectorIsWholeBox(t *testing.T) {
 	if len(lines) < 3 {
 		t.Fatalf("inspector too short: %v", lines)
 	}
-	if !strings.HasPrefix(lines[len(lines)-1], "└") || !strings.HasSuffix(lines[len(lines)-1], "┘") {
+	if !strings.HasPrefix(lines[len(lines)-1], "╰") || !strings.HasSuffix(lines[len(lines)-1], "╯") {
 		t.Errorf("no bottom edge: %q", lines[len(lines)-1])
 	}
 	for _, l := range lines {

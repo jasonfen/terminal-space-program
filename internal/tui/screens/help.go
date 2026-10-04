@@ -378,7 +378,7 @@ func (h *Help) indexLines() []string {
 		pad := strings.Repeat(" ", maxInt(1, 22-lipgloss.Width(title)))
 		mark := "  "
 		if n == h.cursor {
-			mark = "> "
+			mark = h.theme.Primary.Render("▸") + " "
 		}
 		num := strconv.Itoa(n + 1)
 		numPad := strings.Repeat(" ", 3-len(num))
@@ -387,15 +387,17 @@ func (h *Help) indexLines() []string {
 	return lines
 }
 
-// Render windows the body to the terminal height between a sticky title
-// and footer, and truncates each row to width. Clamps + caches the scroll
-// geometry so HandleKey paging stays in range.
+// Render windows the body to the terminal height inside the shared form
+// frame (B11 / G9 Q4): one box titled with the page, the position line and
+// controls on the frame's bottom edge. Truncates each row to the box.
+// Clamps + caches the scroll geometry so HandleKey paging stays in range.
+// width x height is the whole framed block (the App's Title Row sits above).
 func (h *Help) Render(width, height int, layout keylayout.Layout) string {
 	body := h.bodyLines(layout)
+	boxW := width - 2*frameInset
 
-	const topChrome = 0 // the Title Row is the App's (B11)
-	const botChrome = 1 // footer
-	viewH := height - topChrome - botChrome
+	// frame (2) + box top edge, title and bottom edge (3).
+	viewH := height - 5
 	if viewH < 1 {
 		viewH = 1
 	}
@@ -412,18 +414,20 @@ func (h *Help) Render(width, height int, layout keylayout.Layout) string {
 	}
 	window := body[h.scroll:end]
 
-	var b strings.Builder
+	lines := make([]string, 0, viewH)
 	for _, ln := range window {
-		b.WriteString(clipLine(ln, width))
-		b.WriteByte('\n')
+		lines = append(lines, clipLine(ln, boxW-2))
 	}
-	// Pad so the footer sits on the bottom row even when the content is
-	// shorter than the viewport (short terminals, last page).
-	for i := len(window); i < viewH; i++ {
-		b.WriteByte('\n')
+	// Pad so the box keeps its height even when the content is shorter than
+	// the viewport (short terminals, last page).
+	for len(lines) < viewH {
+		lines = append(lines, "")
 	}
-	b.WriteString(clipLine(h.footer(), width))
-	return b.String()
+	title := "KEYBINDINGS"
+	if h.page != helpIndexPage {
+		title = pageTitle(h.page)
+	}
+	return formFrame(h.theme, formBox(h.theme, title, lines, boxW), width, height, h.footer())
 }
 
 // PositionLine is the footer's "where am I" text: the page name and its

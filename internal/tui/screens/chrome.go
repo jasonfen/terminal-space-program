@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"github.com/charmbracelet/x/ansi"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -129,4 +130,122 @@ func RenderFormTitleRow(th Theme, w *sim.World, screen, context string, cols int
 		buttons: []titleButton{{label: "[Back]", rendered: th.Primary.Render("[Back]")}},
 	}, cols)
 	return lay.row, lay.starts[0], lay.end[0]
+}
+
+// ----- Form frame and boxes (B11 / G9 Q4) -----
+//
+// Every form lives inside the same rounded frame the map has, its sections
+// are titled rounded boxes (the title on the first inner row, the way the
+// ADR 0051 instrument boxes do it), and the key legend rides the frame's
+// bottom edge, the band the status flash overlays (overlayBottomBorder).
+// Screens build their body as a list of lines and hand it to formFrame;
+// the frame adds one cell of border on every side, so a screen's own
+// hit-test coordinates are body coordinates and HandleClick takes the
+// frame-relative position and subtracts frameInset.
+
+// frameInset is the border thickness a form frame adds on every side.
+const frameInset = 1
+
+// padCells pads or clips s to exactly w display cells (ANSI-aware).
+func padCells(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) > w {
+		s = ansi.Truncate(s, w, "…")
+	}
+	if gap := w - lipgloss.Width(s); gap > 0 {
+		s += strings.Repeat(" ", gap)
+	}
+	return s
+}
+
+// formBox draws a titled rounded box w cells wide (borders included):
+// top edge, the title on the first inner row, the lines (each padded or
+// clipped to the box), bottom edge. A box needs at least 4 cells.
+func formBox(th Theme, title string, lines []string, w int) []string {
+	if w < 4 {
+		w = 4
+	}
+	inner := w - 2
+	edge := func(l, r string) string {
+		return th.Primary.Render(l + strings.Repeat("─", inner) + r)
+	}
+	side := th.Primary.Render("│")
+	out := make([]string, 0, len(lines)+3)
+	out = append(out, edge("╭", "╮"))
+	out = append(out, side+padCells(th.Primary.Render(title), inner)+side)
+	for _, ln := range lines {
+		out = append(out, side+padCells(ln, inner)+side)
+	}
+	out = append(out, edge("╰", "╯"))
+	return out
+}
+
+// joinColumns puts two line blocks side by side (left padded to lw cells,
+// a gap-cell gutter between), padding the shorter block with blanks.
+func joinBoxes(left, right []string, lw, gap int) []string {
+	n := len(left)
+	if len(right) > n {
+		n = len(right)
+	}
+	rw := 0
+	for _, r := range right {
+		if w := lipgloss.Width(r); w > rw {
+			rw = w
+		}
+	}
+	out := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		l, r := "", ""
+		if i < len(left) {
+			l = left[i]
+		}
+		if i < len(right) {
+			r = right[i]
+		}
+		out = append(out, padCells(l, lw)+strings.Repeat(" ", gap)+padCells(r, rw))
+	}
+	return out
+}
+
+// formFrame wraps body in the shared rounded frame, exactly w cells wide
+// and h rows tall (h <= 0: as tall as the body needs): top edge, h-2 body rows (padded or clipped), and a
+// bottom edge that carries legend (already styled) as `╰─ legend ───╯`.
+func formFrame(th Theme, body []string, w, h int, legend string) string {
+	if w < 8 {
+		w = 8
+	}
+	if h <= 0 {
+		h = len(body) + 2 // no height budget: show the whole body
+	}
+	if h < 3 {
+		h = 3
+	}
+	inner := w - 2
+	side := th.Primary.Render("│")
+	rows := make([]string, 0, h)
+	rows = append(rows, th.Primary.Render("╭"+strings.Repeat("─", inner)+"╮"))
+	for i := 0; i < h-2; i++ {
+		ln := ""
+		if i < len(body) {
+			ln = body[i]
+		}
+		rows = append(rows, side+padCells(ln, inner)+side)
+	}
+	if legend == "" {
+		rows = append(rows, th.Primary.Render("╰"+strings.Repeat("─", inner)+"╯"))
+	} else {
+		label := " " + legend + " "
+		room := inner - 1 // one dash lead
+		if lipgloss.Width(label) > room {
+			label = ansi.Truncate(label, room, "…")
+		}
+		trail := inner - 1 - lipgloss.Width(label)
+		if trail < 0 {
+			trail = 0
+		}
+		rows = append(rows, th.Primary.Render("╰─")+label+th.Primary.Render(strings.Repeat("─", trail)+"╯"))
+	}
+	return strings.Join(rows, "\n")
 }

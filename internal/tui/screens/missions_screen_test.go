@@ -120,7 +120,7 @@ func TestMissionsRenderSmoke(t *testing.T) {
 		{ID: "c", Name: "Luna Flyby", Program: missions.ProgramTutorial, Requires: []string{"b"}},
 	}
 	w.SetEnabledMissionPrograms(map[string]bool{missions.ProgramTutorial: true})
-	out := scr.Render(w, 60)
+	out := scr.Render(w, 140, 0)
 	for _, want := range []string{"ACTIVE", "Circularize", "circular orbit", "Luna Flyby", "needs:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("rendered screen missing %q:\n%s", want, out)
@@ -143,7 +143,7 @@ func TestMissionsRenderTwoHeadedLists(t *testing.T) {
 		{ID: "c1", Name: "High Orbit", Program: missions.ProgramChallenge},
 	}
 	w.SetEnabledMissionPrograms(map[string]bool{missions.ProgramTutorial: true, missions.ProgramChallenge: true})
-	out := scr.Render(w, 70)
+	out := scr.Render(w, 140, 0)
 	if !strings.Contains(out, "FLIGHT SCHOOL  1/2 complete") {
 		t.Errorf("missing FLIGHT SCHOOL header with its own count:\n%s", out)
 	}
@@ -175,7 +175,7 @@ func TestMissionsRenderOffProgramShowsToggleOffer(t *testing.T) {
 	// Both off: both headers show, each with its own offer row — no
 	// generic "enable in Settings" placeholder anymore.
 	w.SetEnabledMissionPrograms(map[string]bool{})
-	out := scr.Render(w, 70)
+	out := scr.Render(w, 140, 0)
 	if !strings.Contains(out, "[1] turn on Flight School") {
 		t.Errorf("missing Flight School toggle offer with both off:\n%s", out)
 	}
@@ -189,7 +189,7 @@ func TestMissionsRenderOffProgramShowsToggleOffer(t *testing.T) {
 	// Enabling just the tutorial surfaces its list and keeps the challenge
 	// section as an offer row.
 	w.SetEnabledMissionPrograms(map[string]bool{missions.ProgramTutorial: true})
-	out = scr.Render(w, 70)
+	out = scr.Render(w, 140, 0)
 	if !strings.Contains(out, "TutMission") {
 		t.Errorf("tutorial-on should show the tutorial mission:\n%s", out)
 	}
@@ -224,7 +224,7 @@ func TestMissionsRenderLockedRungHasLockGlyphAndAvailableIsBright(t *testing.T) 
 		{ID: "c3", Name: "Locked Three", Program: missions.ProgramChallenge, Requires: []string{"c2"}},
 	}
 	w.SetEnabledMissionPrograms(map[string]bool{missions.ProgramChallenge: true})
-	out := scr.Render(w, 70)
+	out := scr.Render(w, 140, 0)
 	if !strings.Contains(out, lockGlyph+" Locked Three") {
 		t.Errorf("locked rung missing the lock glyph:\n%s", out)
 	}
@@ -247,7 +247,7 @@ func TestMissionsRenderSendoffWhenFlightSchoolComplete(t *testing.T) {
 		{ID: "t1", Name: "Orientation", Program: missions.ProgramTutorial, Status: missions.Passed},
 	}
 	w.SetEnabledMissionPrograms(map[string]bool{missions.ProgramTutorial: true})
-	out := scr.Render(w, 70)
+	out := scr.Render(w, 140, 0)
 	if !strings.Contains(out, "FLIGHT SCHOOL COMPLETE") {
 		t.Errorf("missing Sendoff text:\n%s", out)
 	}
@@ -263,7 +263,7 @@ func TestMissionsRenderEmpty(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	w.Missions = nil
-	out := scr.Render(w, 60)
+	out := scr.Render(w, 140, 0)
 	if !strings.Contains(out, "no missions") {
 		t.Errorf("empty catalog should show a placeholder, got:\n%s", out)
 	}

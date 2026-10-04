@@ -254,6 +254,7 @@ func (sc *SavesScreen) HandleKey(msg tea.KeyMsg) SavesCommand {
 // the already-selected row activates it (Enter-equivalent); the
 // confirm [Yes]/[No] buttons commit / back out.
 func (sc *SavesScreen) HandleClick(col, row int) SavesCommand {
+	col, row = col-frameInset, row-frameInset // frame-relative -> body
 	switch sc.state {
 	case savesStateBrowse:
 		for i, btn := range sc.rowBtns {
@@ -415,7 +416,7 @@ func (sc *SavesScreen) listWindow(n, height int) (start, end int) {
 	if height <= 0 {
 		return 0, n
 	}
-	const chrome = 11
+	const chrome = 12
 	capRows := height - chrome
 	if capRows < 1 {
 		capRows = 1
@@ -438,17 +439,18 @@ func (sc *SavesScreen) listWindow(n, height int) (start, end int) {
 	return start, end
 }
 
-// Render composes the screen: title + [Back], the mode header, the
-// column header, a cursor-windowed slice of the rows, and the
-// state-specific footer (confirm prompt / name input / key legend).
-// height bounds the total output so a long list never overflows the
-// alt-screen (which truncates from the TOP, hiding the title/header);
-// the list is windowed around the cursor to fit. A non-positive height
-// disables the clamp (shows everything) — handy for tests and any caller
-// with no height budget. Click-target ranges are recorded in absolute
-// row terms, menu-style.
+// Render composes the screen inside the shared form frame (B11 / G9 Q4):
+// one SAVES box holding the column header, a cursor-windowed slice of the
+// rows and the state-specific tail (confirm prompt / name input); the key
+// legend rides the frame's bottom edge. width x height is the whole framed
+// block (the App's Title Row sits above it); the list is windowed around
+// the cursor to fit, and a non-positive height disables the clamp (shows
+// everything), handy for tests and any caller with no height budget.
+// Click-target ranges are recorded in body coordinates (inside the frame).
 func (sc *SavesScreen) Render(width, height int) string {
 	var lines []string
+	boxW := width - 2*frameInset
+	inner := boxW - 2 // cells inside the box borders
 
 	// Column header.
 	header := "  " + padCell("NAME", savesColName) + padCell("SAVED", savesColSavedAt) +
@@ -476,6 +478,8 @@ func (sc *SavesScreen) Render(width, height int) string {
 		rows = append(rows, savesRow{body: body, dimmed: info.Unreadable})
 	}
 
+	// Body rows 0 (top edge) and 1 (title) precede the box's first line.
+	const boxTop = 2
 	sc.rowBtns = make([]buttonRange, len(rows))
 	start, end := sc.listWindow(len(rows), height)
 	if start > 0 {
@@ -488,81 +492,73 @@ func (sc *SavesScreen) Render(width, height int) string {
 			style = sc.theme.Dim
 		}
 		if i == sc.cursor {
-			marker = "▸ "
+			marker = sc.theme.Primary.Render("▸") + " "
 			if !rows[i].dimmed {
 				style = sc.theme.Warning
 			}
 		}
-		sc.rowBtns[i] = buttonRange{row: len(lines), colStart: 0, colEnd: width, set: true}
-		lines = append(lines, clipLine(marker+style.Render(rows[i].body), width))
+		sc.rowBtns[i] = buttonRange{row: boxTop + len(lines), colStart: 0, colEnd: width, set: true}
+		lines = append(lines, clipLine(marker+style.Render(rows[i].body), inner))
 	}
 	if end < len(rows) {
 		lines = append(lines, sc.theme.Dim.Render(fmt.Sprintf("  ↓ %d more", len(rows)-end)))
 	}
 	if len(rows) == 0 {
-		lines = append(lines, sc.theme.Dim.Render("  (no saves yet — F5 quicksaves, or save from the menu)"))
+		lines = append(lines, sc.theme.Dim.Render("  (no saves yet, F5 quicksaves, or save from the menu)"))
 	}
 	lines = append(lines, "")
 
-	// State-specific tail: confirm prompt / name input / key legend.
+	// State-specific tail: confirm prompt / name input. The key legend is
+	// the frame's bottom edge.
 	sc.yesBtn.set, sc.noBtn.set = false, false
+	var legend string
 	switch sc.state {
 	case savesStateConfirmLoad:
-		lines = sc.appendConfirm(lines, "Load and discard current state?")
+		lines, legend = sc.appendConfirm(lines, "Load and discard current state?", boxTop)
 	case savesStateConfirmDelete:
-		lines = sc.appendConfirm(lines, fmt.Sprintf("Delete %s? This cannot be undone.", sc.pendingName))
+		lines, legend = sc.appendConfirm(lines, fmt.Sprintf("Delete %s? This cannot be undone.", sc.pendingName), boxTop)
 	case savesStateConfirmOverwrite:
-		lines = sc.appendConfirm(lines, fmt.Sprintf("Overwrite '%s'?", sc.pendingName))
+		lines, legend = sc.appendConfirm(lines, fmt.Sprintf("Overwrite '%s'?", sc.pendingName), boxTop)
 	case savesStateNameNew, savesStateRename:
 		prompt := "name the new save:"
 		if sc.state == savesStateRename {
 			prompt = "rename to:"
 		}
 		lines = append(lines, "  "+prompt+" "+sc.input.View())
-		lines = append(lines, "")
-		lines = append(lines, sc.theme.Footer.Render("[enter] confirm · [esc] cancel"))
+		legend = "[enter] confirm · [esc] cancel"
 	default:
-		legend := "[enter] load · [d] delete · [r] rename · [↑/↓] move · [esc] back"
+		legend = "[enter] load · [d] delete · [r] rename · [↑/↓] move · [esc] back"
 		if sc.mode == SavesModeSave {
 			legend = "[enter] new save / overwrite · [d] delete · [r] rename · [↑/↓] move · [esc] back"
 		}
-		lines = append(lines, sc.theme.Footer.Render(legend))
 	}
 
-	for i, ln := range lines {
-		lines[i] = clipLine(ln, width)
+	title := "LOAD A GAME"
+	if sc.mode == SavesModeSave {
+		title = "SAVE YOUR GAME"
 	}
-	// Safety net for terminals too short for even the fixed chrome
-	// (height < ~8): listWindow bounds the LIST, but the header + tail can
-	// still exceed a tiny height. Keep the TOP (title, header, cursor
-	// window) and drop the overflowing tail rather than letting the
-	// alt-screen scroll the title off the top — the exact symptom the
-	// windowing prevents at normal sizes. A no-op whenever the content
-	// already fits (the common case).
-	if height > 0 && len(lines) > height {
-		lines = lines[:height]
-	}
-	return strings.Join(lines, "\n")
+	return formFrame(sc.theme, formBox(sc.theme, title, lines, boxW), width, height, sc.theme.Footer.Render(legend))
 }
 
 // appendConfirm appends a §H-style Yes/No confirm block and records
-// the button click targets (menu renderConfirm pattern).
-func (sc *SavesScreen) appendConfirm(lines []string, prompt string) []string {
+// the button click targets (menu renderConfirm pattern); boxTop is the body
+// row the box's first line sits on. It returns the key legend for the
+// frame's bottom edge.
+func (sc *SavesScreen) appendConfirm(lines []string, prompt string, boxTop int) ([]string, string) {
 	lines = append(lines, "  "+sc.theme.Alert.Render(prompt))
 	lines = append(lines, "")
 	const indent = "  "
 	const yesLabel = "[Yes]"
 	const noLabel = "[No]"
 	const gap = "   "
-	yesCol := len([]rune(indent))
+	// +1: the box's left border sits before the line's first cell.
+	yesCol := len([]rune(indent)) + 1
 	noCol := yesCol + len([]rune(yesLabel)) + len([]rune(gap))
-	row := len(lines)
+	row := boxTop + len(lines)
 	sc.yesBtn = buttonRange{row: row, colStart: yesCol, colEnd: yesCol + len([]rune(yesLabel)), set: true}
 	sc.noBtn = buttonRange{row: row, colStart: noCol, colEnd: noCol + len([]rune(noLabel)), set: true}
 	lines = append(lines, indent+sc.theme.Primary.Render(yesLabel)+gap+sc.theme.Primary.Render(noLabel))
-	lines = append(lines, "")
-	lines = append(lines, sc.theme.Footer.Render("[y]es / [n]o / [esc] cancel"))
-	return lines
+	return lines, "[y]es / [n]o / [esc] cancel"
 }
 
 // displayName is displaySaveName with the autosave badge numbered by the

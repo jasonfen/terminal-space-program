@@ -78,8 +78,8 @@ func TestSavesScreenSaveAsWritesNamed(t *testing.T) {
 	}
 
 	openSavesVia(t, a, "s")
-	press(a, "enter") // New save row → naming (prefilled default)
-	press(a, "enter") // accept the default
+	press(a, "enter")           // New save row → naming (prefilled default)
+	press(a, "enter")           // accept the default
 	if a.active != screenMenu { // back to the opener (B11 / G9 Q3)
 		t.Fatalf("active = %v after Save-As, want the pause menu that opened Saves", a.active)
 	}

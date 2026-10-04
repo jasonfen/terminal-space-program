@@ -2,10 +2,10 @@ package screens
 
 import (
 	"fmt"
-	"strings"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jasonfen/terminal-space-program/internal/settings"
-	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
 // SettingsScreen is the v0.13 slice-3 menu-reached screen that toggles
@@ -118,6 +118,7 @@ func (s *SettingsScreen) toggleAt(i int) (SettingsAction, settings.Chip) {
 // cursor there and toggles it (rows are full-width click targets so a
 // thumb doesn't have to land on the box). Anything else is a no-op.
 func (s *SettingsScreen) HandleClick(col, row int) (SettingsAction, settings.Chip) {
+	col, row = col-frameInset, row-frameInset // frame-relative -> body
 	for i, br := range s.rowBtns {
 		if br.Hit(col, row) {
 			s.cursor = i
@@ -127,191 +128,97 @@ func (s *SettingsScreen) HandleClick(col, row int) (SettingsAction, settings.Chi
 	return SettingsActionNone, ""
 }
 
-// settingsBody flattens the screen's body — the chips / gameplay / saves
-// sections, each a pinnable widgets.WindowLine header followed by its rows
-// (blank lines and descriptions included, exactly as Render used to emit
-// them inline) — into one windowed-list input. rowSelectable is
-// index-aligned with the returned lines: rowSelectable[i] is the cursor
-// index (into settings.AllChips + the gameplay/saves rows) that line i
-// represents, or -1 for a header/blank/description line. cursorLine is the
-// line index the current cursor (s.cursor) sits on.
-func (s *SettingsScreen) settingsBody(prefs settings.Settings) (lines []widgets.WindowLine, rowSelectable []int, cursorLine int) {
-	add := func(text string, isHeader bool, selectable int) {
-		lines = append(lines, widgets.WindowLine{Text: text, IsHeader: isHeader})
-		rowSelectable = append(rowSelectable, selectable)
-		if selectable >= 0 && selectable == s.cursor {
-			cursorLine = len(lines) - 1
-		}
-	}
+// settingsLegend is the key legend on the frame's bottom edge.
+const settingsLegend = "[↑/↓] move · [space] toggle · [esc] back"
 
-	add(s.theme.Dim.Render("─── chips ───"), true, -1)
-	add("", false, -1)
-	add(s.theme.Dim.Render("  Default visibility of each orbit-screen chip."), false, -1)
-	add("", false, -1)
-	for i, c := range settings.AllChips {
-		marker := "  "
-		if i == s.cursor {
-			marker = "> "
-		}
-		box := "[ ]"
-		if prefs.ChipEnabled(c) {
-			box = "[x]"
-		}
-		text := box + " " + c.Label()
-		if i == s.cursor {
-			text = s.theme.Primary.Render(text)
-		}
-		add(marker+text, false, i)
+// cursorMark is the one list cursor (B11 / G9 Q5): ▸ on the row the cursor
+// is on, two blanks on every other row.
+func (s *SettingsScreen) cursorMark(on bool) string {
+	if on {
+		return s.theme.Primary.Render("▸") + " "
 	}
-
-	// Gameplay section: the two built-in mission programs (ADR 0025 §2 /
-	// v0.21 Slice 7). Flight School (Tutorial) is on unless switched off
-	// here (#425); the Challenge ladder stays opt-in.
-	add("", false, -1)
-	add(s.theme.Dim.Render("─── gameplay ───"), true, -1)
-	add("", false, -1)
-	add(s.theme.Dim.Render("  Flight School is on by default. Challenge ladder is opt-in."), false, -1)
-	add("", false, -1)
-	gameplay := []struct {
-		label string
-		on    bool
-	}{
-		{"Tutorial", prefs.TutorialOn()},
-		{"Challenge ladder", prefs.ChallengesEnabled},
-	}
-	for j, g := range gameplay {
-		idx := len(settings.AllChips) + j
-		marker := "  "
-		if idx == s.cursor {
-			marker = "> "
-		}
-		box := "[ ]"
-		if g.on {
-			box = "[x]"
-		}
-		text := box + " " + g.label
-		if idx == s.cursor {
-			text = s.theme.Primary.Render(text)
-		}
-		add(marker+text, false, idx)
-	}
-
-	// Saves section: the periodic-autosave interval (v0.26 S4 / ADR 0033
-	// §E). A value row rather than a checkbox — space/enter cycles it
-	// through settings.AutosaveIntervalSteps; 0 renders as "off" (the
-	// on-quit autosave still fires regardless).
-	add("", false, -1)
-	add(s.theme.Dim.Render("─── saves ───"), true, -1)
-	add("", false, -1)
-	add(s.theme.Dim.Render("  Periodic autosave into the rotating ring. Off keeps quit-autosave only."), false, -1)
-	add("", false, -1)
-	{
-		idx := len(settings.AllChips) + gameplayRows
-		marker := "  "
-		if idx == s.cursor {
-			marker = "> "
-		}
-		text := "Autosave interval: ‹" + autosaveIntervalLabel(prefs.AutosaveIntervalMinutes()) + "›"
-		if idx == s.cursor {
-			text = s.theme.Primary.Render(text)
-		}
-		add(marker+text, false, idx)
-	}
-
-	// Display section: Empty readings (ADR 0051 W6, #482), a value row
-	// like autosave: space/enter cycles Full / Tidy / Compact.
-	add("", false, -1)
-	add(s.theme.Dim.Render("─── display ───"), true, -1)
-	add("", false, -1)
-	add(s.theme.Dim.Render("  Full: every row. Tidy: no empty TARGET. Compact: no trailing dash rows."), false, -1)
-	add("", false, -1)
-	{
-		idx := len(settings.AllChips) + gameplayRows + savesRows
-		marker := "  "
-		if idx == s.cursor {
-			marker = "> "
-		}
-		text := "Empty readings: ‹" + prefs.EmptyReadingsMode().Label() + "›"
-		if idx == s.cursor {
-			text = s.theme.Primary.Render(text)
-		}
-		add(marker+text, false, idx)
-	}
-
-	return lines, rowSelectable, cursorLine
+	return "  "
 }
 
-// Render returns the settings screen for the given visibility state.
-// width is the terminal width — used to right-align [Back] on row 0 the
-// same way the menu / missions screens do, and to size the full-row click
-// targets. height is the terminal height (#373 / ADR 0046): the body (the
-// chips / gameplay / saves sections) windows itself around the cursor so
-// the title, the active section's header, and the cursor stay on screen;
-// height<=0 disables the windowing clamp (shows the whole body) — handy
-// for tests and any caller with no height budget. The on/off box for each
-// Chip reads prefs.ChipEnabled.
+// Render returns the settings screen inside the shared form frame (B11 /
+// G9 Q4): CHIPS on the left, GAMEPLAY / SAVES / DISPLAY stacked on the
+// right, each a titled box, the legend on the bottom edge. width x height
+// is the whole framed block (the App's Title Row sits above it). The on/off
+// box for each Chip reads prefs.ChipEnabled. Click ranges are recorded in
+// body coordinates (the frame's border is frameInset on each side).
 func (s *SettingsScreen) Render(prefs settings.Settings, width, height int) string {
-	var lines []string
-
-	body, rowSelectable, cursorLine := s.settingsBody(prefs)
-
-	// blank(1) + footer(1) — every line Render emits outside the
-	// windowed body.
-	const fixedLines = 2
-	budget := 0 // widgets.Window treats <=0 as "show everything"
-	if height > 0 {
-		// The window is sized from the terminal, not a fixed row cap: at
-		// the 140x40 design size the whole body fits, so no row (the
-		// display section's Empty readings, last of all) hides behind
-		// scrolling. A shorter terminal still windows around the cursor.
-		budget = height - fixedLines
-		if len(body) > budget {
-			// Windowing: widgets.Window adds up to 3 pin/"more" lines on
-			// top of budget; reserve them so the markers survive the
-			// safety net below and the player can see rows are hidden.
-			budget -= 3
-		}
-		if budget < 1 {
-			budget = 1
-		}
-	}
-	rendered := widgets.Window(body, cursorLine, budget)
-	// Safety net: widgets.Window's pinned header + "N more" markers can add
-	// up to 3 lines on top of budget (documented on Window). Drop those
-	// marker/pin lines first — cheapest to lose — before ever touching a
-	// content row, so the cursor's own row is the last thing trimmed.
-	// Mirrors spawn.go's Render.
-	if height > 0 {
-		if over := fixedLines + len(rendered) - height; over > 0 {
-			trimmed := rendered[:0]
-			dropped := 0
-			for _, r := range rendered {
-				if dropped < over && r.Kind != widgets.LineContent {
-					dropped++
-					continue
-				}
-				trimmed = append(trimmed, r)
-			}
-			rendered = trimmed
-		}
-	}
-
-	// rowBtns for off-window rows stay unset (the zero buttonRange), so a
-	// click can never land on a row that isn't drawn — mirrors saves.go's
-	// windowed-list click-target contract.
+	inner := width - 2*frameInset
+	lw := clampI(inner*45/100, 30, 62)
+	rw := inner - lw - 1
 	s.rowBtns = make([]buttonRange, len(settings.AllChips)+gameplayRows+savesRows+displayRows)
-	for _, r := range rendered {
-		if r.Kind == widgets.LineContent {
-			if sel := rowSelectable[r.Index]; sel >= 0 {
-				s.rowBtns[sel] = buttonRange{row: len(lines), colStart: 0, colEnd: width, set: true}
-			}
+
+	// row builds one selectable row and records its click range: bodyRow is
+	// the row's absolute body row, [colStart, colEnd) the box it sits in.
+	row := func(idx, bodyRow, colStart, colEnd int, text string) string {
+		s.rowBtns[idx] = buttonRange{row: bodyRow, colStart: colStart, colEnd: colEnd, set: true}
+		if idx == s.cursor {
+			text = s.theme.Primary.Render(text)
 		}
-		lines = append(lines, r.Text)
+		return s.cursorMark(idx == s.cursor) + text
+	}
+	checkbox := func(on bool, label string) string {
+		if on {
+			return "[x] " + label
+		}
+		return "[ ] " + label
+	}
+	desc := func(text string, w int) string {
+		return "  " + s.theme.Dim.Render(ansi.Truncate(text, w-6, "…"))
 	}
 
-	lines = append(lines, "")
-	lines = append(lines, s.theme.Footer.Render("[↑/↓] move  [space] toggle  [esc] back"))
-	return strings.Join(lines, "\n")
+	// CHIPS (left). Lines start at body row 2 (top edge, title).
+	var chips []string
+	chips = append(chips, desc("Default visibility of each orbit-screen chip.", lw), "")
+	for i, c := range settings.AllChips {
+		chips = append(chips, row(i, 2+len(chips), 0, lw, checkbox(prefs.ChipEnabled(c), c.Label())))
+	}
+	left := formBox(s.theme, "CHIPS", chips, lw)
+
+	// Right column, stacked. y tracks the next box's top body row.
+	var right []string
+	y := 0
+	stack := func(title string, lines []string) {
+		box := formBox(s.theme, title, lines, rw)
+		right = append(right, box...)
+		y += len(box)
+	}
+	// GAMEPLAY: the two built-in mission programs (ADR 0025 §2 / v0.21
+	// Slice 7). Flight School (Tutorial) is on unless switched off here
+	// (#425); the Challenge ladder stays opt-in.
+	{
+		var ls []string
+		ls = append(ls, desc("Flight School is on by default. Challenge ladder is opt-in.", rw), "")
+		ls = append(ls, row(len(settings.AllChips), y+2+len(ls), lw+1, lw+1+rw, checkbox(prefs.TutorialOn(), "Tutorial")))
+		ls = append(ls, row(len(settings.AllChips)+1, y+2+len(ls), lw+1, lw+1+rw, checkbox(prefs.ChallengesEnabled, "Challenge ladder")))
+		stack("GAMEPLAY", ls)
+	}
+	// SAVES: the periodic-autosave interval (v0.26 S4 / ADR 0033 §E). A
+	// value row rather than a checkbox: space/enter cycles it through
+	// settings.AutosaveIntervalSteps; 0 renders as "off" (the on-quit
+	// autosave still fires regardless).
+	{
+		var ls []string
+		ls = append(ls, desc("Periodic autosave into the rotating ring. Off keeps quit-autosave only.", rw), "")
+		ls = append(ls, row(len(settings.AllChips)+gameplayRows, y+2+len(ls), lw+1, lw+1+rw,
+			"Autosave interval: ‹ "+autosaveIntervalLabel(prefs.AutosaveIntervalMinutes())+" ›"))
+		stack("SAVES", ls)
+	}
+	// DISPLAY: Empty readings (ADR 0051 W6, #482), a value row like
+	// autosave: space/enter cycles Full / Tidy / Compact.
+	{
+		var ls []string
+		ls = append(ls, desc("Full: every row. Tidy: no empty TARGET. Compact: no trailing dash rows.", rw), "")
+		ls = append(ls, row(len(settings.AllChips)+gameplayRows+savesRows, y+2+len(ls), lw+1, lw+1+rw,
+			"Empty readings: ‹ "+prefs.EmptyReadingsMode().Label()+" ›"))
+		stack("DISPLAY", ls)
+	}
+
+	return formFrame(s.theme, joinBoxes(left, right, lw, 1), width, height, s.theme.Footer.Render(settingsLegend))
 }
 
 // autosaveIntervalLabel renders an interval-in-minutes as the Settings

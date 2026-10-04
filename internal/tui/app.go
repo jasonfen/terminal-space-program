@@ -3395,11 +3395,11 @@ func (a *App) View() string {
 	case screenHelp:
 		base = a.formScreen("Help", "", a.help.Render(a.width, bodyH, a.layout))
 	case screenBodyInfo:
-		// The flash overlay (below) overwrites the LAST row of a non-canvas
-		// screen, so reserve an empty one: the footer that advertises t/H/P
-		// must never be the row a "target: Mars" flash lands on. Owned here,
-		// next to the overlay, not by the screen's trailing newline.
-		base = a.formScreen("Body info", a.bodyInfoName(), reserveFlashRow(a.bodyInfo.Render(a.world, a.selectedBody, a.width, bodyH)))
+		// The legend that advertises t/H/P rides the frame's bottom edge,
+		// which is exactly the band a "target: Mars" flash overlays; the
+		// flash is short-lived and the legend returns (B11 retired
+		// reserveFlashRow along with the last-row-is-content layout).
+		base = a.formScreen("Body info", a.bodyInfoName(), a.bodyInfo.Render(a.world, a.selectedBody, a.width, bodyH))
 	case screenManeuver:
 		base = a.formScreen("Maneuver planner", a.maneuver.TitleContext(a.world), a.maneuver.Render(a.world, a.width, bodyH, a.selectedBody))
 	case screenPorkchop:
@@ -3409,11 +3409,11 @@ func (a *App) View() string {
 	case screenSpawn:
 		base = a.formScreen("Spawn vessel", "", a.spawn.Render(a.width, bodyH))
 	case screenMissions:
-		base = a.formScreen("Missions", "", a.missions.Render(a.world, a.width))
+		base = a.formScreen("Missions", "", a.missions.Render(a.world, a.width, bodyH))
 	case screenSettings:
 		base = a.formScreen("Settings", "", a.settingsScreen.Render(a.orbitView.Settings(), a.width, bodyH))
 	case screenControls:
-		base = a.formScreen("Keyboard layout", "", a.controls.Render(a.layout, a.width))
+		base = a.formScreen("Keyboard layout", "", a.controls.Render(a.layout, a.width, bodyH))
 	case screenVAB:
 		base = a.formScreen(a.vab.TitleScreen(), "", a.vab.Render(a.width, bodyH))
 	case screenSaves:
@@ -3421,7 +3421,7 @@ func (a *App) View() string {
 	case screenBoss:
 		base = a.boss.Render(a.width, a.height)
 	case screenSession:
-		base = a.formScreen("Session", "", a.session.Render(a.world, a.width))
+		base = a.formScreen("Session", "", a.session.Render(a.world, a.width, bodyH))
 	default:
 		if a.world.ViewMode == sim.ViewLaunch {
 			base = a.launchView.Render(a.world, a.width, a.height)
@@ -3788,14 +3788,4 @@ func (a *App) doRefinePlan() {
 		a.flash(fmt.Sprintf("refined — correction %.1f m/s, arrival %.1f m/s", corr, arr))
 	}
 	a.world.RecordAction(missions.ActionRefinePlan) // ADR 0025 §7
-}
-
-// reserveFlashRow makes sure the last row of a non-canvas screen is empty,
-// so the status flash / confirm overlay (which replaces the last row)
-// cannot land on content the screen wants to keep.
-func reserveFlashRow(base string) string {
-	if strings.HasSuffix(base, "\n") {
-		return base
-	}
-	return base + "\n"
 }
