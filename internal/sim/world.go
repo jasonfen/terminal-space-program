@@ -135,6 +135,10 @@ type World struct {
 	// Transient: rebuilt lazily, never persisted.
 	lwCache launchWindowCache
 
+	// tpnSolves counts plane-crossing solves (target_plane_cache.go).
+	tpnSolves int
+	tpnCache  planeCrossingCache
+
 	// NavMode selects the reference frame the SAS axis hotkeys
 	// interpret against (KSP-style nav-ball mode cycle). Zero value
 	// (NavOrbit) reproduces the pre-v0.9.3 behavior. Cycled via the

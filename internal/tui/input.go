@@ -252,6 +252,8 @@ type Keymap struct {
 	// The alt-modified FINE trims (#460, G6 Q6b; ADR 0052 amendment):
 	// alt+arrows are the same four trims in 1° steps, so the exact
 	// heading the pad's plan: row names can be commanded.
+	// alt+b / alt+f are the same two pitch trims: Terminal.app and Ghostty
+	// send Option+Left / Option+Right as ESC b / ESC f (#548 review).
 	PitchTrimEastFine    key.Binding
 	PitchTrimWestFine    key.Binding
 	HeadingTrimNorthFine key.Binding
@@ -454,8 +456,8 @@ func DefaultKeymap() Keymap {
 		PitchTrimWest:             key.NewBinding(key.WithKeys("left"), key.WithHelp("←", "pitch trim -5° west")),
 		HeadingTrimNorth:          key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "heading trim -5° (toward north)")),
 		HeadingTrimSouth:          key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "heading trim +5° (toward south)")),
-		PitchTrimEastFine:         key.NewBinding(key.WithKeys("alt+right"), key.WithHelp("alt+→", "pitch trim +1° east")),
-		PitchTrimWestFine:         key.NewBinding(key.WithKeys("alt+left"), key.WithHelp("alt+←", "pitch trim -1° west")),
+		PitchTrimEastFine:         key.NewBinding(key.WithKeys("alt+right", "alt+f"), key.WithHelp("alt+→", "pitch trim +1° east")),
+		PitchTrimWestFine:         key.NewBinding(key.WithKeys("alt+left", "alt+b"), key.WithHelp("alt+←", "pitch trim -1° west")),
 		HeadingTrimNorthFine:      key.NewBinding(key.WithKeys("alt+up"), key.WithHelp("alt+↑", "heading trim -1° (toward north)")),
 		HeadingTrimSouthFine:      key.NewBinding(key.WithKeys("alt+down"), key.WithHelp("alt+↓", "heading trim +1° (toward south)")),
 		// #425: moved off `?` (now the Help alias below) to `|` — "vertical

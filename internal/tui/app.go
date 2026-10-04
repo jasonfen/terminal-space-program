@@ -3553,6 +3553,14 @@ func (a *App) doPlanPlaneMatch() {
 		a.refuse("inclination", "vessel not in this system")
 		return
 	}
+	// #548 review: a vessel on the pad has no orbit to tilt (its
+	// co-rotation pseudo-orbit read as "already at target inclination"
+	// while TARGET showed a 47 degree gap). The pad's plane change is the
+	// launch heading, which NAVIGATION's plan: row names.
+	if c := a.world.ActiveCraft(); c != nil && c.Landed {
+		a.refuse("inclination", "on the pad, no orbit to tilt: fly the plan: row's heading")
+		return
+	}
 	// v0.9.0+: I consumes World.Target. TargetBody → full
 	// plane match to the body's orbit (v0.10.4: matches
 	// inclination AND the node line, so a following Hohmann
@@ -3576,7 +3584,9 @@ func (a *App) doPlanPlaneMatch() {
 		plan, err = a.world.PlanInclinationChange(0)
 	}
 	if err != nil {
-		a.flash(fmt.Sprintf("inclination: %v", err))
+		// The planner's errors carry their package prefix; the key's own
+		// label is enough.
+		a.flash(fmt.Sprintf("inclination: %s", strings.TrimPrefix(err.Error(), "planinclination: ")))
 	} else {
 		nodeLabel := "DN"
 		if plan.AtAN {

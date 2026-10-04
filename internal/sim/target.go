@@ -700,6 +700,12 @@ func (w *World) TargetPlaneNodePositions() (anPos, dnPos orbital.Vec3, hasAN, ha
 		if w.Target.BodyIdx <= 0 || w.Target.BodyIdx >= len(sys.Bodies) {
 			return orbital.Vec3{}, orbital.Vec3{}, false, false
 		}
+		// The craft's own primary and every ancestor of it have no plane to
+		// fly to from inside their system (a Moon orbiter's crossings of
+		// Earth's heliocentric plane are not a point anyone can use).
+		if w.bodyIsPrimaryOrAncestor(sys.Bodies[w.Target.BodyIdx], c.Primary) {
+			return orbital.Vec3{}, orbital.Vec3{}, false, false
+		}
 		nTarget = orbital.OrbitNormalWorld(sys.Bodies[w.Target.BodyIdx])
 		if nTarget.Norm() == 0 {
 			return orbital.Vec3{}, orbital.Vec3{}, false, false
@@ -720,23 +726,12 @@ func (w *World) TargetPlaneNodePositions() (anPos, dnPos orbital.Vec3, hasAN, ha
 			return orbital.Vec3{}, orbital.Vec3{}, false, false
 		}
 	}
-	mu := c.Primary.GravitationalParameter()
-	planeFrame := orbital.FrameFromNormal(nTarget)
-	stateTF := orbital.Vec3State{
-		R: planeFrame.FromWorld(c.State.R),
-		V: planeFrame.FromWorld(c.State.V),
+	r := w.planeCrossings(c, nTarget)
+	if r.hasAN {
+		anPos, hasAN = w.BodyPosition(r.anPrimary).Add(r.anRel), true
 	}
-	tAN := orbital.TimeToNodeCrossing(stateTF, mu, true)
-	tDN := orbital.TimeToNodeCrossing(stateTF, mu, false)
-	if tAN >= 0 {
-		post, postPrimary := w.propagateCraftWithPrimary(tAN)
-		anPos = w.BodyPosition(postPrimary).Add(post.R)
-		hasAN = true
-	}
-	if tDN >= 0 {
-		post, postPrimary := w.propagateCraftWithPrimary(tDN)
-		dnPos = w.BodyPosition(postPrimary).Add(post.R)
-		hasDN = true
+	if r.hasDN {
+		dnPos, hasDN = w.BodyPosition(r.dnPrimary).Add(r.dnRel), true
 	}
 	return anPos, dnPos, hasAN, hasDN
 }
@@ -792,4 +787,22 @@ func (w *World) GhostOwnerHandle(owner string) string {
 		}
 	}
 	return ""
+}
+
+// bodyIsPrimaryOrAncestor reports whether target is primary or one of its
+// gravitational ancestors in the active system.
+func (w *World) bodyIsPrimaryOrAncestor(target, primary bodies.CelestialBody) bool {
+	sys := w.System()
+	cur := primary
+	for i := 0; i < len(sys.Bodies)+1; i++ {
+		if cur.ID == target.ID {
+			return true
+		}
+		next := sys.ParentOf(cur)
+		if next == nil || next.ID == cur.ID {
+			return false
+		}
+		cur = *next
+	}
+	return false
 }

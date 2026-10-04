@@ -320,6 +320,15 @@ func (c *Canvas) SetCellOverlayColored(w orbital.Vec3, glyph rune, color lipglos
 	c.cellOverlayColors[[2]int{cellX, cellY}] = color
 }
 
+// SameCell reports whether two world coords project into the same canvas
+// cell. Lets a marker pass leave the cell of a glyph that must win it (the
+// active vessel).
+func (c *Canvas) SameCell(a, b orbital.Vec3) bool {
+	ax, ay, okA := c.Project(a)
+	bx, by, okB := c.Project(b)
+	return okA && okB && ax/2 == bx/2 && ay/4 == by/4
+}
+
 // ClearCellOverlay removes any overlay glyph at the cell containing
 // the given world coord so the cell's underlying braille pattern
 // renders through. Used by the v0.11.3 composed-rocket render path:

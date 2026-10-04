@@ -105,14 +105,21 @@ func (v *OrbitView) drawClosestApproachMarker(w *sim.World) {
 // cross-primary target, or the two orbits are already coplanar — see
 // TargetPlaneNodePositions for the full list of refusal cases).
 func (v *OrbitView) drawTargetPlaneNodes(w *sim.World) {
-	if !craftHasOrbit(w.ActiveCraft()) { // #460: nothing target-shaped while Landed
-		return
-	}
+	// No Landed gate here on purpose (#548 review): the single gate is
+	// TargetPlaneNodePositions' c.Landed refusal, pinned by the sim test
+	// and by TestTargetMarkersAbsentWhileLanded alone. A second copy here
+	// could not be tested without turning the first off.
 	anPos, dnPos, hasAN, hasDN := w.TargetPlaneNodePositions()
-	if hasAN {
+	// The active vessel wins its cell (#548 review): a node under the
+	// vessel is the vessel's own position, and its chevron is the one
+	// glyph the player must not lose.
+	c := w.ActiveCraft()
+	vesselPos := w.BodyPosition(c.Primary).Add(c.State.R)
+	vesselHere := func(pos orbital.Vec3) bool { return v.canvas.SameCell(pos, vesselPos) }
+	if hasAN && !vesselHere(anPos) {
 		drawMarker(v.canvas, anPos, render.MarkerAscendingNode, render.MarkerNominal, "", widgets.CellTag{})
 	}
-	if hasDN {
+	if hasDN && !vesselHere(dnPos) {
 		drawMarker(v.canvas, dnPos, render.MarkerDescendingNode, render.MarkerNominal, "", widgets.CellTag{})
 	}
 }

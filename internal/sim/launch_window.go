@@ -277,23 +277,51 @@ func solveLaunchWindow(primary bodies.CelestialBody, latDeg, lonDeg float64, nT 
 		}
 		return foldedPlaneAngleDeg(h, nT)
 	}
-	bestS, bestV := 0.0, g(0)
+	// The best moment must be one still ahead of us. The sample grid
+	// starts at "now", so a minimum just BEHIND now used to win as sample 0
+	// (it beat tomorrow's off-grid samples) and the row sat on T-0s,
+	// re-solving every frame, until tomorrow's sample dipped lower (#548).
+	// Take the smallest local minimum among samples 1..N (so the grid's
+	// first sample only counts if the curve is still falling into it), plus
+	// the stretch before sample 1 when g is falling at "now".
+	gs := make([]float64, samples+2)
+	for i := range gs {
+		gs[i] = g(float64(i) * step)
+	}
+	refine := func(lo, hi float64) (float64, float64) {
+		for k := 0; k < 60; k++ {
+			m1, m2 := lo+(hi-lo)/3, hi-(hi-lo)/3
+			if g(m1) < g(m2) {
+				hi = m2
+			} else {
+				lo = m1
+			}
+		}
+		m := 0.5 * (lo + hi)
+		return m, g(m)
+	}
+	bestS, bestV := -1.0, math.Inf(1)
+	if g(1) < gs[0] { // falling at now: the minimum is ahead, before or at sample 1
+		bestS, bestV = refine(0, step)
+	}
+	pick := -1
 	for i := 1; i <= samples; i++ {
-		if v := g(float64(i) * step); v < bestV {
-			bestS, bestV = float64(i)*step, v
+		if gs[i] <= gs[i-1] && gs[i] <= gs[i+1] && (pick < 0 || gs[i] < gs[pick]) {
+			pick = i
 		}
 	}
-	lo, hi := math.Max(0, bestS-step), bestS+step
-	for k := 0; k < 60; k++ {
-		m1, m2 := lo+(hi-lo)/3, hi-(hi-lo)/3
-		if g(m1) < g(m2) {
-			hi = m2
-		} else {
-			lo = m1
+	if pick > 0 {
+		if m, v := refine(float64(pick-1)*step, float64(pick+1)*step); v < bestV {
+			bestS, bestV = m, v
 		}
 	}
-	if v := g(0.5 * (lo + hi)); v <= bestV {
-		bestS, bestV = 0.5*(lo+hi), v
+	if bestS < 0 { // monotone over the whole period: the smallest ahead sample
+		bestS, bestV = step, gs[1]
+		for i := 2; i <= samples; i++ {
+			if gs[i] < bestV {
+				bestS, bestV = float64(i)*step, gs[i]
+			}
+		}
 	}
 	lw.BestDeg, lw.BestAt = bestV, at(bestS)
 	lw.HeadingDeg = bearing
