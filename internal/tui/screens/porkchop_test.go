@@ -192,3 +192,19 @@ func TestPorkchopHitCellLandsOnTheDrawnCell(t *testing.T) {
 		t.Fatal("no cursor cell found in the render")
 	}
 }
+
+// B11 review H1: the plot options left the Title Row (it overflowed 140
+// columns), so the body must still say what the grid is scoring.
+func TestPorkchopBodyStillNamesTheScoredOptions(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	p := NewPorkchop(Theme{Title: lipgloss.NewStyle(), Footer: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(), Alert: lipgloss.NewStyle(), Dim: lipgloss.NewStyle(), Primary: lipgloss.NewStyle()})
+	p.Load(w, 4)
+	out := p.Render(w, 140, 38)
+	if !strings.Contains(out, "rev=0 prograde") {
+		t.Errorf("porkchop body does not name the scored options:\n%s", out)
+	}
+}

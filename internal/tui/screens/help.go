@@ -73,7 +73,7 @@ var helpSections = []helpSection{
 		{"f / F", "cycle camera focus forward / back (system → bodies → vessels; exits spectate)"},
 		{"g", "reset camera to the whole system"},
 		{"+ / -", "zoom in / out"},
-		{"v", "cycle view (Tilted / Top / Right / Bottom / Left / Orbit-flat), projections only; two rows above \"view:\" read which way north points (N ↑ up, N ⊙ toward you, N ⊗ away) and how open your orbit ring looks (plane ◠ 67° open: 0° ─ is a flat line, 90° ○ a full circle)"},
+		{"v", "cycle view (Tilted / Top / Right / Bottom / Left / Orbit-flat), projections only; two rows above \"view:\" read which way north points (N ↑ up, N ⊙ toward you, N ⊗ away; a degree figure, N ↑ 42°, is how far north tilts toward or away from you, 0° flat on the screen) and how open your orbit ring looks (plane ◠ 67° open: 0° ─ is a flat line, 90° ○ a full circle)"},
 		{"V", "launch / surface view: chase-cam on your active vessel (press again to return)"},
 		{"o", "proximity view: close-range picture of your target vessel (press again to return)"},
 		{"shift+← / shift+→", "pan the view left / right (displaces the tracked center; [g] or any refocus clears it)"},

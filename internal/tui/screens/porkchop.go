@@ -202,13 +202,14 @@ func (p *Porkchop) SetSelection(depIdx, tofIdx int) {
 	p.selTof = tofIdx
 }
 
-// TitleContext is the Title Row's context for this screen: the route and
-// the plot options (B11 / G9 Q1).
+// TitleContext is the Title Row's context for this screen: the route. The
+// plot options read in the options box, not the bar (B11 review H1: the
+// longer form pushed [Back] off the edge at 140 columns).
 func (p *Porkchop) TitleContext() string {
 	if p.grid == nil {
 		return ""
 	}
-	return fmt.Sprintf("Earth → %s  %s", p.targetName, p.optsSummary())
+	return "Earth → " + p.targetName
 }
 
 // Render draws the grid + axes + selection readout.
@@ -302,7 +303,8 @@ func (p *Porkchop) Render(w *sim.World, cols, rows int) string {
 	for _, g := range porkchopLegendRamp {
 		b.WriteString(g)
 	}
-	b.WriteString("  (darker = cheaper; · = no solution)")
+	b.WriteString("  (darker = cheaper; · = no solution)  scoring ")
+	b.WriteString(p.optsSummary()) // moved off the Title Row (B11 review H1)
 
 	body := formBox(p.theme, "PORKCHOP PLOT", splitLines(b.String()), boxW)
 	if p.optsOpen {
