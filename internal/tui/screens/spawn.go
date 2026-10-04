@@ -1121,7 +1121,7 @@ func (s *SpawnCraft) boxTitle(idx int, label string) string {
 func (s *SpawnCraft) stackLines() []string {
 	var lines []string
 	if len(s.customStages) == 0 {
-		lines = append(lines, "  "+s.theme.Dim.Render("(empty — pick a part below and press [a] to add)"))
+		lines = append(lines, "  "+s.theme.Dim.Render("(empty: pick a part below and press [a] to add)"))
 	} else {
 		// v0.14 / ADR 0011: the Dock Seam splits the stack into the
 		// linear firing core (bottom) and the docked nose payload (top
@@ -1325,13 +1325,13 @@ func (s *SpawnCraft) bandWarning() (text string, isWarning bool) {
 	}
 	switch {
 	case cov <= 0:
-		return "⚠ out of network reach — no signal at this body", true
+		return "⚠ out of network reach, no signal at this body", true
 	case cov < sim.CommBandDegradedThreshold:
 		pct := int(cov*100 + 0.5)
 		if relayClass {
 			return fmt.Sprintf("coverage from here: ~%d%%", pct), false
 		}
-		return fmt.Sprintf("⚠ degraded comms band — ~%d%% coverage, relays advised", pct), true
+		return fmt.Sprintf("⚠ degraded comms band, ~%d%% coverage, relays advised", pct), true
 	}
 	return "", false
 }
