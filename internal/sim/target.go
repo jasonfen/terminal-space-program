@@ -720,23 +720,12 @@ func (w *World) TargetPlaneNodePositions() (anPos, dnPos orbital.Vec3, hasAN, ha
 			return orbital.Vec3{}, orbital.Vec3{}, false, false
 		}
 	}
-	mu := c.Primary.GravitationalParameter()
-	planeFrame := orbital.FrameFromNormal(nTarget)
-	stateTF := orbital.Vec3State{
-		R: planeFrame.FromWorld(c.State.R),
-		V: planeFrame.FromWorld(c.State.V),
+	r := w.planeCrossings(c, nTarget)
+	if r.hasAN {
+		anPos, hasAN = w.BodyPosition(r.anPrimary).Add(r.anRel), true
 	}
-	tAN := orbital.TimeToNodeCrossing(stateTF, mu, true)
-	tDN := orbital.TimeToNodeCrossing(stateTF, mu, false)
-	if tAN >= 0 {
-		post, postPrimary := w.propagateCraftWithPrimary(tAN)
-		anPos = w.BodyPosition(postPrimary).Add(post.R)
-		hasAN = true
-	}
-	if tDN >= 0 {
-		post, postPrimary := w.propagateCraftWithPrimary(tDN)
-		dnPos = w.BodyPosition(postPrimary).Add(post.R)
-		hasDN = true
+	if r.hasDN {
+		dnPos, hasDN = w.BodyPosition(r.dnPrimary).Add(r.dnRel), true
 	}
 	return anPos, dnPos, hasAN, hasDN
 }

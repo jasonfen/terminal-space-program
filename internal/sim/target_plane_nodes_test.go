@@ -204,3 +204,85 @@ func TestTargetPlaneNodePositions_GhostTarget(t *testing.T) {
 		t.Errorf("ghost-target node positions = {%v, %v}, want the pair {%v, %v}", anPos, dnPos, wantA, wantB)
 	}
 }
+
+// TestTargetPlaneNodesSolveOncePerOrbit (#548 review line 84): the ◇/◆
+// markers are asked for every frame, but the crossings are properties of
+// the craft's orbit and the target plane, not of the clock. 100 frames of
+// real Ticks (Verlet free flight, craft coasting in LEO, Moon targeted)
+// must run the solver once, and the cached positions must match a fresh
+// solve.
+func TestTargetPlaneNodesSolveOncePerOrbit(t *testing.T) {
+	w := mustWorld(t)
+	w.SetTargetBody(moonIndex(w))
+	w.TargetPlaneNodePositions()
+	for i := 0; i < 100; i++ {
+		w.Tick()
+		w.TargetPlaneNodePositions()
+	}
+	if got := w.TargetPlaneSolves(); got != 1 {
+		t.Errorf("%d solves over 101 frames of an unchanged orbit, want 1", got)
+	}
+}
+
+// freshNodes is the uncached truth: the same call with the cache emptied.
+func freshNodes(w *World) (an, dn orbital.Vec3, hasAN, hasDN bool) {
+	w.tpnCache = planeCrossingCache{}
+	return w.TargetPlaneNodePositions()
+}
+
+func sameNodes(t *testing.T, label string, w *World) {
+	t.Helper()
+	an, dn, ha, hd := w.TargetPlaneNodePositions()
+	fan, fdn, fha, fhd := freshNodes(w)
+	if ha != fha || hd != fhd {
+		t.Fatalf("%s: has AN/DN %v/%v, fresh %v/%v", label, ha, hd, fha, fhd)
+	}
+	r := w.ActiveCraft().State.R.Norm()
+	if d := an.Sub(fan).Norm() / r; d > 1e-3 {
+		t.Errorf("%s: cached AN is %.2e of the orbit radius from a fresh solve", label, d)
+	}
+	if d := dn.Sub(fdn).Norm() / r; d > 1e-3 {
+		t.Errorf("%s: cached DN is %.2e of the orbit radius from a fresh solve", label, d)
+	}
+}
+
+// TestTargetPlaneNodesCacheInvalidates: a retarget, a burn and a vessel
+// target each change the answer, and the cache must not serve the old one.
+// Every step compares the cached call with a fresh solve.
+func TestTargetPlaneNodesCacheInvalidates(t *testing.T) {
+	w := mustWorld(t)
+	moon := moonIndex(w)
+	w.SetTargetBody(moon)
+	sameNodes(t, "moon, first", w)
+	for i := 0; i < 50; i++ {
+		w.Tick()
+	}
+	sameNodes(t, "moon, after 50 ticks", w)
+
+	// Retarget to another body: a different plane normal.
+	other := -1
+	for i, b := range w.System().Bodies {
+		if i > 0 && i != moon && b.ID != w.ActiveCraft().Primary.ID {
+			other = i
+			break
+		}
+	}
+	an0, _, _, _ := w.TargetPlaneNodePositions()
+	w.SetTargetBody(other)
+	an1, _, _, _ := w.TargetPlaneNodePositions()
+	if an0 == an1 {
+		t.Error("retargeting served the old target's node")
+	}
+	sameNodes(t, "retargeted", w)
+
+	// A burn: rotate the velocity plane by adding out-of-plane delta-v.
+	w.SetTargetBody(moon)
+	sameNodes(t, "back to moon", w)
+	c := w.ActiveCraft()
+	s0 := w.TargetPlaneSolves()
+	c.State.V = c.State.V.Add(c.State.R.Cross(c.State.V).Unit().Scale(400))
+	sameNodes(t, "after 400 m/s plane change", w)
+	if w.TargetPlaneSolves() == s0 {
+		t.Error("a plane-change burn did not trigger a new solve")
+	}
+}
