@@ -30,6 +30,10 @@ const titleSep = " · "
 // inside a zone of the same width.
 const titleButtonsWidth = 27
 
+// titleMinLeft is the least left-field width worth truncating to; narrower
+// than the wordmark and the row clips from the right instead.
+const titleMinLeft = 12
+
 // titleLeft joins the wordmark (with the version) and the screen/context
 // parts with the title separator, skipping empty parts.
 func titleLeft(parts ...string) string {
@@ -107,10 +111,22 @@ func renderTitleRow(th Theme, sp titleSpec, cols int) titleLayout {
 	}
 
 	rightPlain := clockPlain + sp.extraPlain + clockGap + zoneLead + btnPlain
-	leftW := lipgloss.Width(sp.left)
+	left := sp.left
+	leftW := lipgloss.Width(left)
 	pad := cols - leftW - lipgloss.Width(rightPlain)
 	if pad < 1 {
-		pad = 1
+		// The context is the expendable part: truncate the LEFT field so
+		// the clock column and the way out always fit (B11 review H1/M2).
+		// Below titleMinLeft the row is hopeless and clips from the right
+		// as before (ADR 0046 decision 3).
+		if avail := cols - lipgloss.Width(rightPlain) - 1; avail >= titleMinLeft {
+			left = ansi.Truncate(left, avail, "…")
+			leftW = lipgloss.Width(left)
+			pad = cols - leftW - lipgloss.Width(rightPlain)
+		}
+		if pad < 1 {
+			pad = 1
+		}
 	}
 	btnStart := leftW + pad + lipgloss.Width(clockPlain+sp.extraPlain+clockGap+zoneLead)
 
@@ -122,7 +138,7 @@ func renderTitleRow(th Theme, sp titleSpec, cols int) titleLayout {
 		lay.end = append(lay.end, x)
 		x += lipgloss.Width(gap)
 	}
-	lay.row = th.Title.Render(sp.left) +
+	lay.row = th.Title.Render(left) +
 		strings.Repeat(" ", pad) +
 		clockRendered + sp.extraRendered +
 		clockGap + zoneLead + btnRendered
