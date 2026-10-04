@@ -157,6 +157,9 @@ var wideMapFixtures = []struct {
 	cols, rows int
 }{
 	{"Sol", 140, 40}, {"Sol", 181, 49}, {"Lumen", 140, 40}, {"Lumen", 181, 49},
+	// Alpha Centauri stacks three stars at the origin (catalog data, wave C
+	// review LOW 54): two names may share one disk, but never overlap.
+	{"Alpha Centauri", 140, 40}, {"Alpha Centauri", 181, 49},
 }
 
 func labelNames(v *OrbitView) []string {
@@ -229,7 +232,9 @@ func TestWideMapLabelsNeverOverlap(t *testing.T) {
 // TestWideMapLabelCounts pins how many bodies are named on each fixture,
 // measured on this branch (not copied from the grill mocks): the star and
 // planets only, never a moon, and the ones the grill expects to read are
-// always among them.
+// always among them. The mustHave lists carry the intent; the exact count is
+// a deliberate tripwire (wave C review LOW 55) so a layout change that drops
+// or adds a name is looked at, not absorbed.
 func TestWideMapLabelCounts(t *testing.T) {
 	cases := []struct {
 		system     string
@@ -246,7 +251,7 @@ func TestWideMapLabelCounts(t *testing.T) {
 		v, w, _ := wideMapRender(t, c.system, c.cols, c.rows)
 		got := labelNames(v)
 		if len(got) != c.want {
-			t.Errorf("%s %dx%d: %d names %v, want %d", c.system, c.cols, c.rows, len(got), got, c.want)
+			t.Errorf("%s %dx%d: %d names %v, want %d (the exact count is a tripwire: it moves with any chip width or body position change at the fixed epoch; if every mustHave name is still placed and nothing overlaps, re-measure and update the count)", c.system, c.cols, c.rows, len(got), got, c.want)
 		}
 		have := map[string]bool{}
 		for _, n := range got {
@@ -511,5 +516,41 @@ func TestWideMapTargetedMoonNeverMislabelsItsPlanet(t *testing.T) {
 		if !have["Earth"] {
 			t.Errorf("%dx%d: Earth not named while the Moon is targeted (placed %v, dropped %v)", fx.cols, fx.rows, names, v.nameDropped)
 		}
+	}
+}
+
+// TestWideMapSideNamesAbutOnlyTheirOwnBody: a name beside a dot must read as
+// that dot's name. Where two small bodies sit next to each other (Lumen's
+// Rust and Kern read "Rust.o.Kern" at 140x40, wave C review LOW 56) the pass
+// may not put a name flush against a DIFFERENT body's dot; each name's
+// neighbouring cell on its dot's side is its own body or empty.
+func TestWideMapSideNamesAbutOnlyTheirOwnBody(t *testing.T) {
+	sawSide := 0
+	for _, fx := range wideMapFixtures {
+		v, w, _ := wideMapRender(t, fx.system, fx.cols, fx.rows)
+		cells := map[[2]int][]string{}
+		for _, b := range w.System().Bodies {
+			if b.BodyType == "Moon" {
+				continue
+			}
+			if px, py, ok := v.canvas.Project(w.BodyPosition(b)); ok {
+				k := [2]int{px / 2, py / 4}
+				cells[k] = append(cells[k], b.EnglishName)
+			}
+		}
+		for _, l := range v.nameLabels {
+			n := len([]rune(l.Name))
+			for _, nb := range [][2]int{{l.Col - 1, l.Row}, {l.Col + n, l.Row}} {
+				for _, who := range cells[nb] {
+					sawSide++
+					if who != l.Name {
+						t.Errorf("%s %dx%d: name %s sits flush against %s's dot", fx.system, fx.cols, fx.rows, l.Name, who)
+					}
+				}
+			}
+		}
+	}
+	if sawSide == 0 {
+		t.Error("positive control: no name sat beside a dot in any fixture")
 	}
 }
