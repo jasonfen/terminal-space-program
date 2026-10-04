@@ -220,17 +220,20 @@ func TestBackReturnsToTheScreenThatOpenedYou(t *testing.T) {
 		}
 	}
 	// A screen opened from the map after a menu trip must not inherit the
-	// menu as its opener (stale-flag guard).
+	// menu as its opener (stale-flag guard). A stale fromMenu is injected on
+	// the map, then a real key (F1) opens Help: the map-key line in Update
+	// (app.go, "A key on the map clears any stale menu-opener") must clear
+	// it, so esc goes to the map and not back to the menu.
 	a = newChromeApp(t, 140, 40)
-	a.active = screenMenu
-	a.applyMenuAction(screens.MenuActionHelp)
-	esc(a) // help -> menu
-	esc(a) // menu -> map
-	a.active = screenHelp
-	a.fromMenu = false
+	a.active = screenOrbit
+	a.fromMenu = true
+	a.Update(tea.KeyMsg{Type: tea.KeyF1})
+	if a.active != screenHelp {
+		t.Fatalf("F1 on the map opened %v, want Help", a.active)
+	}
 	esc(a)
 	if a.active != screenOrbit {
-		t.Errorf("help opened from the map went back to %v, want the map", a.active)
+		t.Errorf("Help opened from the map went back to %v, want the map", a.active)
 	}
 }
 
@@ -600,5 +603,56 @@ func TestSaveFromThePauseMenuLoadsAsFlown(t *testing.T) {
 	press(a, "enter")
 	if a.active != screenOrbit || a.world.Clock.Paused {
 		t.Errorf("overwritten save loaded: active %v paused %v, want the map running", a.active, a.world.Clock.Paused)
+	}
+}
+
+// TestLoadFromThePauseMenuReleasesTheMenuHold (B11 review M1): loadWorldByID
+// must drop the pause menu's hold (menuHeld). If it did not, the next quit
+// would put the stale pre-load menuPrevPaused back on the NEW world's clock,
+// and a true there makes autosave write nothing (the silent failure #553
+// fixed for the plain menu quit). Scenario: the player had paused, opened the
+// menu, loaded a save that was written while running, then quit from the map
+// (ctrl+c, y). Real key path throughout; the esc-then-q route would mask the
+// bug because openMenu re-reads the clock.
+func TestLoadFromThePauseMenuReleasesTheMenuHold(t *testing.T) {
+	dir := testStateDirs(t)
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	a.world.Clock.Paused = false
+	if _, err := save.WriteNamed(a.world, "Running"); err != nil {
+		t.Fatal(err)
+	}
+	a.world.Clock.Paused = true // the player paused before opening the menu
+	openSavesVia(t, a, "l")
+	press(a, "enter") // the one named save
+	press(a, "enter") // confirm the load
+	if a.active != screenOrbit {
+		t.Fatalf("load left %v, want the map", a.active)
+	}
+	if a.menuHeld {
+		t.Error("menuHeld still true after loading from the pause menu")
+	}
+	if a.world.Clock.Paused {
+		t.Fatal("the loaded world should be running (saved while running)")
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	if !a.quitConfirm {
+		t.Fatal("ctrl+c did not arm the quit prompt")
+	}
+	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	if cmd == nil {
+		t.Fatal("y did not quit")
+	}
+	auto := 0
+	for _, f := range savesDirFiles(t, dir) {
+		if strings.HasPrefix(f, "autosave-") {
+			auto++
+		}
+	}
+	if auto == 0 {
+		t.Error("quitting after a menu load wrote no autosave (stale menu hold paused the clock)")
 	}
 }
