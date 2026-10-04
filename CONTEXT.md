@@ -3057,6 +3057,44 @@ _Avoid_: Footer (the pre-v0.13 cheat-sheet row, which was removed),
 Cheat sheet, Key bar, Rotating hints (rejected: a moving row that
 duplicates the MISSION box).
 
+**Title Row** (grilled 2026-10-04, G9, B11 / #508):
+Row 0 of every screen, one template: the **Wordmark** with the version,
+then the screen and its context (the map: system, active vessel, focus;
+a form: its name, e.g. `Settings`), the clock and warp (`PAUSED` while the
+clock is stopped), and the way out on the right, in a fixed-width button
+zone so the clock sits in the same column on every screen: `[»Burn]
+[Menu] [Missions]` on the map, Proximity and the launch view, `[Back]`
+(the click twin of `esc`) on everything else. Built by `renderTitleRow`
+(`screens/chrome.go`). Clips on the right below the **Design Size**
+(ADR 0046 decision 3). The pause menu keeps the flight Title Row.
+_Avoid_: Title bar (the pre-B11 name, when each screen drew its own),
+header.
+
+**Wordmark** (G9 Q2): `Terminal Space Program`, title case, bold cyan,
+followed by the version (`v0.49.0`; `dev` in an unreleased build). The
+slug `terminal-space-program` stays the binary and the save directory name.
+
+**Form Box** (G9 Q4): the one box language. Every form screen lives in the
+same rounded frame as the map, each section is a titled rounded box (the
+title on the first inner row, the focused field's title bold), rules are
+gone, and the key legend rides the frame's bottom edge (the band an **Event
+Flash** overlays). Built by `formFrame` / `formBox` (`screens/chrome.go`).
+
+**Back rule** (G9 Q3): `esc` and `[Back]` go to the screen that opened you.
+A screen opened from the pause menu (Saves, Settings, Keyboard layout,
+Help, VAB) returns to the menu; one opened by a key (Missions, Spawn, Body
+info, Session, the planner) returns to the map; a second `esc` from the menu
+flies. Loading a save lands on the map.
+
+**Pause card** (G9 Q6): the pause menu, a 40x13 card centred over the
+dimmed map. Opening it stops the clock (`Clock.Paused`, per client) and the
+flight bar reads `PAUSED`; closing it hands the clock back as it was.
+
+**Orientation Cue** (G9 Q7): the two rows above `view:` on the map and in
+the maneuver planner: `N` plus a direction (`↑` up the screen, `⊙` toward
+you, `⊗` away) and `plane` edge-on `─`, face-on `○` or tilted `◠`, so six
+near-identical projections can be told apart.
+
 **Readout Contract** (grilled 2026-09-09, ADR 0049; extended by ADR
 0051):
 The one way every number on a flight surface reads, so no two panels
