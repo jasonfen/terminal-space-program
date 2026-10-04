@@ -101,6 +101,7 @@ var helpSections = []helpSection{
 		{"← / →", "pitch trim 5° west / east off the active mode (hold to ramp)"},
 		{"↑ / ↓", "heading trim 5° toward north / south off due east, on the pad or mid-ascent (hold to ramp)"},
 		{"alt+← / alt+→", "pitch trim 1° west / east (fine: alt makes any trim fine)"},
+		{"alt+b / alt+f", "the same fine pitch trim: Terminal.app and Ghostty send Option+← / → as these"},
 		{"alt+↑ / alt+↓", "heading trim 1° toward north / south (fine); name the pad window's exact heading"},
 		{"alt on a Mac", "Terminal.app: Profiles > Keyboard > Use Option as Meta key; iTerm2: Left Option = Esc+; Ghostty: macos-option-as-alt"},
 		{"|", "reset pitch trim and heading trim to 0"},
