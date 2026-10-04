@@ -131,6 +131,10 @@ type World struct {
 	// kind-less default (equatorial plane, Hohmann no-op).
 	Target Target
 
+	// lwCache is the pad Launch Window solver's cache (launch_window.go).
+	// Transient: rebuilt lazily, never persisted.
+	lwCache launchWindowCache
+
 	// NavMode selects the reference frame the SAS axis hotkeys
 	// interpret against (KSP-style nav-ball mode cycle). Zero value
 	// (NavOrbit) reproduces the pre-v0.9.3 behavior. Cycled via the
