@@ -425,11 +425,13 @@ func (m *Maneuver) Resize(cols, rows int) {
 	if canvasCols > 80 {
 		canvasCols = 80
 	}
-	// Reserve 3 rows: footer (1) + the two border rows HUDBox adds around
-	// the canvas. rows is the body height below the App's Title Row. (The
-	// old reserve forgot the border rows, so the render was a row too tall
-	// and the alt-screen dropped the title row; B11 / G9 contradiction 3.)
-	canvasRows := rows - 3
+	// Reserve 4 rows: the key legend (1), the flash row under it (1, the
+	// App overlays a flash on the last row, which must not be the legend:
+	// review #555 L1) + the two border rows HUDBox adds around the canvas.
+	// rows is the body height below the App's Title Row. (The old reserve
+	// forgot the border rows, so the render was a row too tall and the
+	// alt-screen dropped the title row; B11 / G9 contradiction 3.)
+	canvasRows := rows - 4
 	if canvasRows < 6 {
 		canvasRows = 6
 	}
@@ -834,7 +836,8 @@ func (m *Maneuver) Render(w *sim.World, cols, rows, selectedBody int) string {
 		"[tab] field  [←/→] cycle  [↑/↓] cursor  [enter] commit/load  [esc] cancel  [ctrl+d] del node  [ctrl+k] clear all",
 		cols, "…",
 	))
-	return body + "\n" + footer
+	// The last row is left empty for the App's flash overlay.
+	return body + "\n" + footer + "\n"
 }
 
 // TitleContext is the Title Row's context for the planner: the Plan Cursor
