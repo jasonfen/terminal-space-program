@@ -173,3 +173,43 @@ func TestTargetPlaneNodesRenderForBodyTarget(t *testing.T) {
 		t.Errorf("body target in orbit: want both node markers, got AN=%d DN=%d", an, dn)
 	}
 }
+
+// #548 review LOW 86 (Jason 2026-10-04, "dash stays"): lead: is a
+// vessel/ghost reading. A body target on the pad keeps lead: dashed; the
+// plan: row's window and heading time a launch toward a body.
+func TestTargetLeadDashedForBodyTargetOnPad(t *testing.T) {
+	w, _ := spawnLandedOnEarthAt28p6(t)
+	for i, b := range w.System().Bodies {
+		if b.ID == "moon" {
+			w.SetTargetBody(i)
+		}
+	}
+	v := NewOrbitView(launchThemeForTest())
+	v.Resize(DesignWidth, DesignHeight)
+	box := strings.Join(v.buildTargetBox(w), "\n")
+	if !regexp.MustCompile(`lead:\s+—`).MatchString(box) {
+		t.Errorf("a body target's lead: must stay dashed on the pad:\n%s", box)
+	}
+}
+
+// #548 review LOW 115 (Jason 2026-10-04, "say it as a lean"): GUIDANCE's
+// trim: names the way ←/→ lean the nose, not a signed pitch, because an
+// east lean lowers an eastbound nose (navball pitch -15° beside trim +15°).
+func TestGuidanceTrimReadsAsLean(t *testing.T) {
+	w, pad := spawnLandedOnEarthAt28p6(t)
+	v := NewOrbitView(launchThemeForTest())
+	v.Resize(DesignWidth, DesignHeight)
+	for _, c := range []struct {
+		deg  float64
+		want string
+	}{{15, `trim:\s+15° E`}, {-5, `trim:\s+5° W`}, {0, `trim:\s+0°`}} {
+		pad.PitchTrim = c.deg * 3.141592653589793 / 180
+		box := strings.Join(v.buildGuidanceBox(w), "\n")
+		if !regexp.MustCompile(c.want).MatchString(box) {
+			t.Errorf("trim %+.0f: GUIDANCE lacks %q:\n%s", c.deg, c.want, box)
+		}
+		if regexp.MustCompile(`trim:\s+[+-]\d`).MatchString(box) {
+			t.Errorf("trim %+.0f: GUIDANCE still prints a signed trim:\n%s", c.deg, box)
+		}
+	}
+}

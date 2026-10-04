@@ -120,7 +120,7 @@ func TestProximityViewShowsTheTrimItsArrowsMove(t *testing.T) {
 	if !strings.Contains(before, "[←→↑↓] trim") {
 		t.Errorf("proximity footer does not name the arrow trims:\n%s", before)
 	}
-	if !regexp.MustCompile(`trim:\s+\+0°`).MatchString(before) {
+	if !regexp.MustCompile(`trim:\s+0°`).MatchString(before) {
 		t.Fatalf("proximity view shows no trim reading at rest:\n%s", before)
 	}
 	a.Update(tea.KeyMsg{Type: tea.KeyRight})
@@ -128,7 +128,7 @@ func TestProximityViewShowsTheTrimItsArrowsMove(t *testing.T) {
 		t.Fatal("setup: the arrow did not trim at all")
 	}
 	after := a.View()
-	if !regexp.MustCompile(`trim:\s+\+5°`).MatchString(after) {
+	if !regexp.MustCompile(`trim:\s+5° E`).MatchString(after) {
 		t.Errorf("a → press changed no visible trim reading in the proximity view:\n%s", after)
 	}
 	if before == after {

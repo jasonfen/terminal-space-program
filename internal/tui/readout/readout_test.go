@@ -344,10 +344,16 @@ func TestTrimAngle(t *testing.T) {
 		deg  float64
 		want string
 	}{
-		{"contract example, negative pitch trim", -10, "-10°"},
-		{"positive trim signed", 12, "+12°"},
-		{"zero trim", 0, "+0°"},
-		{"rounds to nearest degree", -9.6, "-10°"},
+		// #548 review LOW 115 (Jason 2026-10-04, "say it as a lean"): the
+		// trim reads as the direction the nose leans, not a signed pitch,
+		// since an east lean LOWERS an eastbound nose (pitch -15° beside
+		// trim +15° read as a contradiction).
+		{"west lean", -10, "10° W"},
+		{"east lean", 12, "12° E"},
+		{"zero trim", 0, "0°"},
+		{"rounds to nearest degree", -9.6, "10° W"},
+		{"sub-half-degree rounds to zero, no direction", 0.4, "0°"},
+		{"negative sub-half-degree, no direction", -0.4, "0°"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
