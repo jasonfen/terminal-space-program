@@ -556,3 +556,27 @@ func TestPadWindowHeadingCommandableToTheDegreeAndZeroesDeltaIncl(t *testing.T) 
 		t.Errorf("at the pass with heading %d commanded by key, Δincl = %.2f, want ~0", want, v)
 	}
 }
+
+// TestOptionZXFineThrottleWithoutShift (Jason 2026-10-05, "match the key combo
+// we are using for nose trim"): the fine nose trim is Option+arrow, one
+// modifier, so the fine throttle is Option+Z / Option+X without shift. A Mac
+// terminal sends those as alt+z / alt+x (measured with the key echo); the
+// shifted alt+Z / alt+X keep working.
+func TestOptionZXFineThrottleWithoutShift(t *testing.T) {
+	a, c := padApp(t)
+	c.Throttle = 0.5
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("z"), Alt: true})
+	if !near(c.Throttle, 0.51) {
+		t.Errorf("alt+z: throttle %v, want 0.51", c.Throttle)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x"), Alt: true})
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x"), Alt: true})
+	if !near(c.Throttle, 0.49) {
+		t.Errorf("alt+x x2: throttle %v, want 0.49", c.Throttle)
+	}
+	// Plain z / x keep their meaning: full and cut.
+	a.Update(keyRunes("z"))
+	if !near(c.Throttle, 1) {
+		t.Errorf("z: throttle %v, want 1 (full)", c.Throttle)
+	}
+}

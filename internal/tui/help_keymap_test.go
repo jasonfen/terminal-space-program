@@ -44,6 +44,11 @@ var unadvertised = map[string]string{
 var unadvertisedAlias = map[string]string{
 	"ZoomIn:=":  "unshifted alias of + on US layouts",
 	"ZoomOut:_": "shifted alias of -",
+	// Option+Z / Option+X (2026-10-05): the fine throttle matches the
+	// one-modifier alt+arrow nose trims; the shifted forms still work and
+	// the row's description names them.
+	"ThrottleUpFine:alt+Z":   "shifted form of alt+z, named in the row text",
+	"ThrottleDownFine:alt+X": "shifted form of alt+x, named in the row text",
 	// #425: `?` is the reflex key everyone tries first, so it opens Help
 	// too, but the overlay teaches F1 as the canonical key — the alias
 	// stays undocumented on the row itself.
