@@ -95,7 +95,7 @@ func TestSSHEnrollFlow(t *testing.T) {
 	// persists their flight regardless) — "y" is the only key that
 	// actually ends the session, so confirm it.
 	mustWrite(t, sess, "\x03")
-	sess.waitFor(t, "[y]")
+	sess.waitFor(t, "saves automatically") // the guest quit card (2026-10-05)
 	mustWrite(t, sess, "y")
 	deadline := time.Now().Add(10 * time.Second)
 	for !srv.store.HasPayload(fp) {

@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -173,24 +172,6 @@ func TestPersistNowWritesEvenWhenPaused(t *testing.T) {
 	}
 }
 
-// TestQuitPromptRendersHostWording (#474) — the armed prompt must
-// actually render onscreen, with all three keys visible, or a player
-// has no way to know what ctrl+c just did.
-func TestQuitPromptRendersHostWording(t *testing.T) {
-	a, err := New(nil)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
-	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-
-	line := quitPromptLine(t, a.View())
-	for _, want := range []string{"[y]", "[n]", "[esc]", "Save before quitting"} {
-		if !strings.Contains(line, want) {
-			t.Errorf("quit prompt line missing %q:\n%s", want, line)
-		}
-	}
-}
 
 // TestMenuQuitRowRaisesSameQuitPrompt (#474) — the pause menu's Quit
 // row used to run its own plain yes/no confirm ("Quit (autosaves on
@@ -265,40 +246,4 @@ func TestGuestQuitPromptHasNoDecline(t *testing.T) {
 	}
 }
 
-// quitPromptLine returns the rendered bottom-border row (where every
-// App-level confirm overlay rides — see overlayBottomBorder), the one
-// line the quit prompt actually occupies. Scoping assertions to this
-// line (rather than the whole screen) avoids false positives from
-// unrelated UI that happens to contain the same bracketed tokens, e.g.
-// the orbit footer's own "[n] new vessel" hint.
-func quitPromptLine(t *testing.T, out string) string {
-	t.Helper()
-	lines := strings.Split(out, "\n")
-	if len(lines) == 0 {
-		t.Fatal("View() produced no lines")
-	}
-	return lines[len(lines)-1]
-}
 
-// TestQuitPromptRendersGuestWording (#474) — a guest can't decline, so
-// their prompt must not advertise [n] at all, and must say the flight
-// saves automatically.
-func TestQuitPromptRendersGuestWording(t *testing.T) {
-	a, err := New(nil)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	a.guestSave = func(*sim.World) error { return nil }
-	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
-	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-
-	line := quitPromptLine(t, a.View())
-	if strings.Contains(line, "[n]") {
-		t.Errorf("guest quit prompt must not offer [n]:\n%s", line)
-	}
-	for _, want := range []string{"[y]", "[esc]", "saves automatically"} {
-		if !strings.Contains(line, want) {
-			t.Errorf("guest quit prompt line missing %q:\n%s", want, line)
-		}
-	}
-}

@@ -129,6 +129,8 @@ type App struct {
 	maneuver   *screens.Maneuver
 	porkchop   *screens.Porkchop
 	menu       *screens.Menu
+	// quitCard is the quit prompt drawn as a card (2026-10-05).
+	quitCard *screens.QuitCard
 	missions   *screens.Missions
 	spawn      *screens.SpawnCraft
 
@@ -321,6 +323,7 @@ func New(scenario *sim.StartScenario) (*App, error) {
 		maneuver:   screens.NewManeuver(sth),
 		porkchop:   screens.NewPorkchop(sth),
 		menu:       screens.NewMenu(sth),
+		quitCard:   screens.NewQuitCard(sth),
 		missions:   screens.NewMissions(sth),
 		spawn:      screens.NewSpawnCraft(sth),
 
@@ -871,7 +874,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// This is the deliberate trade Jason chose: ctrl+c stops being
 		// an instant panic key so there's always a chance to say no.
 		if key.Matches(m, a.keys.Quit) {
-			a.quitConfirm = true
+			a.armQuit()
 			return a, nil
 		}
 		// While the quit prompt is armed, every key funnels through its
@@ -2216,6 +2219,26 @@ func (a *App) loadWorldByID(id string) error {
 // offering a decline would be a lie; the key is simply swallowed.
 // Every other key is swallowed too, so nothing slips through mid-confirm.
 func (a *App) handleQuitConfirmKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// The card's rows (2026-10-05): ↑/↓ move the ▸, enter answers with the
+	// row's own key, so every path below stays the one place each answer
+	// is handled.
+	switch m.String() {
+	case "up", "k":
+		a.quitCard.Up()
+		return a, nil
+	case "down", "j":
+		a.quitCard.Down()
+		return a, nil
+	case "enter":
+		switch a.quitCard.Choice() {
+		case screens.QuitSaveAndQuit:
+			return a.handleQuitConfirmKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+		case screens.QuitNoSave:
+			return a.handleQuitConfirmKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+		default:
+			return a.handleQuitConfirmKey(tea.KeyMsg{Type: tea.KeyEsc})
+		}
+	}
 	switch m.String() {
 	case "y", "Y":
 		a.quitConfirm = false
@@ -2510,7 +2533,7 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		// ctrl+c does (handleQuitConfirmKey), rather than autosaving and
 		// quitting on the spot — one question, one wording, wherever the
 		// player leaves from.
-		a.quitConfirm = true
+		a.armQuit()
 		return a, nil
 	case screens.MenuActionCancel:
 		a.closeMenu()
@@ -3569,13 +3592,21 @@ func (a *App) View() string {
 	// their flight on session unwind no matter how the App exits), so
 	// their prompt offers only quit and stay, never a "no".
 	if a.quitConfirm {
-		prompt := "Save before quitting? [y] save and quit  [n] quit without saving  [esc] stay"
-		if a.guestSave != nil {
-			prompt = "Quit? your flight saves automatically — [y] quit  [esc] stay"
+		// Raised from the pause menu, the quit card replaces the pause card
+		// rather than stacking on it (its edges would show above and below).
+		if a.active == screenMenu {
+			base = a.flightUnderCard()
 		}
-		base = overlayBottomBorder(base, a.theme.Alert.Render(prompt), border)
+		base = a.cardOver(base, a.quitCard.Render(), screens.QuitCardW)
 	}
 	return base
+}
+
+// armQuit raises the quit card (#474 prompt, drawn as a card since
+// 2026-10-05) on its first row, worded for a host or a guest.
+func (a *App) armQuit() {
+	a.quitConfirm = true
+	a.quitCard.Open(a.guestSave != nil)
 }
 
 // screensTheme is the theme the screens package takes, built from the
@@ -3602,15 +3633,26 @@ func (a *App) formScreen(screen, context, body string) string {
 // it goes grey, and the card is spliced in by cell.
 func (a *App) menuOverMap() string {
 	a.backStart, a.backEnd = 0, 0 // no [Back] on the flight bar
-	var under string
+	return a.cardOver(a.flightUnderCard(), a.menu.Render(), screens.MenuCardW)
+}
+
+// flightUnderCard is the flight view a card sits on: the launch view or the
+// map, whichever the player was flying in.
+func (a *App) flightUnderCard() string {
 	if a.world.ViewMode == sim.ViewLaunch {
-		under = a.launchView.Render(a.world, a.width, a.height)
-	} else {
-		under = a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
+		return a.launchView.Render(a.world, a.width, a.height)
 	}
+	return a.orbitView.Render(a.world, a.selectedBody, a.width, a.height)
+}
+
+// cardOver splices a card centred over a rendered screen (B11 / G9 Q6 pause
+// card; the quit card reuses it). Row 0, the Title Row, stays as it is;
+// everything under it goes grey, and the card is spliced in by cell. It
+// records the card's origin for click routing (menuOriginX/Y).
+func (a *App) cardOver(under, cardStr string, cardW int) string {
 	lines := strings.Split(under, "\n")
-	card := strings.Split(a.menu.Render(), "\n")
-	x := (a.width - screens.MenuCardW) / 2
+	card := strings.Split(cardStr, "\n")
+	x := (a.width - cardW) / 2
 	if x < 0 {
 		x = 0
 	}
@@ -3628,20 +3670,20 @@ func (a *App) menuOverMap() string {
 	if x < 1 {
 		ml = 0
 	}
-	if x+screens.MenuCardW+1 > a.width {
+	if x+cardW+1 > a.width {
 		mr = 0
 	}
 	for i := 1; i < len(lines); i++ {
 		plain := ansi.Strip(lines[i])
 		if r := i - y; r >= 0 && r < len(card) {
 			lines[i] = dim.Render(ansi.Truncate(plain, x-ml, "")+strings.Repeat(" ", ml)) + card[r] +
-				dim.Render(strings.Repeat(" ", mr)+ansi.TruncateLeft(plain, x+screens.MenuCardW+mr, ""))
+				dim.Render(strings.Repeat(" ", mr)+ansi.TruncateLeft(plain, x+cardW+mr, ""))
 			continue
 		}
 		if r := i - y; r == -1 || r == len(card) {
 			lines[i] = dim.Render(ansi.Truncate(plain, x-ml, "") +
-				strings.Repeat(" ", screens.MenuCardW+ml+mr) +
-				ansi.TruncateLeft(plain, x+screens.MenuCardW+mr, ""))
+				strings.Repeat(" ", cardW+ml+mr) +
+				ansi.TruncateLeft(plain, x+cardW+mr, ""))
 			continue
 		}
 		lines[i] = dim.Render(plain)
