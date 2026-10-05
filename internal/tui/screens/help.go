@@ -94,7 +94,7 @@ var helpSections = []helpSection{
 	{"MANUAL FLIGHT", [][2]string{
 		{"z / x", "throttle full / cut"},
 		{"Z / X", "throttle +10% / -10%"},
-		{"alt+Z / alt+X", "throttle +1% / -1% (fine)"},
+		{"alt+z / alt+x", "throttle +1% / -1% (fine, like the alt+arrow nose trims; alt+Z / alt+X work too)"},
 		{"w / s", "attitude prograde / retrograde (rcs: pulse-fire)"},
 		{"a / d", "attitude normal+ / normal- (rcs: pulse-fire)"},
 		{"q / e", "attitude radial+ / radial- (rcs: pulse-fire)"},

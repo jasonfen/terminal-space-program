@@ -183,7 +183,7 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 |---|---|
 | `z` / `x` | Throttle to full / cut to zero |
 | `Z` / `X` | Throttle up / down 10% |
-| `alt+Z` / `alt+X` | Throttle up / down 1% (the fine step) |
+| `alt+z` / `alt+x` | Throttle up / down 1% (the fine step, like the alt+arrow nose trims; `alt+Z` / `alt+X` work too) |
 | `b` | Light / cut the main engine (needs throttle above zero) |
 | `w` / `s` | Point prograde / retrograde (with / against your motion) |
 | `a` / `d` | Point normal+ / normal- (perpendicular to your orbit) |

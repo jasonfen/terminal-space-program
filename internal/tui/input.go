@@ -123,7 +123,7 @@ type Keymap struct {
 	ThrottleUp          key.Binding // +10 % step
 	ThrottleDown        key.Binding // -10 % step
 	// ThrottleUpFine / ThrottleDownFine (#460, G6 Q6b; ADR 0052
-	// amendment): alt makes any trim fine, so alt+Z / alt+X step the
+	// amendment): alt makes any trim fine, so alt+z / alt+x (shift optional) step the
 	// throttle +/-1 % where Z / X step 10 %. Needs the terminal to send
 	// Option as Meta/Alt on macOS (see the F1 and controls.md note).
 	ThrottleUpFine   key.Binding
@@ -426,8 +426,8 @@ func DefaultKeymap() Keymap {
 		ThrottleCut:         key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "throttle 0% / cut burn")),
 		ThrottleUp:          key.NewBinding(key.WithKeys("Z"), key.WithHelp("Z", "throttle +10%")),
 		ThrottleDown:        key.NewBinding(key.WithKeys("X"), key.WithHelp("X", "throttle -10%")),
-		ThrottleUpFine:      key.NewBinding(key.WithKeys("alt+Z"), key.WithHelp("alt+Z", "throttle +1%")),
-		ThrottleDownFine:    key.NewBinding(key.WithKeys("alt+X"), key.WithHelp("alt+X", "throttle -1%")),
+		ThrottleUpFine:      key.NewBinding(key.WithKeys("alt+z", "alt+Z"), key.WithHelp("alt+z", "throttle +1%")),
+		ThrottleDownFine:    key.NewBinding(key.WithKeys("alt+x", "alt+X"), key.WithHelp("alt+x", "throttle -1%")),
 		AttitudePrograde:    key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "attitude: prograde")),
 		AttitudeRetrograde:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "attitude: retrograde")),
 		AttitudeNormalPlus:  key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "attitude: normal+")),
