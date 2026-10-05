@@ -9,8 +9,9 @@ import (
 )
 
 // TestHelpManualFlightRowsKeepTwoCellsAtDesignSize (#548 review line 90):
-// the widest MANUAL FLIGHT row (the `alt on a Mac` note) is 138 cells,
-// 2 to spare at the 140x40 floor. The new alt+b / alt+f row sits well
+// the widest MANUAL FLIGHT row (the `alt on a Mac` note) is 129 cells
+// since the 2026-10-05 reword (was 138), within the 138 cap (2 spare at
+// the 140x40 floor). The new alt+b / alt+f row sits well
 // inside it. Pin the margin so the next reword that eats it goes red here
 // instead of truncating on a player's terminal. Unrendered rows, measured
 // with lipgloss.Width (glyph-aware).
@@ -32,8 +33,8 @@ func TestHelpManualFlightRowsKeepTwoCellsAtDesignSize(t *testing.T) {
 			widest = w
 		}
 	}
-	if widest < 130 {
-		t.Fatalf("control failed: widest row %d cells, the Mac note should be ~138", widest)
+	if widest < 120 {
+		t.Fatalf("control failed: widest row %d cells, the Mac note should be ~129", widest)
 	}
 	if widest > 138 {
 		t.Errorf("widest MANUAL FLIGHT row is %d cells, want at most 138 (2 spare at 140)", widest)

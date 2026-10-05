@@ -105,7 +105,7 @@ var helpSections = []helpSection{
 		{"alt+b / alt+f", "the same fine pitch trim: Terminal.app and Ghostty send Option+← / → as these"},
 		{"alt+↑ / alt+↓", "heading trim 1° toward north / south (fine); name the pad window's exact heading"},
 		{"alt", "the Alt key on Windows and Linux (WezTerm and most terminals send it as-is); Option on a Mac, see below"},
-		{"alt on a Mac", "Terminal.app: Profiles > Keyboard > Use Option as Meta key; iTerm2: Left Option = Esc+; Ghostty: macos-option-as-alt"},
+		{"alt on a Mac", "Ghostty works as-is; Terminal.app: Profiles > Keyboard > Use Option as Meta key; iTerm2: Left Option = Esc+"},
 		{"|", "reset pitch trim and heading trim to 0"},
 		{"b", "engage / cut the manual burn (main engine)"},
 		{"r", "engine: main / rcs"},
