@@ -2,6 +2,12 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.50.2
+
+The fine throttle uses one modifier, like the fine nose trims (PR `#562`; tag `v0.50.2`).
+
+- **option+z / option+x** (`alt+z` / `alt+x`, no shift) step the throttle 1%, matching the `alt+arrow` 1° nose trims. option+shift+z / option+shift+x still work. `Z` / `X` stay 10%; `z` / `x` stay full and cut.
+
 ### v0.50.1
 
 Shifted keys work in every terminal (PR `#561`; tag `v0.50.1`).
