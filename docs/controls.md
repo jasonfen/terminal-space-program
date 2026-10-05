@@ -194,6 +194,7 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 | `alt+←` / `alt+→` | Fine pitch trim: 1° west / east (alt makes any trim fine) |
 | `alt+b` / `alt+f` | The same fine pitch trim, for Terminal.app and Ghostty, which send Option+← / Option+→ as these two keys |
 | `alt+↑` / `alt+↓` | Fine heading trim: 1° toward north / south, so you can command the exact heading the pad window names on NAVIGATION's `plan:` row |
+| `alt` | The Alt key on Windows and Linux (WezTerm and most terminals send it as-is); Option on a Mac, see the next row |
 | `alt` on a Mac | The terminal must send Option as Meta for the alt keys to arrive: Terminal.app, Profiles > Keyboard > "Use Option as Meta key"; iTerm2, Profiles > Keys > Left Option key = Esc+; Ghostty, `macos-option-as-alt = true` |
 | `\|` | Clear the manual tip and the commanded heading (both trims back to 0) |
 | `;` | Autopilot reference: Orbit → Surface → Target (skips Target when none is set) |
