@@ -2,6 +2,17 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.50.0
+
+One look across the whole game, and a pause menu that pauses (UX cycle 3 slice B11, tracking `#512`; PRs `#553`, `#554`, review fixes `#556`-`#560`; tag `v0.50.0`).
+
+- **One top row everywhere.** Every screen reads `Terminal Space Program` with the version, then the screen and what it is about, the clock and warp in the same column, and the way out on the right: `[»Burn] [Menu] [Missions]` in flight (the launch view too), `[Back]` everywhere else. While paused it reads `warp 1x  PAUSED`. A long row shortens its left side instead of pushing the buttons off screen (#508).
+- **Back goes where you came from.** Settings, keyboard layout, saves, help and the VAB opened from the menu return to the menu; a second esc flies.
+- **Forms look like the flight screen.** Settings, spawn, saves, missions, the VAB, help, body info and the session screen are titled boxes inside the same frame, with their keys on the bottom edge where flashes land. One cursor `▸`, one "left/right changes this" mark `‹ value ›`, and `➤` only means a vessel.
+- **The pause menu pauses.** It is a card over the dimmed map and the clock really stops. A partner's Rendezvous Warp waits until you close it. Quitting from it still autosaves, and saves made from it load the way you were flying.
+- **Which way am I looking?** Above `view:` the map says where north points (`N ↑`, `N ⊙` toward you, `N ⊗` away) and how open your orbit ring looks (`plane ◠ 67° open`: 0° is a flat line, 90° a full circle).
+- **Fixes.** The maneuver planner's title row shows (it was always one row off screen), the porkchop's `[Back]` fits at 140 columns, spawn rows keep their engine figures, and settings descriptions wrap instead of cutting off.
+
 ### v0.49.0
 
 A pad that tells you when to launch, a wide map with names on it, and a navball you can read numbers off (UX cycle 3 wave C, tracking `#512`; PRs `#545`-`#547`, review fixes `#549`-`#552`; tag `v0.49.0`).
