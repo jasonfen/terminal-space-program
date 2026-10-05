@@ -2,6 +2,14 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.50.3
+
+A quit card, and F1 that says where the alt keys work (PRs `#563`-`#565`; tag `v0.50.3`).
+
+- **Quit card.** ctrl+c, or q on the pause card, opens a centred **Save before quitting?** card over the screen: **Save and quit** (`y`), **Quit without saving** (`n`), **Stay** (`esc`). `↑` / `↓` + `enter` pick; the letter keys still answer directly. A multiplayer guest sees **Quit** and **Stay** only, since their flight saves automatically.
+- **alt keys in F1.** alt is the Alt key on Windows and Linux (WezTerm and most terminals send it as-is) and Option on a Mac. Ghostty on a Mac works as-is; Terminal.app and iTerm2 need Option sent as Meta.
+- Includes the v0.50.2 fine throttle on option+z / option+x (`alt+z` / `alt+x`, no shift).
+
 ### v0.50.2
 
 The fine throttle uses one modifier, like the fine nose trims (PR `#562`; tag `v0.50.2`).
