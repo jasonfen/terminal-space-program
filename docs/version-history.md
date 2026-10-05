@@ -2,6 +2,12 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.50.1
+
+Shifted keys work in every terminal (PR `#561`; tag `v0.50.1`).
+
+- **`|`, `Z`, `X` and other shifted keys** did nothing when the terminal reported modified keys in its extended form (xterm modifyOtherKeys or the kitty keyboard protocol, which another program can switch on in a Ghostty tab). The game now reads those forms, so `|` resets both trims and `Z` / `X` step the throttle again, locally and over SSH.
+
 ### v0.50.0
 
 One look across the whole game, and a pause menu that pauses (UX cycle 3 slice B11, tracking `#512`; PRs `#553`, `#554`, review fixes `#556`-`#560`; tag `v0.50.0`).
