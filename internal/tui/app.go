@@ -373,6 +373,12 @@ func (a *App) sizeGated() bool {
 // Update routes every tea.Msg. Globals handled here; screen-scoped
 // keys delegate to the active screen.
 func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// A terminal in modifyOtherKeys / kitty mode sends shifted keys as CSI
+	// sequences Bubble Tea v1 drops; turn them back into the key pressed
+	// (modified_keys.go) so `|`, `Z`, `X` and the rest still work.
+	if k, ok := decodeModifiedKey(msg); ok {
+		msg = k
+	}
 	a.dropStaleAsks()
 	switch m := msg.(type) {
 	case sim.TickMsg:
