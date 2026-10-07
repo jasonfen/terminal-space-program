@@ -845,9 +845,22 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 		chipRow(readout.LabelRelSpeed, readout.Speed(st.VRelMS)+proximityOverSpeedSuffix(st)),
 		chipRow("closing:", readout.SignedSpeed(st.ClosingMS)),
 		proximityTrimRow(w),
+		v.proximityEngineRow(w),
 		v.proximityRCSRow(w),
 		proximityMonopropRow(w),
 	}
+}
+
+// proximityEngineRow is the main engine's throttle state (the ENGINE box's
+// own label: idle, ● FIRING with its clock, ✕ DRY) and the Δv it has left
+// (Jason, 2026-10-07: "add engine readouts too"; Proximity has no ENGINE or
+// PROPELLANT box).
+func (v *OrbitView) proximityEngineRow(w *sim.World) string {
+	c := w.ActiveCraft()
+	if c == nil {
+		return chipRow("throttle:", "—")
+	}
+	return chipRow("throttle:", v.engineThrottleLabel(w, c)+"  Δv "+deltaVReadout(c))
 }
 
 // proximityRCSRow says whether RCS is engaged and the Δv each translation

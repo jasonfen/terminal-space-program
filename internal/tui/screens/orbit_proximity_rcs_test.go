@@ -64,3 +64,19 @@ func TestProximityBoxShowsMonopropLeft(t *testing.T) {
 		t.Errorf("PROXIMITY lacks a monoprop: row with the tank mass:\n%s", box)
 	}
 }
+
+// "add engine readouts too" (Jason, 2026-10-07): the main engine's throttle
+// state (idle / FIRING / DRY, as in the ENGINE box) and the Δv it has left.
+func TestProximityBoxShowsEngineThrottleAndDeltaV(t *testing.T) {
+	w := proximityRCSWorld(t)
+	c := w.ActiveCraft()
+	c.Throttle = 0.4
+	box := proximityChipText(t, w)
+	if !strings.Contains(box, "throttle:") || !strings.Contains(box, "40%") || !strings.Contains(box, "idle") {
+		t.Errorf("PROXIMITY lacks `throttle: 40%% idle`:\n%s", box)
+	}
+	want := ansi.Strip(deltaVReadout(c))
+	if !strings.Contains(box, "Δv") || !strings.Contains(box, want) {
+		t.Errorf("PROXIMITY lacks the main engine's Δv %q:\n%s", want, box)
+	}
+}
