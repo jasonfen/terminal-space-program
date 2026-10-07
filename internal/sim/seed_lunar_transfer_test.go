@@ -20,6 +20,8 @@ type seedLunarRun struct {
 	enteredMoonSOI      bool
 	nodesLeft           int
 	moonEcc             float64 // eccentricity about the Moon after the flight; <1 is a bound capture
+	moonPeriKm          float64 // lowest distance from the Moon centre while flown in its frame (km)
+	crashed             bool    // hit the surface (Crashed or Landed) during the flight
 }
 
 func runSeedLunarTransfer(t *testing.T, equatorial bool) seedLunarRun {
@@ -51,18 +53,32 @@ func runSeedLunarTransfer(t *testing.T, equatorial bool) seedLunarRun {
 	for _, n := range c.Nodes {
 		r.nodeDv = append(r.nodeDv, n.DV)
 	}
+	minMoon := math.Inf(1)
+	track := func() {
+		if c.Primary.ID == "moon" {
+			if d := c.State.R.Norm(); d < minMoon {
+				minMoon = d
+			}
+		}
+		if c.Crashed || c.Landed {
+			r.crashed = true
+		}
+	}
+	tu := func(w *World, n int, pred func() bool) (int, bool) {
+		return tickUntil(w, n, func() bool { track(); return pred() })
+	}
 	for leg := 0; leg < 8 && len(c.Nodes) > 0 && c.Primary.ID == "earth"; leg++ {
 		if !w.EngageAutoWarp() {
 			break
 		}
-		if _, ok := tickUntil(w, 5_000_000, func() bool { return w.AutoWarp == nil }); !ok {
+		if _, ok := tu(w, 5_000_000, func() bool { return w.AutoWarp == nil }); !ok {
 			break
 		}
 		n := len(c.Nodes)
-		tickUntil(w, 5_000_000, func() bool { return len(c.Nodes) < n })
-		tickUntil(w, 5_000_000, func() bool { return c.ActiveBurn == nil })
+		tu(w, 5_000_000, func() bool { return len(c.Nodes) < n })
+		tu(w, 5_000_000, func() bool { return c.ActiveBurn == nil })
 	}
-	tickUntil(w, 2_000_000, func() bool { return c.Primary.ID == "moon" })
+	tu(w, 2_000_000, func() bool { return c.Primary.ID == "moon" })
 	r.enteredMoonSOI = c.Primary.ID == "moon"
 	r.nodesLeft = len(c.Nodes)
 	if r.enteredMoonSOI {
@@ -70,16 +86,17 @@ func runSeedLunarTransfer(t *testing.T, equatorial bool) seedLunarRun {
 			if !w.EngageAutoWarp() {
 				break
 			}
-			tickUntil(w, 5_000_000, func() bool { return w.AutoWarp == nil })
+			tu(w, 5_000_000, func() bool { return w.AutoWarp == nil })
 			n := len(c.Nodes)
-			tickUntil(w, 5_000_000, func() bool { return len(c.Nodes) < n })
-			tickUntil(w, 5_000_000, func() bool { return c.ActiveBurn == nil })
+			tu(w, 5_000_000, func() bool { return len(c.Nodes) < n })
+			tu(w, 5_000_000, func() bool { return c.ActiveBurn == nil })
 		}
 		r.nodesLeft = len(c.Nodes)
 		if c.Primary.ID == "moon" {
 			r.moonEcc = orbital.ElementsFromState(c.State.R, c.State.V, c.Primary.GravitationalParameter()).E
 		}
 	}
+	r.moonPeriKm = minMoon / 1e3
 	return r
 }
 
@@ -95,6 +112,12 @@ func TestSeedLunarTransferFitsAndFlies(t *testing.T) {
 	t.Logf("seed %.1f deg:     %+v", spacecraft.SeedInclinationDeg, in)
 	if in.overBudget {
 		t.Errorf("a node is over budget from the seed (craft Δv %.0f, nodes %v)", in.craftDv, in.nodeDv)
+	}
+	// moonPeriKm is sampled once per Auto-Warp tick, far too coarse to see a
+	// perilune, so it is logged only. The fine-sampled flown perilune is
+	// TestSplitArrivalPeriapsisCharacterization.
+	if in.crashed {
+		t.Errorf("the flown transfer crashed or landed on the Moon")
 	}
 	if in.enteredMoonSOI && (in.moonEcc <= 0 || in.moonEcc >= 1) {
 		t.Errorf("flown capture burn left e=%.3f about the Moon, want a bound orbit (0<e<1) (chal-luna-capture)", in.moonEcc)

@@ -290,7 +290,20 @@ func TestCombinedTransferArrivesSafePeriapsis(t *testing.T) {
 // 60 s sampling — the pre-fix 8.4× rCapture flyby fails it decisively, an
 // aimed arrival passes with margin.
 func TestSplitArrivalPeriapsisCharacterization(t *testing.T) {
+	splitArrivalPeriapsis(t, false)
+}
+
+// The same characterization from an equatorial LEO (the pre-#566 seed), so
+// the aim is proven for both parking-orbit geometries.
+func TestSplitArrivalPeriapsisCharacterizationEquatorial(t *testing.T) {
+	splitArrivalPeriapsis(t, true)
+}
+
+func splitArrivalPeriapsis(t *testing.T, equatorial bool) {
 	w := mustWorld(t)
+	if equatorial {
+		makeActiveEquatorial(w)
+	}
 	moonIdx, moon := findMoon(t, w)
 	if _, err := w.PlanTransfer(moonIdx); err != nil {
 		t.Fatalf("PlanTransfer(Moon): %v", err)
@@ -334,7 +347,10 @@ func TestSplitArrivalPeriapsisCharacterization(t *testing.T) {
 	if math.IsInf(minD, 1) {
 		t.Fatal("split transfer never reached Luna — characterization unusable")
 	}
-	if alt <= 0 {
+	// The ground-contact clamp pins an impact at ~the surface radius, where
+	// float rounding can leave alt a hair above 0 locally and below 0 in CI;
+	// anything under 1 km is an impact.
+	if alt < 1e3 {
 		t.Errorf("split arrives sub-surface (impact): perilune %.1f km ≤ Luna radius %.1f km",
 			minD/1e3, moon.RadiusMeters()/1e3)
 	}
