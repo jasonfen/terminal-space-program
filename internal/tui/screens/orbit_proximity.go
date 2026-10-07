@@ -3,6 +3,7 @@ package screens
 import (
 	"fmt"
 	"math"
+	"strconv"
 	"time"
 	"unicode/utf8"
 
@@ -844,7 +845,35 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 		chipRow(readout.LabelRelSpeed, readout.Speed(st.VRelMS)+proximityOverSpeedSuffix(st)),
 		chipRow("closing:", readout.SignedSpeed(st.ClosingMS)),
 		proximityTrimRow(w),
+		v.proximityRCSRow(w),
+		proximityMonopropRow(w),
 	}
+}
+
+// proximityRCSRow says whether RCS is engaged and the Δv each translation
+// key press fires (Jason's playtest 2026-10-07: Proximity had no readout of
+// either; RCS on/off showed only as the navball button's colour, and the
+// pulse step `p` cycles was shown nowhere). `r` toggles it, `p` steps it.
+func (v *OrbitView) proximityRCSRow(w *sim.World) string {
+	c := w.ActiveCraft()
+	if c == nil {
+		return chipRow("rcs:", "—")
+	}
+	step := strconv.FormatFloat(c.RCSPulseDV(), 'f', -1, 64) + " m/s"
+	if !w.RCSActive() {
+		return chipRow("rcs:", "off  "+v.theme.Dim.Render("[r] on, pulse "+step))
+	}
+	return chipRow("rcs:", v.theme.Warning.Render("on")+"  pulse "+step)
+}
+
+// proximityMonopropRow is the monoprop left and the RCS Δv it buys, the
+// PROPELLANT box's row for a view that has no PROPELLANT box.
+func proximityMonopropRow(w *sim.World) string {
+	c := w.ActiveCraft()
+	if c == nil || c.MonopropCapacity <= 0 {
+		return chipRow("monoprop:", "—")
+	}
+	return chipRow("monoprop:", readout.Mass(c.Monoprop)+"  "+readout.DeltaV(c.RCSDeltaV()))
 }
 
 // proximityTrimRow is the pitch trim and heading the plain arrows move
