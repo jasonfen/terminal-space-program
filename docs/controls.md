@@ -40,7 +40,8 @@ behind a one-row `▸ +N hidden` marker rather than overlap each other.
 ## Quick tour
 
 You start as a vessel called **S-IVB-1** in a 500 km circular orbit around
-Earth, moving prograde (the direction of travel). The left panel is the map:
+Earth, tilted 51.6° to the equator (so a launch from the KSC pad can meet
+it), moving prograde (the direction of travel). The left panel is the map:
 the Sun (or whatever you've focused on) in the middle, planets on their real
 orbits, and your vessel as a little chevron pointing the way it's moving. The
 right-hand panel is your readout: the clock, what you're looking at, fuel and
