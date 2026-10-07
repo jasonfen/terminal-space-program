@@ -2,6 +2,16 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.51.0
+
+A starting orbit you can launch to, and a Target you can see on the way up (PRs `#567`, `#568`; tag `v0.51.0`).
+
+- **The default vessel orbits at 51.6°** (ISS-like, same 500 km circle) instead of over the equator. From the KSC pad (28.6° N) that plane is reachable: targeting it, the pad's `plan:` row counts down to the launch window and names the heading (about 045°), and the planes match at the pass. Before, matching the equatorial default cost about 3.8 km/s of plane change after launch (#566).
+- **Spawn form: an inclination row** for "in orbit" spawns, typed like the altitude, 0° to 180° (above 90° is retrograde), default 51.6° in the same plane as the starting vessel, so a default docking partner needs no plane change.
+- **Moon transfer from the new orbit:** the `[H]` burn waits whole parking orbits for the departure that lines the arrival up; a new game opens with it minutes away rather than about 4 h, and the flown arrival clears the Moon's surface.
+- **Launch view: your Target in green.** The targeted vessel's glyph and its orbit draw in TARGET green, as on the map; before, the target showed as a plain glyph and its orbit wasn't drawn.
+- **Multiplayer:** a joining player could land days ahead of a young group's clock; join now lines up in both directions.
+
 ### v0.50.3
 
 A quit card, and F1 that says where the alt keys work (PRs `#563`-`#565`; tag `v0.50.3`).
