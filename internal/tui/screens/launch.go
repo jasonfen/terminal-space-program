@@ -581,6 +581,7 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft, cor
 	// the far arc is depth-culled behind it; drawn before the surface
 	// markers + rocket so those layer on top. v0.14+.
 	v.drawOrbitPath(craft, bodyCentre)
+	v.drawTargetOrbitPath(w, craft, bodyCentre)
 
 	// Descent half (ADR 0043 §3): the dashed arc down to the ground and
 	// the impact point where it lands. Drawn after the orbit ellipse (a
@@ -1091,6 +1092,26 @@ func parseHexColor(hex string) (r, g, b int, ok bool) {
 // and would paint a phantom arc through the planet. The orbit fades in
 // as the ascent builds real orbital velocity and persists through a
 // descent until touchdown clears it, the same as the map view shows.
+// drawTargetOrbitPath draws the targeted vessel's orbit in TARGET green when
+// it shares the active vessel's primary, the launch view's twin of the map's
+// target ellipse (playtest 2026-10-07: in the launch view the target's orbit
+// was not drawn at all). Real class like your own orbit; the colour is what
+// tells them apart.
+func (v *LaunchView) drawTargetOrbitPath(w *sim.World, craft *spacecraft.Spacecraft, bodyCentre orbital.Vec3) {
+	tgt, _, ok := w.ResolveTargetCraft()
+	if !ok || tgt == nil || tgt == craft || tgt.Landed || tgt.Primary.ID != craft.Primary.ID {
+		return
+	}
+	el := orbital.ElementsFromState(tgt.State.R, tgt.State.V, tgt.Primary.GravitationalParameter())
+	scale := v.canvas.Scale()
+	if !(el.A > 0) || el.E >= 1 || math.IsNaN(el.A) || math.IsInf(el.A, 0) || el.Apoapsis()*scale < minOrbitPixels {
+		return
+	}
+	canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
+	primaryPxR := BodyPixelRadius(tgt.Primary, false, scale, canvasReach)
+	v.canvas.DrawEllipseClass(el, bodyCentre, 360, widgets.ClassReal, bodyCentre, primaryPxR, render.ColorTarget)
+}
+
 func (v *LaunchView) drawOrbitPath(craft *spacecraft.Spacecraft, bodyCentre orbital.Vec3) {
 	if craft.Landed {
 		return
@@ -1565,7 +1586,11 @@ const (
 // CurrentAttitudeDir from the parent at decouple time. Falls back to
 // the single-glyph render for crafts with no LaunchSprite.
 func (v *LaunchView) drawSOICraft(w *sim.World, active *spacecraft.Spacecraft, bodyPos, camFromBody orbital.Vec3, basis widgets.Basis, scaleMPerPx float64) {
-	for _, c := range w.Crafts {
+	targetIdx := -1
+	if _, idx, ok := w.ResolveTargetCraft(); ok {
+		targetIdx = idx
+	}
+	for i, c := range w.Crafts {
 		if c == nil || c == active {
 			continue
 		}
@@ -1579,15 +1604,23 @@ func (v *LaunchView) drawSOICraft(w *sim.World, active *spacecraft.Spacecraft, b
 			continue
 		}
 		cellWorld := bodyPos.Add(fromBody)
-		if v.drawComposedRocket(c, cellWorld, basis, scaleMPerPx) {
-			continue
-		}
-		v.canvas.PlotColored(cellWorld, render.ColorDim)
 		glyph := '·'
 		for _, r := range c.Glyph {
 			glyph = r
 			break
 		}
+		if i == targetIdx {
+			// Your Target reads in TARGET green, as on the map (playtest
+			// 2026-10-07: the targeted vessel showed as plain white here).
+			// Its glyph, not a sprite, so the colour carries at any scale.
+			v.canvas.PlotColored(cellWorld, render.ColorTarget)
+			v.canvas.SetCellOverlayColored(cellWorld, glyph, render.ColorTarget)
+			continue
+		}
+		if v.drawComposedRocket(c, cellWorld, basis, scaleMPerPx) {
+			continue
+		}
+		v.canvas.PlotColored(cellWorld, render.ColorDim)
 		v.canvas.SetCellOverlay(cellWorld, glyph)
 	}
 }
