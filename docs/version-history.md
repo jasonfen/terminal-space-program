@@ -2,6 +2,12 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.51.1
+
+The Proximity view says what your engines are doing (PRs `#569`, `#570`; tag `v0.51.1`).
+
+- **PROXIMITY box, three new rows.** `throttle:` the main engine's state as in the ENGINE box (`100% idle`, `● FIRING` with its clock, `✕ DRY`) and the Δv it has left; `rcs:` whether RCS is on and the pulse step each translation key fires (`on  pulse 0.01 m/s`, or `off  [r] on, pulse 0.1 m/s`); `monoprop:` the tank and the RCS Δv it buys. Before, RCS showed only as the colour of the navball's button, and the pulse step (`p`) was shown nowhere.
+
 ### v0.51.0
 
 A starting orbit you can launch to, and a Target you can see on the way up (PRs `#567`, `#568`; tag `v0.51.0`).
