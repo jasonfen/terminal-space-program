@@ -80,6 +80,10 @@ func TestPlanInclCraftTargetDispatchesVesselPlaneMatch(t *testing.T) {
 		t.Fatalf("expected 2 crafts after spawn, got %d", len(a.world.Crafts))
 	}
 	a.world.ActiveCraftIdx = 0
+	// The seed is inclined 51.6 deg and a 51.6 deg spawn is now coplanar
+	// with it (#566); this test wants an inclined partner against an
+	// equatorial active vessel.
+	makeActiveEquatorial(a.world)
 	a.world.SetTargetCraft(1)
 	a.active = screenOrbit
 

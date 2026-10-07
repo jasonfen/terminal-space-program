@@ -40,7 +40,8 @@ behind a one-row `▸ +N hidden` marker rather than overlap each other.
 ## Quick tour
 
 You start as a vessel called **S-IVB-1** in a 500 km circular orbit around
-Earth, moving prograde (the direction of travel). The left panel is the map:
+Earth, tilted 51.6° to the equator (so a launch from the KSC pad can meet
+it), moving prograde (the direction of travel). The left panel is the map:
 the Sun (or whatever you've focused on) in the middle, planets on their real
 orbits, and your vessel as a little chevron pointing the way it's moving. The
 right-hand panel is your readout: the clock, what you're looking at, fuel and
@@ -328,13 +329,20 @@ overlay carries, so you can look one up without leaving the game.
 ### Spawn form (`n`)
 
 Choose a vessel, where to start (orbit or launchpad), which body, altitude,
-and direction.
+inclination, and direction.
 
 - **Vessels** are grouped by category and filtered to the current system's
   scale class by default; `f` inside the form toggles the filter to show every
   system's vessels. Pick **Custom…** to build a quick stack from whole
   modules, or one of your **saved designs** (listed after Custom…) from the
   [VAB](#vehicle-assembly-building-esc--build-vab).
+- **Inclination** (orbit position only, a row under POSITION) is typed the
+  same way as altitude, with a decimal point allowed: `Enter` opens the box,
+  `Enter` keeps it, `Esc` discards. Outside the box `←` / `→` step 1°. It
+  runs 0° to 180°; above 90° is retrograde. It starts at 51.6°, the default
+  vessel's orbit and plane, so a default spawn is a partner you can rendezvous
+  with without a plane change. Tab order is vessel, position, inclination,
+  parent, altitude, direction.
 - **Altitude** is typed, not picked from a list. `Enter` opens the field for
   digits, `Enter` again keeps the number, `Esc` discards what you typed
   without closing the form, and only once you're back out does `Enter` launch.

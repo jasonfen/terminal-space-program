@@ -290,7 +290,36 @@ func TestCombinedTransferArrivesSafePeriapsis(t *testing.T) {
 // 60 s sampling — the pre-fix 8.4× rCapture flyby fails it decisively, an
 // aimed arrival passes with margin.
 func TestSplitArrivalPeriapsisCharacterization(t *testing.T) {
+	splitArrivalPeriapsis(t, false, true)
+}
+
+// The seed leg coasted with the planted plane change DROPPED, for the record
+// only (logged, not asserted): no player flies it. It was the CI test until
+// #566 and is why it can no longer be: from the 51.6 deg seed the plan's
+// arrival (departure slipped for the plane change's out-of-plane geometry)
+// is aimed for the flight WITH the plane change.
+func TestSplitArrivalPeriapsisCoastOnlyLogged(t *testing.T) {
+	splitArrivalPeriapsis(t, false, false)
+}
+
+// The same characterization from an equatorial LEO (the pre-#566 seed), so
+// the aim is proven for both parking-orbit geometries.
+func TestSplitArrivalPeriapsisCharacterizationEquatorial(t *testing.T) {
+	splitArrivalPeriapsis(t, true, true)
+}
+
+// splitArrivalPeriapsis flies the planned departure leg at 60 s with the
+// production integrator and checks the arrival perilune. withPlaneChange
+// fires the plan's planted BurnPlaneChange as an impulse just before SOI
+// entry (the aim's own model): the real player path, which the original
+// test dropped with the rest of the slate (c.Nodes = nil). That was harmless
+// from an equatorial LEO and wrong from the 51.6 deg seed, where the plane
+// change is a large part of the arrival geometry (#566).
+func splitArrivalPeriapsis(t *testing.T, equatorial, withPlaneChange bool) {
 	w := mustWorld(t)
+	if equatorial {
+		makeActiveEquatorial(w)
+	}
 	moonIdx, moon := findMoon(t, w)
 	if _, err := w.PlanTransfer(moonIdx); err != nil {
 		t.Fatalf("PlanTransfer(Moon): %v", err)
@@ -307,6 +336,13 @@ func TestSplitArrivalPeriapsisCharacterization(t *testing.T) {
 	w.Clock.SimTime = leg.StartClock
 	c.State = leg.State
 	c.Primary = leg.Primary
+	var pcTheta float64
+	pcPending := false
+	for _, n := range c.Nodes {
+		if withPlaneChange && n.Mode == spacecraft.BurnPlaneChange {
+			pcTheta, pcPending = n.PlaneChangeRad, true
+		}
+	}
 	c.Nodes = nil
 
 	const chunkSecs = 60.0
@@ -322,6 +358,11 @@ func TestSplitArrivalPeriapsisCharacterization(t *testing.T) {
 		if d < minD {
 			minD = d
 		}
+		// The plane change fires in the primary's frame just before SOI entry.
+		if pcPending && c.Primary.ID != moon.ID && d < 1.03*physics.SOIRadius(moon, c.Primary) {
+			c.State = applyPlaneChangeImpulse(c.State, pcTheta)
+			pcPending = false
+		}
 		dt := time.Duration(chunkSecs * float64(time.Second))
 		w.Clock.SimTime = w.Clock.SimTime.Add(dt)
 		w.integrateOneCraft(c, dt)
@@ -334,7 +375,13 @@ func TestSplitArrivalPeriapsisCharacterization(t *testing.T) {
 	if math.IsInf(minD, 1) {
 		t.Fatal("split transfer never reached Luna — characterization unusable")
 	}
-	if alt <= 0 {
+	// The ground-contact clamp pins an impact at ~the surface radius, where
+	// float rounding can leave alt a hair above 0 locally and below 0 in CI;
+	// anything under 1 km is an impact.
+	if !withPlaneChange {
+		return // log-only variant
+	}
+	if alt < 1e3 {
 		t.Errorf("split arrives sub-surface (impact): perilune %.1f km ≤ Luna radius %.1f km",
 			minD/1e3, moon.RadiusMeters()/1e3)
 	}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
 func TestNewInLEO(t *testing.T) {
@@ -44,5 +45,27 @@ func TestSurfaceLatLon(t *testing.T) {
 	s.LandedLatDeg, s.LandedLonDeg = -5, 120
 	if lat, lon := s.SurfaceLatLon(); lat != -5 || lon != 120 {
 		t.Errorf("touchdown: got (%v,%v), want (-5,120)", lat, lon)
+	}
+}
+
+// #566: the default vessel orbits at SeedInclinationDeg in Earth's
+// EQUATORIAL frame, prograde, at every phase (one shared plane), so a
+// KSC launch (28.6 N) can reach it.
+func TestNewInLEOAtPhaseInclinationIsSeedInclinationPrograde(t *testing.T) {
+	systems, _ := bodies.LoadAll()
+	earth := systems[0].FindBody("Earth")
+	frame := orbital.ReferenceFrameForPrimary(*earth)
+	for _, ph := range []float64{0, 45, 90, 180, 270} {
+		sc := NewInLEOAtPhase(*earth, ph)
+		el := orbital.ElementsFromStateInFrame(sc.State.R, sc.State.V, earth.GravitationalParameter(), frame)
+		if got := el.I * 180 / math.Pi; math.Abs(got-SeedInclinationDeg) > 0.01 {
+			t.Errorf("phase %v: inclination %.4f deg, want %.1f", ph, got, SeedInclinationDeg)
+		}
+		if el.E > 1e-6 || math.Abs(sc.Altitude()-500e3) > 1 {
+			t.Errorf("phase %v: not a 500 km circle (e=%g alt=%.1f)", ph, el.E, sc.Altitude())
+		}
+	}
+	if SeedInclinationDeg != 51.6 {
+		t.Errorf("SeedInclinationDeg = %v, want 51.6 (issue #566)", SeedInclinationDeg)
 	}
 }

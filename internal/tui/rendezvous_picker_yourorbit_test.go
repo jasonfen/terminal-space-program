@@ -25,6 +25,9 @@ func TestRendezvousPicker_YourOrbitUnsafeRow_RefusalPointsAtTheirOrbit(t *testin
 		t.Fatalf("SpawnCraft: %v", err)
 	}
 	a.world.ActiveCraftIdx = 0
+	// The spawn is equatorial and the picker wants coplanar vessels; the
+	// default seed is inclined (#566), so put the active vessel on the equator.
+	makeActiveEquatorial(a.world)
 	a.world.SetTargetCraft(1)
 	pressRune(a, 'K')
 	if !a.orbitView.RendezvousPickerOpen() {

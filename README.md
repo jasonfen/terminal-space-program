@@ -56,7 +56,8 @@ rockets with accurate thrust and fuel loadouts.
 
 ## Quick start
 
-You spawn in an Apollo-style **S-IVB** in a 500 km circular Earth orbit.
+You spawn in an Apollo-style **S-IVB** in a 500 km circular Earth orbit tilted 51.6° to the equator (so a launch
+from the KSC pad can meet it).
 Press `t` to target the Moon (`T` clears it), then `H` to plant a Hohmann
 transfer with inclination change, or fly it all by hand. `F1` shows every key
 in-game. See the **[controls & flight guide](docs/controls.md)** for a tour, a

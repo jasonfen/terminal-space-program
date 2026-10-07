@@ -2,6 +2,7 @@ package screens
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -49,6 +50,16 @@ type SpawnCraft struct {
 	altLeftBox   bool
 	altNote      string // sim.ClampToOrbitBand's note, verbatim (raised/lowered/no-orbit)
 	altBandEmpty bool   // true when the current parent has NO legal orbit altitude (Phobos/Deimos)
+
+	// INCLINATION (#566): degrees off the parent's equator, 0..180 (above
+	// 90 is retrograde), default the seed's so a default partner shares
+	// the seed's plane. Typed like ALTITUDE (same state machine), but the
+	// buffer takes a decimal point because 51.6 is the default.
+	inclDeg     float64
+	inclEditing bool
+	inclInput   string
+	inclLeftBox bool
+	inclNote    string
 
 	latIdx     int // v0.9.2+: latitude preset cursor when posMode=launchpad
 	retrograde bool
@@ -127,6 +138,18 @@ type bandCacheKey struct {
 // reachable (Tab includes it) when the Custom loadout is selected.
 const stackFieldIdx = 5
 
+// inclFieldIdx is the form-field index of INCLINATION (#566): a typed
+// number of degrees shown as a second row inside the POSITION box, only
+// reachable in orbit mode.
+const inclFieldIdx = 6
+
+// maxInclInputChars caps the typed INCLINATION buffer: "180.00" is the
+// longest meaningful entry. Digits and one decimal point only.
+const maxInclInputChars = 6
+
+// inclStepDeg is how far a ←/→ step moves INCLINATION.
+const inclStepDeg = 1.0
+
 // spawnPosMode enumerates the v0.8.3 / v0.9.2 spawn-position modes.
 type spawnPosMode int
 
@@ -185,6 +208,11 @@ func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID 
 	s.altEditing = false
 	s.altInput = ""
 	s.altLeftBox = false
+	s.inclDeg = spacecraft.SeedInclinationDeg
+	s.inclEditing = false
+	s.inclInput = ""
+	s.inclLeftBox = false
+	s.inclNote = ""
 	// setAltitude must run AFTER parentBodies/parentIdx are set (it clamps
 	// against the current parent) — 500km matches the v0.8.1 sister-spawn
 	// default and the pre-S4 ladder's default rung.
@@ -488,11 +516,20 @@ func (s *SpawnCraft) SelectedLongitudeEastDeg() float64 {
 // Tab from Custom jump past the visually-adjacent STACK picker to
 // POSITION, only reaching STACK on the 5th tab — the reported bug.)
 func (s *SpawnCraft) fieldOrder() []int {
+	order := []int{0}
 	if s.IsCustomSelected() {
-		return []int{0, stackFieldIdx, 1, 2, 3, 4}
+		order = append(order, stackFieldIdx)
 	}
-	return []int{0, 1, 2, 3, 4}
+	order = append(order, 1)
+	if s.posMode == posOrbit {
+		order = append(order, inclFieldIdx) // #566: the row under POSITION
+	}
+	return append(order, 2, 3, 4)
 }
+
+// SelectedInclinationDeg is the typed orbit inclination (degrees, parent
+// equatorial frame). Only meaningful in orbit mode.
+func (s *SpawnCraft) SelectedInclinationDeg() float64 { return s.inclDeg }
 
 // CapturingText reports whether the ALTITUDE typed-edit box is currently
 // open — the free-text surface App.capturingText() (app.go) must query
@@ -501,7 +538,7 @@ func (s *SpawnCraft) fieldOrder() []int {
 // way they already are for the boss shell and the Saves browser's
 // name-entry field. Named/shaped to match SavesScreen.CapturingText and
 // SessionScreen.CapturingText.
-func (s *SpawnCraft) CapturingText() bool { return s.altEditing }
+func (s *SpawnCraft) CapturingText() bool { return s.altEditing || s.inclEditing }
 
 // HandleKey maps a raw key string to a SpawnAction. Tab cycles
 // fields; ←/→ edit the focused field; Enter commits; Esc cancels.
@@ -514,6 +551,9 @@ func (s *SpawnCraft) CapturingText() bool { return s.altEditing }
 func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 	if s.altEditing {
 		return s.handleAltInputKey(key)
+	}
+	if s.inclEditing {
+		return s.handleInclInputKey(key)
 	}
 	// Navigation follows fieldOrder (visual order). Locate the current
 	// field in it; if the focus is no longer reachable — e.g. the player
@@ -537,6 +577,7 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 	// and Enter goes back to opening the box.
 	if key != "enter" {
 		s.altLeftBox = false
+		s.inclLeftBox = false
 	}
 	switch key {
 	case "esc":
@@ -560,6 +601,12 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 		// this armed state cannot survive a change of mind.
 		if s.fieldIdx == 3 && s.posMode == posOrbit && !s.altLeftBox {
 			s.beginAltEdit()
+			return SpawnActionNone
+		}
+		// #566: same gesture on INCLINATION.
+		if s.fieldIdx == inclFieldIdx && s.posMode == posOrbit && !s.inclLeftBox {
+			s.inclEditing = true
+			s.inclInput = ""
 			return SpawnActionNone
 		}
 		return SpawnActionConfirm
@@ -702,6 +749,8 @@ func (s *SpawnCraft) cycleField(step int) {
 		}
 	case 4:
 		s.retrograde = !s.retrograde
+	case inclFieldIdx:
+		s.setInclination(s.inclDeg + float64(step)*inclStepDeg)
 	}
 	// ADR 0031 / S9: a launchpad selection the new craft/parent can't support
 	// (after cycling CRAFT TYPE or PARENT) snaps back to orbit, so the form
@@ -751,6 +800,84 @@ func (s *SpawnCraft) setAltitude(altM float64) {
 	s.altM = clamped
 	s.altNote = note
 	s.altBandEmpty = !ok
+}
+
+// setInclination is the one place INCLINATION is written: it clamps into
+// [0, 180] and leaves a note saying so when the request was out of range.
+func (s *SpawnCraft) setInclination(deg float64) {
+	s.inclNote = ""
+	switch {
+	case deg < 0:
+		deg = 0
+		s.inclNote = "moved up to 0°, the lowest inclination"
+	case deg > 180:
+		deg = 180
+		s.inclNote = "moved down to 180°, the highest inclination"
+	}
+	// Whole hundredths: nothing finer is meaningful, and it keeps 51.6
+	// exactly 51.6 after a +1/-1 round trip.
+	s.inclDeg = math.Round(deg*100) / 100
+}
+
+// handleInclInputKey drives the INCLINATION edit box. Like the ALTITUDE
+// box, every branch returns SpawnActionNone: a half-typed number never
+// launches and Esc only closes the box. Digits and one decimal point.
+func (s *SpawnCraft) handleInclInputKey(key string) SpawnAction {
+	switch key {
+	case "esc":
+		s.inclEditing = false
+		s.inclInput = ""
+		s.inclLeftBox = true
+	case "enter":
+		if s.inclInput != "" {
+			if v, err := strconv.ParseFloat(s.inclInput, 64); err == nil {
+				s.setInclination(v)
+			}
+		}
+		s.inclEditing = false
+		s.inclInput = ""
+		s.inclLeftBox = true
+	case "backspace":
+		if n := len(s.inclInput); n > 0 {
+			s.inclInput = s.inclInput[:n-1]
+		}
+	default:
+		if len(s.inclInput) < maxInclInputChars && len(key) == 1 &&
+			(key[0] >= '0' && key[0] <= '9' || key == "." && !strings.Contains(s.inclInput, ".")) {
+			s.inclInput += key
+		}
+	}
+	return SpawnActionNone
+}
+
+// inclLabel formats the inclination without trailing zeros: 51.6°, 28.61°, 0°.
+func inclLabel(deg float64) string {
+	return strconv.FormatFloat(deg, 'f', -1, 64) + "°"
+}
+
+// inclinationLines is the INCLINATION row (plus its feedback) inside the
+// POSITION box, orbit mode only.
+func (s *SpawnCraft) inclinationLines() []string {
+	var line string
+	switch {
+	case s.inclEditing:
+		line = s.theme.Warning.Render(fmt.Sprintf("incl: [%s_]°", s.inclInput)) +
+			"  " + s.theme.Footer.Render("Enter keeps · Esc reverts")
+	default:
+		line = "incl: " + s.fieldValue(inclFieldIdx, inclLabel(s.inclDeg))
+		if s.fieldIdx == inclFieldIdx {
+			hint := "Enter to edit"
+			if s.inclLeftBox {
+				hint = "Enter now launches"
+			}
+			line += "  " + s.theme.Footer.Render(hint)
+		}
+	}
+	out := []string{"  " + line}
+	if s.inclNote != "" && !s.inclEditing {
+		out = append(out, "    "+s.theme.Warning.Render("↳ "+s.inclNote))
+	}
+	return append(out, "  "+s.theme.Dim.Render("0° to 180°, above 90° is retrograde"))
 }
 
 // altitudeEpsilonM is the float slack used when comparing the current
@@ -1207,6 +1334,9 @@ func (s *SpawnCraft) positionBoxes(rw int) []string {
 		posLabel = "circular orbit"
 	}
 	posLines := []string{"  " + s.fieldValue(1, posLabel)}
+	if s.posMode == posOrbit {
+		posLines = append(posLines, s.inclinationLines()...)
+	}
 	// ADR 0031 / S9: when the selected craft can't lift off the selected
 	// parent, the cycle skips launchpad: note why, so the missing option
 	// doesn't read as a bug.

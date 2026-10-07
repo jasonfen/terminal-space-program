@@ -554,8 +554,8 @@ func (s *Spacecraft) Altitude() float64 {
 func (s *Spacecraft) OrbitalSpeed() float64 { return s.State.V.Norm() }
 
 // NewInLEO builds a spacecraft in a 500 km circular prograde parking orbit
-// around the provided primary (typically Earth). Orbit lies in the primary's
-// equatorial plane (z=0) with periapsis along +X, velocity along +Y.
+// around the provided primary (typically Earth), inclined SeedInclinationDeg
+// to the primary's equator (#566), ascending node along body-frame +X.
 // v0.6.1: bumped from 200 → 500 km — clears the visual zone close to the
 // Earth disk so the live orbit ellipse and craft glyph are immediately
 // distinguishable from the body when the camera spawns focused on the craft.
@@ -585,13 +585,45 @@ func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
 	return NewInLEOAtPhase(earth, 0)
 }
 
+// SeedInclinationDeg is the default vessel's orbital inclination in
+// Earth's equatorial frame (ISS-like). The KSC pad sits at 28.61 N, so
+// a launch from it can only reach inclinations of 28.61 or more; an
+// equatorial seed made it unreachable (a ~3.8 km/s plane change). At
+// 51.6 the pad passes under the seed's plane twice a day and the pad
+// window names the heading to fly. Issue #566.
+const SeedInclinationDeg = 51.6
+
 // NewInLEOAtPhase is NewInLEO generalised over the position on the
 // orbit: the same default S-IVB-1 on the same 500 km circular
-// equatorial orbit, placed phaseDeg degrees prograde around the ring
+// SeedInclinationDeg orbit, placed phaseDeg degrees prograde around the ring
 // from the seed spot (body-frame +X). NewInLEO is exactly phase 0.
 // The multiplayer fleet reset (--reset-fleet) uses this to space each
 // enrolled player's fresh vessel evenly around one shared orbit.
 func NewInLEOAtPhase(earth bodies.CelestialBody, phaseDeg float64) *Spacecraft {
+	return NewInLEOAtInclination(earth, phaseDeg, SeedInclinationDeg)
+}
+
+// RingState is the world-frame position and velocity of a circular orbit
+// of radius r and speed v (a negative v runs it retrograde within the
+// plane) in the primary's equatorial frame: ascending node at body-frame
+// +X (RAAN 0), inclined inclDeg about that axis, the vessel phaseDeg of
+// argument of latitude past the node. Every vessel placed with the same
+// inclDeg shares one plane whatever its phase, which is what keeps a
+// spawned partner coplanar with the seed (#566).
+func RingState(frame orbital.BodyFrame, r, v, phaseDeg, inclDeg float64) (R, V orbital.Vec3) {
+	th := phaseDeg * math.Pi / 180
+	inc := inclDeg * math.Pi / 180
+	ci, si := math.Cos(inc), math.Sin(inc)
+	tilt := func(x, y float64) orbital.Vec3 { return orbital.Vec3{X: x, Y: y * ci, Z: y * si} }
+	return frame.ToWorld(tilt(r*math.Cos(th), r*math.Sin(th))), frame.ToWorld(tilt(-v*math.Sin(th), v*math.Cos(th)))
+}
+
+// NewInLEOAtInclination is NewInLEOAtPhase with an explicit inclination
+// (degrees, Earth equatorial frame, ascending node at body-frame +X).
+// The game itself always seeds SeedInclinationDeg; this exists so a test
+// about equatorial geometry can ask for an equatorial vessel by name
+// (inclDeg 0) instead of depending on what the seed happens to be.
+func NewInLEOAtInclination(earth bodies.CelestialBody, phaseDeg, inclDeg float64) *Spacecraft {
 	r := earth.RadiusMeters() + 500e3
 	mu := earth.GravitationalParameter()
 	v := math.Sqrt(mu / r)
@@ -608,19 +640,24 @@ func NewInLEOAtPhase(earth bodies.CelestialBody, phaseDeg float64) *Spacecraft {
 	}
 	c.Primary = earth
 	// v0.8.6+: rotate the body-frame circular state into world coords
-	// so the orbit physically lies in Earth's equatorial plane (passes
-	// over the equator), not the world XY plane (which is offset by
+	// so the orbit is built in Earth's equatorial frame, not the world
+	// XY plane (which is offset by
 	// Earth's 23.44° axial tilt). Pre-v0.8.5.7 there were no tilts so
 	// the two coincided.
 	//
 	// The phase rotates position and velocity together about the body
 	// frame's pole, so every phase yields the identical circular orbit:
 	// at th=0 this reduces to the historical {X: r} / {Y: v} seed.
-	th := phaseDeg * math.Pi / 180
+	//
+	// #566: the circle is then tilted inclDeg about the
+	// frame's X axis (ascending node at body-frame +X, RAAN 0). The tilt
+	// is applied after the phase, so every phase sits on the one shared
+	// inclined plane (the phase is the argument of latitude).
 	frame := orbital.ReferenceFrameForPrimary(earth)
+	R, V := RingState(frame, r, v, phaseDeg, inclDeg)
 	c.State = physics.StateVector{
-		R: frame.ToWorld(orbital.Vec3{X: r * math.Cos(th), Y: r * math.Sin(th)}),
-		V: frame.ToWorld(orbital.Vec3{X: -v * math.Sin(th), Y: v * math.Cos(th)}),
+		R: R,
+		V: V,
 		M: c.TotalMass(),
 	}
 	return c

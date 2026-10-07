@@ -812,7 +812,11 @@ func TestProximityVelocityVectorOrientation(t *testing.T) {
 	if local.X <= 0 {
 		t.Errorf("along-track = %g, want > 0 (stub should point toward +V-bar)", local.X)
 	}
-	if math.Abs(local.Y) > 1e-6 {
+	// end and CraftWorld are heliocentric world coordinates (~1.4e11 m, one
+	// float64 ulp is ~3e-5 m), so the radial residue is rounding noise of
+	// the subtraction, not geometry: bound it relative to the stub length
+	// (the old absolute 1e-6 passed only by the luck of the seed's phase).
+	if math.Abs(local.Y) > 1e-8*math.Abs(local.X) {
 		t.Errorf("radial = %g, want ~0 (relative velocity is pure along-track)", local.Y)
 	}
 }

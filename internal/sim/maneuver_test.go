@@ -599,7 +599,9 @@ func TestPredictedFinalOrbitSkipsUnresolvedNodes(t *testing.T) {
 // retrying on later ticks rather than crashing.
 func TestResolveEventNodesEquatorialAN(t *testing.T) {
 	w := mustWorld(t)
-	// LEO state from NewWorld() is already equatorial.
+	// The default seed is inclined (#566); this test is about an
+	// equatorial orbit, so name that plane explicitly.
+	makeActiveEquatorial(w)
 	w.PlanNode(ManeuverNode{Event: TriggerNextAN, DV: 10, Mode: spacecraft.BurnPrograde})
 
 	w.resolveEventNodes()
@@ -884,6 +886,10 @@ func TestPorkchopGridRejectsSamePrimaryTarget(t *testing.T) {
 // and missed Luna's actual position by tens of millions of km.
 func TestPlanTransferIntraPrimaryPhasingMatchesArrival(t *testing.T) {
 	w := mustWorld(t)
+	// The residual below is an in-plane angle (atan2 of world X/Y), which
+	// only models an equatorial craft; the inclined seed (#566) is
+	// measured in 3D by TestPlanTransferInclinedSeedReachesMoon.
+	makeActiveEquatorial(w)
 	sys := w.System()
 	moonIdx := -1
 	for i := range sys.Bodies {

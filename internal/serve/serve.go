@@ -425,7 +425,7 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 		// connect-time sample goes stale while the player sits in the
 		// card/code/handle prompts and other subspaces advance. The
 		// game's tick loop hasn't started yet, so the relabel is safe.
-		if j, ok := s.joinTime(); ok && j.After(app.World().Clock.SimTime) {
+		if j, ok := s.joinTime(); ok {
 			app.World().Clock.SimTime = j
 		}
 		s.presence.markOnline(fp)
@@ -461,7 +461,13 @@ func (s *Server) newGuestApp(fp string) (*tui.App, error) {
 		// max and backs --reset-fleet's epoch instead. Craft state
 		// vectors are time-local, so relabelling "now" is safe.
 		// Reconnects (the branch above) keep their own stored time.
-		if j, ok := s.joinTime(); ok && j.After(app.World().Clock.SimTime) {
+		//
+		// The relabel runs in BOTH directions (#566): the fresh app opens
+		// at the next lunar-transfer window, whose date depends on the
+		// seed orbit's plane (J2000+4d equatorial, +12d at 51.6 deg).
+		// A forward-only relabel left a joiner days AHEAD of a young
+		// group whenever that window landed after the group's clock.
+		if j, ok := s.joinTime(); ok {
 			app.World().Clock.SimTime = j
 		}
 	default:

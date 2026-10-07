@@ -1057,6 +1057,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					NosePayloadPlan: a.spawn.SelectedNosePayloadPlan(),
 					ParentBodyID:    a.spawn.SelectedParentID(),
 					AltitudeM:       a.spawn.SelectedAltitudeM(),
+					Inclination:     a.spawn.SelectedInclinationDeg(),
 					Retrograde:      a.spawn.SelectedRetrograde(),
 					Alongside:       a.spawn.SelectedAlongside(),
 					Launchpad:       a.spawn.SelectedLaunchpad(),

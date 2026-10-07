@@ -123,6 +123,10 @@ func TestNavballMarkersMarkUntrimmedHold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
+	// A pitch trim leans the nose about local north, which is the orbit
+	// normal only on an eastbound (equatorial) orbit; the seed is inclined
+	// (#566), so name the equatorial case explicitly.
+	makeActiveEquatorial(w)
 	w.NavMode = NavOrbit
 	w.InstantSAS = true
 	c := w.ActiveCraft()
@@ -222,6 +226,10 @@ func TestNavballOrbitPitchTrimAxes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
+	// A pitch trim leans the nose about local north, which is the orbit
+	// normal only on an eastbound (equatorial) orbit; the seed is inclined
+	// (#566), so name the equatorial case explicitly.
+	makeActiveEquatorial(w)
 	w.NavMode = NavOrbit
 	w.InstantSAS = true
 	c := w.ActiveCraft()
