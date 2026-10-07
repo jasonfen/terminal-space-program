@@ -36,12 +36,13 @@ func pressMsg(a *App, msg tea.KeyMsg) {
 // a.spawn's private state), matching how a player actually gets there.
 func openSpawnAltitudeBox(t *testing.T, a *App) {
 	t.Helper()
-	for i := 0; i < 3; i++ {
+	// VESSEL TYPE, POSITION, INCLINATION (#566), PARENT BODY, ALTITUDE.
+	for i := 0; i < 4; i++ {
 		pressMsg(a, tea.KeyMsg{Type: tea.KeyTab})
 	}
 	pressMsg(a, tea.KeyMsg{Type: tea.KeyEnter})
 	if !a.spawn.CapturingText() {
-		t.Fatalf("setup: tab x3 + enter did not open the ALTITUDE edit box")
+		t.Fatalf("setup: tab x4 + enter did not open the ALTITUDE edit box")
 	}
 	if a.active != screenSpawn {
 		t.Fatalf("setup: opening the altitude box left the spawn screen (active=%v)", a.active)
@@ -100,5 +101,22 @@ func TestBossKeyLiveAgainAfterAltitudeBoxCloses(t *testing.T) {
 	pressMsg(a, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'`'}})
 	if a.active != screenBoss {
 		t.Fatalf("backtick after the ALTITUDE box closed did not open the boss shell (active=%v)", a.active)
+	}
+}
+
+// #566: the INCLINATION typed-edit box is a free-text surface too, so a
+// backtick typed into it must not open the boss shell.
+func TestBossKeyInertWhileTypingInclination(t *testing.T) {
+	a := newSpawnApp(t)
+	for i := 0; i < 2; i++ {
+		pressMsg(a, tea.KeyMsg{Type: tea.KeyTab})
+	}
+	pressMsg(a, tea.KeyMsg{Type: tea.KeyEnter})
+	if !a.capturingText() {
+		t.Fatalf("capturingText() = false while the INCLINATION edit box is open")
+	}
+	pressMsg(a, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'`'}})
+	if a.active != screenSpawn {
+		t.Fatalf("a backtick mid-inclination left the spawn screen (active=%v)", a.active)
 	}
 }

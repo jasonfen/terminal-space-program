@@ -603,6 +603,21 @@ func NewInLEOAtPhase(earth bodies.CelestialBody, phaseDeg float64) *Spacecraft {
 	return NewInLEOAtInclination(earth, phaseDeg, SeedInclinationDeg)
 }
 
+// RingState is the world-frame position and velocity of a circular orbit
+// of radius r and speed v (a negative v runs it retrograde within the
+// plane) in the primary's equatorial frame: ascending node at body-frame
+// +X (RAAN 0), inclined inclDeg about that axis, the vessel phaseDeg of
+// argument of latitude past the node. Every vessel placed with the same
+// inclDeg shares one plane whatever its phase, which is what keeps a
+// spawned partner coplanar with the seed (#566).
+func RingState(frame orbital.BodyFrame, r, v, phaseDeg, inclDeg float64) (R, V orbital.Vec3) {
+	th := phaseDeg * math.Pi / 180
+	inc := inclDeg * math.Pi / 180
+	ci, si := math.Cos(inc), math.Sin(inc)
+	tilt := func(x, y float64) orbital.Vec3 { return orbital.Vec3{X: x, Y: y * ci, Z: y * si} }
+	return frame.ToWorld(tilt(r*math.Cos(th), r*math.Sin(th))), frame.ToWorld(tilt(-v*math.Sin(th), v*math.Cos(th)))
+}
+
 // NewInLEOAtInclination is NewInLEOAtPhase with an explicit inclination
 // (degrees, Earth equatorial frame, ascending node at body-frame +X).
 // The game itself always seeds SeedInclinationDeg; this exists so a test
@@ -638,14 +653,11 @@ func NewInLEOAtInclination(earth bodies.CelestialBody, phaseDeg, inclDeg float64
 	// frame's X axis (ascending node at body-frame +X, RAAN 0). The tilt
 	// is applied after the phase, so every phase sits on the one shared
 	// inclined plane (the phase is the argument of latitude).
-	th := phaseDeg * math.Pi / 180
-	inc := inclDeg * math.Pi / 180
-	ci, si := math.Cos(inc), math.Sin(inc)
-	tilt := func(x, y float64) orbital.Vec3 { return orbital.Vec3{X: x, Y: y * ci, Z: y * si} }
 	frame := orbital.ReferenceFrameForPrimary(earth)
+	R, V := RingState(frame, r, v, phaseDeg, inclDeg)
 	c.State = physics.StateVector{
-		R: frame.ToWorld(tilt(r*math.Cos(th), r*math.Sin(th))),
-		V: frame.ToWorld(tilt(-v*math.Sin(th), v*math.Cos(th))),
+		R: R,
+		V: V,
 		M: c.TotalMass(),
 	}
 	return c

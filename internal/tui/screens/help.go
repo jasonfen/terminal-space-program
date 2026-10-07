@@ -148,7 +148,7 @@ var helpSections = []helpSection{
 		{"esc", "close without planting"},
 	}},
 	{"VESSEL", [][2]string{
-		{"n", "open spawn form (loadout / position / parent / altitude / dir)"},
+		{"n", "open spawn form (loadout / position / inclination / parent / altitude / dir)"},
 		{"f", "spawn form: toggle scale-class system filter (show all ↔ filter to this system)"},
 		{"[ / ]", "cycle active vessel"},
 		{"1-9", "jump to vessel N (no-op when the slot is empty)"},

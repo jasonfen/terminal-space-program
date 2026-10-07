@@ -88,7 +88,9 @@ type SpawnSpec struct {
 	// equatorial frame. Zero (the common case) spawns equatorial,
 	// byte-identical to the pre-v0.17 placement. The orbit stays
 	// circular; only the plane tilts (ascending node along body-frame
-	// +Y, the spawn-position axis). Used by the --inclination CLI flag.
+	// +X, the same node line as the default seed vessel, so equal
+	// inclinations are coplanar; #566). Used by the --inclination CLI
+	// flag and the spawn form's INCLINATION row.
 	Inclination float64
 	Alongside   bool
 
@@ -362,29 +364,26 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		v = -v
 	}
 
-	// v0.8.6+: spawn into the primary's equatorial plane (ECI / MCI
-	// convention) rather than the world ecliptic. Body-frame +Y
-	// position with prograde velocity along -X — rotates into world
-	// coords applying the body's axial tilt so an Earth-orbit spawn
-	// passes over the equator (Ecuador), not over the world XY plane
-	// (which crosses Earth at ~23°N). The +Y / -X orientation
-	// preserves the pre-v0.8.6 90° offset from the default LEO craft
-	// (which sits at body-frame +X).
-	frame := orbital.ReferenceFrameForPrimary(primary)
-	rBody := orbital.Vec3{Y: r}
+	// v0.8.6+: spawn into the primary's equatorial frame (ECI / MCI
+	// convention) rather than the world ecliptic, so an Earth-orbit spawn
+	// passes over the equator, not the world XY plane (which crosses Earth
+	// at ~23 N).
+	//
 	// v0.17+: tilt the circular orbit off the equator by spec.Inclination.
-	// The spawn point (+Y) is the ascending node, so the plane rotates
-	// about the +Y axis: the prograde in-plane velocity (-X) tips toward
-	// +Z by the inclination angle. At i=0 this is exactly {X: -v} (and the
-	// retrograde sign flows through v), so the equatorial path is unchanged.
-	inc := spec.Inclination * math.Pi / 180
-	vBody := orbital.Vec3{X: -v * math.Cos(inc), Z: v * math.Sin(inc)}
+	// #566: the orbit is built by the same construction as the default
+	// seed vessel (spacecraft.RingState: ascending node at body-frame +X),
+	// with the spawn placed 90 degrees of argument of latitude past the
+	// node, so a spawn at the seed's inclination is COPLANAR with the seed
+	// (same plane, not just same inclination) and only phased 90 degrees
+	// from it. At i=0 this is exactly the historical {Y: r} / {X: -v}.
+	frame := orbital.ReferenceFrameForPrimary(primary)
+	spawnR, spawnV := spacecraft.RingState(frame, r, v, 90, spec.Inclination)
 	c.Primary = primary
 	// v0.16 / ADR 0015: bind the new Vessel to the viewed System.
 	c.SystemIdx = w.SystemIdx
 	c.State = physics.StateVector{
-		R: frame.ToWorld(rBody),
-		V: frame.ToWorld(vBody),
+		R: spawnR,
+		V: spawnV,
 		M: c.TotalMass(),
 	}
 	w.stampCraftID(c) // stable identity before the craft enters the slate (ADR 0012)

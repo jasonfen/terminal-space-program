@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"math"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -136,5 +137,22 @@ func TestSeedMarsPlanBudgetProbe(t *testing.T) {
 		if !equatorial && over {
 			t.Errorf("Mars plan from the seed has an over-budget node")
 		}
+	}
+}
+
+// #566: a spawn at the seed's inclination shares the seed's plane (same
+// node line), not merely its inclination. Before the spawn used the seed's
+// construction the node lines were 90 degrees apart.
+func TestSpawnAtSeedInclinationIsCoplanarWithSeed(t *testing.T) {
+	w := mustWorld(t)
+	seed := w.ActiveCraft()
+	c, err := w.SpawnCraft(SpawnSpec{AltitudeM: DefaultOrbitAltitudeM, Inclination: spacecraft.SeedInclinationDeg})
+	if err != nil {
+		t.Fatal(err)
+	}
+	na := seed.State.R.Cross(seed.State.V).Unit()
+	nb := c.State.R.Cross(c.State.V).Unit()
+	if d := math.Acos(math.Min(1, na.Dot(nb))) * 180 / math.Pi; d >= 0.01 {
+		t.Errorf("spawn at the seed inclination is %.4f deg off the seed plane, want < 0.01", d)
 	}
 }
