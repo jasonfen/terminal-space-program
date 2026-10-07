@@ -510,10 +510,13 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		aimed := false
 		if depOK {
 			if arr, ok := w.splitCaptureAim(c, target, muShared, muDestination,
-				rPark, rArrival, rCapture, splitWait, plan.TransferDt.Seconds(), depState); ok {
+				rPark, rArrival, rCapture, splitWait, minLead, plan.TransferDt.Seconds(), depState); ok {
 				aimed = true
 				rFarAim = arr.RFar
 				pcDv, pcTheta = arr.PcDv, arr.PcTheta
+				// Whole-orbit departure slip chosen by the aim (#566).
+				splitWait += arr.DepDelay
+				plan.Departure.OffsetTime = time.Duration(splitWait * float64(time.Second))
 				planeChangeOffset = time.Duration((splitWait + arr.TEntry) * float64(time.Second))
 				captureOffset = time.Duration((splitWait + arr.TCapture) * float64(time.Second))
 				plan.Departure.DV = math.Abs(splitRaiseDv(muShared, rPark, rFarAim))
@@ -1874,6 +1877,12 @@ type splitArrival struct {
 	PcDv      float64 // plane-change Δv at SOI entry (≈0 for a coplanar arrival)
 	PcTheta   float64 // signed plane rotation for the BurnPlaneChange node
 	CaptureDV float64 // capture Δv from the actual hyperbolic perilune speed
+	// DepDelay is how much later (s) than the node-aligned departure the
+	// raise fires: a whole number of parking orbits, so the departure point
+	// stays on the line of nodes while the target's arrival shifts along its
+	// own orbit, zeroing the out-of-plane miss (#566). 0 when the node
+	// phasing already arrives on the plane.
+	DepDelay float64
 }
 
 // splitCaptureAim gives the split strategy the capture-safe arrival the
@@ -1903,17 +1912,22 @@ type splitArrival struct {
 // the coplanar centre-hit UP. ok=false when no candidate resolves a
 // prograde hyperbolic encounter; the caller keeps the pre-#159 plant.
 func (w *World) splitCaptureAim(c *spacecraft.Spacecraft, target bodies.CelestialBody,
-	muShared, muTarget, rPark, rFarSeed, rCapture, splitWait, tTransfer float64,
+	muShared, muTarget, rPark, rFarSeed, rCapture, splitWait, minLead, tTransfer float64,
 	depState physics.StateVector) (splitArrival, bool) {
 	if muTarget <= 0 || rCapture <= 0 || tTransfer <= 0 || rPark <= 0 || rFarSeed == rPark {
 		return splitArrival{}, false
 	}
 	primary := c.Primary
-	depClock := w.Clock.SimTime.Add(time.Duration(splitWait * float64(time.Second)))
+	depClock0 := w.Clock.SimTime.Add(time.Duration(splitWait * float64(time.Second)))
+	depState0 := depState
 	progradeDir := spacecraft.DirectionUnit(spacecraft.BurnPrograde, depState.R, depState.V)
 	if progradeDir.Norm() == 0 {
 		return splitArrival{}, false
 	}
+	tPark := 2 * math.Pi * math.Sqrt(rPark*rPark*rPark/muShared)
+	// delayOrbits is the whole-parking-orbit slip applied to the departure
+	// (see splitArrival.DepDelay); measure reads the slipped departure.
+	delayOrbits := 0
 
 	type measurement struct {
 		arr      splitArrival
@@ -1921,9 +1935,20 @@ func (w *World) splitCaptureAim(c *spacecraft.Spacecraft, target bodies.Celestia
 		vInf     float64 // hyperbolic excess speed (m/s)
 		b        float64 // achieved impact parameter |h|/v∞ (m)
 		prograde bool    // moon-frame angular momentum along the target's orbit normal
+		bNormal  float64 // |component of the impact vector along the target's orbit normal| (m)
 	}
 	measure := func(rFar float64) (measurement, bool) {
+		depClock, depState := depClock0, depState0
+		if delayOrbits != 0 {
+			var okD bool
+			depState, okD = physics.KeplerStep(depState0, muShared, float64(delayOrbits)*tPark)
+			if !okD {
+				return measurement{}, false
+			}
+			depClock = depClock0.Add(time.Duration(float64(delayOrbits) * tPark * float64(time.Second)))
+		}
 		post := depState
+		progradeDir := spacecraft.DirectionUnit(spacecraft.BurnPrograde, depState.R, depState.V)
 		post.V = depState.V.Add(progradeDir.Scale(splitRaiseDv(muShared, rPark, rFar)))
 		tEntry, _, found := w.transferEncounterTimes(post, primary, target, depClock, tTransfer*1.2)
 		if !found {
@@ -1957,11 +1982,17 @@ func (w *World) splitCaptureAim(c *spacecraft.Spacecraft, target bodies.Celestia
 		vInf := math.Sqrt(muTarget / -el.A)
 		h := rel.R.Cross(rel.V)
 		vPeri := math.Sqrt(vInf*vInf + 2*muTarget/rp)
+		// Out-of-plane part of the miss: the impact vector (v̂ × ĥ · b)
+		// along the target's orbit normal. The raise's far-apsis trim can
+		// only move the in-plane (radial) part.
+		nTgtOrbit := moonR.Cross(moonV).Unit()
+		bVec := rel.V.Unit().Cross(h.Unit()).Scale(h.Norm() / vInf)
 		return measurement{
 			arr: splitArrival{
 				RFar:      rFar,
 				TEntry:    tEntry,
 				TCapture:  tEntry + tPeri,
+				DepDelay:  float64(delayOrbits) * tPark,
 				PcDv:      pcDv,
 				PcTheta:   pcTheta,
 				CaptureDV: vPeri - math.Sqrt(muTarget/rp),
@@ -1970,6 +2001,7 @@ func (w *World) splitCaptureAim(c *spacecraft.Spacecraft, target bodies.Celestia
 			vInf:     vInf,
 			b:        h.Norm() / vInf,
 			prograde: h.Dot(moonR.Cross(moonV)) > 0,
+			bNormal:  math.Abs(bVec.Dot(nTgtOrbit)),
 		}, true
 	}
 
@@ -1979,7 +2011,50 @@ func (w *World) splitCaptureAim(c *spacecraft.Spacecraft, target bodies.Celestia
 	if !ok {
 		return splitArrival{}, false
 	}
+	// Out-of-plane miss (#566): the node-aligned departure is snapped to the
+	// nearest parking-orbit crossing and the SOI entry sits well before the
+	// apoapsis, so from a steeply inclined parking orbit the target can
+	// arrive tens of thousands of km off the craft's plane, more than the
+	// whole desired impact parameter. The far-apsis trim cannot move that
+	// part, so first slip the departure by whole parking orbits (the
+	// departure point stays on the node line; the target's arrival slides
+	// along its orbit through the plane) to the least out-of-plane miss.
+	const maxDelayOrbits = 12
 	bDes := rCapture * math.Sqrt(1+2*muTarget/(rCapture*nat.vInf*nat.vInf))
+	// Only slip when the out-of-plane miss alone exceeds the whole desired
+	// impact parameter, i.e. the apsis trim cannot reach it (an equatorial
+	// parking orbit never needs it); take the smallest
+	// slip that brings it well under the desired impact parameter, else the
+	// least out-of-plane miss found.
+	if nat.bNormal > bDes {
+		bestDelay, bestN := 0, nat.bNormal
+	scan:
+		for n := 1; n <= maxDelayOrbits; n++ {
+			for _, k := range []int{n, -n} {
+				if splitWait+float64(k)*tPark < minLead { // the burn must still start after now
+					continue
+				}
+				delayOrbits = k
+				m, okK := measure(rFarSeed)
+				if !okK || m.bNormal >= bestN {
+					continue
+				}
+				bestDelay, bestN = k, m.bNormal
+				if bestN <= 0.35*bDes {
+					break scan
+				}
+			}
+		}
+		delayOrbits = bestDelay
+		if delayOrbits != 0 {
+			if m, okD := measure(rFarSeed); okD {
+				nat = m
+				bDes = rCapture * math.Sqrt(1+2*muTarget/(rCapture*nat.vInf*nat.vInf))
+			} else {
+				delayOrbits = 0
+			}
+		}
+	}
 	// Lever sign: outbound trims the apsis BELOW the ring for a prograde
 	// offset, inbound trims it above.
 	lever := -1.0
@@ -2006,11 +2081,15 @@ func (w *World) splitCaptureAim(c *spacecraft.Spacecraft, target bodies.Celestia
 		if m.prograde && math.Abs(m.rp-rCapture) < 0.02*rCapture {
 			break
 		}
-		bSigned := m.b
+		// Work on the in-plane part of b only (the far apsis cannot move
+		// the out-of-plane part): b_in² = b² − b_N².
+		bIn := math.Sqrt(math.Max(m.b*m.b-m.bNormal*m.bNormal, 0))
+		bDesIn := math.Sqrt(math.Max(bDes*bDes-m.bNormal*m.bNormal, 0))
+		bSigned := bIn
 		if !m.prograde {
 			bSigned = -bSigned
 		}
-		next := rFar + lever*(bDes-bSigned)
+		next := rFar + lever*(bDesIn-bSigned)
 		if next <= 0 || (rFarSeed > rPark && next <= rPark) || (rFarSeed < rPark && next >= rPark) {
 			break
 		}

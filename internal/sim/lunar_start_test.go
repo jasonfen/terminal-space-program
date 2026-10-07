@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"sort"
 	"testing"
 	"time"
 
@@ -36,11 +37,64 @@ func TestAdjustStartForLunarTransferWindow(t *testing.T) {
 	if w.LastTransfer.Strategy != "split" {
 		t.Fatalf("strategy = %q, want split", w.LastTransfer.Strategy)
 	}
-	// The achievable departure is quantized to the parking period, so allow
-	// one such period of slack around the 4 h target.
+	// The achievable departure is quantized to the parking period. Since
+	// #566 (Jason, 2026-10-07, option S) the split may slip its departure by
+	// whole parking orbits so the arrival lines up with the Moon's plane,
+	// which from the 51.6 deg seed can pull it EARLIER than the lead (never
+	// before the burn can start). The pin is therefore a ceiling and a floor
+	// of "the burn is still ahead of us", not "within 95 m of 4 h".
+	// See TestLunarTransferWaitDistribution for the measured spread.
 	got := plan.Departure.OffsetTime
-	if got < lead-95*time.Minute || got > lead+95*time.Minute {
-		t.Errorf("departure offset = %v, want within 95m of %v", got, lead)
+	if got <= 0 || got > lead+95*time.Minute {
+		t.Errorf("departure offset = %v, want in (0, %v]", got, lead+95*time.Minute)
+	}
+}
+
+// TestLunarTransferWaitDistribution measures the wait to the Moon-transfer
+// burn from the default start (AdjustStartForLunarTransferWindow, 4 h lead)
+// across 20 start times over a lunar month, from the 51.6 deg seed and an
+// equatorial LEO, and pins that departure slipping never makes the wait
+// worse than the old bound (#566, option S). The raw (unadjusted) wait is
+// bounded by the node phasing, about half a lunar month, unchanged by the slip.
+func TestLunarTransferWaitDistribution(t *testing.T) {
+	for _, eq := range []bool{true, false} {
+		var adj, raw []float64
+		for i := 0; i < 20; i++ {
+			off := time.Duration(float64(i) * 27.3 / 20 * 24 * float64(time.Hour))
+			w := mustWorld(t)
+			if eq {
+				makeActiveEquatorial(w)
+			}
+			w.Clock.SimTime = w.Clock.SimTime.Add(off)
+			idx := moonIndex(w)
+			p, err := w.PlanTransfer(idx)
+			if err != nil {
+				t.Fatalf("PlanTransfer raw: %v", err)
+			}
+			raw = append(raw, p.Departure.OffsetTime.Hours())
+
+			w2 := mustWorld(t)
+			if eq {
+				makeActiveEquatorial(w2)
+			}
+			w2.Clock.SimTime = w2.Clock.SimTime.Add(off)
+			w2.AdjustStartForLunarTransferWindow(DefaultLunarTransferLead)
+			p2, err := w2.PlanTransfer(moonIndex(w2))
+			if err != nil {
+				t.Fatalf("PlanTransfer adjusted: %v", err)
+			}
+			adj = append(adj, p2.Departure.OffsetTime.Hours())
+		}
+		sort.Float64s(adj)
+		sort.Float64s(raw)
+		t.Logf("equatorial=%v wait after default start (h): min %.2f median %.2f max %.2f", eq, adj[0], adj[len(adj)/2], adj[len(adj)-1])
+		t.Logf("equatorial=%v raw wait from arbitrary starts (h): min %.1f median %.1f max %.1f", eq, raw[0], raw[len(raw)/2], raw[len(raw)-1])
+		if adj[0] <= 0 || adj[len(adj)-1] > (DefaultLunarTransferLead+95*time.Minute).Hours() {
+			t.Errorf("equatorial=%v default-start wait %.2f..%.2f h outside (0, 5.6]", eq, adj[0], adj[len(adj)-1])
+		}
+		if raw[len(raw)-1] > 15*24 {
+			t.Errorf("equatorial=%v raw wait max %.0f h exceeds the half-month phasing bound", eq, raw[len(raw)-1])
+		}
 	}
 }
 
