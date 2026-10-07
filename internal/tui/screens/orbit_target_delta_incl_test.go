@@ -73,7 +73,8 @@ func TestBuildTargetChipTagsDeltaInclDueEastForLandedVesselTarget(t *testing.T) 
 	}); err != nil {
 		t.Fatalf("SpawnCraft: %v", err)
 	}
-	w.ActiveCraftIdx = 0 // the seed equatorial LEO craft.
+	w.ActiveCraftIdx = 0
+	makeActiveEquatorial(w) // the seed is inclined (#566); this test wants an equatorial orbit.
 	w.SetTargetCraft(1)  // the landed KSC craft.
 	if w.Target.Kind != sim.TargetCraft {
 		t.Fatalf("setup: expected TargetCraft, got %v", w.Target.Kind)

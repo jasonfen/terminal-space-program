@@ -282,3 +282,33 @@ func TestLaunchWindowBestDoesNotStickOnZero(t *testing.T) {
 		t.Errorf("%d solves across 461 one-second frames over the best moment, want at most 3", n)
 	}
 }
+
+// #566 player loop: a vessel on the KSC pad targeting the DEFAULT seed
+// vessel gets a real window (Open, not Always, a heading near 044 or
+// 136, T- inside a day). On an equatorial seed this read "best 28.61".
+func TestLaunchWindowKSCToDefaultSeedHasRealWindow(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedIdx := w.ActiveCraftIdx
+	if _, err := w.SpawnCraft(SpawnSpec{
+		LoadoutID: spacecraft.LoadoutSaturnVID, ParentBodyID: "earth",
+		Launchpad: true, Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	padIdx := len(w.Crafts) - 1
+	w.ActiveCraftIdx = padIdx
+	w.SetTargetCraft(seedIdx)
+	lw, ok := w.LaunchWindow()
+	if !ok || !lw.Open || lw.Always {
+		t.Fatalf("want an Open, not Always, window: ok=%v %+v", ok, lw)
+	}
+	if d := lw.NextPass(w.Clock.SimTime); d <= 0 || d > 24*time.Hour {
+		t.Errorf("T- %v outside (0,24h]", d)
+	}
+	if h := lw.HeadingDeg; math.Abs(h-44) > 1.5 && math.Abs(h-136) > 1.5 {
+		t.Errorf("heading %.2f, want near 044 or 136", h)
+	}
+}

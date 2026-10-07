@@ -26,6 +26,11 @@ func wideMapRender(t *testing.T, system string, cols, rows int) (*OrbitView, *si
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
+	// The Tilted camera follows the active vessel's orbit, so the exact
+	// label placements pinned below depend on the seed's plane. They were
+	// measured on the equatorial seed; the seed is now inclined (#566), so
+	// keep the layout fixture on the equatorial vessel.
+	makeActiveEquatorial(w)
 	for i := 0; i < len(w.Systems) && w.Systems[w.SystemIdx].Name != system; i++ {
 		w.CycleSystem()
 	}

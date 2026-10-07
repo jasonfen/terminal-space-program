@@ -171,7 +171,9 @@ func TestPlanVesselPlaneMatchRefusals(t *testing.T) {
 			t.Fatalf("SpawnCraft: %v", err)
 		}
 		w.ActiveCraftIdx = 0
-		// Both crafts spawn equatorial by default — same plane already.
+		// The spawn is equatorial; the default seed is inclined (#566),
+		// so put the active vessel on the equator too: same plane.
+		makeActiveEquatorial(w)
 		w.SetTargetCraft(1)
 		if _, err := w.PlanVesselPlaneMatch(); !errors.Is(err, planner.ErrInclinationNoOp) {
 			t.Errorf("err = %v, want planner.ErrInclinationNoOp", err)
