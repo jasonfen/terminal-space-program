@@ -82,8 +82,6 @@ func runSeedLunarTransfer(t *testing.T, equatorial bool) seedLunarRun {
 	return r
 }
 
-
-
 // TestSeedLunarTransferFitsAndFlies pins issue #566's mission check: from
 // the 51.6 deg seed the game's own Moon transfer is affordable on the
 // S-IVB-1's Δv (no over-budget node: tut-plan's budget gate) and the
