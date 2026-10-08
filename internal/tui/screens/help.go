@@ -111,7 +111,7 @@ var helpSections = []helpSection{
 		{"r", "engine: main / rcs"},
 		{"p", "rcs pulse step: 0.1 / 0.01 / 0.001 m/s (fine trim)"},
 		{"k", "SAS model: slew / instant"},
-		{";", "NavMode cycle: Orbit → Surface → Target (skips Target when none is set)"},
+		{";", "NavMode cycle: Surface → Orbit → Target (skips Target when none is set)"},
 	}},
 	{"NAVIGATION", [][2]string{
 		{"l", "move the body cursor next (info only, not [t] target)"},
