@@ -203,7 +203,7 @@ type Keymap struct {
 	ClearTarget key.Binding
 
 	// CycleNavMode (v0.9.3+): rotate the SAS reference frame through
-	// Orbit → Surface → Target → Orbit (KSP nav-ball mode cycle).
+	// Surface → Orbit → Target → Surface (KSP nav-ball mode cycle, Surface first since 2026-10-08).
 	// Skips Target when no craft target is bound. The same w/s/a/d/q/e
 	// axis keys reinterpret accordingly: in NavTarget, w/s become
 	// target-relative prograde/retrograde and q/e become Target/Anti-
@@ -447,7 +447,7 @@ func DefaultKeymap() Keymap {
 		TransferControl:     key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "transfer control of a cross-player stack")),
 		CycleTarget:         key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "cycle target (body / vessel)")),
 		ClearTarget:         key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "clear target")),
-		CycleNavMode:        key.NewBinding(key.WithKeys(";"), key.WithHelp(";", "nav: orbit / surface / target")),
+		CycleNavMode:        key.NewBinding(key.WithKeys(";"), key.WithHelp(";", "nav: surface / orbit / target")),
 		Stage:               key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "decouple bottom stage")),
 
 		AttitudeSurfacePrograde:   key.NewBinding(key.WithKeys("W"), key.WithHelp("W", "attitude: surface prograde")),

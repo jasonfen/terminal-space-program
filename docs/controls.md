@@ -198,7 +198,7 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 | `alt` | The Alt key on Windows and Linux (WezTerm and most terminals send it as-is); Option on a Mac, see the next row |
 | `alt` on a Mac | Ghostty sends Option as alt as-is. Terminal.app and iTerm2 need Option sent as Meta: Terminal.app, Profiles > Keyboard > "Use Option as Meta key"; iTerm2, Profiles > Keys > Left Option key = Esc+ |
 | `\|` | Clear the manual tip and the commanded heading (both trims back to 0) |
-| `;` | Autopilot reference: Orbit → Surface → Target (skips Target when none is set) |
+| `;` | Autopilot reference: Surface → Orbit → Target (skips Target when none is set) |
 | `k` | Steering style: smooth turning (default) or instant snap |
 | `r` | Switch between the main engine and RCS thrusters |
 | `p` | RCS pulse step: cycle the per-press Δv (0.1 → 0.01 → 0.001 m/s) |

@@ -100,22 +100,37 @@ func (w *World) ResolveAttitudeIntent(intent AttitudeIntent) spacecraft.BurnMode
 	return spacecraft.BurnPrograde
 }
 
-// CycleNavMode advances World.NavMode through Orbit → Surface → Target
-// → Orbit. NavTarget is skipped when no craft target is bound so the
-// player never lands on a mode that silently degrades back to orbit.
-// Returns the new mode for the caller's HUD flash.
+// CycleNavMode advances World.NavMode through Surface → Orbit → Target
+// → Surface (Jason, 2026-10-08; it was Orbit → Surface → Target).
+// NavTarget is skipped when no craft target is bound so the player never
+// lands on a mode that silently degrades back to orbit. The order lives in
+// navModeNext rather than in the enum, because the enum's numbers are
+// persisted (save `nav_mode`). Returns the new mode for the caller's HUD
+// flash.
 func (w *World) CycleNavMode() NavMode {
 	// Not comms-gated (ADR 0027): NavMode is the navball reference frame —
 	// a display / SAS-reference toggle (like the camera), not a new command
 	// to the vessel. The gated attitude command is SetAttitudeMode.
 	hasCraftTarget := w.HasRelativeTarget()
 	for i := 0; i < 3; i++ {
-		w.NavMode = (w.NavMode + 1) % 3
+		w.NavMode = navModeNext(w.NavMode)
 		if w.NavMode != NavTarget || hasCraftTarget {
 			return w.NavMode
 		}
 	}
 	return w.NavMode
+}
+
+// navModeNext is the `;` cycle order: Surface → Orbit → Target → Surface.
+func navModeNext(m NavMode) NavMode {
+	switch m {
+	case NavSurface:
+		return NavOrbit
+	case NavOrbit:
+		return NavTarget
+	default:
+		return NavSurface
+	}
 }
 
 // reconcileNavMode forces NavTarget back to NavOrbit when the player

@@ -115,9 +115,10 @@ func TestResolveAttitudeIntentTargetFallback(t *testing.T) {
 	}
 }
 
-// TestCycleNavModeSkipsTargetWithoutCraftTarget — without a craft
-// target, the cycle goes Orbit → Surface → Orbit (Target skipped) so
-// the player never lands on a mode that silently degrades.
+// TestCycleNavModeSkipsTargetWithoutCraftTarget: the cycle order is
+// Surface → Orbit → Target → Surface (Jason, 2026-10-08). Without a vessel
+// target, Target is skipped, so `;` toggles Orbit ⇄ Surface and the player
+// never lands on a mode that silently degrades.
 func TestCycleNavModeSkipsTargetWithoutCraftTarget(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -127,16 +128,16 @@ func TestCycleNavModeSkipsTargetWithoutCraftTarget(t *testing.T) {
 		t.Fatalf("default nav: got %v, want NavOrbit", w.NavMode)
 	}
 	if got := w.CycleNavMode(); got != NavSurface {
-		t.Errorf("cycle 1: got %v, want NavSurface", got)
+		t.Errorf("cycle 1 from Orbit (skips Target, none bound): got %v, want NavSurface", got)
 	}
 	if got := w.CycleNavMode(); got != NavOrbit {
-		t.Errorf("cycle 2 (skips target — no craft target): got %v, want NavOrbit", got)
+		t.Errorf("cycle 2 from Surface: got %v, want NavOrbit", got)
 	}
 }
 
-// TestCycleNavModeIncludesTargetWhenCraftTargetBound — once a sibling
-// craft is targeted, the cycle visits all three: Orbit → Surface →
-// Target → Orbit.
+// TestCycleNavModeIncludesTargetWhenCraftTargetBound: with a vessel
+// targeted the cycle visits all three in the order Surface → Orbit →
+// Target → Surface (Jason, 2026-10-08; was Orbit → Surface → Target).
 func TestCycleNavModeIncludesTargetWhenCraftTargetBound(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -146,14 +147,15 @@ func TestCycleNavModeIncludesTargetWhenCraftTargetBound(t *testing.T) {
 		t.Fatalf("SpawnSisterCraft: %v", err)
 	}
 	w.SetTargetCraft(0)
-	if got := w.CycleNavMode(); got != NavSurface {
-		t.Errorf("cycle 1: got %v, want NavSurface", got)
+	w.NavMode = NavSurface
+	if got := w.CycleNavMode(); got != NavOrbit {
+		t.Errorf("from Surface: got %v, want NavOrbit", got)
 	}
 	if got := w.CycleNavMode(); got != NavTarget {
-		t.Errorf("cycle 2: got %v, want NavTarget", got)
+		t.Errorf("from Orbit: got %v, want NavTarget", got)
 	}
-	if got := w.CycleNavMode(); got != NavOrbit {
-		t.Errorf("cycle 3: got %v, want NavOrbit", got)
+	if got := w.CycleNavMode(); got != NavSurface {
+		t.Errorf("from Target: got %v, want NavSurface", got)
 	}
 }
 
