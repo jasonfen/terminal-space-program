@@ -399,7 +399,7 @@ func DefaultKeymap() Keymap {
 		NextSystem: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next system")),
 		WarpUp:     key.NewBinding(key.WithKeys("."), key.WithHelp(".", "warp up")),
 		WarpDown:   key.NewBinding(key.WithKeys(","), key.WithHelp(",", "warp down")),
-		AutoWarp:   key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "auto-warp to next burn (30s lead)")),
+		AutoWarp:   key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "auto-warp to next burn or launch window (30s lead)")),
 		CancelWarp: key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "cancel warp — drop to 1× (cancels auto-warp)")),
 		// v0.9.1: dropped `space` from Pause; space is now Stage. `0`
 		// alone retains the pause binding (it never collided).

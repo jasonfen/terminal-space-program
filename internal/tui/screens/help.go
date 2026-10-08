@@ -85,7 +85,7 @@ var helpSections = []helpSection{
 	{"TIME & WARP", [][2]string{
 		{".", "warp up (1× … 100000×; inert during a rendezvous coast)"},
 		{",", "warp down (inert during a rendezvous coast; [/] cancels)"},
-		{"G", "auto-warp to 30 s before the next burn, then 1× (inert during a rendezvous coast)"},
+		{"G", "auto-warp to 30 s before the next burn (on the pad: the launch window), then 1× (inert during a rendezvous coast)"},
 		{"y", "join a pending rendezvous warp: you fly copilot, they set the pair's warp"},
 		{". / ,", "as rendezvous copilot: release toward following / brake the pair down"},
 		{"/", "cancel warp: drop to 1× (also cancels auto-warp / rendezvous warp)"},

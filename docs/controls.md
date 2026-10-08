@@ -171,7 +171,7 @@ Dvorak, and free per-key remapping aren't supported yet.
 |---|---|
 | `0` | Pause / resume |
 | `.` / `,` | Speed time up / down, to 100,000×. Eases off automatically around a burn |
-| `G` | Auto-warp to the next burn (any vessel's): warps to 30 s before it fires, ramps down, and hands you 1× to watch it arm. `.` / `,` or the `[»Burn]` button cancels it |
+| `G` | Auto-warp to the next burn (any vessel's): warps to 30 s before it fires, ramps down, and hands you 1× to watch it arm. On the pad with a target, it warps to 30 s before the launch window on the `plan:` row instead (the best moment, when there is no exact pass). `.` / `,` or the `[»Burn]` button cancels it |
 | `/` | Cancel warp: straight back to 1× from any level, and cancel auto-warp or a rendezvous warp if one is running |
 
 During a multiplayer rendezvous warp the manual warp keys and `G` are inert
@@ -283,7 +283,7 @@ Click only; no dragging, no scroll-to-zoom.
 
 | Click | Action |
 |---|---|
-| `[»Burn]` (top-right) | Toggle auto-warp to the next burn (same as `G`). Shows `[■Burn]` while running, dimmed with no burn planned |
+| `[»Burn]` (top-right) | Toggle auto-warp to the next burn, or on the pad to the launch window (same as `G`). Shows `[■Burn]` while running, dimmed with nothing to warp to |
 | `[Menu]` (top-right) | Save / load / build / settings / keyboard layout / help / quit menu |
 | Settings → **Empty readings** | What the instrument boxes do with boxes and rows that have nothing to say. **Full**: every box and row always drawn, dashes and all, TARGET included. **Tidy** (default): no TARGET box while nothing is targeted, and NAVIGATION drops its trailing dash rows while TARGET is absent. **Compact**: Tidy, plus every box drops its trailing dash rows. Rows fold from the bottom of a box only; box widths never change |
 | `[Missions]` (top-right) | Mission ladder (same as `M`). Flight School is on unless switched off; the Challenge ladder stays opt-in; enable it in `[Menu]` → Settings |
