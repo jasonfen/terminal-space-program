@@ -48,6 +48,14 @@ type AutoWarpTarget struct {
 	Rendezvous       bool
 	RendezvousOwner  string // partner fingerprint (retract detection + chip)
 	RendezvousHandle string // partner handle (arrival chip text)
+
+	// LaunchWindow (Jason, 2026-10-08): on the pad, the driver chases the
+	// pad's launch window (World.LaunchWindow: the plane pass, or the best
+	// moment when no pass exists) less the usual lead, then hands off at
+	// 1x like a burn. No node identity; T re-freezes from the window each
+	// tick and the driver disengages when there is no window to chase
+	// (target cleared, vessel off the pad).
+	LaunchWindow bool
 }
 
 // autoWarpEngaged reports whether the driver is active.
@@ -59,8 +67,33 @@ func (w *World) AutoWarpEngaged() bool { return w.autoWarpEngaged() }
 // AutoWarpEligible reports whether engaging right now would find a burn
 // to chase — drives the dimmed/active state of the title-bar button.
 func (w *World) AutoWarpEligible() bool {
+	if _, ok := w.launchWindowWarpTarget(); ok {
+		return true
+	}
 	_, _, _, ok := w.soonestEligibleBurn()
 	return ok
+}
+
+// launchWindowWarpTarget is the release point for Auto-Warp to the pad's
+// launch window: the pass (or, with no pass, the best moment) less
+// autoWarpLeadTime, when the active vessel is on the pad, the window is
+// not the always-open kind, and that point is still ahead. On the pad the
+// window wins over any other vessel's planted burn: it is the one thing the
+// player there is waiting for.
+func (w *World) launchWindowWarpTarget() (time.Time, bool) {
+	lw, ok := w.LaunchWindow()
+	if !ok || lw.Always {
+		return time.Time{}, false
+	}
+	at := lw.BestAt
+	if lw.Open {
+		at = lw.PassAt
+	}
+	t := at.Add(-autoWarpLeadTime)
+	if !t.After(w.Clock.SimTime) {
+		return time.Time{}, false
+	}
+	return t, true
 }
 
 // AutoWarpSecondsToTarget returns the sim-seconds until the engaged
@@ -83,6 +116,11 @@ func (w *World) AutoWarpSecondsToTarget() (float64, bool) {
 // no-op returning false (the button is dimmed). Engaging while paused
 // auto-unpauses so time actually advances.
 func (w *World) EngageAutoWarp() bool {
+	if t, ok := w.launchWindowWarpTarget(); ok {
+		w.AutoWarp = &AutoWarpTarget{LaunchWindow: true, T: t}
+		w.Clock.Paused = false
+		return true
+	}
 	craftID, nodeID, burnStart, ok := w.soonestEligibleBurn()
 	if !ok {
 		return false
@@ -1017,6 +1055,22 @@ func (w *World) resolveAutoWarp() {
 	// tick; until then clampedWarp floors a past-T rendezvous coast at 1×
 	// so nothing races ahead of an unresolved waypoint.
 	if w.AutoWarp.Rendezvous {
+		return
+	}
+	// Launch window (2026-10-08): re-freeze from the window; nothing left to
+	// chase (target cleared, lifted off) disengages, keeping Selected Warp.
+	if w.AutoWarp.LaunchWindow {
+		if !w.Clock.SimTime.Before(w.AutoWarp.T) {
+			w.Clock.WarpIdx = 0 // hand off to 1x to watch the window come up
+			w.DisengageAutoWarp()
+			return
+		}
+		t, ok := w.launchWindowWarpTarget()
+		if !ok {
+			w.DisengageAutoWarp()
+			return
+		}
+		w.AutoWarp.T = t
 		return
 	}
 	n, ok := w.nodeByID(w.AutoWarp.CraftID, w.AutoWarp.NodeID)
