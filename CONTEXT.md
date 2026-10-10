@@ -531,8 +531,10 @@ marker's colour) and the Target's is TARGET green (2026-10-10; the active
 orbit was pale slate, which read as Earth's atmosphere edge at a low
 orbit). Real and Planned lines, Vessels and markers win any cell they
 share with a body's disk, the launch view's ground and sky, or Scenery,
-so a line crossing a planet stays a line; Scenery yields like the body
-it circles.
+so a line crossing a planet stays a line, in a one-dot dark moat (the
+backdrop dots touching it are cleared) so it reads over a body of any
+colour or texture without changing its own colour; Scenery yields like the
+body it circles.
 _Avoid_: Line type, Stroke.
 
 **Pan** (ADR 0042):

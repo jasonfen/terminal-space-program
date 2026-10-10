@@ -62,3 +62,73 @@ func TestLineAcrossBackdropDiskWinsItsCells(t *testing.T) {
 		t.Errorf("a bare disk changed colour: planet %d cells, line %d", d.CountColor(planet), d.CountColor(line))
 	}
 }
+
+// litDots rebuilds the lit pixel grid from String()'s braille runes.
+func litDots(t *testing.T, c *Canvas) map[[2]int]bool {
+	t.Helper()
+	lit := map[[2]int]bool{}
+	for y, row := range strings.Split(ansi.Strip(c.String()), "\n") {
+		for x, r := range []rune(row) {
+			if r < 0x2800 || r > 0x28FF {
+				continue
+			}
+			for dy := 0; dy < 4; dy++ {
+				for dx := 0; dx < 2; dx++ {
+					if (r-0x2800)&brailleDotBit[dy][dx] != 0 {
+						lit[[2]int{x*2 + dx, y*4 + dy}] = true
+					}
+				}
+			}
+		}
+	}
+	return lit
+}
+
+// A line over a body sits in a dark moat (Jason 2026-10-10: "can it be
+// smart about background colors like on Io"): no backdrop dot touching
+// one of the line's dots stays lit, so the line reads on a planet of any
+// colour or texture (yellow over Io, green over Kern or Earth's land)
+// without changing colour. The moat is one dot wide; backdrop further out
+// is untouched.
+func TestLineOverBackdropSitsInADarkMoat(t *testing.T) {
+	const planet, line = lipgloss.Color("#E8D940"), lipgloss.Color("#FFD93D") // Io under your orbit
+	c := NewCanvas(40, 20)
+	c.SetScale(1)
+	c.FillColoredDiskTagged(orbital.Vec3{}, 30, CellTag{Color: planet, BodyID: "io", Backdrop: true})
+	c.PlotDenseLineColored(orbital.Vec3{X: -36, Y: 1}, orbital.Vec3{X: 36, Y: 1}, line, 1)
+
+	fore := map[[2]int]bool{}
+	c.pixelTags.each(func(px, py int, tag CellTag) {
+		if !tag.Backdrop {
+			fore[[2]int{px, py}] = true
+		}
+	})
+	if len(fore) < 50 {
+		t.Fatalf("setup: the line drew %d pixels", len(fore))
+	}
+	lit := litDots(t, c)
+	touching, moatEdge := 0, 0
+	for p := range fore {
+		for dy := -1; dy <= 1; dy++ {
+			for dx := -1; dx <= 1; dx++ {
+				q := [2]int{p[0] + dx, p[1] + dy}
+				if fore[q] {
+					continue
+				}
+				if tag, ok := c.pixelTags.get(q[0], q[1]); ok && tag.Backdrop && lit[q] {
+					touching++
+				}
+			}
+		}
+		// Two dots out is beyond the moat: the planet is still there.
+		if q := [2]int{p[0], p[1] + 2}; !fore[q] && lit[q] {
+			moatEdge++
+		}
+	}
+	if touching != 0 {
+		t.Errorf("%d planet dots still lit right beside the line; want a one-dot dark moat", touching)
+	}
+	if moatEdge == 0 {
+		t.Error("no planet dots two out from the line: the moat is wider than one dot, or the disk vanished")
+	}
+}
