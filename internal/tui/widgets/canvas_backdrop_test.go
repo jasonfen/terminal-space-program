@@ -132,3 +132,62 @@ func TestLineOverBackdropSitsInADarkMoat(t *testing.T) {
 		t.Error("no planet dots two out from the line: the moat is wider than one dot, or the disk vanished")
 	}
 }
+
+// colorTally picks the same winner as pickDominantColor (count, then the
+// colour string), including ties and a cell using all 8 slots.
+func TestColorTallyMatchesPickDominantColor(t *testing.T) {
+	for _, seq := range [][]lipgloss.Color{
+		{"#B", "#A", "#B", "#A"},
+		{"#1", "#2", "#3", "#4", "#5", "#5", "#6", "#7"},
+		{"#9", "#9", "#1", "#2", "#3", "#4", "#4", "#4"},
+		{"#E", "#D", "#C", "#B", "#A", "#A", "#E", "#E"},
+	} {
+		palette := []lipgloss.Color{""}
+		ids := map[lipgloss.Color]uint16{}
+		var tally colorTally
+		counts := map[lipgloss.Color]int{}
+		for _, c := range seq {
+			id, ok := ids[c]
+			if !ok {
+				id = uint16(len(palette))
+				palette = append(palette, c)
+				ids[c] = id
+			}
+			tally.add(id)
+			counts[c]++
+		}
+		if got, want := palette[tally.dominant(palette)], pickDominantColor(counts); got != want {
+			t.Errorf("%v: tally picks %q, pickDominantColor %q", seq, got, want)
+		}
+	}
+}
+
+// resolveCellInk's scratch lives on the canvas and is reused every frame;
+// a frame drawn after a busy one must render exactly as on a fresh canvas
+// (release zeroes only what the last frame wrote).
+func TestCellInkScratchDoesNotLeakBetweenFrames(t *testing.T) {
+	drawQuiet := func(c *Canvas) {
+		c.PlotColored(orbital.Vec3{X: 5, Y: 5}, "#FF0000")
+	}
+	fresh := NewCanvas(40, 20)
+	fresh.SetScale(1)
+	drawQuiet(fresh)
+	want := fresh.String()
+
+	c := NewCanvas(40, 20)
+	c.SetScale(1)
+	for i := 0; i < 3; i++ {
+		c.Clear()
+		c.FillColoredDiskTagged(orbital.Vec3{}, 30, CellTag{Color: "#2060C0", Backdrop: true})
+		c.PlotDenseLineColored(orbital.Vec3{X: -36, Y: 1}, orbital.Vec3{X: 36, Y: 1}, "#3DDC84", 1)
+		_ = c.String()
+		c.Clear()
+		drawQuiet(c)
+		if got := c.String(); got != want {
+			t.Fatalf("round %d: a quiet frame after a busy one rendered differently from a fresh canvas (stale scratch)", i)
+		}
+		if n := c.CountColor("#3DDC84"); n != 0 {
+			t.Fatalf("round %d: quiet frame counts %d cells of the busy frame's green", i, n)
+		}
+	}
+}

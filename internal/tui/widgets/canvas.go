@@ -167,6 +167,8 @@ type Canvas struct {
 	// Per-pixel tagging keeps body color confined to the body's own
 	// pixels.
 	pixelTags pixelTagGrid
+	// ink is resolveCellInk's reused per-frame scratch (canvas_cell_ink.go).
+	ink inkScratch
 
 	// cellOverlays maps a cell coord → a Unicode glyph that replaces
 	// the drawille-derived char at String() time. v0.5.12+ — used by
@@ -1857,7 +1859,8 @@ func (c *Canvas) String() string {
 	// imately have multi-color pixel sets. Pre-v0.7.2.1 there were
 	// no multi-color cells in practice so the latent bug never
 	// surfaced.
-	cellColor, cellDots, cellMoat := c.resolveCellInk()
+	ink := c.resolveCellInk()
+	defer ink.release()
 	var b strings.Builder
 	// #364: run-length coalescing. Profiling (go test -cpuprofile on an
 	// idle-frame render benchmark) showed the per-CELL
@@ -1900,16 +1903,13 @@ func (c *Canvas) String() string {
 			if x < len(runes) {
 				ch = runes[x]
 			}
-			if clear, ok := cellMoat[[2]int{x, i}]; ok && ch >= 0x2800 && ch <= 0x28FF {
-				ch &^= clear
-			}
-			if dots, ok := cellDots[[2]int{x, i}]; ok {
-				ch = dots
-			}
+			cellIdx := i*c.cols + x
+			ch = ink.runeAt(cellIdx, ch)
 			if overlay, ok := c.cellOverlays[[2]int{x, i}]; ok {
 				ch = overlay
 			}
-			color, hasColor := cellColor[[2]int{x, i}]
+			color := ink.colorAt(cellIdx)
+			hasColor := color != ""
 			var fg lipgloss.TerminalColor = color
 			// A pinned overlay color (SetCellLabelColored) wins over the
 			// pixelTag-derived cell color so labels render in the theme
@@ -1937,97 +1937,15 @@ func (c *Canvas) String() string {
 // paint each cell. Intended for render assertions (e.g. "the orbit
 // ellipse lands on enough cells to read as a line, not just a marker").
 func (c *Canvas) CountColor(color lipgloss.Color) int {
-	cellColor, _, _ := c.resolveCellInk()
+	ink := c.resolveCellInk()
+	defer ink.release()
 	n := 0
-	for _, got := range cellColor {
-		if got == color {
+	for _, idx := range ink.touched {
+		if ink.colorAt(int(idx)) == color {
 			n++
 		}
 	}
 	return n
-}
-
-// brailleDotBit is the braille-pattern bit for a pixel at (dx, dy) inside
-// its 2x4 cell, the same layout drawille sets.
-var brailleDotBit = [4][2]rune{{0x01, 0x08}, {0x02, 0x10}, {0x04, 0x20}, {0x40, 0x80}}
-
-// resolveCellInk is the one per-cell colour rule String() and CountColor
-// share. A cell takes the majority colour of its tagged pixels, ties broken
-// on the colour string, except where Backdrop ink (a body disk, a horizon
-// band, Scenery) meets other ink:
-//   - a cell holding both shows only the other ink, its majority colour and
-//     its own dots (dots: the whole braille rune), so a line across a planet
-//     stays a line rather than losing the vote 8 to 2;
-//   - every backdrop dot touching a dot of other ink (8-neighbour) is
-//     cleared (moat: braille bits to clear from the cell's rune), so the
-//     line sits in a one-dot dark channel and reads on a body of any colour
-//     or texture, yellow over Io, green over Kern or Earth's land (Jason
-//     2026-10-10), without the line changing colour.
-func (c *Canvas) resolveCellInk() (colors map[[2]int]lipgloss.Color, dots, moat map[[2]int]rune) {
-	type cellInk struct {
-		all, fore map[lipgloss.Color]int
-		foreDots  rune
-		backdrop  bool
-	}
-	// Pass 1: the moat, every backdrop pixel touching non-backdrop ink.
-	var moatPx map[[2]int]bool
-	c.pixelTags.each(func(px, py int, tag CellTag) {
-		if tag.Backdrop || tag.Color == "" {
-			return
-		}
-		for dy := -1; dy <= 1; dy++ {
-			for dx := -1; dx <= 1; dx++ {
-				if n, ok := c.pixelTags.get(px+dx, py+dy); ok && n.Backdrop {
-					if moatPx == nil {
-						moatPx = make(map[[2]int]bool)
-					}
-					moatPx[[2]int{px + dx, py + dy}] = true
-				}
-			}
-		}
-	})
-	cells := make(map[[2]int]*cellInk)
-	c.pixelTags.each(func(px, py int, tag CellTag) {
-		if tag.Color == "" {
-			return
-		}
-		key := [2]int{px / 2, py / 4}
-		if tag.Backdrop && moatPx[[2]int{px, py}] {
-			if moat == nil {
-				moat = make(map[[2]int]rune)
-			}
-			moat[key] |= brailleDotBit[py%4][px%2]
-			return // a cleared dot casts no colour vote
-		}
-		ci := cells[key]
-		if ci == nil {
-			ci = &cellInk{all: make(map[lipgloss.Color]int)}
-			cells[key] = ci
-		}
-		ci.all[tag.Color]++
-		if tag.Backdrop {
-			ci.backdrop = true
-			return
-		}
-		if ci.fore == nil {
-			ci.fore = make(map[lipgloss.Color]int)
-		}
-		ci.fore[tag.Color]++
-		ci.foreDots |= brailleDotBit[py%4][px%2]
-	})
-	colors = make(map[[2]int]lipgloss.Color, len(cells))
-	for key, ci := range cells {
-		if ci.fore != nil && (ci.backdrop || moat[key] != 0) {
-			colors[key] = pickDominantColor(ci.fore)
-			if dots == nil {
-				dots = make(map[[2]int]rune)
-			}
-			dots[key] = 0x2800 | ci.foreDots
-			continue
-		}
-		colors[key] = pickDominantColor(ci.all)
-	}
-	return colors, dots, moat
 }
 
 // CountOverlayColor reports how many cells carry the given pinned overlay
