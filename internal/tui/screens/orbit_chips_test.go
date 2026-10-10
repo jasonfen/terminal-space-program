@@ -874,7 +874,9 @@ func TestPropellantBoxMassesRideTheLadder(t *testing.T) {
 		t.Fatalf("SpawnCraft: %v", err)
 	}
 	out := strings.Join(v.buildPropellantBox(w), "\n")
-	for _, want := range []string{"100% (2160 t)", "2902 t", "11.85 t"} {
+	// fuel: is a percentage only since 2026-10-10, so its "(2160 t)" left;
+	// total mass and monoprop still carry the ladder.
+	for _, want := range []string{"2902 t", "11.85 t"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("PROPELLANT box missing %q (masses should ride the kg/t ladder):\n%s", want, out)
 		}
