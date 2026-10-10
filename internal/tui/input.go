@@ -85,6 +85,11 @@ type Keymap struct {
 	FocusNext  key.Binding
 	FocusPrev  key.Binding
 	FocusReset key.Binding
+	// PanReset (`g`, 2026-10-10) drops the Pan and keeps Focus and zoom;
+	// FocusReset moved from `g` to alt+g to make room (Jason: "there should
+	// be a reset key for the pan camera function ... make it g, move the
+	// reset to system view alt+g").
+	PanReset   key.Binding
 	SpawnCraft key.Binding // v0.8.1+: spawn a new craft. Replaced the v0.7.x PlanNode quick-plant default-node debug aid (m/Enter is the proper plant path).
 	// ClearNodes used to live on `N` (the case-collision partner of
 	// `n` SpawnCraft, which made remembering which one wiped vs
@@ -410,7 +415,8 @@ func DefaultKeymap() Keymap {
 		Back:            key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 		FocusNext:       key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "next focus")),
 		FocusPrev:       key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "prev focus")),
-		FocusReset:      key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "focus: system")),
+		FocusReset:      key.NewBinding(key.WithKeys("alt+g"), key.WithHelp("alt+g", "focus: system")),
+		PanReset:        key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "pan: back onto your focus")),
 		SpawnCraft:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "spawn vessel (sister copy of active)")),
 		ClearNodes:      key.NewBinding(), // v0.8.6: dropped — see ClearNodes field comment.
 		PlanTransfer:    key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "plant transfer to selected body (plane-aware)")),

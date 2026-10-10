@@ -1502,6 +1502,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.FocusReset):
 			a.world.ResetFocus()
 			return a, nil
+		case key.Matches(m, a.keys.PanReset):
+			a.orbitView.ResetPan()
+			return a, nil
 		case key.Matches(m, a.keys.SpawnCraft):
 			// v0.8.2+: open the spawn form. Player picks craft
 			// type, parent body, altitude, and direction; Enter
@@ -2857,7 +2860,7 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		// Spectate (v0.28 S6 / ADR 0034): camera-follow a remote player's
 		// ghost. Read-only — no guestSave gate, reachable by host and guest
 		// alike. Fits once to the ghost's drawn orbit extent (Framing Event)
-		// then tracks it; [f]/[g] return to own-craft framing.
+		// then tracks it; [f]/[alt+g] refocus away from it.
 		a.world.SpectateGhost(cmd.Owner, cmd.CraftID)
 		a.flash(fmt.Sprintf("spectating %s — [f] to return", cmd.Handle))
 		a.active = screenOrbit
