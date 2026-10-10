@@ -936,7 +936,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// integrate with Inspect instead of getting a second, parallel
 		// selection mechanism.
 		bodyRef := InspectRef{Kind: InspectBody, BodyID: b.ID}
-		bodyTag := widgets.CellTag{Color: color, BodyID: b.ID, Owner: bodyRef.OwnerKey()}
+		bodyTag := widgets.CellTag{Color: color, BodyID: b.ID, Owner: bodyRef.OwnerKey(), Backdrop: true}
 		// Only a body actually on the canvas is inspectable. The system
 		// primary is deliberately included in the cycle (it is a thing on
 		// the map with a name) but not targetable — SetTargetBody rejects
@@ -1062,7 +1062,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// style ring + center dot the orbit screen used pre-v0.8.5.7.
 		if b.BodyType == "Star" {
 			for _, cpx := range coronaRingRadii(r, canvasReach, innermostOrbitPx(&sys, b, i == 0, scale)) {
-				v.canvas.RingColoredOutline(pos, cpx, render.ColorSunCorona)
+				v.canvas.RingColoredOutlineTagged(pos, cpx, widgets.CellTag{Color: render.ColorSunCorona, Backdrop: true})
 			}
 		}
 		// Draw rings for ringed bodies (v0.5.11). World-scale ring
@@ -1114,7 +1114,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 						// the ellipse cache's four call sites which
 						// reuse bodyRef.OwnerKey() for exactly that
 						// reason.
-						v.canvas.RingTiltedOutlineCachedTagged(ringIDs[bandIdx][i], pos, oe1, oe2, bandR, widgets.CellTag{Color: band.Color})
+						v.canvas.RingTiltedOutlineCachedTagged(ringIDs[bandIdx][i], pos, oe1, oe2, bandR, widgets.CellTag{Color: band.Color, Backdrop: true})
 					}
 				}
 			}

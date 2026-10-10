@@ -33,7 +33,14 @@ var (
 	ColorWarning      = lipgloss.Color("#FFAF00") // warp clamps, near-collision
 	ColorPlannedNode  = lipgloss.Color("#5FD7FF") // maneuver-node markers
 	ColorTrajectory   = lipgloss.Color("#FFFFFF") // fallback trajectory preview
-	ColorCurrentOrbit = lipgloss.Color("#A8B8C8") // craft's live Keplerian ellipse — pale slate, distinct from any body palette and from maneuver-leg colors
+	// ColorCurrentOrbit: your vessel's live Keplerian ellipse, in your
+	// vessel's own yellow (ColorCraftMarker), so it reads as "you" beside
+	// the TARGET-green orbit. Pale slate #A8B8C8 until 2026-10-10: it sat
+	// within 8 of a Lumen body and beside Earth's #9DC8FF haze, so a low
+	// orbit read as the atmosphere's edge (Jason: "it just looks like the
+	// atmosphere edge especially at a low orbit"). Nearest body colour now
+	// is Io (#E8D940).
+	ColorCurrentOrbit = ColorCraftMarker
 	ColorBodyOrbit    = lipgloss.Color("#6E6E6E") // heliocentric body orbits — dim grey backdrop (KSP-aligned: body orbits are quiet so craft / maneuver layers pop). v0.10.6+
 	ColorCraftMarker  = lipgloss.Color("#FFD93D") // craft icon when zoomed out (orbit too small to render) — saturated yellow distinct from Sun gold-white, amber leg, and every body color
 	ColorForeignSOI   = lipgloss.Color("#D75FFF") // post-SOI-crossing trajectory segments

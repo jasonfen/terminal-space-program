@@ -133,8 +133,12 @@ func TestLandedVesselKeepsGlyphAndInspectRegistration(t *testing.T) {
 
 	// Same guard as TestLandedActiveVesselDrawsNoEllipseOrApsisMarkers,
 	// repeated at THIS lat/lon: still no ellipse, still no apsis markers.
-	if got := v.canvas.CountColor(render.ColorCurrentOrbit); got != 0 {
-		t.Errorf("landed vessel at camera-facing lat/lon drew %d cell(s) of the current-orbit ellipse color, want 0", got)
+	// Your orbit shares your vessel's yellow (2026-10-10), and since lines
+	// and vessels win their cells over a body's disk the vessel's own dot
+	// shows here (up to the 2x2 cells a 1-px disk can touch); an ellipse
+	// would be dozens of cells.
+	if got := v.canvas.CountColor(render.ColorCurrentOrbit); got > 4 {
+		t.Errorf("landed vessel at camera-facing lat/lon drew %d cell(s) of the current-orbit ellipse color, want at most the vessel's own dot (4)", got)
 	}
 	apoColor := render.MarkerColor(render.MarkerApoapsis, render.MarkerNominal, "")
 	periColor := render.MarkerColor(render.MarkerPeriapsis, render.MarkerNominal, "")

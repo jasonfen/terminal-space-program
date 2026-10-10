@@ -58,6 +58,14 @@ type CellTag struct {
 	// (focus, open the node form, move the body Cursor) that Inspect does
 	// not change.
 	Owner string
+	// Backdrop marks ink that fills area behind everything else: a body's
+	// disk, the launch view's ground and sky bands. A cell holding any
+	// non-backdrop ink (an orbit line, a vessel, a marker) shows only that
+	// ink, in its colour (String / CountColor), so a line crossing a planet
+	// stays a line. Before, the cell's colour was a straight majority and a
+	// disk's 8 dots outvoted a line's 1-3 (Jason 2026-10-10). Hit-testing is
+	// unchanged.
+	Backdrop bool
 	// OwnerTied is a HitAt OUTPUT only — never set by a drawer, and
 	// ignored on any tag passed into a draw helper. It reports that two
 	// or more owners inked the same number of the cell's pixels, so the
@@ -159,6 +167,8 @@ type Canvas struct {
 	// Per-pixel tagging keeps body color confined to the body's own
 	// pixels.
 	pixelTags pixelTagGrid
+	// ink is resolveCellInk's reused per-frame scratch (canvas_cell_ink.go).
+	ink inkScratch
 
 	// cellOverlays maps a cell coord → a Unicode glyph that replaces
 	// the drawille-derived char at String() time. v0.5.12+ — used by
@@ -710,7 +720,7 @@ func (c *Canvas) FillProjectedSphere(center orbital.Vec3, radius float64, color 
 	cx, cy, _ := c.Project(center)
 	pxR := radius * c.scale
 	pxR2 := pxR * pxR
-	tag := CellTag{Color: color}
+	tag := CellTag{Color: color, Backdrop: true}
 	for py := 0; py < c.pxH; py++ {
 		dy := float64(py - cy)
 		dy2 := dy * dy
@@ -777,7 +787,7 @@ func (c *Canvas) FillHorizonBands(center orbital.Vec3, radius float64, ground, s
 
 		row := edge
 		for _, band := range ground {
-			tag := CellTag{Color: band.Color}
+			tag := CellTag{Color: band.Color, Backdrop: true}
 			for i := 0; i < band.Rows; i++ {
 				py := int(math.Round(row))
 				row++
@@ -795,7 +805,7 @@ func (c *Canvas) FillHorizonBands(center orbital.Vec3, radius float64, ground, s
 
 		row = edge - 1
 		for _, band := range sky {
-			tag := CellTag{Color: band.Color}
+			tag := CellTag{Color: band.Color, Backdrop: true}
 			for i := 0; i < band.Rows; i++ {
 				py := int(math.Round(row))
 				row--
@@ -1849,21 +1859,8 @@ func (c *Canvas) String() string {
 	// imately have multi-color pixel sets. Pre-v0.7.2.1 there were
 	// no multi-color cells in practice so the latent bug never
 	// surfaced.
-	cellColor := make(map[[2]int]lipgloss.Color)
-	cellCounts := make(map[[2]int]map[lipgloss.Color]int)
-	c.pixelTags.each(func(px, py int, tag CellTag) {
-		if tag.Color == "" {
-			return
-		}
-		key := [2]int{px / 2, py / 4}
-		if cellCounts[key] == nil {
-			cellCounts[key] = make(map[lipgloss.Color]int)
-		}
-		cellCounts[key][tag.Color]++
-	})
-	for key, counts := range cellCounts {
-		cellColor[key] = pickDominantColor(counts)
-	}
+	ink := c.resolveCellInk()
+	defer ink.release()
 	var b strings.Builder
 	// #364: run-length coalescing. Profiling (go test -cpuprofile on an
 	// idle-frame render benchmark) showed the per-CELL
@@ -1906,10 +1903,13 @@ func (c *Canvas) String() string {
 			if x < len(runes) {
 				ch = runes[x]
 			}
+			cellIdx := i*c.cols + x
+			ch = ink.runeAt(cellIdx, ch)
 			if overlay, ok := c.cellOverlays[[2]int{x, i}]; ok {
 				ch = overlay
 			}
-			color, hasColor := cellColor[[2]int{x, i}]
+			color := ink.colorAt(cellIdx)
+			hasColor := color != ""
 			var fg lipgloss.TerminalColor = color
 			// A pinned overlay color (SetCellLabelColored) wins over the
 			// pixelTag-derived cell color so labels render in the theme
@@ -1937,20 +1937,11 @@ func (c *Canvas) String() string {
 // paint each cell. Intended for render assertions (e.g. "the orbit
 // ellipse lands on enough cells to read as a line, not just a marker").
 func (c *Canvas) CountColor(color lipgloss.Color) int {
-	cellCounts := make(map[[2]int]map[lipgloss.Color]int)
-	c.pixelTags.each(func(px, py int, tag CellTag) {
-		if tag.Color == "" {
-			return
-		}
-		key := [2]int{px / 2, py / 4}
-		if cellCounts[key] == nil {
-			cellCounts[key] = make(map[lipgloss.Color]int)
-		}
-		cellCounts[key][tag.Color]++
-	})
+	ink := c.resolveCellInk()
+	defer ink.release()
 	n := 0
-	for _, counts := range cellCounts {
-		if pickDominantColor(counts) == color {
+	for _, idx := range ink.touched {
+		if ink.colorAt(int(idx)) == color {
 			n++
 		}
 	}
