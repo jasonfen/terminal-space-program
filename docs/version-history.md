@@ -2,6 +2,15 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.51.3
+
+Orbits you can see against a planet, and an orbit that reads as yours (PR `#576`; tag `v0.51.3`).
+
+- **Orbit lines show across planets** in every view. Each terminal cell takes one colour, and a planet's disk used to outvote a line crossing it, so a targeted vessel's green orbit vanished over Earth. Lines, vessels and markers now win the cells they share with a planet, and sit in a one-dot dark channel, so they read over a body of their own colour (your yellow over Io, green over Kern or Earth's land).
+- **Your orbit is your vessel's yellow** (`#FFD93D`) on the map, the launch view and the maneuver screen, instead of a pale slate that read as Earth's atmosphere edge at a low orbit. Yellow is you, green is your target.
+- **Launch view:** an orbit's far side hides behind the ground at the planet's true size.
+- The map renders a little faster than before (about 6% on an idle frame).
+
 ### v0.51.2
 
 Auto-Warp takes you to the launch window, pointed the right way (PRs `#571`-`#575`; tag `v0.51.2`).
