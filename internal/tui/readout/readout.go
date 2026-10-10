@@ -469,19 +469,23 @@ func Angle(deg float64) string {
 	return fmt.Sprintf("%.*f°", dec, Nzero(deg, dec))
 }
 
-// TrimAngle renders the pitch trim as the way the nose leans, whole
-// degrees: "12° E", "10° W", "0°". ←/→ tip the nose east/west about local
-// north from wherever the hold points it, so an east lean LOWERS an
-// eastbound nose; a signed "+15°" beside the navball's "pitch -15°" read
-// as a contradiction (#548 review LOW 115, Jason 2026-10-04: "say it as a
-// lean"). Amends ADR 0049 decision 4's signed form for this one readout.
-func TrimAngle(deg float64) string {
-	r := math.Round(deg)
+// TrimAngle renders the pitch trim as the way the nose leans against its
+// hold, whole degrees: "12° down", "10° up", "0°". noseDownDeg is
+// sim.World.TrimNoseDownDeg, positive below the hold: → lowers a nose
+// facing downrange (the pad, a prograde climb) and raises one facing back
+// (a retrograde hold). A signed "+15°" beside the navball's "pitch -15°"
+// read as a contradiction (#548 review LOW 115, Jason 2026-10-04: "say it
+// as a lean"), and the E/W it said next was only true at a due-east
+// heading (Jason 2026-10-09: "the trim should be up / down to reference
+// if I am pointing my nose up or down in relation to prograde"). Amends
+// ADR 0049 decision 4's signed form for this one readout.
+func TrimAngle(noseDownDeg float64) string {
+	r := math.Round(noseDownDeg)
 	switch {
 	case r > 0:
-		return fmt.Sprintf("%.0f° E", r)
+		return fmt.Sprintf("%.0f° down", r)
 	case r < 0:
-		return fmt.Sprintf("%.0f° W", -r)
+		return fmt.Sprintf("%.0f° up", -r)
 	}
 	return "0°"
 }

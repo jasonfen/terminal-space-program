@@ -1754,7 +1754,13 @@ var (
 	// with room to spare. Real effect: GUIDANCE's own widest rendered row
 	// (hold:/nav: with nav: ORBIT, the longest of the three frame words)
 	// drops from 54 to 52 cells.
-	guidanceCols = boxCols{value1: 11, label2: 35, gap2: 12}
+	//
+	// gap2 12 -> 11 (2026-10-09): trim: reads "NN° down" (8 cells) since
+	// the lean became up/down against the hold, one more than the 7 the
+	// tier left after a 12-cell gap; "orbit fpa:" (10) still clears 11
+	// with a space. A 3-digit lean ("125° down") still pushes the edge a
+	// cell for that frame, the same as any reading wider than its tier.
+	guidanceCols = boxCols{value1: 11, label2: 35, gap2: 11}
 	// NAVIGATION: longest label1 is "altitude:" (9) -> value1 12.
 	// value1's widest common row is incl:/depart: ("28.61° (min
 	// 28.61°)", ~20 cells); label2's widest text is "period:" (7).

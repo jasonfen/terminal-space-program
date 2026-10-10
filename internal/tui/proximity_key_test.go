@@ -128,7 +128,7 @@ func TestProximityViewShowsTheTrimItsArrowsMove(t *testing.T) {
 		t.Fatal("setup: the arrow did not trim at all")
 	}
 	after := a.View()
-	if !regexp.MustCompile(`trim:\s+5° E`).MatchString(after) {
+	if !regexp.MustCompile(`trim:\s+5° down`).MatchString(after) {
 		t.Errorf("a → press changed no visible trim reading in the proximity view:\n%s", after)
 	}
 	if before == after {

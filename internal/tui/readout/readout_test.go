@@ -348,10 +348,10 @@ func TestTrimAngle(t *testing.T) {
 		// trim reads as the direction the nose leans, not a signed pitch,
 		// since an east lean LOWERS an eastbound nose (pitch -15° beside
 		// trim +15° read as a contradiction).
-		{"west lean", -10, "10° W"},
-		{"east lean", 12, "12° E"},
+		{"nose up", -10, "10° up"},
+		{"nose down", 12, "12° down"},
 		{"zero trim", 0, "0°"},
-		{"rounds to nearest degree", -9.6, "10° W"},
+		{"rounds to nearest degree", -9.6, "10° up"},
 		{"sub-half-degree rounds to zero, no direction", 0.4, "0°"},
 		{"negative sub-half-degree, no direction", -0.4, "0°"},
 	}

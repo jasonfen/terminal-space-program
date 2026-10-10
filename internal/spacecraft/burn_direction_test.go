@@ -682,3 +682,46 @@ func TestPitchTrimLeansAlongTheCommandedHeading(t *testing.T) {
 		}
 	}
 }
+
+// TestPitchTrimNoseDownSign pins the up/down sense GUIDANCE's trim: reads
+// (Jason 2026-10-09: "the trim should be up / down to reference if I am
+// pointing my nose up or down in relation to prograde"): → lowers the nose
+// against a hold that faces downrange (the pad's vertical hold, a prograde
+// climb) and raises it against one facing back (a retrograde hold), and
+// each sign is checked against the elevation ApplyTrims actually produces.
+func TestPitchTrimNoseDownSign(t *testing.T) {
+	r := orbital.Vec3{X: 6.4e6}
+	spinAxis := orbital.Vec3{Z: 1}
+	east, up, _, _ := localHorizonFrame(r, spinAxis)
+	elev := func(d orbital.Vec3) float64 {
+		u := d.X*up.X + d.Y*up.Y + d.Z*up.Z
+		return math.Asin(u/d.Norm()) * 180 / math.Pi
+	}
+	climbEast := east.Scale(math.Cos(0.3)).Add(up.Scale(math.Sin(0.3)))
+	for _, tc := range []struct {
+		name       string
+		hold       orbital.Vec3
+		headingDeg float64
+		want       float64
+	}{
+		{"pad, vertical hold", up, 90, +1},
+		{"pad at 045°, vertical hold", up, 45, +1},
+		{"prograde climbing east", climbEast, 90, +1},
+		{"retrograde of an eastward descent", climbEast.Scale(-1), 90, -1},
+		{"no hold yet (surface prograde standing still)", orbital.Vec3{}, 90, +1},
+	} {
+		off := (tc.headingDeg - 90) * math.Pi / 180
+		got := PitchTrimNoseDownSign(tc.hold, r, spinAxis, off)
+		if got != tc.want {
+			t.Errorf("%s: sign %+.0f, want %+.0f", tc.name, got, tc.want)
+		}
+		if tc.hold.Norm() == 0 || tc.hold == up {
+			continue // elevation can only fall from straight up; the sign there is by facing.
+		}
+		held := ApplyTrims(tc.hold, r, spinAxis, 0, off)
+		trimmed := ApplyTrims(tc.hold, r, spinAxis, 5*math.Pi/180, off)
+		if lowered := elev(trimmed) < elev(held); lowered != (tc.want > 0) {
+			t.Errorf("%s: → moved the nose from %.1f° to %.1f° elevation, but the sign says %+.0f", tc.name, elev(held), elev(trimmed), tc.want)
+		}
+	}
+}

@@ -231,6 +231,29 @@ func ApplyPitchTrim(dir, r, spinAxis orbital.Vec3, pitchRad float64) orbital.Vec
 	return leanAlong(dir, east, up, pitchRad)
 }
 
+// PitchTrimNoseDownSign is +1 when positive PitchTrim (→) lowers the
+// nose against hold and -1 when it raises it, so a readout can say the
+// lean as up or down against the hold (Jason 2026-10-09). ApplyTrims
+// leans → toward the commanded bearing, which lowers a nose facing that
+// way (a prograde climb) and raises one facing back (a retrograde hold).
+// A vertical hold (the pad) or no hold at all counts as facing downrange:
+// a rocket on the pad faces its heading, so → tips it down toward it.
+func PitchTrimNoseDownSign(hold, r, spinAxis orbital.Vec3, headingOffsetRad float64) float64 {
+	east, _, north, ok := localHorizonFrame(r, spinAxis)
+	if !ok || hold.Norm() == 0 {
+		return 1
+	}
+	if headingOffsetRad != 0 {
+		hold = ApplyHeadingTrim(hold, r, spinAxis, headingOffsetRad)
+	}
+	beta := HeadingTrimDueEastRad + headingOffsetRad
+	downrange := east.Scale(math.Sin(beta)).Add(north.Scale(math.Cos(beta)))
+	if hold.X*downrange.X+hold.Y*downrange.Y+hold.Z*downrange.Z < -1e-9*hold.Norm() {
+		return -1
+	}
+	return 1
+}
+
 // leanAlong rotates dir within the vertical plane spanned by the unit
 // horizontal fwd and up, by pitchRad toward fwd, leaving the component
 // across that plane untouched: ApplyPitchTrim with fwd = east, and

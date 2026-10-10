@@ -40,7 +40,7 @@ func (v *OrbitView) buildGuidanceBox(w *sim.World) []string {
 
 	headingAbsDeg := (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi
 	headingLabel := readout.Heading(headingAbsDeg)
-	trimDeg := c.PitchTrim * 180 / math.Pi
+	trimDeg := w.TrimNoseDownDeg(c)
 	trimLabel := readout.TrimAngle(trimDeg)
 	if math.Abs(trimDeg) > 0.05 {
 		trimLabel = v.theme.Warning.Render(trimLabel)
