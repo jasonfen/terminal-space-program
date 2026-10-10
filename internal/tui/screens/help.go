@@ -71,7 +71,8 @@ var helpSections = []helpSection{
 	}},
 	{"CAMERA & VIEW", [][2]string{
 		{"f / F", "cycle camera focus forward / back (system → bodies → vessels; exits spectate)"},
-		{"g", "reset camera to the whole system"},
+		{"g", "snap a pan back onto what you're following (keeps focus and zoom)"},
+		{"alt+g", "reset camera to the whole system"},
 		{"+ / -", "zoom in / out"},
 		{"v", "cycle view (Tilted / Top / Right / Bottom / Left / Orbit-flat), projections only; two rows above \"view:\" read which way north points (N ↑ up, N ⊙ toward you, N ⊗ away; a degree figure, N ↑ 42°, is how far north tilts toward or away from you, 0° flat on the screen) and how open your orbit ring looks (plane ◠ 67° open: 0° ─ is a flat line, 90° ○ a full circle)"},
 		{"V", "launch / surface view: chase-cam on your active vessel (press again to return)"},

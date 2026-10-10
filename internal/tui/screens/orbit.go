@@ -124,7 +124,7 @@ type OrbitView struct {
 	// touches Focus or Target. Like userZoom/zoomMemory above, it resets
 	// only on a real Framing Event (contextChanged) — a bare resize keeps
 	// it, same reasoning as Zoom Memory's resize carve-out: resize isn't a
-	// refocus. So `g` or any refocus snaps the view back onto the tracked
+	// refocus. So `g` (ResetPan) or any refocus snaps the view back onto the tracked
 	// object, but resizing the terminal does not.
 	panOffset orbital.Vec3
 
@@ -596,6 +596,12 @@ const panStepFraction = 0.1
 // what's on screen even under a tilted or perifocal basis. Purely view
 // state: never touches Focus or Target, and Render zeroes panOffset again
 // at the next Framing Event.
+// ResetPan drops the Pan (`g`), leaving Focus and zoom as they are. It
+// doesn't wait for a Framing Event: with Focus unchanged there is none,
+// which is why the old `g` (now alt+g, focus: system) left the pan alone
+// when the camera was already on the whole system.
+func (v *OrbitView) ResetPan() { v.panOffset = orbital.Vec3{} }
+
 func (v *OrbitView) PanLeft()  { v.pan(-1, 0) }
 func (v *OrbitView) PanRight() { v.pan(1, 0) }
 func (v *OrbitView) PanUp()    { v.pan(0, 1) }
@@ -784,9 +790,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			// it.
 			v.userZoom = v.zoomMemoryFor(v.zoomSlot)
 			// Pan (ADR 0042): a real Framing Event snaps the view back onto
-			// the tracked object, same as it restores userZoom above. `g`
-			// (FocusReset) changes w.Focus, which is itself a Framing Event,
-			// so it needs no separate handling here. A bare resize
+			// the tracked object, same as it restores userZoom above.
+			// alt+g (FocusReset) changes w.Focus, which is itself a Framing
+			// Event, so it needs no separate handling here; `g` (ResetPan)
+			// clears the pan directly. A bare resize
 			// (contextChanged false) is deliberately excluded — resizing
 			// the terminal isn't a refocus, so it keeps both the zoom
 			// multiplier and the pan offset exactly as the player left them.

@@ -541,8 +541,9 @@ _Avoid_: Line type, Stroke.
 
 **Pan** (ADR 0042):
 The player's view offset from the tracked Focus — shift+arrows slide the view
-while center tracking continues, displaced; cleared by `g` or any
-refocus. Purely view state; never moves Focus or Target.
+while center tracking continues, displaced; cleared by `g` (which keeps Focus
+and zoom; alt+g is the jump to the whole system) or any refocus. Purely view
+state; never moves Focus or Target.
 _Avoid_: Scroll, Offset camera.
 
 **Zoom Memory** (ADR 0042):
