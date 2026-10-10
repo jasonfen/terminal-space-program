@@ -2,6 +2,16 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.51.4
+
+Readouts that match the flight, and no wavy line across the planet (PRs `#577`-`#579`; tag `v0.51.4`).
+
+- **`Δv→circ` shows the burn time you actually fly.** It assumed the vessel's mass stays constant through the burn and read long (1m11s for an S-IVB burn that flew 1m01s); it now uses the same rocket-equation time the `C` burn plants.
+- **`fuel:` reads as a percentage only** (`100%`, not `100% (2160 t)`); `mass:` beside it still gives the weight.
+- **Dotted and dashed lines yield over planets again.** v0.51.3 let them win over a planet's face with a dark moat, which turned the CommNet beam into a wavy teal line across the planet. Solid orbits, vessels and markers still show across planets.
+- **The atmosphere halo** no longer cuts a dark gap into the planet's edge.
+- Known: solid orbit lines over a planet still cut a blocky dark trench; tracked in `#580`.
+
 ### v0.51.3
 
 Orbits you can see against a planet, and an orbit that reads as yours (PR `#576`; tag `v0.51.3`).
