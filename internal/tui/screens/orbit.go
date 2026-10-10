@@ -1126,7 +1126,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		if render.AtmosphereVisible(b, r) {
 			outerPx := render.AtmosphereOuterPx(b, scale, r)
 			if outerPx > r && outerPx < canvasReach {
-				v.canvas.RingColoredOutline(pos, outerPx, render.AtmosphereHazeColor(b))
+				v.canvas.RingColoredOutlineTagged(pos, outerPx, widgets.CellTag{Color: render.AtmosphereHazeColor(b), Backdrop: true})
 			}
 		}
 		// Body-identity glyph overlay (v0.5.12). Skip the system

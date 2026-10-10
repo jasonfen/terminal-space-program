@@ -105,3 +105,29 @@ func TestLaunchViewHidesTheTargetOrbitsFarSideBehindTheGround(t *testing.T) {
 		t.Error("setup: your own orbit should be on screen in this framing")
 	}
 }
+
+// The CommNet beam (a dotted sightline to a ground station) crossing the
+// planet's face drew as a wavy teal line once lines won their cells over a
+// body (Jason 2026-10-10: "a strange light blue line that renders in an
+// wavy shape"). Dotted ink yields over a body again; this zoomed scene had
+// 22 beam cells over Earth before.
+func TestCommNetBeamDoesNotDrawAcrossThePlanet(t *testing.T) {
+	w := lowOrbitTargetingSeed(t)
+	if _, _, connected := w.ActiveCommPath(); !connected {
+		t.Fatal("setup: no CommNet path to draw")
+	}
+	v := NewOrbitView(launchThemeForTest())
+	v.Resize(DesignWidth, DesignHeight)
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	for i := 0; i < 6; i++ {
+		v.ZoomIn()
+	}
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	if n := v.canvas.CountColor(render.ColorCommLink); n != 0 {
+		t.Errorf("%d CommNet-beam cells over the planet, want 0", n)
+	}
+	// The solid orbits still win over the planet.
+	if v.canvas.CountColor(render.ColorTarget) < 10 {
+		t.Error("the target's solid orbit no longer shows over the planet")
+	}
+}

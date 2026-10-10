@@ -69,6 +69,7 @@ type inkScratch struct {
 	palette   []lipgloss.Color // palette id -> colour; id 0 = ""
 	tagColor  []uint16         // pixel tag index (0-based) -> palette id
 	tagBack   []bool           // pixel tag index (0-based) -> Backdrop
+	tagStrong []bool           // pixel tag index (0-based) -> solid ink: wins over Backdrop, cuts a moat
 	paletteOf map[lipgloss.Color]uint16
 }
 
@@ -102,7 +103,8 @@ func (s *inkScratch) release() {
 // resolveCellInk is the one per-cell colour rule String() and CountColor
 // share. A cell takes the majority colour of its tagged pixels, ties broken
 // on the colour string, except where Backdrop ink (a body disk, a horizon
-// band, Scenery) meets other ink:
+// band, Scenery) meets solid ink (a live orbit, a vessel, a marker; not
+// Sparse dotted or dashed ink, which keeps the plain majority):
 //   - a cell holding both shows only the other ink, its majority colour and
 //     its own dots (knockout), so a line across a planet stays a line
 //     rather than losing the vote 8 to 2;
@@ -131,7 +133,7 @@ func (c *Canvas) resolveCellInk() *inkScratch {
 	}
 	clear(s.paletteOf)
 	s.palette = append(s.palette[:0], "")
-	s.tagColor, s.tagBack = s.tagColor[:0], s.tagBack[:0]
+	s.tagColor, s.tagBack, s.tagStrong = s.tagColor[:0], s.tagBack[:0], s.tagStrong[:0]
 	for _, tag := range g.tags {
 		var id uint16
 		if tag.Color != "" {
@@ -144,12 +146,13 @@ func (c *Canvas) resolveCellInk() *inkScratch {
 		}
 		s.tagColor = append(s.tagColor, id)
 		s.tagBack = append(s.tagBack, tag.Backdrop)
+		s.tagStrong = append(s.tagStrong, !tag.Backdrop && !tag.Sparse && tag.Color != "")
 	}
 
 	// Pass 1: the moat, every backdrop pixel touching non-backdrop ink.
 	for _, pi := range g.touched {
 		t := g.tagIdx[pi] - 1
-		if t < 0 || s.tagBack[t] || s.tagColor[t] == 0 {
+		if t < 0 || !s.tagStrong[t] {
 			continue
 		}
 		px, py := int(pi)%g.w, int(pi)/g.w
@@ -203,6 +206,9 @@ func (c *Canvas) resolveCellInk() *inkScratch {
 			continue
 		}
 		ci.all.add(id)
+		if !s.tagStrong[t] {
+			continue // Sparse: votes with everything else, never knocks out
+		}
 		ci.fore.add(id)
 		ci.foreDots |= bit
 	}

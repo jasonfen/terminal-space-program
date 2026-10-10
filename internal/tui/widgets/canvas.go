@@ -66,6 +66,16 @@ type CellTag struct {
 	// disk's 8 dots outvoted a line's 1-3 (Jason 2026-10-10). Hit-testing is
 	// unchanged.
 	Backdrop bool
+	// Sparse marks dotted or dashed ink (a Planned leg, the CommNet beam):
+	// it neither wins its cells over Backdrop nor is cut by another line's
+	// moat, so it votes by majority as before. Set by the canvas's dotted
+	// and dashed drawers, never by callers. Knocked out and moated like a
+	// solid line, the gaps between its dots turned the dark channel into a
+	// zig-zag of blotches that read as a wavy line (Jason 2026-10-10: "a
+	// strange light blue line that renders in a wavy shape"; it was the
+	// CommNet beam crossing the planet). And a moat would erase a dashed
+	// leg where it peels off a solid orbit at its burn.
+	Sparse bool
 	// OwnerTied is a HitAt OUTPUT only — never set by a drawer, and
 	// ignored on any tag passed into a draw helper. It reports that two
 	// or more owners inked the same number of the cell's pixels, so the
@@ -857,7 +867,7 @@ func (c *Canvas) PlotColoredTagged(w orbital.Vec3, tag CellTag) {
 func (c *Canvas) PlotDenseLineColored(a, b orbital.Vec3, color lipgloss.Color, step int) {
 	ax, ay := c.projectPx(a)
 	bx, by := c.projectPx(b)
-	c.walkPixelSegment(ax, ay, bx, by, CellTag{Color: color}, step, 0, 0, 0, 0, nil)
+	c.walkPixelSegment(ax, ay, bx, by, CellTag{Color: color, Sparse: step > 1}, step, 0, 0, 0, 0, nil)
 }
 
 // PlotDenseLineForcedColored draws a dotted line between world points a and b.
@@ -887,6 +897,9 @@ func (c *Canvas) PlotDensePolylineColored(pts []orbital.Vec3, color lipgloss.Col
 // trajectory's pixels answer HitAt the way a body disk or vessel glyph
 // already does (ADR 0041 §3).
 func (c *Canvas) plotDensePolylineTagged(pts []orbital.Vec3, tag CellTag, step int) {
+	if step > 1 {
+		tag.Sparse = true
+	}
 	if len(pts) == 0 {
 		return
 	}
@@ -919,6 +932,7 @@ func (c *Canvas) plotDensePolylineDashedColored(pts []orbital.Vec3, color lipglo
 // the full CellTag (colour + Inspect Owner) — the Planned-class sibling of
 // plotDensePolylineTagged.
 func (c *Canvas) plotDensePolylineDashedTagged(pts []orbital.Vec3, tag CellTag, onPx, offPx int) {
+	tag.Sparse = true
 	if len(pts) == 0 {
 		return
 	}

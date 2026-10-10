@@ -191,3 +191,35 @@ func TestCellInkScratchDoesNotLeakBetweenFrames(t *testing.T) {
 		}
 	}
 }
+
+// Dotted and dashed ink (a Planned leg, the CommNet beam) does not win its
+// cells over a body or cut a moat: knocked out, the gaps between its dots
+// turned the dark channel into a zig-zag that read as a strange wavy line
+// across the planet (Jason 2026-10-10, the CommNet beam). It keeps the old
+// majority vote, so over a disk it yields as it did before v0.51.3.
+func TestSparseLineOverBackdropYields(t *testing.T) {
+	const planet, beam = lipgloss.Color("#2060C0"), lipgloss.Color("#34E2D0")
+	draw := func(step int) *Canvas {
+		c := NewCanvas(40, 20)
+		c.SetScale(1)
+		c.FillColoredDiskTagged(orbital.Vec3{}, 30, CellTag{Color: planet, Backdrop: true})
+		c.PlotDenseLineColored(orbital.Vec3{X: -36, Y: 1}, orbital.Vec3{X: 36, Y: 1}, beam, step)
+		return c
+	}
+	bare := NewCanvas(40, 20)
+	bare.SetScale(1)
+	bare.FillColoredDiskTagged(orbital.Vec3{}, 30, CellTag{Color: planet, Backdrop: true})
+	wantDots := len(litDots(t, bare))
+
+	dotted := draw(3)
+	if n := dotted.CountColor(beam); n > 8 {
+		t.Errorf("a dotted line takes %d cells over the disk, want it to yield (only the few cells off the disk's edge)", n)
+	}
+	if got := len(litDots(t, dotted)); got < wantDots {
+		t.Errorf("a dotted line cleared planet dots (%d lit, the bare disk has %d): no moat for sparse ink", got, wantDots)
+	}
+	// The same line drawn solid still wins and cuts its moat.
+	if solid := draw(1); solid.CountColor(beam) < 25 {
+		t.Errorf("a solid line takes only %d cells over the disk; solid ink should still win", solid.CountColor(beam))
+	}
+}
