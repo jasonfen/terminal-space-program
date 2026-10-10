@@ -31,8 +31,11 @@ func (v *OrbitView) buildPropellantBox(w *sim.World) []string {
 		}
 	}
 	fuelLabel := readout.Mass(c.Fuel)
-	if pct, kg, ok := activeStageFuel(c); ok {
-		fuelLabel = fmt.Sprintf("%.0f%% (%s)", pct, readout.Mass(kg))
+	// The lit stage's tank as a percentage only; its mass was a second
+	// reading of the same thing, and mass: beside it already says how heavy
+	// the vessel is (Jason 2026-10-10: "just keep %").
+	if pct, _, ok := activeStageFuel(c); ok {
+		fuelLabel = fmt.Sprintf("%.0f%%", pct)
 	}
 	monopropLabel, rcsLabel := "—", "—"
 	if c.MonopropCapacity > 0 {
