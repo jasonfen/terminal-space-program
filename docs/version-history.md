@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.52.0
+
+A key to undo a pan (PR `#581`; tag `v0.52.0`).
+
+- **`g` snaps a pan back** onto what you're following. Focus and zoom stay as they are. Before, `g` jumped the camera to the whole system and cleared the pan only as a side effect (and not at all when you were already on the whole system).
+- **`alt+g` is the whole-system view** (the old `g`). On a Mac, alt is Option: Terminal.app and iTerm2 need Option sent as Alt, as for the other alt keys.
+
 ### v0.51.4
 
 Readouts that match the flight, and no wavy line across the planet (PRs `#577`-`#579`; tag `v0.51.4`).
