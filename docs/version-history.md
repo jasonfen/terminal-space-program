@@ -2,6 +2,16 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.51.2
+
+Auto-Warp takes you to the launch window, pointed the right way (PRs `#571`-`#575`; tag `v0.51.2`).
+
+- **`G` on the pad warps to the launch window.** With a target, `G` (or `[»Burn]`) warps to 30 s before the window the `plan:` row names (the best moment when there is no exact pass), ramps down and hands back 1x, and turns your heading to the one the row names, so you only light the engine. `↑` / `↓` during the warp are yours.
+- **`←` / `→` lean along your heading.** `→` tips the nose toward your commanded heading and `←` back from it. Before, once you had trimmed off due east, `←` tipped the same way as `→`.
+- **`trim:` reads up / down.** GUIDANCE and the Proximity view say `15° down` / `15° up` against the hold instead of `15° E` / `15° W`: `→` lowers a nose facing downrange (the pad, a prograde climb) and raises one facing back (a retrograde hold).
+- **`;` cycles the nav mode** Surface, Orbit, Target.
+- Clicking `[»Burn]` now counts as using Auto-Warp for mission objectives, as `G` does.
+
 ### v0.51.1
 
 The Proximity view says what your engines are doing (PRs `#569`, `#570`; tag `v0.51.1`).
