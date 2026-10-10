@@ -529,12 +529,14 @@ Ring). Color stays semantic (targeting, alarm state) and is never
 identity. The active Vessel's Real orbit is its own yellow (the Vessel
 marker's colour) and the Target's is TARGET green (2026-10-10; the active
 orbit was pale slate, which read as Earth's atmosphere edge at a low
-orbit). Real and Planned lines, Vessels and markers win any cell they
-share with a body's disk, the launch view's ground and sky, or Scenery,
-so a line crossing a planet stays a line, in a one-dot dark moat (the
-backdrop dots touching it are cleared) so it reads over a body of any
-colour or texture without changing its own colour; Scenery yields like the
-body it circles.
+orbit). Solid ink (Real orbits, Vessels, markers) wins any cell it shares
+with a body's disk, its atmosphere halo, the launch view's ground and sky,
+or Scenery, so a line crossing a planet stays a line, in a one-dot dark
+moat (the backdrop dots touching it are cleared) so it reads over a body of
+any colour or texture without changing its own colour. Dotted and dashed
+ink (Planned legs, the CommNet beam) yields over a body as it always did:
+its gaps turned the moat into a wavy zig-zag. Scenery yields like the body
+it circles.
 _Avoid_: Line type, Stroke.
 
 **Pan** (ADR 0042):
