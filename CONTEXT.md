@@ -972,15 +972,17 @@ Park, Grounded.
 **Heading Trim** (grilled 2026-09-09, ADR 0049; resolves #453):
 The player's control over which way an ascent goes. A commanded launch
 heading, default 090° (due east), nudged ±5° per tap with `↑` / `↓`
-(toward north / south) on the pad or mid-ascent, the same idiom as pitch
-trim (`←` / `→`, west / east); both work in every flight view, and `|`
+(toward north / south) on the pad or mid-ascent, the same idiom as
+**Pitch Trim** (`←` / `→`); both work in every flight view, and `|`
 resets both trims. Holding `alt` makes any trim fine: `alt+↑` / `alt+↓`
 are 1° heading steps, `alt+←` / `alt+→` 1° pitch (and `alt+Z` / `alt+X`
 1% throttle), so the exact heading a **Launch Window** names can be
-commanded. Persisted on the Vessel. Pitch trim tilts thrust first, then
-thrust is rotated about local up onto the commanded heading, so pitch
-always tilts in the heading's vertical plane; the reverse order is a
-no-op on any vertical-start hold, including the pad's default. Heading
+commanded. Persisted on the Vessel. The hold is steered onto the commanded
+heading first, then Pitch Trim leans it within that heading's vertical
+plane (`spacecraft.ApplyTrims`, 2026-10-09). The earlier order, pitch
+about local north and then a steer onto the heading, re-aimed `←`'s lean
+onto the heading too, so off due east `←` and `→` tipped the same way.
+Auto-Warp to a **Launch Window** sets it to the window's heading. Heading
 away from east harvests less of the surface co-rotation velocity, which
 is the only Δv cost. Shown as `heading: 090°` on GUIDANCE, identically
 Landed or in flight, on an atmospheric world or an airless one alike
@@ -993,6 +995,21 @@ _Avoid_: Yaw trim (yaw is the camera control in the tilted view),
 launch azimuth (as a player-facing label; the row says `heading:`),
 Locked.
 
+**Pitch Trim** (2026-10-09, playtest; amends ADR 0049 decision 4):
+A standing lean of the nose off the active hold, `→` / `←` in 5° steps
+(`alt` for 1°), reset with `|`. `→` leans toward the commanded heading
+(see **Heading Trim**), `←` back from it, in that heading's vertical
+plane. Read on GUIDANCE's and the Proximity view's `trim:` row as **up**
+or **down** against the hold, worked out from where the nose actually
+moves (`World.TrimNoseDownDeg`): `→` reads `15° down` on the pad and on a
+prograde climb, and `15° up` against a retrograde hold, where it raises the
+nose. `15° down` on a level prograde nose is the navball's `pitch -15°`.
+_Avoid_: East / west (true only at a due-east heading; Jason trimmed to a
+045° window and still read "east"), downrange (overflows GUIDANCE's
+7-cell value and moved the left boxes), prograde / retrograde (those name
+holds, and `→` moves the nose *away* from a prograde marker), a signed
+`+15°` (read as contradicting the navball's `pitch -15°`, #548).
+
 **Launch Window** (grilled 2026-10-03, G6, #460): While Landed with a
 target set, the next time the rotating pad sweeps through the target's
 orbital plane, and the heading that pass wants. Shown on NAVIGATION's
@@ -1004,7 +1021,12 @@ heading follows the target's own direction of travel. `lead` is the target's
 lead angle at that pass. When the pad's latitude is above the plane's tilt
 (KSC to the Moon) no heading ever lines up, and the row reads the best
 the pad will do instead, `window best 9.17° T-2h46m`. TARGET's `Δincl:` keeps
-ticking for the heading actually commanded.
+ticking for the heading actually commanded. Auto-Warp (`G` / `[»Burn]`)
+on the pad warps to 30 s before the window (the best moment when there is
+no pass) and sets the **Heading Trim** to the heading the row names, to the
+whole degree, once at engage (`↑` / `↓` during the warp stick); with no
+pass, that is the heading the best figure is measured for (due east for a
+prograde target).
 _Avoid_: Launch azimuth, none (the no-pass row never says "none"),
 launch window as the word for a transfer window (those are Porkchop
 plots).
@@ -1869,6 +1891,10 @@ start, leaving the sim at 1× so the player can watch the Burn arm and fire.
   then follows that specific Maneuver Node if its timing shifts. It
   disengages on arrival, if the player touches warp manually, or if that
   Node is removed.
+- On the pad with a target it aims at the **Launch Window** instead
+  (#572), and is the one Auto-Warp that also steers: it sets the
+  **Heading Trim** to the window's heading when engaged (#574). It
+  disengages if the target is cleared or the Vessel lifts off.
 
 Distinct from the *node-approach ramp* (a clamp that caps Effective Warp
 near any Burn so the integrator can't alias past it): the ramp is passive
