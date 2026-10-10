@@ -90,33 +90,44 @@ func (s *Spacecraft) BurnDirectionUntrimmedWithTarget(mode BurnMode, rT, vT orbi
 	return dir
 }
 
-// applyTrims folds the player's PitchTrim then HeadingTrim into dir.
+// applyTrims folds the player's HeadingTrim and PitchTrim into dir (see
+// ApplyTrims).
 func (s *Spacecraft) applyTrims(dir orbital.Vec3) orbital.Vec3 {
 	axisR := render.BodyRotationAxisWorld(s.Primary)
 	spinAxis := orbital.Vec3{X: axisR.X, Y: axisR.Y, Z: axisR.Z}
-	// Pitch before heading (item4-B review round 1, findings 1-2;
-	// corrects ADR 0049 decision 8's own prose, which says the reverse
-	// and is wrong: a docs fix lands separately). ApplyPitchTrim always
-	// tilts within the mode's own east-up plane, about local north, so
-	// applying it FIRST is what actually delivers the ADR's stated
-	// intent ("pitch tilts in the commanded heading's vertical plane"):
-	// heading then re-aims the whole tilted vector's horizontal
-	// component onto the commanded absolute bearing, preserving the
-	// elevation pitch just produced. Heading-before-pitch was silently
-	// a no-op for every hold whose natural direction starts purely
-	// vertical (BurnRadialOut, the pad's own default hold): rotating a
-	// vertical vector about local up does nothing, so the heading pass
-	// vanished and pitch alone determined the (always-due-east)
-	// bearing regardless of the commanded heading. See
-	// TestBurnDirectionRadialOutPitchThenHeadingSteersVertical and
-	// TestBurnDirectionAppliesPitchBeforeHeading.
-	if s.PitchTrim != 0 {
-		dir = ApplyPitchTrim(dir, s.State.R, spinAxis, s.PitchTrim)
+	return ApplyTrims(dir, s.State.R, spinAxis, s.PitchTrim, s.HeadingTrim)
+}
+
+// ApplyTrims is the one place both thrust paths (BurnDirection and the
+// InstantSAS closure in ThrustAccelFnAtWithTarget) fold the two trims
+// into a hold's direction: HeadingTrim first steers dir's horizontal
+// component onto the commanded bearing (ApplyHeadingTrim), then PitchTrim
+// leans the result within that bearing's vertical plane, positive
+// downrange (toward the bearing, →) and negative back (away from it, ←).
+// At the default due-east heading this is exactly ApplyPitchTrim.
+//
+// Item4-B review round 1 (findings 1-2) had pitch first, about local
+// north, then heading as a steer: heading-before-pitch-about-north was a
+// no-op on a vertical hold (the pad's), which is why. But a steer applied
+// last also re-aimed ←'s westward lean onto the commanded bearing, so off
+// due east ← tipped the same way as → (Jason 2026-10-09, a 045° launch
+// window). Leaning in the heading's own plane after the steer keeps the
+// vertical-hold case (the steer no-ops, the lean carries the bearing) and
+// gives ← its own direction back.
+func ApplyTrims(dir, r, spinAxis orbital.Vec3, pitchRad, headingOffsetRad float64) orbital.Vec3 {
+	if headingOffsetRad != 0 {
+		dir = ApplyHeadingTrim(dir, r, spinAxis, headingOffsetRad)
 	}
-	if s.HeadingTrim != 0 {
-		dir = ApplyHeadingTrim(dir, s.State.R, spinAxis, s.HeadingTrim)
+	if pitchRad == 0 {
+		return dir
 	}
-	return dir
+	east, up, north, ok := localHorizonFrame(r, spinAxis)
+	if !ok {
+		return dir
+	}
+	beta := HeadingTrimDueEastRad + headingOffsetRad
+	downrange := east.Scale(math.Sin(beta)).Add(north.Scale(math.Cos(beta)))
+	return leanAlong(dir, downrange, up, pitchRad)
 }
 
 // BurnDirectionPlaneAware resolves a burn direction like
@@ -209,7 +220,7 @@ func ApplyPitchTrim(dir, r, spinAxis orbital.Vec3, pitchRad float64) orbital.Vec
 	if pitchRad == 0 {
 		return dir
 	}
-	east, up, north, ok := localHorizonFrame(r, spinAxis)
+	east, up, _, ok := localHorizonFrame(r, spinAxis)
 	if !ok {
 		// No defined east (zero position, or a pole): the trim
 		// silently no-ops rather than divide by zero. The player
@@ -217,18 +228,23 @@ func ApplyPitchTrim(dir, r, spinAxis orbital.Vec3, pitchRad float64) orbital.Vec
 		return dir
 	}
 
-	// Decompose dir into the (east, up, north) local frame.
-	e := dir.X*east.X + dir.Y*east.Y + dir.Z*east.Z
+	return leanAlong(dir, east, up, pitchRad)
+}
+
+// leanAlong rotates dir within the vertical plane spanned by the unit
+// horizontal fwd and up, by pitchRad toward fwd, leaving the component
+// across that plane untouched: ApplyPitchTrim with fwd = east, and
+// ApplyTrims with fwd = the commanded bearing.
+func leanAlong(dir, fwd, up orbital.Vec3, pitchRad float64) orbital.Vec3 {
+	f := dir.X*fwd.X + dir.Y*fwd.Y + dir.Z*fwd.Z
 	u := dir.X*up.X + dir.Y*up.Y + dir.Z*up.Z
-	n := dir.X*north.X + dir.Y*north.Y + dir.Z*north.Z
+	across := dir.Sub(fwd.Scale(f)).Sub(up.Scale(u))
 
-	// Rotate (e, u) about north axis by pitchRad. Positive pitch
-	// tilts the vector toward east.
 	cosA, sinA := math.Cos(pitchRad), math.Sin(pitchRad)
-	eNew := e*cosA + u*sinA
-	uNew := -e*sinA + u*cosA
+	fNew := f*cosA + u*sinA
+	uNew := -f*sinA + u*cosA
 
-	return east.Scale(eNew).Add(up.Scale(uNew)).Add(north.Scale(n))
+	return fwd.Scale(fNew).Add(up.Scale(uNew)).Add(across)
 }
 
 // ApplyHeadingTrim sets the horizontal component of dir to lie on the
