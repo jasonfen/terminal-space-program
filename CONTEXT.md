@@ -526,7 +526,13 @@ style alone: **Real** (solid — a live orbit; bright for the active
 Vessel, dim for anyone else), **Planned** (dashed — node legs,
 predictions, encounter arcs), **Scenery** (dotted — body orbits, the SOI
 Ring). Color stays semantic (targeting, alarm state) and is never
-identity.
+identity. The active Vessel's Real orbit is its own yellow (the Vessel
+marker's colour) and the Target's is TARGET green (2026-10-10; the active
+orbit was pale slate, which read as Earth's atmosphere edge at a low
+orbit). Real and Planned lines, Vessels and markers win any cell they
+share with a body's disk, the launch view's ground and sky, or Scenery,
+so a line crossing a planet stays a line; Scenery yields like the body
+it circles.
 _Avoid_: Line type, Stroke.
 
 **Pan** (ADR 0042):

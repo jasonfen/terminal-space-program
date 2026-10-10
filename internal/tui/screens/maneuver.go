@@ -709,12 +709,12 @@ func (m *Maneuver) Render(w *sim.World, cols, rows, selectedBody int) string {
 	} else if primaryPxR > 64 {
 		primaryPxR = 64
 	}
-	m.canvas.FillColoredDisk(orbital.Vec3{}, primaryPxR, primaryColor)
+	m.canvas.FillColoredDiskTagged(orbital.Vec3{}, primaryPxR, widgets.CellTag{Color: primaryColor, Backdrop: true})
 
-	// Current orbit — Real class, solid (ADR 0041 §2). Empty colour →
-	// uses Plot for back-compat with the existing white-on-default
-	// rendering of this canvas.
-	m.canvas.DrawEllipseClass(currentEl, orbital.Vec3{}, 360, widgets.ClassReal, orbital.Vec3{}, primaryPxR, "")
+	// Current orbit — Real class, solid (ADR 0041 §2), in your orbit's
+	// colour as on the map (it drew untagged white until 2026-10-10, so it
+	// also lost every cell it shared with the planet's disk).
+	m.canvas.DrawEllipseClass(currentEl, orbital.Vec3{}, 360, widgets.ClassReal, orbital.Vec3{}, primaryPxR, render.ColorCurrentOrbit)
 
 	// v0.9.3 polish: target craft's orbit + current position when it
 	// shares the active craft's primary. The maneuver canvas centers

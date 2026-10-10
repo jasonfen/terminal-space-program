@@ -97,6 +97,7 @@ func (c *Canvas) DrawEllipseClass(el orbital.Elements, offset orbital.Vec3, minS
 // anywhere on ANY drawn orbit resolves to the entity that owns it, with
 // no per-call-site hit-test code.
 func (c *Canvas) DrawEllipseClassTagged(el orbital.Elements, offset orbital.Vec3, minSpans int, class LineClass, bodyPos orbital.Vec3, bodyPxR int, tag CellTag) {
+	tag = classTag(tag, class)
 	near, far := classEllipseSpacings(class)
 	c.drawEllipseAdaptiveTagged(el, offset, minSpans, near, far, bodyPos, bodyPxR, tag)
 }
@@ -111,6 +112,17 @@ func (c *Canvas) DrawEllipseClassTagged(el orbital.Elements, offset orbital.Vec3
 // spacing, matching DrawEllipseClassTagged's pre-existing documented
 // fallback (a caller passing it is a mistake to fix, not a state worth
 // panicking the render loop over).
+// classTag marks Scenery ink as Backdrop: body orbits and the SOI Ring sit
+// behind everything, so they never knock a body's dots out of a cell the
+// way a live orbit or a plan does (every moon sits on its own orbit line;
+// as foreground ink that line would replace a small moon's disk).
+func classTag(tag CellTag, class LineClass) CellTag {
+	if class == ClassScenery {
+		tag.Backdrop = true
+	}
+	return tag
+}
+
 func classEllipseSpacings(class LineClass) (near, far int) {
 	if class == ClassScenery {
 		return classSceneryNearSpacingPx, classSceneryFarSpacingPx
@@ -135,6 +147,7 @@ func (c *Canvas) PlotPolylineClass(pts []orbital.Vec3, color lipgloss.Color, cla
 // The polyline sibling of DrawEllipseClassTagged; see that doc comment
 // for why the class drawers are where line ownership is threaded.
 func (c *Canvas) PlotPolylineClassTagged(pts []orbital.Vec3, tag CellTag, class LineClass) {
+	tag = classTag(tag, class)
 	switch class {
 	case ClassPlanned:
 		c.plotDensePolylineDashedTagged(pts, tag, classPlannedDashPx, classPlannedGapPx)

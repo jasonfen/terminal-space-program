@@ -1107,9 +1107,18 @@ func (v *LaunchView) drawTargetOrbitPath(w *sim.World, craft *spacecraft.Spacecr
 	if !(el.A > 0) || el.E >= 1 || math.IsNaN(el.A) || math.IsInf(el.A, 0) || el.Apoapsis()*scale < minOrbitPixels {
 		return
 	}
-	canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
-	primaryPxR := BodyPixelRadius(tgt.Primary, false, scale, canvasReach)
-	v.canvas.DrawEllipseClass(el, bodyCentre, 360, widgets.ClassReal, bodyCentre, primaryPxR, render.ColorTarget)
+	v.canvas.DrawEllipseClass(el, bodyCentre, 360, widgets.ClassReal, bodyCentre, launchOcclusionPxR(tgt.Primary, scale), render.ColorTarget)
+}
+
+// launchOcclusionPxR is the body's TRUE pixel radius, the size the launch
+// view's ground and sky (FillHorizonBands) are drawn at, for hiding an
+// orbit's far side behind it. BodyPixelRadius caps at the canvas reach,
+// which is right for the map's disk fill but here left a ring of far-side
+// arc between the cap and the real horizon; the ground's colour used to
+// outvote it, and once lines won their cells over the ground (2026-10-10)
+// the target's far side showed through the ground as a dotted line.
+func launchOcclusionPxR(b bodies.CelestialBody, scale float64) int {
+	return int(math.Round(b.RadiusMeters() * scale))
 }
 
 func (v *LaunchView) drawOrbitPath(craft *spacecraft.Spacecraft, bodyCentre orbital.Vec3) {
@@ -1122,8 +1131,7 @@ func (v *LaunchView) drawOrbitPath(craft *spacecraft.Spacecraft, bodyCentre orbi
 	if !(el.A > 0) || math.IsNaN(el.A) || math.IsInf(el.A, 0) || el.Apoapsis()*scale < minOrbitPixels {
 		return
 	}
-	canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
-	primaryPxR := BodyPixelRadius(craft.Primary, false, scale, canvasReach)
+	primaryPxR := launchOcclusionPxR(craft.Primary, scale)
 	// Real class, bright (ADR 0041 §2) — same treatment as the orbit map's
 	// own-craft ellipse.
 	v.canvas.DrawEllipseClass(el, bodyCentre, 360, widgets.ClassReal, bodyCentre, primaryPxR, render.ColorCurrentOrbit)

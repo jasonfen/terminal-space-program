@@ -207,6 +207,7 @@ func (c *Canvas) DrawEllipseClassCachedTagged(curveID string, el orbital.Element
 		c.DrawEllipseClassTagged(el, offset, minSpans, class, bodyPos, bodyPxR, tag)
 		return
 	}
+	tag = classTag(tag, class)
 	near, far := classEllipseSpacings(class)
 	key := c.curveCacheKeyFor(el, offset, minSpans, near, far, bodyPos, bodyPxR)
 	if c.curveCache == nil {
