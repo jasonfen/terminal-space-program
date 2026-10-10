@@ -202,7 +202,7 @@ func TestGuidanceTrimReadsAsLean(t *testing.T) {
 	for _, c := range []struct {
 		deg  float64
 		want string
-	}{{15, `trim:\s+15° E`}, {-5, `trim:\s+5° W`}, {0, `trim:\s+0°`}} {
+	}{{15, `trim:\s+15° down`}, {-5, `trim:\s+5° up`}, {0, `trim:\s+0°`}} {
 		pad.PitchTrim = c.deg * 3.141592653589793 / 180
 		box := strings.Join(v.buildGuidanceBox(w), "\n")
 		if !regexp.MustCompile(c.want).MatchString(box) {

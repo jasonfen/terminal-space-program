@@ -9,6 +9,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -2052,6 +2053,18 @@ func (w *World) attitudeContext(c *spacecraft.Spacecraft) (mode spacecraft.BurnM
 		mode = spacecraft.BurnPrograde
 	}
 	return mode, rT, vT, planeRad, burnDir
+}
+
+// TrimNoseDownDeg is c's pitch trim as degrees the nose sits below its
+// hold, negative above it: the up/down sense GUIDANCE's and Proximity's
+// trim: rows read (Jason 2026-10-09). The hold is the one attitudeContext
+// resolves this tick, so a retrograde hold, which → raises, reads "up".
+func (w *World) TrimNoseDownDeg(c *spacecraft.Spacecraft) float64 {
+	mode, rT, vT, _, _ := w.attitudeContext(c)
+	hold := c.BurnDirectionUntrimmedWithTarget(mode, rT, vT)
+	axisR := render.BodyRotationAxisWorld(c.Primary)
+	spinAxis := orbital.Vec3{X: axisR.X, Y: axisR.Y, Z: axisR.Z}
+	return c.PitchTrim * 180 / math.Pi * spacecraft.PitchTrimNoseDownSign(hold, c.State.R, spinAxis, c.HeadingTrim)
 }
 
 // commandedDirFor is the world-unit nose direction the craft's

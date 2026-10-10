@@ -898,7 +898,7 @@ func proximityTrimRow(w *sim.World) string {
 	if c == nil {
 		return chipRow("trim:", "—")
 	}
-	pitchDeg := c.PitchTrim * 180 / math.Pi
+	pitchDeg := w.TrimNoseDownDeg(c)
 	headingDeg := (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi
 	return chipRow("trim:", readout.TrimAngle(pitchDeg)+"  hdg: "+readout.Heading(headingDeg))
 }

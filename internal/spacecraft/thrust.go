@@ -637,8 +637,7 @@ func (s *Spacecraft) ThrustAccelFnAtWithTarget(mode BurnMode, mu, throttle float
 	// w.InstantSAS is on) the engine thrust silently ignored
 	// HeadingTrim entirely while the pad readout and navball, both
 	// reading BurnDirectionWithTarget, showed the commanded heading.
-	// Applied in the same pitch-then-heading order
-	// BurnDirectionWithTarget uses, so the two paths agree.
+	// Both paths fold the trims through ApplyTrims, so they agree.
 	omegaR := render.BodySpinOmegaWorld(s.Primary)
 	omega := orbital.Vec3{X: omegaR.X, Y: omegaR.Y, Z: omegaR.Z}
 	axisR := render.BodyRotationAxisWorld(s.Primary)
@@ -667,12 +666,7 @@ func (s *Spacecraft) ThrustAccelFnAtWithTarget(mode BurnMode, mu, throttle float
 		default:
 			dir = DirectionUnit(mode, r, v)
 		}
-		if pitchTrim != 0 {
-			dir = ApplyPitchTrim(dir, r, spinAxis, pitchTrim)
-		}
-		if headingTrim != 0 {
-			dir = ApplyHeadingTrim(dir, r, spinAxis, headingTrim)
-		}
+		dir = ApplyTrims(dir, r, spinAxis, pitchTrim, headingTrim)
 		if dir.Norm() == 0 {
 			return gravity
 		}

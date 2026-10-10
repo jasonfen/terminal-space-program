@@ -229,21 +229,12 @@ func TestThrustAccelFnAtWithTargetAgreesWithBurnDirectionOnHeadingTrim(t *testin
 }
 
 // TestThrustAccelFnAtWithTargetAppliesPitchBeforeHeading is the ADR
-// 0049 guard test owed to the InstantSAS thrust closure (ADR 0050
-// slice 2's "Owed" item): ThrustAccelFnAtWithTarget applies PitchTrim
-// then HeadingTrim (thrust.go, the closure's own two `if` blocks just
-// before the final dir.Norm() == 0 check), which is the correct order
-// BurnDirection's sibling site already guards
-// (TestBurnDirectionAppliesPitchBeforeHeading in
-// burn_direction_test.go), but reversing that order here failed
-// nothing in the whole suite before this test existed:
-// TestThrustAccelFnAtWithTargetAgreesWithBurnDirectionOnHeadingTrim
-// next door sets HeadingTrim only (PitchTrim stays zero), so it can't
-// distinguish an order that only diverges when both trims are nonzero.
-// Uses the same climbing-and-eastward state and 180°-from-east heading
-// offset TestBurnDirectionAppliesPitchBeforeHeading proved order-
-// sensitive, and includes the same sanity check that the two
-// compositions actually differ for this input (not a coincidence).
+// 0049 guard owed to the InstantSAS thrust closure (ADR 0050 slice 2's
+// "Owed" item): the closure folds the trims through ApplyTrims, the same
+// as BurnDirection (TestBurnDirectionAppliesPitchBeforeHeading), on an
+// input where the review's wrong order (heading, then pitch about north)
+// gives a different answer. The name is historical: pitch now leans after
+// the heading steer, in the heading's own plane.
 func TestThrustAccelFnAtWithTargetAppliesPitchBeforeHeading(t *testing.T) {
 	earth := testEarth()
 	sc := NewInLEO(earth)
@@ -261,10 +252,10 @@ func TestThrustAccelFnAtWithTargetAppliesPitchBeforeHeading(t *testing.T) {
 	vSurf := v.Sub(omega.Cross(r))
 	natural := vSurf.Scale(1 / vSurf.Norm())
 
-	pitchFirst := ApplyHeadingTrim(ApplyPitchTrim(natural, r, spinAxis, sc.PitchTrim), r, spinAxis, sc.HeadingTrim)
+	want := ApplyTrims(natural, r, spinAxis, sc.PitchTrim, sc.HeadingTrim)
 	headingFirst := ApplyPitchTrim(ApplyHeadingTrim(natural, r, spinAxis, sc.HeadingTrim), r, spinAxis, sc.PitchTrim)
-	if pitchFirst.Sub(headingFirst).Norm() < 1e-6 {
-		t.Fatalf("test setup doesn't distinguish order: pitch-first %+v ~= heading-first %+v", pitchFirst, headingFirst)
+	if want.Sub(headingFirst).Norm() < 1e-6 {
+		t.Fatalf("test setup doesn't distinguish order: ApplyTrims %+v ~= heading-then-pitch-about-north %+v", want, headingFirst)
 	}
 
 	accelFn := sc.ThrustAccelFnAtWithTarget(BurnSurfacePrograde, mu, 1.0, orbital.Vec3{}, orbital.Vec3{})
@@ -278,8 +269,8 @@ func TestThrustAccelFnAtWithTargetAppliesPitchBeforeHeading(t *testing.T) {
 	}
 	got := thrustAccel.Scale(1 / thrustAccel.Norm())
 
-	if got.Sub(pitchFirst).Norm() > 1e-6 {
-		t.Errorf("ThrustAccelFnAtWithTarget direction = %+v, want pitch-before-heading composition %+v (heading-first would give %+v)", got, pitchFirst, headingFirst)
+	if got.Sub(want).Norm() > 1e-6 {
+		t.Errorf("ThrustAccelFnAtWithTarget direction = %+v, want ApplyTrims' %+v (heading-then-pitch-about-north would give %+v)", got, want, headingFirst)
 	}
 }
 

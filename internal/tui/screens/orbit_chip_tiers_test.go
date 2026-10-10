@@ -12,6 +12,7 @@ package screens
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"testing"
@@ -406,5 +407,38 @@ func TestEngineWorstCaseFixturesReachEveryBranch(t *testing.T) {
 		if !joined[want] {
 			t.Errorf("worst-case ENGINE fixtures never rendered %q", want)
 		}
+	}
+}
+
+// TestChipTierWidthsStableUnderTrim: tapping ←/→ changes GUIDANCE's trim:
+// reading and nothing else. "15° downrange" pushed the left column from 56
+// to 62 cells (2026-10-09) and every guard above passed, because no
+// fixture carried a trim. Up to 99° either way the boxes must not move.
+func TestChipTierWidthsStableUnderTrim(t *testing.T) {
+	widths := func(w *sim.World) map[settings.Chip]int {
+		v := NewOrbitView(launchThemeForTest())
+		v.Resize(140, 40)
+		v.Render(w, 0, 140, 40)
+		out := map[settings.Chip]int{}
+		for _, cr := range v.chipRects {
+			if tierTopLeftIDs[cr.id] || tierBottomLeftIDs[cr.id] || tierRightIDs[cr.id] {
+				out[cr.id] = cr.colEnd - cr.colStart + 1
+			}
+		}
+		return out
+	}
+	for name, w := range allDensityPhases(t) {
+		c := w.ActiveCraft()
+		c.PitchTrim = 0
+		base := widths(w)
+		for _, deg := range []float64{99, -99} {
+			c.PitchTrim = deg * math.Pi / 180
+			for id, gw := range widths(w) {
+				if bw, ok := base[id]; ok && gw != bw {
+					t.Errorf("%s, trim %+.0f°: box %q is %d wide, was %d untrimmed", name, deg, id, gw, bw)
+				}
+			}
+		}
+		c.PitchTrim = 0
 	}
 }

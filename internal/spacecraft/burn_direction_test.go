@@ -242,25 +242,15 @@ func TestBurnDirectionAppliesPitchTrim(t *testing.T) {
 	}
 }
 
-// TestBurnDirectionAppliesPitchBeforeHeading pins the corrected
-// ordering at the BurnDirectionWithTarget call site (item4-B review
-// round 1, findings 1-2, overriding ADR 0049 decision 8's own prose,
-// which said heading-before-pitch and was wrong): PitchTrim rotates
-// the natural direction about local north BEFORE HeadingTrim re-aims
-// the horizontal component about local up. The two orders give
-// numerically different results once the natural direction already has
-// both a radial and a horizontal component (an ascending
-// BurnSurfacePrograde burn does, once the craft is climbing and moving
-// east) and both trims are nonzero, so this test would catch the two
-// calls being swapped in BurnDirectionWithTarget. This inverts and
-// renames the pre-review test of the same shape
-// (TestBurnDirectionAppliesHeadingBeforePitch), which pinned the wrong
-// order; see TestBurnDirectionRadialOutPitchThenHeadingSteersVertical
-// for the vertical-hold case that order alone left completely blind to
-// the bug (a purely-vertical natural direction makes the two orders
-// indistinguishable, since ApplyHeadingTrim-then-ApplyPitchTrim and
-// ApplyPitchTrim-then-ApplyHeadingTrim both touch a horizontal
-// component only one of them ever introduces).
+// TestBurnDirectionAppliesPitchBeforeHeading pins BurnDirectionWithTarget
+// to ApplyTrims: steer to the heading, then lean in its plane. Item4-B
+// review round 1 (findings 1-2) caught heading-then-pitch-about-north,
+// which differs once the natural direction has both a radial and a
+// horizontal component (an ascending BurnSurfacePrograde burn) and both
+// trims are nonzero; the sanity check below keeps that input
+// distinguishing. The name is historical: since 2026-10-09 pitch leans
+// after the steer, in the heading's plane (see
+// TestPitchTrimLeansAlongTheCommandedHeading for why).
 func TestBurnDirectionAppliesPitchBeforeHeading(t *testing.T) {
 	earth := testEarth()
 	r := orbital.Vec3{X: earth.RadiusMeters()}
@@ -279,15 +269,15 @@ func TestBurnDirectionAppliesPitchBeforeHeading(t *testing.T) {
 	got := s.BurnDirection(BurnSurfacePrograde)
 
 	headingFirst := ApplyPitchTrim(ApplyHeadingTrim(natural, r, spinAxis, s.HeadingTrim), r, spinAxis, s.PitchTrim)
-	pitchFirst := ApplyHeadingTrim(ApplyPitchTrim(natural, r, spinAxis, s.PitchTrim), r, spinAxis, s.HeadingTrim)
+	want := ApplyTrims(natural, r, spinAxis, s.PitchTrim, s.HeadingTrim)
 
-	if math.Abs(got.X-pitchFirst.X) > 1e-9 || math.Abs(got.Y-pitchFirst.Y) > 1e-9 || math.Abs(got.Z-pitchFirst.Z) > 1e-9 {
-		t.Errorf("BurnDirection = %+v, want pitch-before-heading composition %+v", got, pitchFirst)
+	if got.Sub(want).Norm() > 1e-9 {
+		t.Errorf("BurnDirection = %+v, want ApplyTrims' %+v", got, want)
 	}
-	// Sanity: confirm this input actually distinguishes the two orders,
+	// Sanity: confirm this input distinguishes the review's wrong order,
 	// so the assertion above is a real guard and not a coincidence.
-	if math.Abs(headingFirst.X-pitchFirst.X) < 1e-6 && math.Abs(headingFirst.Y-pitchFirst.Y) < 1e-6 && math.Abs(headingFirst.Z-pitchFirst.Z) < 1e-6 {
-		t.Fatalf("test setup doesn't distinguish order: heading-first %+v ~= pitch-first %+v", headingFirst, pitchFirst)
+	if headingFirst.Sub(want).Norm() < 1e-6 {
+		t.Fatalf("test setup doesn't distinguish order: heading-then-pitch-about-north %+v ~= ApplyTrims %+v", headingFirst, want)
 	}
 }
 
@@ -637,5 +627,101 @@ func TestBurnSurfaceProgradeHeadingConvergesAndHolds(t *testing.T) {
 
 	if math.Abs(gotBearing-120) > 1e-6 {
 		t.Errorf("bearing = %.6f°, want 120° (converged and held); a relative-offset implementation would instead read 150° here", gotBearing)
+	}
+}
+
+// TestPitchTrimLeansAlongTheCommandedHeading pins what ←/→ do once the
+// heading is trimmed off due east (Jason 2026-10-09, playtesting a 045°
+// launch window: "I still launch and tip east with right arrow"): →
+// leans the nose downrange, toward the commanded bearing, and ← leans it
+// back, the opposite way, on both thrust paths (BurnDirection and the
+// InstantSAS closure). Before the fix heading was a steer applied after
+// pitch, so it re-aimed ←'s westward lean onto 045° as well: ← and →
+// tipped the same way at any heading but 090°.
+func TestPitchTrimLeansAlongTheCommandedHeading(t *testing.T) {
+	earth := testEarth()
+	mu := earth.GravitationalParameter()
+	r := orbital.Vec3{X: earth.RadiusMeters()}
+	spinAxis := orbital.Vec3{Z: 1}
+	east, up, north, ok := localHorizonFrame(r, spinAxis)
+	if !ok {
+		t.Fatal("setup: expected a defined local horizon frame")
+	}
+	bearingElev := func(d orbital.Vec3) (float64, float64) {
+		e := d.X*east.X + d.Y*east.Y + d.Z*east.Z
+		u := d.X*up.X + d.Y*up.Y + d.Z*up.Z
+		n := d.X*north.X + d.Y*north.Y + d.Z*north.Z
+		b := math.Mod(math.Atan2(e, n)*180/math.Pi+360, 360)
+		return b, math.Atan2(u, math.Hypot(e, n)) * 180 / math.Pi
+	}
+	for _, tc := range []struct {
+		name               string
+		headingDeg, pitchD float64
+		wantBearing        float64
+	}{
+		{"due east, → leans east", 90, 10, 90},
+		{"due east, ← leans west", 90, -10, 270},
+		{"045°, → leans downrange", 45, 10, 45},
+		{"045°, ← leans back", 45, -10, 225},
+		{"270°, → leans downrange (west)", 270, 10, 270},
+		{"270°, ← leans back (east)", 270, -10, 90},
+	} {
+		s := NewInLEO(earth) // a real engine, so the closure has thrust to aim.
+		s.State.R = r
+		s.State.V = orbital.Vec3{Y: 1} // radial-out ignores V's direction but needs it nonzero.
+		s.HeadingTrim = (tc.headingDeg - 90) * math.Pi / 180
+		s.PitchTrim = tc.pitchD * math.Pi / 180
+
+		accel := s.ThrustAccelFnAtWithTarget(BurnRadialOut, mu, 1.0, orbital.Vec3{}, orbital.Vec3{})(r, s.State.V, 0)
+		closure := accel.Sub(physics.Accel(r, mu))
+		for path, d := range map[string]orbital.Vec3{"BurnDirection": s.BurnDirection(BurnRadialOut), "thrust closure": closure} {
+			b, el := bearingElev(d)
+			if math.Abs(math.Remainder(b-tc.wantBearing, 360)) > 1e-6 || math.Abs(el-80) > 1e-6 {
+				t.Errorf("%s via %s: nose at %.1f° bearing, %.1f° elevation; want %.0f°, 80°", tc.name, path, b, el, tc.wantBearing)
+			}
+		}
+	}
+}
+
+// TestPitchTrimNoseDownSign pins the up/down sense GUIDANCE's trim: reads
+// (Jason 2026-10-09: "the trim should be up / down to reference if I am
+// pointing my nose up or down in relation to prograde"): → lowers the nose
+// against a hold that faces downrange (the pad's vertical hold, a prograde
+// climb) and raises it against one facing back (a retrograde hold), and
+// each sign is checked against the elevation ApplyTrims actually produces.
+func TestPitchTrimNoseDownSign(t *testing.T) {
+	r := orbital.Vec3{X: 6.4e6}
+	spinAxis := orbital.Vec3{Z: 1}
+	east, up, _, _ := localHorizonFrame(r, spinAxis)
+	elev := func(d orbital.Vec3) float64 {
+		u := d.X*up.X + d.Y*up.Y + d.Z*up.Z
+		return math.Asin(u/d.Norm()) * 180 / math.Pi
+	}
+	climbEast := east.Scale(math.Cos(0.3)).Add(up.Scale(math.Sin(0.3)))
+	for _, tc := range []struct {
+		name       string
+		hold       orbital.Vec3
+		headingDeg float64
+		want       float64
+	}{
+		{"pad, vertical hold", up, 90, +1},
+		{"pad at 045°, vertical hold", up, 45, +1},
+		{"prograde climbing east", climbEast, 90, +1},
+		{"retrograde of an eastward descent", climbEast.Scale(-1), 90, -1},
+		{"no hold yet (surface prograde standing still)", orbital.Vec3{}, 90, +1},
+	} {
+		off := (tc.headingDeg - 90) * math.Pi / 180
+		got := PitchTrimNoseDownSign(tc.hold, r, spinAxis, off)
+		if got != tc.want {
+			t.Errorf("%s: sign %+.0f, want %+.0f", tc.name, got, tc.want)
+		}
+		if tc.hold.Norm() == 0 || tc.hold == up {
+			continue // elevation can only fall from straight up; the sign there is by facing.
+		}
+		held := ApplyTrims(tc.hold, r, spinAxis, 0, off)
+		trimmed := ApplyTrims(tc.hold, r, spinAxis, 5*math.Pi/180, off)
+		if lowered := elev(trimmed) < elev(held); lowered != (tc.want > 0) {
+			t.Errorf("%s: → moved the nose from %.1f° to %.1f° elevation, but the sign says %+.0f", tc.name, elev(held), elev(trimmed), tc.want)
+		}
 	}
 }
