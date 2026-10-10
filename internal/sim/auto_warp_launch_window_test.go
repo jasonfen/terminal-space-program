@@ -1,9 +1,12 @@
 package sim
 
 import (
+	"math"
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -99,5 +102,67 @@ func TestAutoWarpLaunchWindowDisengagesWhenTheTargetGoes(t *testing.T) {
 	w.Tick()
 	if w.AutoWarpEngaged() {
 		t.Error("Auto-Warp still chasing a window after the target was cleared")
+	}
+}
+
+// G on the pad also trims the heading to the one the window wants (Jason,
+// 2026-10-09: "G should auto trim"), to the whole degree the plan: row
+// prints, so after the warp the launch plane IS the target's: no ↑/↓ hunt.
+// Pitch trim is the player's and stays put.
+func TestAutoWarpOnThePadTrimsTheHeadingToTheWindow(t *testing.T) {
+	w := padTargetingSeed(t)
+	c := w.ActiveCraft()
+	c.PitchTrim = 3 * math.Pi / 180
+	lw, ok := w.LaunchWindow()
+	if !ok || !lw.Open {
+		t.Fatalf("setup: want an open window, got ok=%v %+v", ok, lw)
+	}
+	if math.Abs(lw.HeadingDeg-90) < 5 {
+		t.Fatalf("setup: the window wants %.1f°, too close to due east to tell a trim happened", lw.HeadingDeg)
+	}
+	if !w.EngageAutoWarp() {
+		t.Fatal("EngageAutoWarp refused the launch window")
+	}
+	gotDeg := (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi
+	if want := math.Round(lw.HeadingDeg); math.Abs(gotDeg-want) > 1e-9 {
+		t.Errorf("commanded heading %.3f°, want the window's %.0f°", gotDeg, want)
+	}
+	if c.PitchTrim != 3*math.Pi/180 {
+		t.Errorf("pitch trim changed to %.3f rad; G trims the heading only", c.PitchTrim)
+	}
+	// The effect, not the setting: at the pass, that heading's launch plane
+	// is the target's.
+	spinR := render.BodyRotationAxisWorld(c.Primary)
+	spin := orbital.Vec3{X: spinR.X, Y: spinR.Y, Z: spinR.Z}
+	n, ok := spacecraft.HeadingOrbitNormal(lw.padDir.Scale(c.Primary.RadiusMeters()), spin, c.HeadingTrim)
+	if !ok {
+		t.Fatal("no launch plane for the commanded heading")
+	}
+	if a := foldedPlaneAngleDeg(n, lw.nT); a > 0.5 {
+		t.Errorf("launching at the pass on the trimmed heading misses the target's plane by %.2f°", a)
+	}
+}
+
+// With no pass, G trims to the heading the best figure is measured for
+// (due east for a prograde target), undoing a stray manual trim.
+func TestAutoWarpWithoutAPassTrimsToTheBestMomentHeading(t *testing.T) {
+	w := padTargetingSeed(t)
+	for i, b := range w.System().Bodies {
+		if b.ID == "moon" {
+			w.SetTargetBody(i)
+		}
+	}
+	c := w.ActiveCraft()
+	c.HeadingTrim = -45 * math.Pi / 180
+	lw, ok := w.LaunchWindow()
+	if !ok || lw.Open {
+		t.Fatalf("setup: want a no-pass window to the Moon, got ok=%v %+v", ok, lw)
+	}
+	if !w.EngageAutoWarp() {
+		t.Fatal("EngageAutoWarp refused the best moment")
+	}
+	gotDeg := (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi
+	if want := lw.HeadingDeg; math.Abs(gotDeg-want) > 1e-9 {
+		t.Errorf("commanded heading %.3f°, want the best moment's %.0f°", gotDeg, want)
 	}
 }

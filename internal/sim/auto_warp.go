@@ -1,6 +1,9 @@
 package sim
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
 // Auto-Warp (v0.16 / ADR 0016). One control warps time to a fixed lead
 // before the next burn, then hands off to 1× so the player can watch it
@@ -96,6 +99,20 @@ func (w *World) launchWindowWarpTarget() (time.Time, bool) {
 	return t, true
 }
 
+// trimHeadingToLaunchWindow sets the pad vessel's commanded heading to
+// the one the window wants, to the whole degree the plan: row prints
+// (Jason, 2026-10-09: "G should auto trim"): the pass's heading, or with
+// no pass the heading the best figure is measured for. Once, at engage:
+// ↑/↓ during the warp are the player's and stick. Pitch trim is left alone.
+func (w *World) trimHeadingToLaunchWindow() {
+	c := w.ActiveCraft()
+	lw, ok := w.LaunchWindow()
+	if c == nil || !ok {
+		return
+	}
+	c.HeadingTrim = (math.Round(lw.HeadingDeg) - 90) * math.Pi / 180
+}
+
 // AutoWarpSecondsToTarget returns the sim-seconds until the engaged
 // driver's release point T, and ok=false when not engaged — feeds the
 // `AUTO → Nx ⏱ Ms` HUD chip.
@@ -118,6 +135,7 @@ func (w *World) AutoWarpSecondsToTarget() (float64, bool) {
 func (w *World) EngageAutoWarp() bool {
 	if t, ok := w.launchWindowWarpTarget(); ok {
 		w.AutoWarp = &AutoWarpTarget{LaunchWindow: true, T: t}
+		w.trimHeadingToLaunchWindow()
 		w.Clock.Paused = false
 		return true
 	}

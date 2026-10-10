@@ -171,7 +171,7 @@ Dvorak, and free per-key remapping aren't supported yet.
 |---|---|
 | `0` | Pause / resume |
 | `.` / `,` | Speed time up / down, to 100,000×. Eases off automatically around a burn |
-| `G` | Auto-warp to the next burn (any vessel's): warps to 30 s before it fires, ramps down, and hands you 1× to watch it arm. On the pad with a target, it warps to 30 s before the launch window on the `plan:` row instead (the best moment, when there is no exact pass). `.` / `,` or the `[»Burn]` button cancels it |
+| `G` | Auto-warp to the next burn (any vessel's): warps to 30 s before it fires, ramps down, and hands you 1× to watch it arm. On the pad with a target, it warps to 30 s before the launch window on the `plan:` row instead (the best moment, when there is no exact pass) and turns your heading to the one the row names, so you only have to light the engine. `↑` / `↓` afterwards are yours. `.` / `,` or the `[»Burn]` button cancels it |
 | `/` | Cancel warp: straight back to 1× from any level, and cancel auto-warp or a rendezvous warp if one is running |
 
 During a multiplayer rendezvous warp the manual warp keys and `G` are inert
