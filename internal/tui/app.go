@@ -1428,9 +1428,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.refuse("auto-warp", "no burn planned to warp to")
 				return a, nil
 			}
-			if a.toggleAutoWarpBurn() {
-				a.world.RecordAction(missions.ActionAutoWarp) // ADR 0025 §7
-			}
+			a.toggleAutoWarpBurn()
 			return a, nil
 		case key.Matches(m, a.keys.CancelWarp):
 			// Drop straight to 1× from any warp state: cancel Auto-Warp
@@ -3063,7 +3061,9 @@ func (a *App) releaseRendezvousBrake() bool {
 
 // toggleAutoWarpBurn carries the shared intent behind the `G` key and
 // the mouse [»Burn] button: toggle Auto-Warp to the globally-soonest
-// burn. Reports whether the toggle ran.
+// burn. Reports whether the toggle ran, and when it did records the
+// auto_warp action (ADR 0025 §7) for either input: the button used to
+// record nothing (Jason 2026-10-09).
 //
 // Except during an engaged Rendezvous Warp coast (#259, sibling of
 // #249): ToggleAutoWarp routes through DisengageAutoWarp, which must
@@ -3080,6 +3080,7 @@ func (a *App) toggleAutoWarpBurn() bool {
 		return false
 	}
 	a.world.ToggleAutoWarp()
+	a.world.RecordAction(missions.ActionAutoWarp)
 	return true
 }
 
