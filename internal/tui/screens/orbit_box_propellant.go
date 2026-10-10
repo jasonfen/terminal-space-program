@@ -52,8 +52,8 @@ func (v *OrbitView) buildPropellantBox(w *sim.World) []string {
 }
 
 // deltaVToCircLabel renders PROPELLANT's Δv→circ cell: the Δv a
-// circularisation burn at apoapsis would cost, plus its burn time AT
-// MAXIMUM THRUST (C5, "at full" is gone; "max" is the one word for a
+// circularisation burn at apoapsis would cost, plus its burn time on the
+// lit stage AT MAXIMUM THRUST (C5, "at full" is gone; "max" is the one word for a
 // full-throttle figure everywhere on the instruments, 13b). Dash outside
 // a sub-orbital climb (isSubOrbitalClimb, C4): the same rows serve an
 // air or airless ascent, and closing #454's gap is exactly using this
@@ -82,9 +82,13 @@ func (v *OrbitView) deltaVToCircLabel(c *spacecraft.Spacecraft) string {
 		return "—"
 	}
 	label := readout.DeltaV(dvCirc)
-	if c.Thrust > 0 && c.TotalMass() > 0 {
-		tBurnSec := dvCirc * c.TotalMass() / c.Thrust // max thrust (C5), never the current throttle
-		label += "  " + readout.Duration(secondsToDuration(tBurnSec))
+	// The rocket-equation time at max thrust (C5, never the current
+	// throttle), the same BurnTimeForDV the C key plants and the burn then
+	// flies. It was Δv·m/F at today's mass, which ignores the fuel the burn
+	// sheds and read long: 1m11s for a burn that flew 1m01s on an S-IVB
+	// (Jason 2026-10-10: "doesn't seem to align to actual").
+	if d := c.BurnTimeForDV(dvCirc); d > 0 {
+		label += "  " + readout.Duration(d)
 	}
 	return label
 }
