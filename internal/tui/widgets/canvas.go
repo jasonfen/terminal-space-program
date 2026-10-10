@@ -1888,13 +1888,18 @@ func (c *Canvas) String() string {
 	// identically-styled cells now — same bytes out, far fewer calls.
 	var runBuf []rune
 	var runFg lipgloss.TerminalColor
+	var runBg lipgloss.Color
 	var runStyled bool
 	flushRun := func() {
 		if len(runBuf) == 0 {
 			return
 		}
 		if runStyled {
-			b.WriteString(lipgloss.NewStyle().Foreground(runFg).Render(string(runBuf)))
+			st := lipgloss.NewStyle().Foreground(runFg)
+			if runBg != "" {
+				st = st.Background(runBg)
+			}
+			b.WriteString(st.Render(string(runBuf)))
 		} else {
 			for _, r := range runBuf {
 				b.WriteRune(r)
@@ -1932,9 +1937,10 @@ func (c *Canvas) String() string {
 				fg, hasColor = oc, true
 			}
 			styled := hasColor && ch != ' '
-			if styled != runStyled || (styled && fg != runFg) {
+			bg := ink.bgAt(cellIdx)
+			if styled != runStyled || (styled && (fg != runFg || bg != runBg)) {
 				flushRun()
-				runStyled, runFg = styled, fg
+				runStyled, runFg, runBg = styled, fg, bg
 			}
 			runBuf = append(runBuf, ch)
 		}

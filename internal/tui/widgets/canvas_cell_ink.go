@@ -1,8 +1,32 @@
 package widgets
 
 import (
+	"fmt"
+	"os"
+	"strconv"
+
 	"github.com/charmbracelet/lipgloss"
 )
+
+// EXPERIMENT (#580, not for merge): TSP_TRENCH picks how a solid line
+// renders where it crosses a body. Unset: v0.51.3's knockout plus a
+// one-dot moat. a: knockout only. b / c: a, plus the trench cells'
+// background set to the body colour 55% / 25% darker. d: a, plus the
+// body's whole interior gets its own colour 60% darker as background.
+var trenchMode = os.Getenv("TSP_TRENCH")
+
+func darkenForTrench(hex lipgloss.Color, frac float64) lipgloss.Color {
+	h := string(hex)
+	if len(h) != 7 || h[0] != '#' {
+		return hex
+	}
+	v, err := strconv.ParseUint(h[1:], 16, 32)
+	if err != nil {
+		return hex
+	}
+	r, g, b := float64(v>>16&0xFF), float64(v>>8&0xFF), float64(v&0xFF)
+	return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", int(r*(1-frac)), int(g*(1-frac)), int(b*(1-frac))))
+}
 
 // brailleDotBit is the braille-pattern bit for a pixel at (dx, dy) inside
 // its 2x4 cell, the same layout drawille sets.
@@ -48,12 +72,14 @@ func (t *colorTally) dominant(palette []lipgloss.Color) uint16 {
 // none) and moat (braille bits to clear from the cell's own rune).
 // all/fore/foreDots/backdrop are working state.
 type cellInk struct {
-	all, fore colorTally
-	color     uint16
-	foreDots  uint8
-	moat      uint8
-	backdrop  bool
-	knockout  bool
+	all, fore, back colorTally
+	bg              lipgloss.Color
+	backDots        uint8
+	color           uint16
+	foreDots        uint8
+	moat            uint8
+	backdrop        bool
+	knockout        bool
 }
 
 // inkScratch is resolveCellInk's working set, kept on the Canvas and reused
@@ -72,6 +98,9 @@ type inkScratch struct {
 	tagStrong []bool           // pixel tag index (0-based) -> solid ink: wins over Backdrop, cuts a moat
 	paletteOf map[lipgloss.Color]uint16
 }
+
+// bgAt is the experiment's cell background, "" for none.
+func (s *inkScratch) bgAt(idx int) lipgloss.Color { return s.cells[idx].bg }
 
 // colorAt is the resolved colour of the cell at idx, "" when unstyled.
 func (s *inkScratch) colorAt(idx int) lipgloss.Color { return s.palette[s.cells[idx].color] }
@@ -152,7 +181,7 @@ func (c *Canvas) resolveCellInk() *inkScratch {
 	// Pass 1: the moat, every backdrop pixel touching non-backdrop ink.
 	for _, pi := range g.touched {
 		t := g.tagIdx[pi] - 1
-		if t < 0 || !s.tagStrong[t] {
+		if t < 0 || !s.tagStrong[t] || trenchMode != "" {
 			continue
 		}
 		px, py := int(pi)%g.w, int(pi)/g.w
@@ -203,6 +232,8 @@ func (c *Canvas) resolveCellInk() *inkScratch {
 			}
 			ci.backdrop = true
 			ci.all.add(id)
+			ci.back.add(id)
+			ci.backDots |= bit
 			continue
 		}
 		ci.all.add(id)
@@ -219,8 +250,18 @@ func (c *Canvas) resolveCellInk() *inkScratch {
 		case ci.fore.n > 0 && (ci.backdrop || ci.moat != 0):
 			ci.color = ci.fore.dominant(s.palette)
 			ci.knockout = true
+			if (trenchMode == "b" || trenchMode == "c") && ci.back.n > 0 {
+				frac := 0.55
+				if trenchMode == "c" {
+					frac = 0.25
+				}
+				ci.bg = darkenForTrench(s.palette[ci.back.dominant(s.palette)], frac)
+			}
 		case ci.all.n > 0:
 			ci.color = ci.all.dominant(s.palette)
+		}
+		if trenchMode == "d" && ci.backdrop && ci.back.n > 0 && ci.backDots|ci.foreDots == 0xFF {
+			ci.bg = darkenForTrench(s.palette[ci.back.dominant(s.palette)], 0.6)
 		}
 	}
 	return s
