@@ -232,8 +232,9 @@ type Keymap struct {
 	AttitudeSurfaceRetrograde key.Binding
 
 	// PitchTrimEast / PitchTrimWest (v0.9.2+; ADR 0052 decision 2: on →
-	// and ←): nudge thrust direction ±5° east of the active mode's
-	// natural direction. Used by ascent gravity-turn flight to initiate
+	// and ←): lean the nose ±5° toward / back from the commanded heading
+	// off the active mode's natural direction (east only at the default
+	// due-east heading; spacecraft.ApplyTrims). Used by ascent gravity-turn flight to initiate
 	// the pitch-over from vertical. Held → continuous trim ramp at the
 	// terminal's key-repeat rate. Reset via PitchTrimReset.
 	PitchTrimEast  key.Binding
@@ -452,12 +453,12 @@ func DefaultKeymap() Keymap {
 
 		AttitudeSurfacePrograde:   key.NewBinding(key.WithKeys("W"), key.WithHelp("W", "attitude: surface prograde")),
 		AttitudeSurfaceRetrograde: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "attitude: surface retrograde")),
-		PitchTrimEast:             key.NewBinding(key.WithKeys("right"), key.WithHelp("→", "pitch trim +5° east")),
-		PitchTrimWest:             key.NewBinding(key.WithKeys("left"), key.WithHelp("←", "pitch trim -5° west")),
+		PitchTrimEast:             key.NewBinding(key.WithKeys("right"), key.WithHelp("→", "pitch trim 5° toward your heading")),
+		PitchTrimWest:             key.NewBinding(key.WithKeys("left"), key.WithHelp("←", "pitch trim 5° back from your heading")),
 		HeadingTrimNorth:          key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "heading trim -5° (toward north)")),
 		HeadingTrimSouth:          key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "heading trim +5° (toward south)")),
-		PitchTrimEastFine:         key.NewBinding(key.WithKeys("alt+right", "alt+f"), key.WithHelp("alt+→", "pitch trim +1° east")),
-		PitchTrimWestFine:         key.NewBinding(key.WithKeys("alt+left", "alt+b"), key.WithHelp("alt+←", "pitch trim -1° west")),
+		PitchTrimEastFine:         key.NewBinding(key.WithKeys("alt+right", "alt+f"), key.WithHelp("alt+→", "pitch trim 1° toward your heading")),
+		PitchTrimWestFine:         key.NewBinding(key.WithKeys("alt+left", "alt+b"), key.WithHelp("alt+←", "pitch trim 1° back from your heading")),
 		HeadingTrimNorthFine:      key.NewBinding(key.WithKeys("alt+up"), key.WithHelp("alt+↑", "heading trim -1° (toward north)")),
 		HeadingTrimSouthFine:      key.NewBinding(key.WithKeys("alt+down"), key.WithHelp("alt+↓", "heading trim +1° (toward south)")),
 		// #425: moved off `?` (now the Help alias below) to `|` — "vertical

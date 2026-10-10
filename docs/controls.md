@@ -103,7 +103,7 @@ A good first attempt:
 3. Above 10 km, pitch east with `W` (Flight School's turn) and hold it
    through the climb: it points the rocket along your motion relative to the
    ground. To start bending over sooner, tap `→` a couple of times to tip
-   ~5° east each; the rocket starts building sideways speed.
+   ~5° toward your heading each (east, unless you trimmed it with `↑`/`↓`); the rocket starts building sideways speed.
 4. As your ground speed passes ~100 m/s, keep `W` on so the rocket tracks its
    own motion and gravity rounds the climb into orbit for you. If you tipped
    it with `→`, press `|` to clear the pitch trim.
@@ -190,9 +190,9 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 | `a` / `d` | Point normal+ / normal- (perpendicular to your orbit) |
 | `q` / `e` | Point radial+ / radial- (away from / toward the body) |
 | `W` / `S` | Point along / against your ground speed (velocity relative to the spinning atmosphere). Use this for the launch gravity turn |
-| `→` / `←` | Tip the nose 5° east / west on top of whatever the autopilot is doing (hold to ramp). Works the same in the map, the `V` launch view, the Proximity view (its PROXIMITY chip shows the trim) and every projection. A menu, the mission ladder, body info or the Rendezvous Planner picker takes the arrows while it is open |
+| `→` / `←` | Tip the nose 5° toward / back from your heading on top of whatever the autopilot is doing (hold to ramp). Works the same in the map, the `V` launch view, the Proximity view (its PROXIMITY chip shows the trim) and every projection. A menu, the mission ladder, body info or the Rendezvous Planner picker takes the arrows while it is open |
 | `↑` / `↓` | Nudge your commanded launch heading 5° toward north / south off due east (hold to ramp), on the pad or mid-ascent |
-| `alt+←` / `alt+→` | Fine pitch trim: 1° west / east (alt makes any trim fine) |
+| `alt+←` / `alt+→` | Fine pitch trim: 1° back from / toward your heading (alt makes any trim fine) |
 | `alt+b` / `alt+f` | The same fine pitch trim, for Terminal.app and Ghostty, which send Option+← / Option+→ as these two keys |
 | `alt+↑` / `alt+↓` | Fine heading trim: 1° toward north / south, so you can command the exact heading the pad window names on NAVIGATION's `plan:` row |
 | `alt` | The Alt key on Windows and Linux (WezTerm and most terminals send it as-is); Option on a Mac, see the next row |
@@ -321,7 +321,7 @@ overlay carries, so you can look one up without leaving the game.
 | `rcs` | Monoprop's own delta-v, from the RCS thrusters rather than the main engine |
 | `speed` | Inertial speed, alongside `vert:` and `horiz:` |
 | `(max N)` | The same figure at full throttle, when it differs from the current one |
-| `heading:` / `hdg` | GUIDANCE `heading:` is the bearing you have commanded; the navball's `pitch` and `hdg` are measured, where the nose points now (they agree on the pad, and differ while the nose slews). In ORBIT the ball's rungs count degrees out of the orbit plane, not above the horizon. `trim:` is how far ←/→ lean the nose east or west of the hold, so `15° E` on an eastbound nose reads `pitch -15°` |
+| `heading:` / `hdg` | GUIDANCE `heading:` is the bearing you have commanded; the navball's `pitch` and `hdg` are measured, where the nose points now (they agree on the pad, and differ while the nose slews). In ORBIT the ball's rungs count degrees out of the orbit plane, not above the horizon. `trim:` is how far ←/→ lean the nose down or up off the hold, so `15° down` on a level prograde nose reads `pitch -15°`; → leans toward your heading, which lowers a prograde nose and raises a retrograde one |
 | `● ORBIT READY [C]` | Apoapsis has cleared this world's orbit floor: press `C` to plant the circularising burn |
 
 ## Screens
