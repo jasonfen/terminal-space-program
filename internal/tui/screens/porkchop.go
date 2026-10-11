@@ -298,8 +298,13 @@ func (p *Porkchop) Render(w *sim.World, cols, rows int) string {
 		b.WriteString(fmt.Sprintf("selected: dep+%.0fd tof=%.0fd  total Δv: %.2f km/s\n",
 			depD, tofD, selDv/1000))
 	}
-	b.WriteString(fmt.Sprintf("min %.2f km/s  max %.2f km/s  legend: ",
-		minDv/1000, maxDv/1000))
+	if math.IsInf(minDv, 0) || math.IsInf(maxDv, 0) {
+		// Every cell failed: the min/max seeds survived (#586). Say so in words.
+		b.WriteString("no transfer solves in this window  legend: ")
+	} else {
+		b.WriteString(fmt.Sprintf("min %.2f km/s  max %.2f km/s  legend: ",
+			minDv/1000, maxDv/1000))
+	}
 	for _, g := range porkchopLegendRamp {
 		b.WriteString(g)
 	}

@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -206,5 +207,43 @@ func TestPorkchopBodyStillNamesTheScoredOptions(t *testing.T) {
 	out := p.Render(w, 140, 38)
 	if !strings.Contains(out, "rev=0 prograde") {
 		t.Errorf("porkchop body does not name the scored options:\n%s", out)
+	}
+}
+
+// TestPorkchopAllUnsolvedSaysSoInWords (#586): a grid where every cell
+// failed to solve used to print `min +Inf km/s  max -Inf km/s` (the
+// min/max seeds survived because NaN cells are skipped). It must say so in
+// words and never print Inf anywhere in the frame.
+func TestPorkchopAllUnsolvedSaysSoInWords(t *testing.T) {
+	p := NewPorkchop(Theme{
+		Title: lipgloss.NewStyle(), Footer: lipgloss.NewStyle(),
+		Warning: lipgloss.NewStyle(), Alert: lipgloss.NewStyle(), Dim: lipgloss.NewStyle(),
+	})
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	marsIdx := -1
+	for i, b := range w.System().Bodies {
+		if b.EnglishName == "Mars" {
+			marsIdx = i
+		}
+	}
+	if marsIdx < 0 {
+		t.Skip("Mars not in Sol system")
+	}
+	p.Load(w, marsIdx)
+	// Set up the opposite state first: every cell fails.
+	for j := range p.grid {
+		for i := range p.grid[j] {
+			p.grid[j][i] = math.NaN()
+		}
+	}
+	out := p.Render(w, 140, 40)
+	if strings.Contains(out, "Inf") {
+		t.Errorf("all-unsolved porkchop prints Inf:\n%s", out)
+	}
+	if !strings.Contains(out, "no transfer solves in this window") {
+		t.Errorf("all-unsolved porkchop does not say so in words:\n%s", out)
 	}
 }

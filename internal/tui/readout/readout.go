@@ -513,3 +513,63 @@ func Heading(deg float64) string {
 	}
 	return fmt.Sprintf("%03.0f°", r)
 }
+
+// MassSci renders a mass in kilograms for bodies whose mass is far past
+// anything on the Mass ladder (planets, stars). Up to 1e9 kg it is Mass.
+// Above, it prints a 4-significant-figure mantissa times a power of ten in
+// superscript digits (`5.972 × 10²⁴ kg`): no `e+` notation, and no
+// 22-digit tonnage. The Mass ladder deliberately has no rung above t
+// (decision 3), so a body mass needs its own reading rather than a new rung.
+func MassSci(kg float64) string {
+	av := math.Abs(kg)
+	if av < 1e9 || math.IsNaN(kg) || math.IsInf(kg, 0) {
+		return Mass(kg)
+	}
+	exp := int(math.Floor(math.Log10(av)))
+	mant := av / math.Pow(10, float64(exp))
+	if math.Round(mant*1000)/1000 >= 10 {
+		mant /= 10
+		exp++
+	}
+	sign := ""
+	if kg < 0 {
+		sign = "-"
+	}
+	return fmt.Sprintf("%s%.3f × 10%s kg", sign, mant, superscript(exp))
+}
+
+func superscript(n int) string {
+	digits := []rune("⁰¹²³⁴⁵⁶⁷⁸⁹")
+	s := fmt.Sprintf("%d", n)
+	out := ""
+	for _, r := range s {
+		if r == '-' {
+			out += "⁻"
+			continue
+		}
+		out += string(digits[r-'0'])
+	}
+	return out
+}
+
+// Years renders an age in years on a yr / kyr / Myr / Gyr ladder at 4
+// significant figures (`4.600 Gyr`). The rung is always printed.
+func Years(y float64) string {
+	av := math.Abs(y)
+	switch {
+	case av < 1e3:
+		return fmt.Sprintf("%.0f yr", y)
+	case av < 1e6:
+		return yearsRung(y, 1e3, "kyr")
+	case av < 1e9:
+		return yearsRung(y, 1e6, "Myr")
+	default:
+		return yearsRung(y, 1e9, "Gyr")
+	}
+}
+
+func yearsRung(y, div float64, unit string) string {
+	v := y / div
+	dec := chooseDecimals(math.Abs(v), 3)
+	return fmt.Sprintf("%.*f %s", dec, Nzero(v, dec), unit)
+}
