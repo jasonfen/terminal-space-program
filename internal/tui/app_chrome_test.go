@@ -258,8 +258,9 @@ var formFrameScreens = []struct {
 // TestFormsLiveInsideTheSharedFrame (B11 / G9 Q4): through App.View every
 // form is exactly the terminal's size, no row wraps or overflows, the
 // block under the Title Row opens with the rounded frame's top edge and
-// closes with a bottom edge carrying the key legend (the band a flash
-// overlays), and the flash lands on that edge without breaking the frame.
+// closes with a bottom edge carrying the key legend, and the last screen row
+// is the Flash Row under it (#599): blank, then the flash lands there and
+// the frame, legend included, stays whole.
 func TestFormsLiveInsideTheSharedFrame(t *testing.T) {
 	for _, sz := range [][2]int{{140, 40}, {181, 49}} {
 		for _, tc := range formFrameScreens {
@@ -279,16 +280,21 @@ func TestFormsLiveInsideTheSharedFrame(t *testing.T) {
 			if !strings.HasPrefix(lines[1], "╭") || !strings.HasSuffix(lines[1], "╮") {
 				t.Errorf("%s %dx%d: row 1 is not the frame's top edge: %q", tc.name, sz[0], sz[1], lines[1])
 			}
-			last := lines[len(lines)-1]
-			if !strings.HasPrefix(last, "╰─ ") || !strings.HasSuffix(last, "╯") || !strings.Contains(last, "[") {
-				t.Errorf("%s %dx%d: bottom edge carries no legend: %q", tc.name, sz[0], sz[1], last)
+			edge := lines[len(lines)-2]
+			if !strings.HasPrefix(edge, "╰─ ") || !strings.HasSuffix(edge, "╯") || !strings.Contains(edge, "[") {
+				t.Errorf("%s %dx%d: bottom edge carries no legend: %q", tc.name, sz[0], sz[1], edge)
 			}
-			// A flash rides the same edge and leaves the frame whole.
+			if last := lines[len(lines)-1]; strings.TrimSpace(last) != "" {
+				t.Errorf("%s %dx%d: the Flash Row is not blank on a clean form: %q", tc.name, sz[0], sz[1], last)
+			}
+			// A flash takes the Flash Row and leaves the frame whole.
 			a.flash("hello flash")
 			lines = strings.Split(stripANSIForTest(a.View()), "\n")
-			last = lines[len(lines)-1]
-			if !strings.HasPrefix(last, "╰") || !strings.HasSuffix(last, "╯") || !strings.Contains(last, "hello flash") {
-				t.Errorf("%s %dx%d: flash broke the bottom edge: %q", tc.name, sz[0], sz[1], last)
+			if got := lines[len(lines)-2]; got != edge {
+				t.Errorf("%s %dx%d: flash changed the bottom edge:\n got %q\nwant %q", tc.name, sz[0], sz[1], got, edge)
+			}
+			if last := lines[len(lines)-1]; !strings.Contains(last, "hello flash") {
+				t.Errorf("%s %dx%d: flash not on the Flash Row: %q", tc.name, sz[0], sz[1], last)
 			}
 		}
 	}

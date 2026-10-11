@@ -3514,38 +3514,41 @@ func (a *App) View() string {
 	var base string
 	// B11 / G9 Q1: every non-flight screen wears the shared Title Row; its
 	// body is rendered one row shorter to make room for it.
+	// #599: every frame form also leaves the last row blank for the flash
+	// (flashH is the height a form renders at); the maneuver planner keeps
+	// its own reserve (it draws its legend and that blank row itself).
 	bodyH := a.height - 1
+	flashH := bodyH - 1
 	switch a.active {
 	case screenHelp:
-		base = a.formScreen("Help", "", a.help.Render(a.width, bodyH, a.layout))
+		base = a.formScreen("Help", "", a.help.Render(a.width, flashH, a.layout))
 	case screenBodyInfo:
-		// The legend that advertises t/H/P rides the frame's bottom edge,
-		// which is exactly the band a "target: Mars" flash overlays; the
-		// flash is short-lived and the legend returns (B11 retired
-		// reserveFlashRow along with the last-row-is-content layout).
-		base = a.formScreen("Body info", a.bodyInfoName(), a.bodyInfo.Render(a.world, a.selectedBody, a.width, bodyH))
+		// The legend that advertises t/H/P rides the frame's bottom edge;
+		// a "target: Mars" flash lands on the Flash Row formScreen leaves
+		// under it (#599), so the legend stays.
+		base = a.formScreen("Body info", a.bodyInfoName(), a.bodyInfo.Render(a.world, a.selectedBody, a.width, flashH))
 	case screenManeuver:
-		base = a.formScreen("Maneuver planner", a.maneuver.TitleContext(a.world), a.maneuver.Render(a.world, a.width, bodyH, a.selectedBody))
+		base = a.formTitled("Maneuver planner", a.maneuver.TitleContext(a.world), a.maneuver.Render(a.world, a.width, bodyH, a.selectedBody))
 	case screenPorkchop:
-		base = a.formScreen("Porkchop plot", a.porkchop.TitleContext(), a.porkchop.Render(a.world, a.width, bodyH))
+		base = a.formScreen("Porkchop plot", a.porkchop.TitleContext(), a.porkchop.Render(a.world, a.width, flashH))
 	case screenMenu:
 		base = a.menuOverMap()
 	case screenSpawn:
-		base = a.formScreen("Spawn vessel", "", a.spawn.Render(a.width, bodyH))
+		base = a.formScreen("Spawn vessel", "", a.spawn.Render(a.width, flashH))
 	case screenMissions:
-		base = a.formScreen("Missions", "", a.missions.Render(a.world, a.width, bodyH))
+		base = a.formScreen("Missions", "", a.missions.Render(a.world, a.width, flashH))
 	case screenSettings:
-		base = a.formScreen("Settings", "", a.settingsScreen.Render(a.orbitView.Settings(), a.width, bodyH))
+		base = a.formScreen("Settings", "", a.settingsScreen.Render(a.orbitView.Settings(), a.width, flashH))
 	case screenControls:
-		base = a.formScreen("Keyboard layout", "", a.controls.Render(a.layout, a.width, bodyH))
+		base = a.formScreen("Keyboard layout", "", a.controls.Render(a.layout, a.width, flashH))
 	case screenVAB:
-		base = a.formScreen(a.vab.TitleScreen(), "", a.vab.Render(a.width, bodyH))
+		base = a.formScreen(a.vab.TitleScreen(), "", a.vab.Render(a.width, flashH))
 	case screenSaves:
-		base = a.formScreen("Saves", a.saves.TitleContext(), a.saves.Render(a.width, bodyH))
+		base = a.formScreen("Saves", a.saves.TitleContext(), a.saves.Render(a.width, flashH))
 	case screenBoss:
 		base = a.boss.Render(a.width, a.height)
 	case screenSession:
-		base = a.formScreen("Session", "", a.session.Render(a.world, a.width, bodyH))
+		base = a.formScreen("Session", "", a.session.Render(a.world, a.width, flashH))
 	default:
 		if a.world.ViewMode == sim.ViewLaunch {
 			base = a.launchView.Render(a.world, a.width, a.height)
@@ -3639,6 +3642,15 @@ func (a *App) screensTheme() screens.Theme {
 // screen's body and records where its [Back] button sits so a click on it
 // can be routed (esc is the keyboard twin).
 func (a *App) formScreen(screen, context, body string) string {
+	// The blank last row is the flash row (#599): a status flash overlays
+	// it (overlayBottomBorder's plain-row fallback), so the legend on the
+	// frame's bottom edge is never covered.
+	return a.formTitled(screen, context, body) + "\n"
+}
+
+// formTitled is formScreen without the reserved flash row, for a screen that
+// already ends in one (the maneuver planner).
+func (a *App) formTitled(screen, context, body string) string {
 	row, bs, be := screens.RenderFormTitleRow(a.screensTheme(), a.world, screen, context, a.width)
 	a.backStart, a.backEnd = bs, be
 	return row + "\n" + body
