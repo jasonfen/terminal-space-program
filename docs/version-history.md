@@ -2,6 +2,18 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.53.0
+
+Clearer screens and honest numbers: UX cycle 3 Phase 4, wave 1 (PRs `#605`-`#609`, `#612`, `#613`; review `#614` fixed in `#619`, `#620`; tag `v0.53.0`).
+
+- **The burn planner says what it is doing.** The Δv and throttle rows show focus like the other rows; the footer names only keys that act on the focused row; `next peri` / `next apo` read `(undefined)` on a circular orbit, and a burn planted there waits instead of firing at an arbitrary moment; the PROJECTED ORBIT canvas draws the plan under the cursor, not the draft (`#585`).
+- **Numbers that mean something.** A porkchop where nothing solves says `no transfer solves in this window` instead of printing Inf (`#586`). Body info prints mass as `5.972 × 10²⁴ kg`, radius and semimajor axis on the distance ladder, and age as `4.600 Gyr`, with no `e+` (`#598`).
+- **The spawn catalog reads as a table:** name, crew, dry mass, fuel and engine each in one column, the description in Dim (`#595`).
+- **The VAB palette names the fuel chemistry** on every fuelled row, not by colour alone (`#597`).
+- **F1 has a map marker key** (vessel, Target, burns, apsides, nodes, closest approach, sphere-of-influence entry and exit, impact) and explains the navball's `[MAN]` / `[AUT]` and `RCS` tags; QWERTZ wording now says only letters move. Planned burns get their own periwinkle instead of the interface cyan (`#590`, `#592`).
+- **STAGES pips carry state:** `◉` the lit stage, `●` fuelled and waiting, `○` spent (the amber of ENGINE's `✕ DRY`), `◇` no tank (`#600`).
+- **The key legend survives a flash** on every form: a status flash lands on its own row under the legend (`#599`).
+
 ### v0.52.1
 
 Review fixes for v0.51.2-v0.52.0 (PRs `#583`, `#584`; review `#582`; tag `v0.52.1`).
