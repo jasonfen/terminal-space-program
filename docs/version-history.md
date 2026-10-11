@@ -2,6 +2,14 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.52.1
+
+Review fixes for v0.51.2-v0.52.0 (PRs `#583`, `#584`; review `#582`; tag `v0.52.1`).
+
+- **The dotted far side of your orbit no longer cuts notches** where it crosses the atmosphere halo, another planet or a moon's orbit line. It now yields like every other dotted line, as v0.51.4 intended.
+- **`G` or `[»Burn]` in the last 30 s before a launch window** turns your heading to the window's and says so (`heading 045° for the launch window`), instead of refusing with "no burn planned to warp to". Handy after `|` has cleared the heading `G` set.
+- Tests now pin the launch-window warp handing back 1x from any warp rate, the window winning over another vessel's planted burn on the pad, and the planner, halo and moon-orbit lines drawing over planets.
+
 ### v0.52.0
 
 A key to undo a pan (PR `#581`; tag `v0.52.0`).
