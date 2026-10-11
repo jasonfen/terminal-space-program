@@ -154,7 +154,7 @@ func (c *Canvas) RingTiltedOutlineCachedTagged(curveID string, center, e1, e2 or
 	}
 	var points []canvasPoint
 	c.ringTiltedOutlineTaggedRecording(center, e1, e2, rMeters, tag, func(px, py int) {
-		points = append(points, canvasPoint{int32(px), int32(py)})
+		points = append(points, canvasPoint{x: int32(px), y: int32(py)})
 	})
 	c.ringCache[curveID] = &ringCacheEntry{key: key, points: points}
 	c.ringCacheComputes++

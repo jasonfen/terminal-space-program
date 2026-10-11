@@ -247,7 +247,7 @@ func (c *Canvas) drawEllipseAdaptiveTaggedRecording(
 	bodyPos orbital.Vec3,
 	bodyPxR int,
 	tag CellTag,
-	record func(px, py int),
+	record func(px, py int, sparse bool),
 ) {
 	if nearSpacingPx < 1 {
 		nearSpacingPx = 1
@@ -271,15 +271,27 @@ func (c *Canvas) drawEllipseAdaptiveTaggedRecording(
 	// boundaries or a finely flattened curve inks solid (every chord would
 	// restart at phase 0).
 	nearPhase, farPhase := 0.0, 0.0
+	// A spacing above 1 is dotted ink, and dotted ink yields over a
+	// Backdrop instead of knocking it out and cutting a moat (CONTEXT.md
+	// Line Class). Each half is tagged for its own cadence: a Real orbit's
+	// near half is solid while its far half is dotted (review #582 M1).
+	nearTag, farTag := tag, tag
+	nearTag.Sparse = tag.Sparse || nearSpacingPx > 1
+	farTag.Sparse = tag.Sparse || farSpacingPx > 1
+	var nearRec, farRec func(px, py int)
+	if record != nil {
+		nearRec = func(px, py int) { record(px, py, nearTag.Sparse) }
+		farRec = func(px, py int) { record(px, py, farTag.Sparse) }
+	}
 	c.flattenEllipse(el, offset, minSpans, func(ch arcChord) {
 		mid := ch.a.Add(ch.b).Scale(0.5).Sub(bodyPos)
 		depth := mid.X*depthAxis.X + mid.Y*depthAxis.Y + mid.Z*depthAxis.Z
 		if depth < behindThreshold {
-			farPhase = c.walkPixelSegment(ch.ax, ch.ay, ch.bx, ch.by, tag, farSpacingPx, farPhase,
-				bodyX, bodyY, float64(bodyPxR), record)
+			farPhase = c.walkPixelSegment(ch.ax, ch.ay, ch.bx, ch.by, farTag, farSpacingPx, farPhase,
+				bodyX, bodyY, float64(bodyPxR), farRec)
 			return
 		}
-		nearPhase = c.walkPixelSegment(ch.ax, ch.ay, ch.bx, ch.by, tag, nearSpacingPx, nearPhase, 0, 0, 0, record)
+		nearPhase = c.walkPixelSegment(ch.ax, ch.ay, ch.bx, ch.by, nearTag, nearSpacingPx, nearPhase, 0, 0, 0, nearRec)
 	})
 }
 

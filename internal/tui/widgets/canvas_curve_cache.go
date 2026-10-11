@@ -45,7 +45,12 @@ type curveCacheEntry struct {
 // retained size tight — the #363 review's "budget or shrink" lesson on
 // diskOffsetCache — well within range for any realistic canvas (pxW/pxH
 // are terminal-cell counts times 2/4, nowhere near 2^31).
-type canvasPoint struct{ x, y int32 }
+type canvasPoint struct {
+	x, y int32
+	// sparse: this pixel was inked by the dotted half of an ellipse, so
+	// a replay tags it Sparse (the ring cache leaves it false).
+	sparse bool
+}
 
 // curveCacheCap bounds curveCache to this many distinct curveIDs
 // (LRU-evicted beyond it), the same discipline #363's review added to
@@ -220,8 +225,8 @@ func (c *Canvas) DrawEllipseClassCachedTagged(curveID string, el orbital.Element
 		return
 	}
 	var points []canvasPoint
-	c.drawEllipseAdaptiveTaggedRecording(el, offset, minSpans, near, far, bodyPos, bodyPxR, tag, func(px, py int) {
-		points = append(points, canvasPoint{int32(px), int32(py)})
+	c.drawEllipseAdaptiveTaggedRecording(el, offset, minSpans, near, far, bodyPos, bodyPxR, tag, func(px, py int, sparse bool) {
+		points = append(points, canvasPoint{int32(px), int32(py), sparse})
 	})
 	c.curveCache[curveID] = &curveCacheEntry{key: key, points: points}
 	c.curveCacheComputes++
@@ -235,10 +240,16 @@ func (c *Canvas) DrawEllipseClassCachedTagged(curveID string, el orbital.Element
 // with no flattening, no trig, no clipping math.
 func (c *Canvas) blitCurvePoints(points []canvasPoint, tag CellTag) {
 	tagged := tag != (CellTag{})
+	sparseTag := tag
+	sparseTag.Sparse = true
 	for _, p := range points {
 		px, py := int(p.x), int(p.y)
 		c.dc.Set(px, py)
 		if tagged {
+			if p.sparse {
+				c.pixelTags.set(px, py, sparseTag)
+				continue
+			}
 			// #369: pixelTags.set is a dense-array index, not a map
 			// insert — see canvas_pixel_tags.go. This loop is exactly
 			// the cache-HIT replay path the #368 review measured at
