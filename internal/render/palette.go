@@ -51,7 +51,7 @@ var (
 	// atmosphere edge especially at a low orbit"). Nearest body colour now
 	// is Io (#E8D940).
 	ColorCurrentOrbit = ColorCraftMarker
-	ColorBodyOrbit    = lipgloss.Color("#6E6E6E") // heliocentric body orbits — dim grey backdrop (KSP-aligned: body orbits are quiet so craft / maneuver layers pop). v0.10.6+
+	ColorBodyOrbit    = lipgloss.Color("#8A8A8A") // planet and moon orbits: a quiet grey backdrop, lighter than ColorDim (L* 57 vs 40) so a moon orbit and another player's Dim ghost orbit stop reading as one grey (#593; was #6E6E6E). KSP-aligned (: body orbits are quiet so craft / maneuver layers pop). v0.10.6+
 	ColorCraftMarker  = lipgloss.Color("#FFD93D") // craft icon when zoomed out (orbit too small to render) — saturated yellow distinct from Sun gold-white, amber leg, and every body color
 	ColorForeignSOI   = lipgloss.Color("#D75FFF") // post-SOI-crossing trajectory segments
 	ColorDim          = lipgloss.Color("#5F5F5F") // background / inactive
