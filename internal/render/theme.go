@@ -35,6 +35,7 @@ var uiDefaults = map[string]lipgloss.Color{
 	"alert":         ColorAlert,
 	"warning":       ColorWarning,
 	"plannednode":   ColorPlannedNode,
+	"predictedpath": ColorPredictedPath,
 	"trajectory":    ColorTrajectory,
 	"currentorbit":  ColorCurrentOrbit,
 	"craftmarker":   ColorCraftMarker,
@@ -97,6 +98,7 @@ func resetUIDefaults() {
 	ColorAlert = uiDefaults["alert"]
 	ColorWarning = uiDefaults["warning"]
 	ColorPlannedNode = uiDefaults["plannednode"]
+	ColorPredictedPath = uiDefaults["predictedpath"]
 	ColorTrajectory = uiDefaults["trajectory"]
 	ColorCurrentOrbit = uiDefaults["currentorbit"]
 	ColorCraftMarker = uiDefaults["craftmarker"]
@@ -114,6 +116,8 @@ func applyUIOverrides(ui map[string]string) {
 			ColorWarning = c
 		case "plannednode":
 			ColorPlannedNode = c
+		case "predictedpath":
+			ColorPredictedPath = c
 		case "trajectory":
 			ColorTrajectory = c
 		case "currentorbit":

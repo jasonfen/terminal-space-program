@@ -128,10 +128,14 @@ readout shows you why before you watch it fall back.
 
 The keys below are written for **QWERTY**. If you play on a **QWERTZ** keyboard
 (where the physical `Y` and `Z` keys are swapped), open `Esc → Keyboard layout` and
-switch the layout to QWERTZ. Every binding then stays under the same finger as
+switch the layout to QWERTZ. Letter bindings then stay under the same finger as
 on QWERTY, and the in-game help overlay (`F1`) relabels itself to match your
-keycaps. The choice is saved to your config and applies to every game. AZERTY,
-Dvorak, and free per-key remapping aren't supported yet.
+keycaps. **Only the letters move** (the swap is `Y` and `Z`, nothing else).
+Punctuation does not: `+` `-` `,` `.` `;` `<` `>` `{` `}` `|` `/` `[` `]` are
+matched by the character they type, so they sit wherever your keyboard puts that
+character, which may not be under the same finger as on QWERTY. The choice is
+saved to your config and applies to every game. AZERTY, Dvorak, and free
+per-key remapping aren't supported yet.
 
 ## Keybindings
 
@@ -319,11 +323,33 @@ overlay carries, so you can look one up without leaving the game.
 | `plan` | The world the planned burn's numbers are measured from, plus its node angles |
 | `pro` / `retro` | Prograde or retrograde: which way the orbit runs, tagged on `incl:` |
 | `(ORBIT/SURF/TGT)` | The frame a held direction or `nav:` reads in: orbit, surface, or target-relative, one spelling everywhere it's named |
+| `[MAN]` / `[AUT]` | The navball's attitude tag: MAN turns the nose at a rate-limited slew; AUT (amber) snaps it instantly. Click it to switch |
+| `RCS` | The navball's toggle: amber when the RCS thrusters, not the main engine, are armed (`r` does the same) |
 | `rcs` | Monoprop's own delta-v, from the RCS thrusters rather than the main engine |
 | `speed` | Inertial speed, alongside `vert:` and `horiz:` |
 | `(max N)` | The same figure at full throttle, when it differs from the current one |
 | `heading:` / `hdg` | GUIDANCE `heading:` is the bearing you have commanded; the navball's `pitch` and `hdg` are measured, where the nose points now (they agree on the pad, and differ while the nose slews). In ORBIT the ball's rungs count degrees out of the orbit plane, not above the horizon. `trim:` is how far ←/→ lean the nose down or up off the hold, so `15° down` on a level prograde nose reads `pitch -15°`; → leans toward your heading, which lowers a prograde nose and raises a retrograde one |
 | `● ORBIT READY [C]` | Apoapsis has cleared this world's orbit floor: press `C` to plant the circularising burn |
+
+## Map markers
+
+Each marker on the map is one glyph; the colour says what kind it is. This is the same block the in-game `F1` overlay carries.
+
+| Marker | Meaning |
+|---|---|
+| `➤` | your vessel, in yellow or the colour you gave it; other vessels and ghosts wear their own |
+| `green` | the vessel you have targeted, and its orbit (`t` picks a target) |
+| `Δ` | a planned burn, in the colour of the dashed orbit after it (blue, mint, amber, pink); click to edit |
+| `▲` | apoapsis: the highest point of the orbit |
+| `▼` | periapsis: the lowest point of the orbit |
+| `◇` | ascending node: your orbit crosses your target's orbital plane going north (needs a target) |
+| `◆` | descending node: the same crossing going south of the target's plane |
+| `⊕` | perilune: the closest point of a planned pass of another body |
+| `✕` | closest approach: one mark on your path, one on the target's, where you pass nearest |
+| `▷` | entry: your planned path crosses into a body's sphere of influence |
+| `◁` | exit: your planned path crosses back out of it |
+| `⊗` | impact: where your trajectory meets the ground (surface view) |
+| `dim / red` | a dimmed marker is on the path without your burn; a red one is below the surface |
 
 ## Screens
 

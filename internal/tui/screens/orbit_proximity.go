@@ -327,7 +327,7 @@ func (v *OrbitView) drawProximityDriftPath(w *sim.World, st sim.ProximityState) 
 			Add(st.Frame.RadialOut.Scale(s.Local.Y)).
 			Add(st.Frame.CrossTrack.Scale(s.Local.Z))
 	}
-	v.canvas.PlotPolylineClass(pts, render.ColorPlannedNode, widgets.ClassPlanned)
+	v.canvas.PlotPolylineClass(pts, render.ColorPredictedPath, widgets.ClassPlanned)
 }
 
 // proximityRingRadii are the log-spaced range rings issue #348 §1 asks

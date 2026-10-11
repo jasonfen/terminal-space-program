@@ -1,10 +1,15 @@
 package screens
 
 import (
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/jasonfen/terminal-space-program/internal/keylayout"
+	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // helpRow returns the description the overlay prints for a key token,
@@ -104,6 +109,7 @@ func TestHelpSectionOrder(t *testing.T) {
 		"MULTIPLAYER (session screen, open with O)",
 		"MOUSE",
 		"READOUT GLOSSARY",
+		"MAP MARKERS",
 	}
 	var got []string
 	for _, s := range helpSections {
@@ -166,7 +172,7 @@ func TestHelpGlossaryBlockContent(t *testing.T) {
 // retired `dir` in favour of `pro / retro` (same row, new token) and
 // added two: the frame-spelling entry and the `rcs` line ADR 0049's own
 // decision-6 comment always meant to include, for 19. G8 Q3 (#507) added
-// `heading: / hdg` (commanded vs measured), for 20. Tightened from
+// `heading: / hdg` (commanded vs measured), for 20, and #592 added the navball's `[MAN] / [AUT]` and `RCS` tags, for 22. Tightened from
 // the original loose "at least 7" bound to an exact count so a stray
 // addition or removal is caught rather than silently absorbed.
 func TestHelpGlossarySection(t *testing.T) {
@@ -174,7 +180,7 @@ func TestHelpGlossarySection(t *testing.T) {
 		if s.header != "READOUT GLOSSARY" {
 			continue
 		}
-		const want = 20
+		const want = 22
 		if len(s.rows) != want {
 			t.Errorf("READOUT GLOSSARY has %d rows, want exactly %d", len(s.rows), want)
 		}
@@ -263,4 +269,102 @@ func TestHelpRendezvousPlannerNamesKReSolve(t *testing.T) {
 		t.Fatalf("RENDEZVOUS PLANNER section has no `K` re-solve row: %v", s.rows)
 	}
 	t.Fatal("no RENDEZVOUS PLANNER section")
+}
+
+// markerKeySection returns the F1 section that keys the map's marker glyphs.
+func markerKeySection(t *testing.T) helpSection {
+	t.Helper()
+	for _, s := range helpSections {
+		if strings.HasPrefix(s.header, "MAP MARKERS") {
+			return s
+		}
+	}
+	t.Fatal("F1 has no MAP MARKERS section")
+	return helpSection{}
+}
+
+// TestHelpHasMarkerKey (#592): F1 explained readout codes but not the glyphs
+// the map draws. Every marker the map stamps (render.MarkerGlyph, the vessel
+// chevron) needs a row under its real glyph with a meaning, and the page
+// must fit at the design size without truncation.
+func TestHelpHasMarkerKey(t *testing.T) {
+	sec := markerKeySection(t)
+	got := map[string]string{}
+	for _, r := range sec.rows {
+		got[r[0]] = r[1]
+	}
+	glyphs := []string{spacecraft.VesselGlyph}
+	for _, mt := range []render.MarkerType{
+		render.MarkerApoapsis, render.MarkerPeriapsis, render.MarkerAscendingNode,
+		render.MarkerDescendingNode, render.MarkerPerilune, render.MarkerClosestApproach,
+		render.MarkerManeuver, render.MarkerSOIEntry, render.MarkerSOIExit, render.MarkerImpact,
+	} {
+		glyphs = append(glyphs, string(render.MarkerGlyph(mt)))
+	}
+	for _, g := range glyphs {
+		if strings.TrimSpace(got[g]) == "" {
+			t.Errorf("MAP MARKERS has no row for the drawn glyph %q", g)
+		}
+	}
+	if _, ok := got["green"]; !ok {
+		t.Error("MAP MARKERS does not say what the Target colour is")
+	}
+	for _, sz := range [][2]int{{140, 40}, {181, 49}} {
+		h := NewHelp(chipTestTheme())
+		for n := 0; n < helpPageCount(); n++ {
+			if pageTitle(n) == helpIndexTitle(sec.header) {
+				h.OpenPage(n)
+			}
+		}
+		out := ansi.Strip(h.Render(sz[0], sz[1], keylayout.QWERTY))
+		if strings.Contains(out, "…") {
+			t.Errorf("%dx%d: the marker page truncates a row:\n%s", sz[0], sz[1], out)
+		}
+		if !strings.Contains(out, string(render.MarkerGlyph(render.MarkerManeuver))) {
+			t.Errorf("%dx%d: the marker page does not render:\n%s", sz[0], sz[1], out)
+		}
+	}
+}
+
+// TestControlsDocMirrorsMarkerKey: docs/controls.md carries every marker row
+// F1 does, glyph and meaning, row by row.
+func TestControlsDocMirrorsMarkerKey(t *testing.T) {
+	raw, err := os.ReadFile("../../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(raw)
+	i := strings.Index(doc, "## Map markers")
+	j := strings.Index(doc, "## Screens")
+	if i < 0 || j < i {
+		t.Fatal("docs/controls.md has no Map markers section")
+	}
+	for _, r := range markerKeySection(t).rows {
+		if !strings.Contains(doc[i:j], "| `"+r[0]+"` |") {
+			t.Errorf("docs/controls.md Map markers lacks a row for %q", r[0])
+		}
+	}
+}
+
+// TestHelpExpandsManAndRcsTags (#592 remainder, clarity 26): the navball's
+// [MAN] / [AUT] attitude tag and its RCS toggle were never spelled out in F1.
+func TestHelpExpandsManAndRcsTags(t *testing.T) {
+	_, man := helpRow(t, "[MAN] / [AUT]")
+	for _, want := range []string{"rate-limited", "instant"} {
+		if !strings.Contains(man, want) {
+			t.Errorf("[MAN] / [AUT] row omits %q: %q", want, man)
+		}
+	}
+	_, rcs := helpRow(t, "RCS")
+	if !strings.Contains(rcs, "thrusters") {
+		t.Errorf("RCS row does not say what it arms: %q", rcs)
+	}
+	// Both rows must survive the design size untruncated.
+	h := NewHelp(chipTestTheme())
+	h.OpenPage(15) // READOUT GLOSSARY
+	for _, ln := range strings.Split(ansi.Strip(h.Render(140, 40, keylayout.QWERTY)), "\n") {
+		if (strings.Contains(ln, "[MAN] / [AUT]") || strings.Contains(ln, "  RCS  ")) && strings.Contains(ln, "…") {
+			t.Errorf("glossary row truncated at 140x40: %q", ln)
+		}
+	}
 }
