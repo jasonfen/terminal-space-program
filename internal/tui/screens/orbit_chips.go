@@ -1000,7 +1000,7 @@ func deltaVReadout(c *spacecraft.Spacecraft) string {
 // above it (Primary); ○ spent, the same Warning amber ENGINE's "✕ DRY"
 // uses so the two readouts agree (orbit_box_engine.go engineThrottleLabel);
 // ◇ tankless, a pod or payload that never carried propellant (Dim).
-// The summary both buildStagesChip and its Compact Form share.
+// The summary buildStagesBox renders.
 func (v *OrbitView) stagePips(c *spacecraft.Spacecraft) string {
 	lit := lipgloss.NewStyle().Foreground(render.ColorFlame)
 	var pips strings.Builder
