@@ -986,7 +986,7 @@ heading, default 090° (due east), nudged ±5° per tap with `↑` / `↓`
 (toward north / south) on the pad or mid-ascent, the same idiom as
 **Pitch Trim** (`←` / `→`); both work in every flight view, and `|`
 resets both trims. Holding `alt` makes any trim fine: `alt+↑` / `alt+↓`
-are 1° heading steps, `alt+←` / `alt+→` 1° pitch (and `alt+Z` / `alt+X`
+are 1° heading steps, `alt+←` / `alt+→` 1° pitch (and `alt+z` / `alt+x`
 1% throttle), so the exact heading a **Launch Window** names can be
 commanded. Persisted on the Vessel. The hold is steered onto the commanded
 heading first, then Pitch Trim leans it within that heading's vertical
