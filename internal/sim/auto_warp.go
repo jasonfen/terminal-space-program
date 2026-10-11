@@ -113,6 +113,32 @@ func (w *World) trimHeadingToLaunchWindow() {
 	c.HeadingTrim = (math.Round(lw.HeadingDeg) - 90) * math.Pi / 180
 }
 
+// TrimToLaunchWindowInLead is G's answer on the pad once the window is
+// inside the autoWarpLeadTime (still ahead, but too close to warp to,
+// review #582 L3): nothing to warp, so it turns the heading to the
+// window's, to the whole degree like the engage trim, and returns that
+// heading. ok=false when the window is not in its lead (G warps, or has
+// nothing to do) so the caller falls through.
+func (w *World) TrimToLaunchWindowInLead() (headingDeg int, ok bool) {
+	lw, has := w.LaunchWindow()
+	if !has || lw.Always {
+		return 0, false
+	}
+	at := lw.BestAt
+	if lw.Open {
+		at = lw.PassAt
+	}
+	if !at.After(w.Clock.SimTime) {
+		return 0, false
+	}
+	if _, warpable := w.launchWindowWarpTarget(); warpable {
+		return 0, false
+	}
+	w.trimHeadingToLaunchWindow()
+	h := int(math.Round(lw.HeadingDeg))
+	return ((h % 360) + 360) % 360, true
+}
+
 // AutoWarpSecondsToTarget returns the sim-seconds until the engaged
 // driver's release point T, and ok=false when not engaged — feeds the
 // `AUTO → Nx ⏱ Ms` HUD chip.

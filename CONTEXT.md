@@ -1035,7 +1035,10 @@ the pad will do instead, `window best 9.17° T-2h46m`. TARGET's `Δincl:` keeps
 ticking for the heading actually commanded. Auto-Warp (`G` / `[»Burn]`)
 on the pad warps to 30 s before the window (the best moment when there is
 no pass) and sets the **Heading Trim** to the heading the row names, to the
-whole degree, once at engage (`↑` / `↓` during the warp stick); with no
+whole degree, once at engage (`↑` / `↓` during the warp stick); inside the last 30 s
+there is nothing to warp to, so `G` only turns the heading to the window's
+and says so (`heading 045° for the launch window`, #582 L3; `|` still
+clears both trims); with no
 pass, that is the heading the best figure is measured for (due east for a
 prograde target).
 _Avoid_: Launch azimuth, none (the no-pass row never says "none"),
@@ -1905,7 +1908,8 @@ start, leaving the sim at 1× so the player can watch the Burn arm and fire.
 - On the pad with a target it aims at the **Launch Window** instead
   (#572), and is the one Auto-Warp that also steers: it sets the
   **Heading Trim** to the window's heading when engaged (#574). It
-  disengages if the target is cleared or the Vessel lifts off.
+  disengages if the target is cleared or the Vessel lifts off. Inside the
+  window's last 30 s, `G` does not engage: it re-trims the heading and says so.
 
 Distinct from the *node-approach ramp* (a clamp that caps Effective Warp
 near any Burn so the integrator can't alias past it): the ramp is passive
