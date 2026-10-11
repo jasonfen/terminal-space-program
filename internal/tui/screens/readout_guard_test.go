@@ -147,7 +147,7 @@ func TestReadoutDialectGuard(t *testing.T) {
 // not isIspException, when a real Isp call site moves or a new one is
 // added.
 var ispExceptionLines = map[string]bool{
-	"vab_render.go:610": true,
+	"vab_render.go:618": true,
 	"spawn.go:1382":     true,
 	"spawn.go:1402":     true,
 	"spawn.go:1804":     true,
