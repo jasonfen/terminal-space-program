@@ -243,16 +243,19 @@ func TestBackReturnsToTheScreenThatOpenedYou(t *testing.T) {
 var formFrameScreens = []struct {
 	name   string
 	screen screenID
+	setup  func(a *App) // optional: load what the screen renders
 }{
-	{"settings", screenSettings},
-	{"controls", screenControls},
-	{"missions", screenMissions},
-	{"saves", screenSaves},
-	{"spawn", screenSpawn},
-	{"vab", screenVAB},
-	{"help", screenHelp},
-	{"session", screenSession},
-	{"bodyinfo", screenBodyInfo},
+	{"settings", screenSettings, nil},
+	{"controls", screenControls, nil},
+	{"missions", screenMissions, nil},
+	{"saves", screenSaves, nil},
+	{"spawn", screenSpawn, nil},
+	{"vab", screenVAB, nil},
+	{"help", screenHelp, nil},
+	{"session", screenSession, nil},
+	{"bodyinfo", screenBodyInfo, nil},
+	// Review #614 M2 S9w: porkchop is routed through formScreen at flashH too.
+	{"porkchop", screenPorkchop, func(a *App) { a.porkchop.Load(a.world, 1) }},
 }
 
 // TestFormsLiveInsideTheSharedFrame (B11 / G9 Q4): through App.View every
@@ -266,6 +269,9 @@ func TestFormsLiveInsideTheSharedFrame(t *testing.T) {
 		for _, tc := range formFrameScreens {
 			a := newChromeApp(t, sz[0], sz[1])
 			a.active = tc.screen
+			if tc.setup != nil {
+				tc.setup(a)
+			}
 			plain := stripANSIForTest(a.View())
 			lines := strings.Split(plain, "\n")
 			if len(lines) != sz[1] {
@@ -307,6 +313,9 @@ func TestFormsUseOneCursorAndOneCyclingMark(t *testing.T) {
 	for _, tc := range formFrameScreens {
 		a := newChromeApp(t, 140, 40)
 		a.active = tc.screen
+		if tc.setup != nil {
+			tc.setup(a)
+		}
 		plain := stripANSIForTest(a.View())
 		for _, bad := range []string{"➤", "◀", "▶"} {
 			if strings.Contains(plain, bad) {
