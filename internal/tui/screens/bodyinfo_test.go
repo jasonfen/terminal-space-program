@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -41,5 +42,36 @@ func TestBodyInfoFooterNamesLiveKeys(t *testing.T) {
 	}
 	if !strings.Contains(footer, "[esc]") {
 		t.Errorf("footer lost the [esc] back exit: %q", footer)
+	}
+}
+
+// TestBodyInfoNumbersFollowReadoutContract (#598 numbers half): mass,
+// radius, semimajor axis and age used to print in exponent notation
+// (`5.972e+24 kg`). The rendered frame must carry none, for a planet and
+// for the Sun (which has the STELLAR box and its age).
+func TestBodyInfoNumbersFollowReadoutContract(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	exp := regexp.MustCompile(`\d[eE][+-]?\d`)
+	// Instrument check: the pattern catches the notation we are banning.
+	if !exp.MatchString("Mass: 5.972e+24 kg") || !exp.MatchString("4.60e+09 years") {
+		t.Fatal("exponent regexp cannot match exponent notation")
+	}
+	for _, name := range []string{"Earth", "Sun"} {
+		idx := -1
+		for i, b := range w.System().Bodies {
+			if b.EnglishName == name {
+				idx = i
+			}
+		}
+		if idx < 0 {
+			t.Fatalf("%s not in the default system", name)
+		}
+		out := NewBodyInfo(chipTestTheme()).Render(w, idx, 140, 40)
+		if loc := exp.FindStringIndex(out); loc != nil {
+			t.Errorf("%s body info prints exponent notation (%q):\n%s", name, out[loc[0]:loc[1]], out)
+		}
 	}
 }

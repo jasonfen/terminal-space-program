@@ -498,3 +498,42 @@ func TestFormattersAreTotalOverInfAndNaN(t *testing.T) {
 		}
 	}
 }
+
+// --- Astronomical masses and ages (body info, #598). ---
+
+func TestMassSci(t *testing.T) {
+	cases := []struct {
+		kg   float64
+		want string
+	}{
+		{500, "500 kg"},
+		{2160000, "2160 t"},
+		{5.972e24, "5.972 × 10²⁴ kg"},
+		{1.989e30, "1.989 × 10³⁰ kg"},
+		{7.342e22, "7.342 × 10²² kg"},
+		{9.9996e24, "1.000 × 10²⁵ kg"}, // mantissa rounding carries into the exponent
+	}
+	for _, c := range cases {
+		if got := MassSci(c.kg); got != c.want {
+			t.Errorf("MassSci(%g) = %q, want %q", c.kg, got, c.want)
+		}
+	}
+}
+
+func TestYears(t *testing.T) {
+	cases := []struct {
+		y    float64
+		want string
+	}{
+		{500, "500 yr"},
+		{12500, "12.50 kyr"},
+		{4.6e6, "4.600 Myr"},
+		{4.6e9, "4.600 Gyr"},
+		{1.38e10, "13.80 Gyr"},
+	}
+	for _, c := range cases {
+		if got := Years(c.y); got != c.want {
+			t.Errorf("Years(%g) = %q, want %q", c.y, got, c.want)
+		}
+	}
+}

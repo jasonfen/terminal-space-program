@@ -8,6 +8,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // BodyInfo is the full-screen detail view for a single celestial body.
@@ -52,8 +53,8 @@ func (b *BodyInfo) Render(w *sim.World, selectedIdx, cols, rows int) string {
 		"  " + b.theme.Dim.Render(fmt.Sprintf("%s in %s (source: %s)", cb.BodyType, sys.Name, source)),
 	}, lw)
 	left = append(left, formBox(b.theme, "PHYSICAL", []string{
-		fmt.Sprintf("  Mean radius:     %.1f km", cb.MeanRadius),
-		fmt.Sprintf("  Mass:            %.3e kg", cb.MassKg()),
+		"  Mean radius:     " + readout.Distance(cb.MeanRadius*1000),
+		"  Mass:            " + readout.MassSci(cb.MassKg()),
 		fmt.Sprintf("  Gravity:         %.3f m/s²", cb.Gravity),
 		fmt.Sprintf("  Escape velocity: %.2f km/s", cb.Escape),
 		fmt.Sprintf("  Density:         %.3f g/cm³", cb.Density),
@@ -61,11 +62,10 @@ func (b *BodyInfo) Render(w *sim.World, selectedIdx, cols, rows int) string {
 
 	var right []string
 	if cb.SemimajorAxis > 0 {
-		auVal := cb.SemimajorAxisMeters() / bodies.AU
 		peri := cb.SemimajorAxisMeters() * (1 - cb.Eccentricity) / bodies.AU
 		apo := cb.SemimajorAxisMeters() * (1 + cb.Eccentricity) / bodies.AU
 		right = append(right, formBox(b.theme, "ORBIT", []string{
-			fmt.Sprintf("  Semimajor axis:  %.4f AU  (%.3e m)", auVal, cb.SemimajorAxisMeters()),
+			"  Semimajor axis:  " + readout.Distance(cb.SemimajorAxisMeters()),
 			fmt.Sprintf("  Perihelion:      %.4f AU", peri),
 			fmt.Sprintf("  Aphelion:        %.4f AU", apo),
 			fmt.Sprintf("  Eccentricity:    %.5f", cb.Eccentricity),
@@ -83,7 +83,7 @@ func (b *BodyInfo) Render(w *sim.World, selectedIdx, cols, rows int) string {
 			fmt.Sprintf("  Temperature: %.0f K", cb.Temperature),
 		}
 		if cb.Age > 0 {
-			ls = append(ls, fmt.Sprintf("  Age:         %.2e years", cb.Age))
+			ls = append(ls, "  Age:         "+readout.Years(cb.Age))
 		}
 		left = append(left, formBox(b.theme, "STELLAR", ls, lw)...)
 	}
