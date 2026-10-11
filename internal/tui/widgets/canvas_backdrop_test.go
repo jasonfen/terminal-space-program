@@ -223,3 +223,129 @@ func TestSparseLineOverBackdropYields(t *testing.T) {
 		t.Errorf("a solid line takes only %d cells over the disk; solid ink should still win", solid.CountColor(beam))
 	}
 }
+
+// The far (behind-the-plane) half of a Real ellipse is dotted ink at
+// classRealFarSpacingPx, so it must yield over a Backdrop the way every
+// other dotted line does: no knockout, no moat (review #582 M1). The near
+// half of the same orbit is solid and keeps winning. Drawn both fresh and
+// through the curve cache, whose replay used to carry one tag for the
+// whole curve.
+func TestRealEllipseFarHalfYieldsOverBackdrop(t *testing.T) {
+	const planet, orbit = lipgloss.Color("#2060C0"), lipgloss.Color("#FFD93C")
+	// Omega=Arg=0: the orbit's -y half is behind the basis plane (far,
+	// dotted) and its +y half in front of it (near, solid).
+	el := orbital.Elements{A: 30, E: 0, I: 0.5}
+	const diskY, diskR = 26.0, 6.0
+	for _, cached := range []bool{false, true} {
+		for _, side := range []struct {
+			name string
+			y    float64
+		}{{"near", diskY}, {"far", -diskY}} {
+			scene := func(withDisk bool) *Canvas {
+				c := NewCanvas(40, 20)
+				c.SetScale(1)
+				c.Center(orbital.Vec3{})
+				if withDisk {
+					c.FillColoredDiskTagged(orbital.Vec3{Y: side.y}, diskR, CellTag{Color: planet, Backdrop: true})
+				}
+				tag := CellTag{Color: orbit}
+				if cached {
+					// Twice: the first call is a miss that draws fresh; the
+					// second is the hit that replays the recorded pixels.
+					c.DrawEllipseClassCachedTagged("t", el, orbital.Vec3{}, 360, ClassReal, orbital.Vec3{}, 0, tag)
+					c.DrawEllipseClassCachedTagged("t", el, orbital.Vec3{}, 360, ClassReal, orbital.Vec3{}, 0, tag)
+					if c.curveCacheHits != 1 {
+						t.Fatalf("second cached draw was not a cache hit (hits %d)", c.curveCacheHits)
+					}
+				} else {
+					c.DrawEllipseClassTagged(el, orbital.Vec3{}, 360, ClassReal, orbital.Vec3{}, 0, tag)
+				}
+				return c
+			}
+			with, without := scene(true), scene(false)
+			// Cells of the orbit that the disk took: ~0 for ink that wins.
+			ceded := without.CountColor(orbit) - with.CountColor(orbit)
+			cx, cy := with.projectPx(orbital.Vec3{Y: side.y})
+			inDisk := func(c *Canvas) int {
+				n := 0
+				for p := range litDots(t, c) {
+					dx, dy := float64(p[0])-cx, float64(p[1])-cy
+					if dx*dx+dy*dy <= diskR*diskR {
+						n++
+					}
+				}
+				return n
+			}
+			bare := NewCanvas(40, 20)
+			bare.SetScale(1)
+			bare.Center(orbital.Vec3{})
+			bare.FillColoredDiskTagged(orbital.Vec3{Y: side.y}, diskR, CellTag{Color: planet, Backdrop: true})
+			wantDots := inDisk(bare)
+			if side.name == "near" {
+				// Instrument check: solid ink over the same kind of disk wins.
+				if ceded > 2 {
+					t.Errorf("cached=%v near half ceded %d cells to the disk, want it to win", cached, ceded)
+				}
+				continue
+			}
+			if ceded < 6 {
+				t.Errorf("cached=%v far half ceded only %d cells to the disk, want it to yield like any dotted line", cached, ceded)
+			}
+			if got := inDisk(with); got < wantDots {
+				t.Errorf("cached=%v far half cleared planet dots (%d lit in the disk, bare %d): it moats", cached, got, wantDots)
+			}
+		}
+	}
+}
+
+// Scenery (body orbits, the SOI Ring) is Backdrop: it sits behind every
+// live line and body (review #582 M2-S24). Two consequences are pinned,
+// one per way of losing the tag: a moon's disk keeps its cells where the
+// body's own orbit line crosses it, and a live solid line across a
+// Scenery line dims the Scenery dots beside it (the moat) rather than the
+// two sharing the cell.
+func TestSceneryIsBackdropUnderLiveInk(t *testing.T) {
+	const moon, scenery, live = lipgloss.Color("#9AA0A6"), lipgloss.Color("#506070"), lipgloss.Color("#FFD93C")
+	el := orbital.Elements{A: 20, E: 0}
+	newCanvas := func() *Canvas {
+		c := NewCanvas(40, 20)
+		c.SetScale(1)
+		c.Center(orbital.Vec3{})
+		return c
+	}
+	drawScenery := func(c *Canvas) {
+		c.DrawEllipseClassTagged(el, orbital.Vec3{}, 360, ClassScenery, orbital.Vec3{}, 0, CellTag{Color: scenery})
+		c.PlotPolylineClassTagged([]orbital.Vec3{{X: -30, Y: 5}, {X: 30, Y: 5}}, CellTag{Color: scenery}, ClassScenery)
+	}
+
+	// 1. A moon sitting on its own orbit line keeps its disk.
+	c := newCanvas()
+	c.FillColoredDiskTagged(orbital.Vec3{X: 20}, 4, CellTag{Color: moon, Backdrop: true})
+	drawScenery(c)
+	if n := c.CountColor(moon); n < 2 {
+		t.Errorf("moon disk keeps only %d cells under its own scenery orbit", n)
+	}
+
+	// 2. Live solid ink crossing Scenery moats it.
+	only := func(draw func(*Canvas)) map[[2]int]bool {
+		c := newCanvas()
+		draw(c)
+		return litDots(t, c)
+	}
+	drawLive := func(c *Canvas) {
+		c.PlotDenseLineColored(orbital.Vec3{X: -30, Y: -3}, orbital.Vec3{X: 30, Y: 9}, live, 1)
+	}
+	a, b := only(drawScenery), only(drawLive)
+	union := len(a)
+	for p := range b {
+		if !a[p] {
+			union++
+		}
+	}
+	both := newCanvas()
+	drawScenery(both)
+	drawLive(both)
+	if got := len(litDots(t, both)); got >= union {
+		t.Errorf("scenery under a live line lost no dots (%d lit, union %d): it is not Backdrop", got, union)
+	}
+}
