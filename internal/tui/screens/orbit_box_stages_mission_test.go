@@ -102,9 +102,10 @@ func stagePipSGR(line, glyph string) string {
 	return line[j : j+k+1]
 }
 
-// TestStagePipsDistinguishLitSpentAndTankless (#600): a stage with fuel,
-// a spent stage and a tankless stage (payload, pod) read as three
-// different pips, each its own glyph in its own colour. Colour assertions
+// TestStagePipsDistinguishLitSpentAndTankless (#600): the lit stage
+// (Stages[0], fuel aboard), a fuelled stage waiting above it, a spent
+// stage and a tankless stage (payload, pod) read as four different pips,
+// each its own glyph in its own colour. Colour assertions
 // are vacuous without a forced profile, so TrueColor is forced and the
 // instrument is proven to emit an escape before any negative is trusted.
 func TestStagePipsDistinguishLitSpentAndTankless(t *testing.T) {
@@ -128,17 +129,18 @@ func TestStagePipsDistinguishLitSpentAndTankless(t *testing.T) {
 	}
 	c := w.ActiveCraft()
 	c.Stages = []spacecraft.Stage{
+		{Name: "Lit", FuelMass: 100, FuelCapacity: 100},
+		{Name: "Waiting", FuelMass: 100, FuelCapacity: 100},
 		{Name: "Spent", FuelMass: 0, FuelCapacity: 100},
-		{Name: "Fueled", FuelMass: 100, FuelCapacity: 100},
 		{Name: "Pod"},
 	}
 	line := v.buildStagesBox(w)[0]
 
 	type pip struct{ glyph, sgr string }
 	var pips []pip
-	for _, g := range []string{"●", "○", "◇"} {
+	for _, g := range []string{"◉", "●", "○", "◇"} {
 		if !strings.Contains(line, g) {
-			t.Errorf("STAGES row %q is missing glyph %q (fueled ●, spent ○, tankless ◇)", line, g)
+			t.Errorf("STAGES row %q is missing glyph %q (lit ◉, waiting ●, spent ○, tankless ◇)", line, g)
 			continue
 		}
 		s := stagePipSGR(line, g)
@@ -150,7 +152,7 @@ func TestStagePipsDistinguishLitSpentAndTankless(t *testing.T) {
 	for i := range pips {
 		for j := i + 1; j < len(pips); j++ {
 			if pips[i].sgr == pips[j].sgr {
-				t.Errorf("pips %q and %q share colour %q, want three distinct colours", pips[i].glyph, pips[j].glyph, pips[i].sgr)
+				t.Errorf("pips %q and %q share colour %q, want four distinct colours", pips[i].glyph, pips[j].glyph, pips[i].sgr)
 			}
 		}
 	}
@@ -170,7 +172,7 @@ func TestStagePipsStayWithinCap(t *testing.T) {
 		c.Stages = append(c.Stages, spacecraft.Stage{Name: "s", FuelMass: 1, FuelCapacity: 1})
 	}
 	line := v.buildStagesBox(w)[0]
-	want := strings.Repeat("●", stagePipsMax-1) + "…"
+	want := "◉" + strings.Repeat("●", stagePipsMax-2) + "…"
 	if !strings.Contains(line, want) {
 		t.Errorf("STAGES row = %q, want pips truncated to %q", line, want)
 	}

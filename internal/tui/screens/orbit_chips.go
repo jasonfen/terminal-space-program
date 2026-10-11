@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -993,18 +994,24 @@ func deltaVReadout(c *spacecraft.Spacecraft) string {
 	return readout.DeltaVPair(stage, vehicle)
 }
 
-// stagePips renders one coloured glyph per stage, three states (#600):
-// ● fueled (Primary), ○ spent, a tank that ran dry (Alert), ◇ tankless,
-// a stage that never carried propellant such as a pod or payload (Dim).
+// stagePips renders one coloured glyph per stage, bottom stage first
+// (#600). Four states: ◉ lit, the bottom stage with fuel aboard, the one
+// that burns now (flame orange, render.ColorFlame); ● fuelled and waiting
+// above it (Primary); ○ spent, the same Warning amber ENGINE's "✕ DRY"
+// uses so the two readouts agree (orbit_box_engine.go engineThrottleLabel);
+// ◇ tankless, a pod or payload that never carried propellant (Dim).
 // The summary both buildStagesChip and its Compact Form share.
 func (v *OrbitView) stagePips(c *spacecraft.Spacecraft) string {
+	lit := lipgloss.NewStyle().Foreground(render.ColorFlame)
 	var pips strings.Builder
-	for _, st := range c.Stages {
+	for i, st := range c.Stages {
 		switch {
 		case st.FuelCapacity <= 0:
 			pips.WriteString(v.theme.Dim.Render("◇"))
 		case st.FuelMass <= 0:
-			pips.WriteString(v.theme.Alert.Render("○"))
+			pips.WriteString(v.theme.Warning.Render("○"))
+		case i == 0:
+			pips.WriteString(lit.Render("◉"))
 		default:
 			pips.WriteString(v.theme.Primary.Render("●"))
 		}
