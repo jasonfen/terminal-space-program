@@ -128,10 +128,14 @@ readout shows you why before you watch it fall back.
 
 The keys below are written for **QWERTY**. If you play on a **QWERTZ** keyboard
 (where the physical `Y` and `Z` keys are swapped), open `Esc → Keyboard layout` and
-switch the layout to QWERTZ. Every binding then stays under the same finger as
+switch the layout to QWERTZ. Letter bindings then stay under the same finger as
 on QWERTY, and the in-game help overlay (`F1`) relabels itself to match your
-keycaps. The choice is saved to your config and applies to every game. AZERTY,
-Dvorak, and free per-key remapping aren't supported yet.
+keycaps. **Only the letters move** (the swap is `Y` and `Z`, nothing else).
+Punctuation does not: `+` `-` `,` `.` `;` `<` `>` `{` `}` `|` `/` `[` `]` are
+matched by the character they type, so they sit wherever your keyboard puts that
+character, which may not be under the same finger as on QWERTY. The choice is
+saved to your config and applies to every game. AZERTY, Dvorak, and free
+per-key remapping aren't supported yet.
 
 ## Keybindings
 

@@ -82,8 +82,16 @@ func (c *ControlsScreen) Render(layout keylayout.Layout, width, height int) stri
 	c.layoutBtn = buttonRange{row: 2 + len(ls), colStart: 0, colEnd: boxW, set: true}
 	ls = append(ls, c.theme.Primary.Render("▸")+" "+c.theme.Primary.Render("Keyboard layout: "+value))
 	ls = append(ls, "")
-	ls = append(ls, c.theme.Dim.Render("  Bindings are authored for QWERTY key positions. QWERTZ"))
-	ls = append(ls, c.theme.Dim.Render("  swaps the physical Y and Z keys; selecting it keeps every"))
-	ls = append(ls, c.theme.Dim.Render("  binding under the same finger and relabels the help (F1)."))
+	for _, ln := range []string{
+		"  Bindings are authored for QWERTY key positions. QWERTZ swaps the",
+		"  physical Y and Z keys. Letter bindings follow the swap: they stay",
+		"  under the same finger, and the help (F1) relabels itself.",
+		"",
+		"  Punctuation does not move. + - , . ; < > { } | / [ ] are matched by",
+		"  the character they type, so they sit wherever your keyboard puts",
+		"  that character, which may not be under the same finger as on QWERTY.",
+	} {
+		ls = append(ls, c.theme.Dim.Render(ln))
+	}
 	return formFrame(c.theme, formBox(c.theme, "KEYBOARD", ls, boxW), width, height, c.theme.Footer.Render(controlsLegend))
 }
