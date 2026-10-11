@@ -43,6 +43,9 @@ func TestAutoWarpOnThePadChasesTheLaunchWindow(t *testing.T) {
 	if !w.AutoWarpEligible() {
 		t.Fatal("Auto-Warp not eligible on the pad with a launch window ahead")
 	}
+	// Start well above 1x: the release must hand back 1x, which a test that
+	// starts at 1x cannot tell (review #582 H1).
+	w.Clock.WarpIdx = 5
 	if !w.EngageAutoWarp() {
 		t.Fatal("EngageAutoWarp refused the launch window")
 	}
@@ -66,6 +69,37 @@ func TestAutoWarpOnThePadChasesTheLaunchWindow(t *testing.T) {
 	}
 	if !w.ActiveCraft().Landed {
 		t.Error("the pad vessel left the ground during the warp")
+	}
+}
+
+// On the pad the window wins over another vessel's planted burn, even one
+// that is sooner (review #582 M2-S23): the window is what the player there
+// is waiting for, and G must not chase a sibling's node instead.
+func TestAutoWarpOnThePadPrefersTheWindowOverAPlantedBurn(t *testing.T) {
+	w := padTargetingSeed(t)
+	padIdx := w.ActiveCraftIdx
+	lw, ok := w.LaunchWindow()
+	if !ok || !lw.Open {
+		t.Fatalf("setup: want an open window, got ok=%v %+v", ok, lw)
+	}
+	// A burn on the other vessel, sooner than the window and past the lead.
+	plantOn(t, w, 0, 10*time.Minute)
+	if !w.Crafts[0].Nodes[0].BurnStart().Add(-autoWarpLeadTime).Before(lw.PassAt.Add(-autoWarpLeadTime)) {
+		t.Fatal("setup: the planted burn must come before the window")
+	}
+	w.SetActiveCraftIdx(padIdx)
+	if _, _, _, ok := w.soonestEligibleBurn(); !ok {
+		t.Fatal("setup: the planted burn is not eligible, so it would not compete")
+	}
+	if !w.EngageAutoWarp() {
+		t.Fatal("EngageAutoWarp refused")
+	}
+	if !w.AutoWarp.LaunchWindow {
+		t.Fatalf("Auto-Warp chased the other vessel's burn (craft %d node %d), want the launch window",
+			w.AutoWarp.CraftID, w.AutoWarp.NodeID)
+	}
+	if want := lw.PassAt.Add(-autoWarpLeadTime); !w.AutoWarp.T.Equal(want) {
+		t.Errorf("Auto-Warp aims at %v, want the window less 30 s (%v)", w.AutoWarp.T, want)
 	}
 }
 
