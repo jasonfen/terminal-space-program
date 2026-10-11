@@ -6,6 +6,9 @@ import (
 	"testing"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -53,5 +56,38 @@ func TestGOffThePadStillRefusesWithNothingToWarpTo(t *testing.T) {
 	pressKey(a, 'G')
 	if a.statusMsg != "auto-warp: no burn planned to warp to" {
 		t.Errorf("statusMsg = %q, want the no-burn refusal", a.statusMsg)
+	}
+}
+
+// The launch view's [»Burn] button is G by mouse (#575): inside the lead
+// it re-trims the heading too, instead of silently doing nothing.
+func TestBurnButtonInsideTheLaunchWindowLeadRetrimsTheHeading(t *testing.T) {
+	a, c := padApp(t)
+	a.world.SetTargetCraft(0)
+	lw, ok := a.world.LaunchWindow()
+	if !ok || !lw.Open {
+		t.Fatalf("setup: want an open window, got ok=%v %+v", ok, lw)
+	}
+	a.world.Clock.SimTime = lw.PassAt.Add(-20 * time.Second)
+	c.HeadingTrim = 0
+	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	a.world.ViewMode = sim.ViewLaunch
+	a.View()
+	col, ok := findHitCol(140, a.launchView.HitBurnButton)
+	if !ok {
+		t.Fatal("setup: Launch View never computed a [»Burn] hit-test range")
+	}
+
+	a.Update(tea.MouseMsg{X: col, Y: 0, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+
+	gotDeg := (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi
+	if want := math.Round(lw.HeadingDeg); math.Abs(gotDeg-want) > 1e-9 {
+		t.Errorf("heading %.3f° after [»Burn] inside the lead, want the window's %.0f°", gotDeg, want)
+	}
+	if a.world.AutoWarpEngaged() {
+		t.Error("[»Burn] inside the lead engaged a warp; it must only re-trim")
+	}
+	if want := "for the launch window"; !strings.Contains(a.statusMsg, want) {
+		t.Errorf("feedback %q does not say the heading was turned %q", a.statusMsg, want)
 	}
 }
