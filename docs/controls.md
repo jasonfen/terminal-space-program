@@ -349,7 +349,7 @@ Each marker on the map is one glyph; the colour says what kind it is. This is th
 | `▷` | entry: your planned path crosses into a body's sphere of influence |
 | `◁` | exit: your planned path crosses back out of it |
 | `⊗` | impact: where your trajectory meets the ground (surface view) |
-| `dim / red` | dim: the path without your burn; red: that point is below the surface |
+| `dim / red` | a dimmed marker is on the path without your burn; a red one is below the surface |
 
 ## Screens
 
