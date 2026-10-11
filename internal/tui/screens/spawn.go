@@ -1055,19 +1055,21 @@ func altKmLabel(altM float64) string {
 // every line.
 func (s *SpawnCraft) craftTypeLines(avail int) (lines []widgets.WindowLine, cursorLine int) {
 	idx := 0
-	level := s.catalogLevel(avail - 3) // 3 = craftRow's bullet cells
+	rows := s.catalogRows()
+	level := catalogLevel(rows, avail-3) // 3 = craftRow's bullet cells
+	grid := layoutCatalog(rows, level)
+	n := 0
 	for _, g := range s.groupedLoadouts() {
 		lines = append(lines, widgets.WindowLine{Text: "  " + s.theme.Primary.Render(g.label), IsHeader: true})
-		for _, id := range g.ids {
-			l := spacecraft.Loadouts[id]
+		for range g.ids {
 			// No row bullet: the ➤ glyph is the vessel's mark on the map,
 			// not a list bullet (B11 / G9 Q5).
-			row := catalogRowText(l, level)
 			if idx == s.loadoutIdx {
 				cursorLine = len(lines)
 			}
-			lines = append(lines, widgets.WindowLine{Text: s.craftRow(idx, row)})
+			lines = append(lines, widgets.WindowLine{Text: s.craftRowSplit(idx, grid[n].head, grid[n].tail)})
 			idx++
+			n++
 		}
 	}
 	// Trailing "Custom & Designs" group — never filtered (ADR 0031). idx is now
@@ -1078,54 +1080,153 @@ func (s *SpawnCraft) craftTypeLines(avail int) (lines []widgets.WindowLine, curs
 	}
 	lines = append(lines, widgets.WindowLine{Text: s.craftRow(idx, "✎ Custom…  build-your-own  · assemble a stage stack")})
 	idx++
-	for _, d := range s.designs {
+	for i, d := range s.designs {
 		if idx == s.loadoutIdx {
 			cursorLine = len(lines)
 		}
-		// R4 #8: an unresolvable design has no stats to show; say why.
-		noun := "parts"
-		if len(d.Loadout.Parts) == 1 {
-			noun = "part"
+		if len(s.designStagesAt(i)) > 0 {
+			lines = append(lines, widgets.WindowLine{Text: s.craftRowSplit(idx, grid[n].head, grid[n].tail)})
+			n++
+		} else {
+			// R4 #8: an unresolvable design has no stats to show; say why.
+			noun := "parts"
+			if len(d.Loadout.Parts) == 1 {
+				noun = "part"
+			}
+			row := fmt.Sprintf("✎ %s  saved design  · %d %s, missing from catalog", d.Name(), len(d.Loadout.Parts), noun)
+			lines = append(lines, widgets.WindowLine{Text: s.craftRow(idx, row)})
 		}
-		row := fmt.Sprintf("✎ %s  saved design  · %d %s, missing from catalog", d.Name(), len(d.Loadout.Parts), noun)
-		if ds := s.designStagesAt(idx - s.visibleCatalogCount() - 1); len(ds) > 0 {
-			row = fmt.Sprintf("✎ %s  saved design  · %s", d.Name(), stagesSummary(ds))
-		}
-		lines = append(lines, widgets.WindowLine{Text: s.craftRow(idx, row)})
 		idx++
 	}
 	return lines, cursorLine
 }
 
-// catalogRowText is one catalog row's label at a compaction level, chosen
-// once for the whole list so the column reads one way: 0 is the full row,
-// 1 drops the "Isp " word, 2 also drops the role column (the group header
-// above the rows already names it). The engine figure is never dropped
-// (M3 / review #555).
-func catalogRowText(l spacecraft.Loadout, level int) string {
-	prop := propulsionSummary(l)
-	if level >= 1 {
-		prop = strings.Replace(prop, "Isp ", "", 1)
+// catalogRow is one catalog row's facts before layout: the columned figures
+// come from the stage stack, the tail (stage count, role) is description.
+type catalogRow struct {
+	name, crew, role string
+	stages           []spacecraft.Stage
+}
+
+// catalogRows lists the rows craftTypeLines draws in order: the visible
+// loadouts, then each saved design that resolved to stages.
+func (s *SpawnCraft) catalogRows() []catalogRow {
+	var rows []catalogRow
+	for _, g := range s.groupedLoadouts() {
+		for _, id := range g.ids {
+			l := spacecraft.Loadouts[id]
+			rows = append(rows, catalogRow{name: l.Name, crew: crewTag(l), role: l.Role, stages: l.Stages})
+		}
 	}
+	for i, d := range s.designs {
+		if ds := s.designStagesAt(i); len(ds) > 0 {
+			rows = append(rows, catalogRow{name: "✎ " + d.Name(), crew: "design", role: "saved design", stages: ds})
+		}
+	}
+	return rows
+}
+
+// catalogGridRow is one laid-out row: head is the aligned name and figures,
+// tail the Dim description after them.
+type catalogGridRow struct{ head, tail string }
+
+// padLeftCells right-aligns s in w display cells (lipgloss.Width, never a
+// printf width verb, so wide glyphs stay honest).
+func padLeftCells(s string, w int) string {
+	if gap := w - lipgloss.Width(s); gap > 0 {
+		return strings.Repeat(" ", gap) + s
+	}
+	return s
+}
+
+// layoutCatalog lays every row out as a table: name, crew, then dry mass,
+// fuel mass and engine each in a column that starts at one cell for every
+// row (thrust right-aligned so the "kN @" lines up), then the Dim tail
+// (#595). level compacts as before (M3 / review #555): 0 is full, 1 drops
+// the role from the tail (the group header above the rows already names
+// it), 2 also drops the "Isp " word. The engine figure is never dropped.
+func layoutCatalog(rows []catalogRow, level int) []catalogGridRow {
+	type cells struct {
+		dry, fuel, thrust, isp, tail string
+		rcs                          bool
+	}
+	cs := make([]cells, len(rows))
+	var wName, wCrew, wDry, wFuel, wThr, wIsp int
+	maxW := func(w *int, s string) {
+		if x := lipgloss.Width(s); x > *w {
+			*w = x
+		}
+	}
+	for i, r := range rows {
+		c := &cs[i]
+		c.dry = fmt.Sprintf("%.0f", spacecraft.SumDryMass(r.stages))
+		if fuel := spacecraft.SumFuelMass(r.stages); fuel > 0 {
+			c.fuel = fmt.Sprintf("%.0f", fuel)
+		}
+		if len(r.stages) > 0 && r.stages[0].Thrust > 0 {
+			c.thrust = fmt.Sprintf("%.0f", r.stages[0].Thrust/1000)
+			c.isp = fmt.Sprintf("%.0f", r.stages[0].Isp)
+		} else {
+			c.rcs = true
+		}
+		var tail []string
+		if len(r.stages) > 1 {
+			tail = append(tail, fmt.Sprintf("%d stages", len(r.stages)))
+		}
+		if level < 1 && r.role != "" {
+			tail = append(tail, r.role)
+		}
+		c.tail = strings.Join(tail, "  ")
+		maxW(&wName, r.name)
+		maxW(&wCrew, r.crew)
+		maxW(&wDry, c.dry)
+		maxW(&wFuel, c.fuel)
+		maxW(&wThr, c.thrust)
+		maxW(&wIsp, c.isp)
+	}
+	ispWord := "Isp "
 	if level >= 2 {
-		return fmt.Sprintf("%s  %s  · %s", l.Name, crewTag(l), prop)
+		ispWord = ""
 	}
-	return fmt.Sprintf("%s  %s  %s  · %s", l.Name, crewTag(l), l.Role, prop)
+	engW := wThr + len("kN @ ") + len(ispWord) + wIsp + 1 // + "s"; Isp is left-aligned
+	if engW < len("RCS-only") {
+		engW = len("RCS-only")
+	}
+	out := make([]catalogGridRow, len(rows))
+	wDryCell := len("dry ") + wDry + len("kg")
+	wFuelCell := len("fuel ") + wFuel + len("kg")
+	for i, r := range rows {
+		c := cs[i]
+		fuel := ""
+		if c.fuel != "" {
+			fuel = "fuel " + c.fuel + "kg"
+		}
+		eng := "RCS-only"
+		if !c.rcs {
+			eng = padLeftCells(c.thrust, wThr) + "kN @ " + ispWord + c.isp + "s"
+		}
+		head := padCells(r.name, wName) + "  " + padCells(r.crew, wCrew) + "  " +
+			padCells("dry "+c.dry+"kg", wDryCell) + "  " + padCells(fuel, wFuelCell) + "  " + padCells(eng, engW)
+		out[i] = catalogGridRow{head: head, tail: c.tail}
+	}
+	return out
 }
 
 // catalogLevel is the least compaction at which every catalog row fits
 // width cells (width<=0: no limit).
-func (s *SpawnCraft) catalogLevel(width int) int {
+func catalogLevel(rows []catalogRow, width int) int {
 	if width <= 0 {
 		return 0
 	}
 	for level := 0; level < 2; level++ {
 		fits := true
-		for _, g := range s.groupedLoadouts() {
-			for _, id := range g.ids {
-				if lipgloss.Width(catalogRowText(spacecraft.Loadouts[id], level)) > width {
-					fits = false
-				}
+		for _, g := range layoutCatalog(rows, level) {
+			w := lipgloss.Width(g.head)
+			if g.tail != "" {
+				w += 2 + lipgloss.Width(g.tail)
+			}
+			if w > width {
+				fits = false
 			}
 		}
 		if fits {
@@ -1602,6 +1703,26 @@ func (s *SpawnCraft) craftRow(idx int, label string) string {
 		} else {
 			row = s.theme.Primary.Render(label)
 		}
+	}
+	return " " + marker + row
+}
+
+// craftRowSplit is craftRow for a columned catalog row: head in the row's
+// state style (plain unselected, Primary / Warning when selected), tail in
+// Dim always, so the description recedes behind the figures (#595).
+func (s *SpawnCraft) craftRowSplit(idx int, head, tail string) string {
+	marker := "  "
+	row := head
+	if s.loadoutIdx == idx {
+		marker = s.theme.Primary.Render("▸") + " "
+		if s.fieldIdx == 0 {
+			row = s.theme.Warning.Render(head)
+		} else {
+			row = s.theme.Primary.Render(head)
+		}
+	}
+	if tail != "" {
+		row += "  " + s.theme.Dim.Render(tail)
 	}
 	return " " + marker + row
 }
