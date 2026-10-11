@@ -993,15 +993,20 @@ func deltaVReadout(c *spacecraft.Spacecraft) string {
 	return readout.DeltaVPair(stage, vehicle)
 }
 
-// stagePips renders one glyph per stage — ● firing/fueled, ○ dry — the
-// summary both buildStagesChip and its Compact Form share.
-func stagePips(c *spacecraft.Spacecraft) string {
+// stagePips renders one coloured glyph per stage, three states (#600):
+// ● fueled (Primary), ○ spent, a tank that ran dry (Alert), ◇ tankless,
+// a stage that never carried propellant such as a pod or payload (Dim).
+// The summary both buildStagesChip and its Compact Form share.
+func (v *OrbitView) stagePips(c *spacecraft.Spacecraft) string {
 	var pips strings.Builder
 	for _, st := range c.Stages {
-		if st.FuelCapacity > 0 && st.FuelMass <= 0 {
-			pips.WriteString("○")
-		} else {
-			pips.WriteString("●")
+		switch {
+		case st.FuelCapacity <= 0:
+			pips.WriteString(v.theme.Dim.Render("◇"))
+		case st.FuelMass <= 0:
+			pips.WriteString(v.theme.Alert.Render("○"))
+		default:
+			pips.WriteString(v.theme.Primary.Render("●"))
 		}
 	}
 	return pips.String()

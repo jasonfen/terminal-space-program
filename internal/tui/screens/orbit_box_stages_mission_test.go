@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -80,5 +81,97 @@ func TestStagesBoxNamesSpaceAndFitsTheTier(t *testing.T) {
 	c.Stages = c.Stages[:1]
 	if line := v.buildStagesBox(w)[0]; strings.Contains(line, "[space]") {
 		t.Errorf("single-stage row advertises [space]: %q", line)
+	}
+}
+
+// stagePipSGR returns the escape sequence that opens the styled run
+// holding glyph in line ("" if the glyph is absent or unstyled).
+func stagePipSGR(line, glyph string) string {
+	i := strings.Index(line, glyph)
+	if i < 0 {
+		return ""
+	}
+	j := strings.LastIndex(line[:i], "\x1b[")
+	if j < 0 {
+		return ""
+	}
+	k := strings.Index(line[j:], "m")
+	if j+k+1 != i || line[j:j+k+1] == "\x1b[0m" {
+		return ""
+	}
+	return line[j : j+k+1]
+}
+
+// TestStagePipsDistinguishLitSpentAndTankless (#600): a stage with fuel,
+// a spent stage and a tankless stage (payload, pod) read as three
+// different pips, each its own glyph in its own colour. Colour assertions
+// are vacuous without a forced profile, so TrueColor is forced and the
+// instrument is proven to emit an escape before any negative is trusted.
+func TestStagePipsDistinguishLitSpentAndTankless(t *testing.T) {
+	orig := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(orig) })
+
+	theme := launchThemeForTest()
+	theme.Primary = lipgloss.NewStyle().Foreground(lipgloss.Color("#5FD7FF"))
+	theme.Warning = lipgloss.NewStyle().Foreground(lipgloss.Color("#FFAF00"))
+	theme.Alert = lipgloss.NewStyle().Foreground(lipgloss.Color("#FF5F5F"))
+	theme.Dim = lipgloss.NewStyle().Foreground(lipgloss.Color("#5F5F5F"))
+	if !strings.Contains(theme.Alert.Render("x"), "\x1b[") {
+		t.Fatal("setup: forcing TrueColor did not make a styled render emit an escape")
+	}
+
+	v := NewOrbitView(theme)
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.Stages = []spacecraft.Stage{
+		{Name: "Spent", FuelMass: 0, FuelCapacity: 100},
+		{Name: "Fueled", FuelMass: 100, FuelCapacity: 100},
+		{Name: "Pod"},
+	}
+	line := v.buildStagesBox(w)[0]
+
+	type pip struct{ glyph, sgr string }
+	var pips []pip
+	for _, g := range []string{"●", "○", "◇"} {
+		if !strings.Contains(line, g) {
+			t.Errorf("STAGES row %q is missing glyph %q (fueled ●, spent ○, tankless ◇)", line, g)
+			continue
+		}
+		s := stagePipSGR(line, g)
+		if s == "" {
+			t.Errorf("glyph %q is unstyled in %q", g, line)
+		}
+		pips = append(pips, pip{g, s})
+	}
+	for i := range pips {
+		for j := i + 1; j < len(pips); j++ {
+			if pips[i].sgr == pips[j].sgr {
+				t.Errorf("pips %q and %q share colour %q, want three distinct colours", pips[i].glyph, pips[j].glyph, pips[i].sgr)
+			}
+		}
+	}
+}
+
+// TestStagePipsStayWithinCap: a long stack's pips are cut to stagePipsMax
+// cells with a trailing ellipsis, whatever the styling.
+func TestStagePipsStayWithinCap(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.Stages = nil
+	for i := 0; i < 12; i++ {
+		c.Stages = append(c.Stages, spacecraft.Stage{Name: "s", FuelMass: 1, FuelCapacity: 1})
+	}
+	line := v.buildStagesBox(w)[0]
+	want := strings.Repeat("●", stagePipsMax-1) + "…"
+	if !strings.Contains(line, want) {
+		t.Errorf("STAGES row = %q, want pips truncated to %q", line, want)
 	}
 }

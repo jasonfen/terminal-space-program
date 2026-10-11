@@ -39,7 +39,7 @@ func (v *OrbitView) buildStagesBox(w *sim.World) []string {
 	// The row can never outgrow the bottom-left tier (W1, #482 review F2):
 	// the pips are capped, and the stage name takes whatever content
 	// width remains after the pips and the "(1/N)" count.
-	pips := stagePips(c)
+	pips := v.stagePips(c)
 	pips = truncateCells(pips, stagePipsMax)
 	count := fmt.Sprintf(" (1/%d)", len(c.Stages))
 	// ADR 0052 decision 5: name the key that drops this stage, standing
