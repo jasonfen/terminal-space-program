@@ -1131,7 +1131,7 @@ func (s *SpawnCraft) catalogRows() []catalogRow {
 type catalogGridRow struct{ head, tail string }
 
 // padLeftCells right-aligns s in w display cells (lipgloss.Width, never a
-// %-Ns verb, so wide glyphs stay honest).
+// printf width verb, so wide glyphs stay honest).
 func padLeftCells(s string, w int) string {
 	if gap := w - lipgloss.Width(s); gap > 0 {
 		return strings.Repeat(" ", gap) + s
