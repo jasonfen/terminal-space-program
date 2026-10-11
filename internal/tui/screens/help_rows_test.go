@@ -359,4 +359,12 @@ func TestHelpExpandsManAndRcsTags(t *testing.T) {
 	if !strings.Contains(rcs, "thrusters") {
 		t.Errorf("RCS row does not say what it arms: %q", rcs)
 	}
+	// Both rows must survive the design size untruncated.
+	h := NewHelp(chipTestTheme())
+	h.OpenPage(15) // READOUT GLOSSARY
+	for _, ln := range strings.Split(ansi.Strip(h.Render(140, 40, keylayout.QWERTY)), "\n") {
+		if (strings.Contains(ln, "[MAN] / [AUT]") || strings.Contains(ln, "  RCS  ")) && strings.Contains(ln, "…") {
+			t.Errorf("glossary row truncated at 140x40: %q", ln)
+		}
+	}
 }
