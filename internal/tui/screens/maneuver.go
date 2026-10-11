@@ -750,22 +750,14 @@ func (m *Maneuver) Render(w *sim.World, cols, rows, selectedBody int) string {
 	// craft is nowhere near. Falls back to current-state preview if
 	// the event is unreachable (hyperbolic / equatorial AN/DN).
 	dv := m.parsedDV()
-	dur := c.BurnTimeForDV(dv)
-	mode := spacecraft.AllBurnModes[m.modeIdx]
-	event := sim.AllTriggerEvents[m.fireAtIdx]
-	shadowState, shadowPrimary, ok := w.PreviewBurnState(mode, dv, dur, event)
-	if !ok {
-		dir := spacecraft.DirectionUnit(mode, c.State.R, c.State.V)
-		shadowState = physics.StateVector{
-			R: c.State.R,
-			V: c.State.V.Add(dir.Scale(dv)),
-			M: c.State.M,
-		}
-		shadowPrimary = c.Primary
-	}
+	proj := m.projection(w, c, dv)
+	shadowState, shadowPrimary := proj.state, proj.primary
 	shadowMu := shadowPrimary.GravitationalParameter()
-	shadowPeriod := orbitalPeriodOrFallback(shadowState, shadowMu)
-	pts := planner.Predict(shadowState, shadowMu, shadowPeriod, 256)
+	var pts []orbital.Vec3
+	if proj.resolved {
+		shadowPeriod := orbitalPeriodOrFallback(shadowState, shadowMu)
+		pts = planner.Predict(shadowState, shadowMu, shadowPeriod, 256)
+	}
 	primaryGap := w.BodyPosition(shadowPrimary).Sub(w.BodyPosition(c.Primary))
 	// Planned class, dashed (ADR 0041 §2): this is a predicted trajectory
 	// — the orbit the burn WOULD produce, not a real one. Previously every
@@ -824,7 +816,7 @@ func (m *Maneuver) Render(w *sim.World, cols, rows, selectedBody int) string {
 	canvasPanel := m.theme.HUDBox.Render(m.canvas.String())
 
 	panelWidth := formPanelWidth(cols)
-	form := m.renderForm(w, dv, shadowState, shadowPrimary, shadowMu, selectedBody, panelWidth)
+	form := m.renderForm(w, dv, proj, selectedBody, panelWidth)
 	body := lipgloss.JoinHorizontal(lipgloss.Top, canvasPanel, "  ", form)
 
 	// #428 mechanical fix: the footer is one full-width row (not part
@@ -833,11 +825,50 @@ func (m *Maneuver) Render(w *sim.World, cols, rows, selectedBody int) string {
 	// exact hard-clip symptom this issue exists to remove, just on a
 	// different line. Ellipsize it against `cols` directly.
 	footer := m.theme.Footer.Render(ansi.Truncate(
-		"[tab] field  [←/→] cycle  [↑/↓] cursor  [enter] commit/load  [esc] cancel  [ctrl+d] del node  [ctrl+k] clear all",
+		footerFor(m.focus),
 		cols, "…",
 	))
 	// The last row is left empty for the App's flash overlay.
 	return body + "\n" + footer + "\n"
+}
+
+// plannerProjection is the one burn both the PROJECTED ORBIT canvas and
+// the PROJECTED ORBIT text panel describe (#585): the plan under the Plan
+// Cursor, or the form's draft when the cursor sits on the new-node row or
+// on the node already loaded into the form.
+type plannerProjection struct {
+	state            physics.StateVector
+	primary          bodies.CelestialBody
+	resolved         bool // false: nothing to draw (zero-Δv draft, or an unresolved planted event)
+	browsingUnloaded bool // cursor is on a planted node that is not loaded into the form
+}
+
+func (m *Maneuver) projection(w *sim.World, c *spacecraft.Spacecraft, dv float64) plannerProjection {
+	nNodes := len(c.Nodes)
+	cur := m.cursorRow(nNodes)
+	if cur < nNodes && cur != m.editingIdx {
+		p := plannerProjection{browsingUnloaded: true}
+		for _, leg := range w.PredictedLegs() {
+			if leg.NodeIndex == cur {
+				p.state, p.primary, p.resolved = leg.State, leg.Primary, true
+				break
+			}
+		}
+		return p
+	}
+	// Draft: apply the form's (mode, dv, fire-at) triple. When fire-at is
+	// event-relative the world propagates the craft to the event first;
+	// it falls back to the current state if the event is unreachable.
+	dur := c.BurnTimeForDV(dv)
+	mode := spacecraft.AllBurnModes[m.modeIdx]
+	event := sim.AllTriggerEvents[m.fireAtIdx]
+	state, primary, ok := w.PreviewBurnState(mode, dv, dur, event)
+	if !ok {
+		dir := spacecraft.DirectionUnit(mode, c.State.R, c.State.V)
+		state = physics.StateVector{R: c.State.R, V: c.State.V.Add(dir.Scale(dv)), M: c.State.M}
+		primary = c.Primary
+	}
+	return plannerProjection{state: state, primary: primary, resolved: dv > 0}
 }
 
 // TitleContext is the Title Row's context for the planner: the Plan Cursor
@@ -860,7 +891,39 @@ func (m *Maneuver) TitleContext(w *sim.World) string {
 	return ""
 }
 
-func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVector, shadowPrimary bodies.CelestialBody, mu float64, selectedBody, panelWidth int) string {
+// numberRowLabel renders a number row's label in Warning when that row has
+// focus, the same cue mode / fire-at / iterate give (#585).
+func (m *Maneuver) numberRowLabel(label string, focus int) string {
+	if m.focus != focus {
+		return label
+	}
+	return m.theme.Warning.Render(label)
+}
+
+func (m *Maneuver) numberRowHint(focus int) string {
+	if m.focus != focus {
+		return ""
+	}
+	return "  (type digits)"
+}
+
+// footerFor names only the keys that act while row `focus` has focus
+// (#585): ←/→ cycle mode and fire-at, toggle iterate, and just move the
+// text cursor on the number rows.
+func footerFor(focus int) string {
+	var row string
+	switch focus {
+	case 0, 1:
+		row = "[←/→] cycle  "
+	case 4:
+		row = "[←/→] or [space] toggle  "
+	default:
+		row = "[0-9] type  "
+	}
+	return "[tab] field  " + row + "[↑/↓] cursor  [enter] commit/load  [esc] cancel  [ctrl+d] del node  [ctrl+k] clear all"
+}
+
+func (m *Maneuver) renderForm(w *sim.World, dv float64, proj plannerProjection, selectedBody, panelWidth int) string {
 	c := w.ActiveCraft()
 	mode := spacecraft.AllBurnModes[m.modeIdx]
 	budget := c.RemainingDeltaV()
@@ -902,6 +965,15 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 			fireAtLabel = countdown
 		} else {
 			fireAtLabel = fmt.Sprintf("%s (%s)", fireAtLabel, countdown)
+		}
+	}
+	// next peri / next apo on a near-circular orbit name no point on it
+	// (#585): same display threshold the orbit screen's navigation box
+	// uses, orbital.ApsisDefined. Only while the trigger is unresolved.
+	if m.loadedTriggerTime.IsZero() && (fireAt == sim.TriggerNextPeri || fireAt == sim.TriggerNextApo) {
+		el := orbital.ElementsFromState(c.State.R, c.State.V, c.Primary.GravitationalParameter())
+		if el.E < 1 && !orbital.ApsisDefined(el.E) {
+			fireAtLabel += " (undefined)"
 		}
 	}
 	if m.focus == 1 {
@@ -974,8 +1046,8 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 		headerStyle.Render(header),
 		"  mode:     " + modeLabel,
 		"  fire at:  " + fireAtLabel,
-		"  Δv:       " + m.dvInput.View() + " m/s" + warn,
-		"  throttle: " + m.throttleInput.View() + " %",
+		m.numberRowLabel("  Δv:       ", 2) + m.dvInput.View() + " m/s" + m.numberRowHint(2) + warn,
+		m.numberRowLabel("  throttle: ", 3) + m.throttleInput.View() + " %" + m.numberRowHint(3),
 		"  iterate:  " + iterateLabel,
 		"  → " + burnDescr,
 		"",
@@ -1100,24 +1172,12 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, shadow physics.StateVect
 	//     that node's own REAL committed state via PredictedLegs, which
 	//     chains every prior node's burn instead of pretending the
 	//     current form values apply to it.
-	browsingUnloaded := cur < nNodes && cur != m.editingIdx
+	browsingUnloaded := proj.browsingUnloaded
 	poLabel := "PROJECTED ORBIT"
-	poState, poPrimary := shadow, shadowPrimary
-	poMu := mu
-	poResolved := dv > 0
-	if browsingUnloaded {
-		poResolved = false
-		for _, leg := range w.PredictedLegs() {
-			if leg.NodeIndex == cur {
-				poState, poPrimary = leg.State, leg.Primary
-				poMu = poPrimary.GravitationalParameter()
-				poResolved = true
-				break
-			}
-		}
-	} else if m.editingIdx < 0 {
+	if !browsingUnloaded && m.editingIdx < 0 {
 		poLabel = "PROJECTED ORBIT (this draft)"
 	}
+	poState, poPrimary, poMu, poResolved := proj.state, proj.primary, proj.primary.GravitationalParameter(), proj.resolved
 	switch {
 	case browsingUnloaded && !poResolved:
 		lines = append(lines, "", m.theme.Primary.Render(poLabel),
