@@ -339,9 +339,48 @@ func TestControlsDocMirrorsMarkerKey(t *testing.T) {
 	if i < 0 || j < i {
 		t.Fatal("docs/controls.md has no Map markers section")
 	}
-	for _, r := range markerKeySection(t).rows {
+	rows := markerKeySection(t).rows
+	for _, r := range rows {
 		if !strings.Contains(doc[i:j], "| `"+r[0]+"` |") {
 			t.Errorf("docs/controls.md Map markers lacks a row for %q", r[0])
+		}
+	}
+	// Two-way (review #614 L4): a docs-only row is drift too.
+	inF1 := map[string]bool{}
+	for _, r := range rows {
+		inF1[r[0]] = true
+	}
+	for _, ln := range strings.Split(doc[i:j], "\n") {
+		if !strings.HasPrefix(ln, "| `") {
+			continue
+		}
+		cell := strings.TrimPrefix(ln, "| `")
+		k := strings.Index(cell, "` |")
+		if k < 0 {
+			continue
+		}
+		if g := cell[:k]; !inF1[g] {
+			t.Errorf("docs/controls.md Map markers has a row for %q that F1 lacks", g)
+		}
+	}
+}
+
+// TestMarkerKeyWording pins L1: the words that were wrong.
+func TestMarkerKeyWording(t *testing.T) {
+	raw, err := os.ReadFile("../../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range markerKeySection(t).rows {
+		for _, bad := range []string{"planned pass", "planned path", "you gave it"} {
+			if strings.Contains(r[1], bad) {
+				t.Errorf("F1 marker row %q still says %q", r[0], bad)
+			}
+		}
+	}
+	for _, bad := range []string{"planned pass", "planned path", "you gave it"} {
+		if strings.Contains(string(raw), bad) {
+			t.Errorf("docs/controls.md still says %q", bad)
 		}
 	}
 }
@@ -361,7 +400,14 @@ func TestHelpExpandsManAndRcsTags(t *testing.T) {
 	}
 	// Both rows must survive the design size untruncated.
 	h := NewHelp(chipTestTheme())
-	h.OpenPage(15) // READOUT GLOSSARY
+	for n := 0; n < helpPageCount(); n++ {
+		if pageTitle(n) == helpIndexTitle("READOUT GLOSSARY") {
+			h.OpenPage(n)
+		}
+	}
+	if !strings.Contains(ansi.Strip(h.Render(140, 40, keylayout.QWERTY)), "READOUT GLOSSARY") {
+		t.Fatal("glossary page did not open by section lookup")
+	}
 	for _, ln := range strings.Split(ansi.Strip(h.Render(140, 40, keylayout.QWERTY)), "\n") {
 		if (strings.Contains(ln, "[MAN] / [AUT]") || strings.Contains(ln, "  RCS  ")) && strings.Contains(ln, "…") {
 			t.Errorf("glossary row truncated at 140x40: %q", ln)

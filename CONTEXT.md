@@ -3122,12 +3122,14 @@ gone, and the key legend rides the frame's bottom edge. Built by `formFrame`
 / `formBox` (`screens/chrome.go`).
 
 **Flash Row** (#599, review #555 L1): the one row under a form's key legend
-that an **Event Flash** (or a confirm prompt) overlays, so a flash never
+that an **Event Flash** overlays, so a flash never
 covers the legend. One mechanism for every form: `App.formScreen` renders the
 form one row shorter and leaves the last screen row blank; the maneuver
 planner, which draws its own legend row, ends its own render with that blank
 row (`formTitled`). A new form screen goes through `formScreen` and gets the
-row for free; guard `TestFormLegendSurvivesFlash`.
+row for free; guard `TestFormLegendSurvivesFlash`. Only Event Flashes reach
+it today: the confirm prompts (quickload, End Flight, transpose, deploy) are
+armed on the orbit screen, not on a form.
 
 **Back rule** (G9 Q3): `esc` and `[Back]` go to the screen that opened you.
 A screen opened from the pause menu (Saves, Settings, Keyboard layout,
