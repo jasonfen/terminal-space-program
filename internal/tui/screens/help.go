@@ -249,11 +249,28 @@ var helpSections = []helpSection{
 		{"plan", "the world the planned burn's numbers are measured from, plus its node angles"},
 		{"pro / retro", "prograde or retrograde: which way the orbit runs, tagged on incl:"},
 		{"(ORBIT/SURF/TGT)", "the frame a held direction or nav: reads in: orbit, surface, or target-relative, one spelling everywhere it's named"},
+		{"[MAN] / [AUT]", "the navball's attitude tag: MAN turns the nose at a rate-limited slew (the default); AUT, in amber, snaps it instantly. Click it to switch"},
+		{"RCS", "the navball's thruster toggle: amber when the RCS thrusters are armed instead of the main engine ([r] does the same)"},
 		{"rcs", "monoprop's own Δv, from the RCS thrusters rather than the main engine"},
 		{"speed", "inertial speed, alongside vert: and horiz:"},
 		{"(max N)", "the same figure at full throttle, when it differs from the current one"},
 		{"heading: / hdg", "GUIDANCE heading: is the bearing you have commanded; the navball's pitch and hdg are measured, where the nose points now (they agree on the pad, and differ while the nose slews). In ORBIT the ball's rungs count degrees out of the orbit plane, not above the horizon. trim: is how far ←/→ lean the nose down or up off the hold, so 15° down on a level prograde nose reads pitch -15°; → leans toward your heading, which lowers a prograde nose and raises a retrograde one"},
 		{"● ORBIT READY [C]", "apoapsis has cleared this world's orbit floor: press [C] to plant the circularising burn"},
+	}},
+	{"MAP MARKERS", [][2]string{
+		{"➤", "your vessel, in yellow or the colour you gave it; other vessels and ghosts wear their own"},
+		{"green", "the vessel you have targeted, and its orbit ([t] picks a target)"},
+		{"Δ", "a planned burn, in the colour of the dashed orbit after it (blue, mint, amber, pink); click to edit"},
+		{"▲", "apoapsis: the highest point of the orbit"},
+		{"▼", "periapsis: the lowest point of the orbit"},
+		{"◇", "ascending node: your orbit crosses your target's orbital plane going north (needs a target)"},
+		{"◆", "descending node: the same crossing going south of the target's plane"},
+		{"⊕", "perilune: the closest point of a planned pass of another body"},
+		{"✕", "closest approach: one mark on your path, one on the target's, where you pass nearest"},
+		{"▷", "entry: your planned path crosses into a body's sphere of influence"},
+		{"◁", "exit: your planned path crosses back out of it"},
+		{"⊗", "impact: where your trajectory meets the ground (surface view)"},
+		{"dim / red", "dim: the path without your burn; red: that point is below the surface"},
 	}},
 }
 
@@ -304,6 +321,7 @@ var helpWhen = map[string]string{
 	"SAVES":              "you are saving, loading, renaming or deleting a save",
 	"MULTIPLAYER":        "you are flying with friends: chat, ghosts, sync, hosting",
 	"MOUSE":              "you would rather click than type",
+	"MAP MARKERS":        "a symbol on the map means nothing to you",
 	"READOUT GLOSSARY":   "a code on the HUD (fpa, TCA, e:, τ ...) means nothing to you",
 }
 
