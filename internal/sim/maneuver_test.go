@@ -148,6 +148,7 @@ func TestPlanNodeUnresolvedSortsToEnd(t *testing.T) {
 // within one orbital period of "now."
 func TestResolveEventNodesFreezesNextPeri(t *testing.T) {
 	w := mustWorld(t)
+	makeActiveEccentric(w) // apsides are defined (#614 M1)
 	w.PlanNode(ManeuverNode{Event: TriggerNextPeri, DV: 50, Mode: spacecraft.BurnPrograde})
 
 	if !w.ActiveCraft().Nodes[0].TriggerTime.IsZero() {
@@ -177,9 +178,13 @@ func TestResolveEventNodesFreezesNextPeri(t *testing.T) {
 // re-resolve an already-resolved node (the second pass is a no-op).
 func TestResolveEventNodesIsIdempotent(t *testing.T) {
 	w := mustWorld(t)
+	makeActiveEccentric(w) // apsides are defined (#614 M1)
 	w.PlanNode(ManeuverNode{Event: TriggerNextApo, DV: 50, Mode: spacecraft.BurnPrograde})
 	w.resolveEventNodes()
 	first := w.ActiveCraft().Nodes[0].TriggerTime
+	if first.IsZero() {
+		t.Fatal("precondition: node did not resolve")
+	}
 
 	// Advance the clock; resolver pass 2 must NOT update TriggerTime.
 	w.Clock.SimTime = w.Clock.SimTime.Add(30 * time.Second)
@@ -2593,4 +2598,43 @@ func TestPlanCircularizeAtApoapsisRejectsHyperbolic(t *testing.T) {
 	if got := len(c.Nodes); got != 0 {
 		t.Errorf("rejected plant should not append node; got %d", got)
 	}
+}
+
+// TestApsisNodeOnCircularOrbitStaysUnresolved (review #614 M1): a next
+// peri / next apo node on an orbit whose apsides are undefined waits,
+// exactly as an AN/DN node on an equatorial orbit does, instead of
+// firing at an arbitrary phase. It resolves once the orbit is eccentric.
+func TestApsisNodeOnCircularOrbitStaysUnresolved(t *testing.T) {
+	for _, ev := range []TriggerEvent{TriggerNextPeri, TriggerNextApo} {
+		w := mustWorld(t)
+		c := w.ActiveCraft()
+		mu := c.Primary.GravitationalParameter()
+		r := c.State.R.Norm()
+		// Make the orbit exactly circular: speed = sqrt(mu/r), kept
+		// perpendicular to the radius.
+		vhat := c.State.V.Sub(c.State.R.Scale(c.State.V.Dot(c.State.R) / (r * r)))
+		c.State.V = vhat.Scale(math.Sqrt(mu/r) / vhat.Norm())
+		if e := orbital.ElementsFromState(c.State.R, c.State.V, mu).E; orbital.ApsisDefined(e) {
+			t.Fatalf("precondition: orbit not circular, e=%g", e)
+		}
+		w.PlanNode(ManeuverNode{Event: ev, DV: 300, Mode: spacecraft.BurnPrograde})
+		w.resolveEventNodes()
+		if w.ActiveCraft().Nodes[0].IsResolved() {
+			t.Fatalf("event %v on a circular orbit got a time (%v); want it to wait like AN/DN on an equatorial orbit",
+				ev, w.ActiveCraft().Nodes[0].TriggerTime)
+		}
+		// Raise apoapsis: the apsides exist again and the node resolves.
+		makeActiveEccentric(w)
+		w.resolveEventNodes()
+		if !w.ActiveCraft().Nodes[0].IsResolved() {
+			t.Errorf("event %v stayed unresolved after the orbit became eccentric", ev)
+		}
+	}
+}
+
+// makeActiveEccentric adds a radial velocity component so the active
+// craft sits off-apsis on a clearly eccentric orbit.
+func makeActiveEccentric(w *World) {
+	c := w.ActiveCraft()
+	c.State.V = c.State.V.Add(c.State.R.Scale(0.05 * c.State.V.Norm() / c.State.R.Norm()))
 }

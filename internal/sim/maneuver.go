@@ -285,10 +285,19 @@ func (w *World) resolveEventNodesFor(c *spacecraft.Spacecraft) {
 		}
 		var dt float64
 		switch n.Event {
-		case TriggerNextPeri:
-			dt = orbital.TimeToPeriapsis(state, mu)
-		case TriggerNextApo:
-			dt = orbital.TimeToApoapsis(state, mu)
+		case TriggerNextPeri, TriggerNextApo:
+			// Review #614 M1: on a near-circular orbit the apsides name
+			// no point, so the node waits (the planner row reads
+			// "(undefined)"), exactly as AN/DN do on an equatorial
+			// orbit. It resolves if the orbit later becomes eccentric.
+			if el := orbital.ElementsFromState(c.State.R, c.State.V, mu); el.E < 1 && !orbital.ApsisDefined(el.E) {
+				continue
+			}
+			if n.Event == TriggerNextPeri {
+				dt = orbital.TimeToPeriapsis(state, mu)
+			} else {
+				dt = orbital.TimeToApoapsis(state, mu)
+			}
 		case TriggerNextAN:
 			dt = orbital.TimeToNodeCrossing(state, mu, true)
 		case TriggerNextDN:

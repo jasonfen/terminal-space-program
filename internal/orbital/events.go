@@ -201,12 +201,10 @@ func TimeToRadiusOutbound(state Vec3State, mu, r float64) (float64, bool) {
 // fly to deliberately, and three orders of magnitude under the ~3e-5 the
 // smallest measured remedy pulse produced (0.1 m/s prograde, Ap +0.4 km).
 //
-// This is a DISPLAY convention, not a physics gate: a readout that names
-// a specific instant must not do so when no such instant exists. Node
-// scheduling deliberately does NOT consult it — on a circular orbit
-// every point is apoapsis, so a burn placed at the nominal one is
-// physically identical to any other, and refusing to resolve would leave
-// the node unfired forever.
+// A readout that names a specific instant must not do so when no such
+// instant exists, and neither may node scheduling (review #614 M1): a
+// next peri / next apo node on such an orbit stays unresolved, like an
+// AN/DN node on an equatorial orbit, until the orbit becomes eccentric.
 const ApsisDegenerateEcc = 1e-6
 
 // ApsisDefined reports whether the apsides are distinguishable enough
