@@ -156,6 +156,15 @@ func TestStagePipsDistinguishLitSpentAndTankless(t *testing.T) {
 			}
 		}
 	}
+	// Review #614 M2 S4s: the spent pip is the same Warning amber as
+	// ENGINE's "✕ DRY" (engineThrottleLabel), not merely a distinct colour.
+	want := stagePipSGR(theme.Warning.Render("○"), "○")
+	if want == "" {
+		t.Fatal("setup: Warning.Render did not style the glyph")
+	}
+	if got := stagePipSGR(line, "○"); got != want {
+		t.Errorf("spent pip paints %q, want ENGINE's DRY colour (Warning) %q", got, want)
+	}
 }
 
 // TestStagePipsStayWithinCap: a long stack's pips are cut to stagePipsMax

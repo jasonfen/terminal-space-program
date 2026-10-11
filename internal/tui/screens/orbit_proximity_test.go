@@ -773,7 +773,7 @@ func TestProximityDriftPathDrawsPlannedClass(t *testing.T) {
 	v.Render(w, 0, 80, 24)
 
 	if n := v.canvas.CountColor(render.ColorPredictedPath); n == 0 {
-		t.Error("no ColorPlannedNode ink found on canvas — drift path did not draw")
+		t.Error("no ColorPredictedPath ink found on canvas — drift path did not draw")
 	}
 }
 
