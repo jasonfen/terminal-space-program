@@ -1424,6 +1424,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// of falling into toggleAutoWarpBurn, whose true/false
 			// return is ambiguous between "just disengaged" and "engage
 			// failed" (see ToggleAutoWarp's doc).
+			//
+			// On the pad with the launch window inside its 30 s lead
+			// there is nothing to warp to: re-trim the heading to the
+			// window's and say so (review #582 L3), rather than refusing.
+			if a.retrimInLaunchWindowLead() {
+				return a, nil
+			}
 			if !a.world.AutoWarpEngaged() && !a.world.AutoWarpEligible() {
 				a.refuse("auto-warp", "no burn planned to warp to")
 				return a, nil
@@ -3082,8 +3089,27 @@ func (a *App) toggleAutoWarpBurn() bool {
 		a.toast("rendezvous coast running — [/] to cancel")
 		return false
 	}
+	if a.retrimInLaunchWindowLead() {
+		return true
+	}
 	a.world.ToggleAutoWarp()
 	a.world.RecordAction(missions.ActionAutoWarp)
+	return true
+}
+
+// retrimInLaunchWindowLead is G's and [»Burn]'s answer on the pad once the
+// launch window is inside its 30 s lead (review #582 L3): nothing to warp
+// to, so it turns the heading to the window's and says so. Reports whether
+// it did; false leaves the caller to warp or refuse as before.
+func (a *App) retrimInLaunchWindowLead() bool {
+	if a.world.AutoWarpEngaged() {
+		return false
+	}
+	deg, ok := a.world.TrimToLaunchWindowInLead()
+	if !ok {
+		return false
+	}
+	a.toast(fmt.Sprintf("heading %03d° for the launch window", deg))
 	return true
 }
 
