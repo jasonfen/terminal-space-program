@@ -326,6 +326,7 @@ overlay carries, so you can look one up without leaving the game.
 | `[MAN]` / `[AUT]` | The navball's attitude tag: MAN turns the nose at a rate-limited slew; AUT (amber) snaps it instantly. Click it to switch |
 | `RCS` | The navball's toggle: amber when the RCS thrusters, not the main engine, are armed (`r` does the same) |
 | `rcs` | Monoprop's own delta-v, from the RCS thrusters rather than the main engine |
+| `◉ ● ○ ◇` | STAGES pips, bottom stage first: `◉` lit (burns next), `●` fuelled and waiting, `○` spent, `◇` no tank (a pod or payload) |
 | `speed` | Inertial speed, alongside `vert:` and `horiz:` |
 | `(max N)` | The same figure at full throttle, when it differs from the current one |
 | `heading:` / `hdg` | GUIDANCE `heading:` is the bearing you have commanded; the navball's `pitch` and `hdg` are measured, where the nose points now (they agree on the pad, and differ while the nose slews). In ORBIT the ball's rungs count degrees out of the orbit plane, not above the horizon. `trim:` is how far ←/→ lean the nose down or up off the hold, so `15° down` on a level prograde nose reads `pitch -15°`; → leans toward your heading, which lowers a prograde nose and raises a retrograde one |
