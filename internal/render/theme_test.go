@@ -48,7 +48,7 @@ func TestLoadThemeNoFile(t *testing.T) {
 }
 
 func TestLoadThemeUIOverride(t *testing.T) {
-	withThemeFile(t, `{"ui": {"alert": "#abcdef", "warning": "#012345"}}`)
+	withThemeFile(t, `{"ui": {"alert": "#abcdef", "warning": "#012345", "plannednode": "#fe0001", "predictedpath": "#00fe02"}}`)
 	defer LoadTheme()
 
 	if _, _, err := LoadTheme(); err != nil {
@@ -59,6 +59,12 @@ func TestLoadThemeUIOverride(t *testing.T) {
 	}
 	if string(ColorWarning) != "#012345" {
 		t.Errorf("ColorWarning = %q, want #012345", string(ColorWarning))
+	}
+	if string(ColorPlannedNode) != "#fe0001" {
+		t.Errorf("ColorPlannedNode = %q, want #fe0001", string(ColorPlannedNode))
+	}
+	if string(ColorPredictedPath) != "#00fe02" {
+		t.Errorf("ColorPredictedPath = %q, want #00fe02", string(ColorPredictedPath))
 	}
 }
 

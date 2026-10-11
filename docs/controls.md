@@ -338,17 +338,17 @@ Each marker on the map is one glyph; the colour says what kind it is. This is th
 
 | Marker | Meaning |
 |---|---|
-| `➤` | your vessel, in yellow or the colour you gave it; other vessels and ghosts wear their own |
+| `➤` | your vessel, in yellow (or your theme's craftmarker colour); other vessels and ghosts wear their own |
 | `green` | the vessel you have targeted, and its orbit (`t` picks a target) |
 | `Δ` | a planned burn, in the colour of the dashed orbit after it (blue, mint, amber, pink); click to edit |
 | `▲` | apoapsis: the highest point of the orbit |
 | `▼` | periapsis: the lowest point of the orbit |
 | `◇` | ascending node: your orbit crosses your target's orbital plane going north (needs a target) |
 | `◆` | descending node: the same crossing going south of the target's plane |
-| `⊕` | perilune: the closest point of a planned pass of another body |
+| `⊕` | perilune: the closest point of your pass by another body |
 | `✕` | closest approach: one mark on your path, one on the target's, where you pass nearest |
-| `▷` | entry: your planned path crosses into a body's sphere of influence |
-| `◁` | exit: your planned path crosses back out of it |
+| `▷` | entry: your path crosses into a body's sphere of influence |
+| `◁` | exit: your path crosses back out of it |
 | `⊗` | impact: where your trajectory meets the ground (surface view) |
 | `dim / red` | a dimmed marker is on the path without your burn; a red one is below the surface |
 
