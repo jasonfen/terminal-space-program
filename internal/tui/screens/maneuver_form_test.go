@@ -240,3 +240,28 @@ func TestPlannerPreviewFollowsPlanCursor(t *testing.T) {
 		t.Error("canvas on a planted plan equals the draft canvas")
 	}
 }
+
+// TestPlannerZeroDvDraftDrawsNoPlannedLine (review #614 M2 S1e): an empty
+// or zero Δv draft projects nothing, so the canvas carries no dashed copy
+// of the current orbit under an empty Δv field.
+func TestPlannerZeroDvDraftDrawsNoPlannedLine(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	canvasFor := func(draft string) string {
+		m := NewManeuver(Theme{})
+		m.Resize(140, 36)
+		m.ResetEditing()
+		m.dvInput.SetValue(draft)
+		m.Render(w, 140, 40, 0)
+		return m.canvas.String()
+	}
+	zero, tiny, real := canvasFor("0"), canvasFor("0.0001"), canvasFor("300")
+	if real == zero {
+		t.Fatal("instrument cannot see a drawn projection: 300 m/s draws the same as 0")
+	}
+	if zero == tiny {
+		t.Error("a zero-Δv draft draws the same canvas as a 0.0001 m/s one: it still draws a planned line")
+	}
+}
