@@ -309,7 +309,8 @@ func (v *VAB) focusTitle(label string, col vabFocus) string {
 
 // renderPalette windows the palette around the cursor with kind-section
 // headers; the glyph is colored by kind (the shared legend, ADR 0030 §6) and
-// the label is just the name — full stats live in the inspector.
+// the label is the name plus, for fuelled parts, the chemistry in text (#597);
+// full stats live in the inspector.
 func (v *VAB) renderPalette(w int) []string {
 	if len(v.palette) == 0 {
 		return []string{v.theme.Dim.Render("  (catalog parts only)")}
@@ -336,6 +337,13 @@ func (v *VAB) renderPalette(w int) []string {
 		glyph := "  "
 		if it.isComponent {
 			glyph = v.componentStyle(it.id).Render(v.componentGlyph(it.id)) + " "
+		}
+		if it.isComponent {
+			// #597: the chemistry is named in text; the glyph hue is the
+			// kind colour and two chemistries sit in near-identical yellows.
+			if ft := v.comps[it.id].FuelType; ft != "" {
+				label += " · " + ft
+			}
 		}
 		label = truncWidth(label, w-5)
 		marker := "  "
