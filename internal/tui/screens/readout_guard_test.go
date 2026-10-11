@@ -148,9 +148,9 @@ func TestReadoutDialectGuard(t *testing.T) {
 // added.
 var ispExceptionLines = map[string]bool{
 	"vab_render.go:610": true,
-	"spawn.go:1281":     true,
-	"spawn.go:1301":     true,
-	"spawn.go:1683":     true,
+	"spawn.go:1382":     true,
+	"spawn.go:1402":     true,
+	"spawn.go:1804":     true,
 }
 
 // isIspException reports whether a `%.0fs` hit at path:lineNo is
