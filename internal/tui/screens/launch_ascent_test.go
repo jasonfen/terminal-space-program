@@ -74,7 +74,7 @@ func TestAscentArcIsPlannedDashed(t *testing.T) {
 		c.SetScale(1)
 		c.Center(orbital.Vec3{})
 		c.Clear()
-		c.PlotPolylineClass(pts, render.ColorPlannedNode, class)
+		c.PlotPolylineClass(pts, render.ColorPredictedPath, class)
 		return countBrailleDots(c.String())
 	}
 	planned, solid := measure(widgets.ClassPlanned), measure(widgets.ClassReal)

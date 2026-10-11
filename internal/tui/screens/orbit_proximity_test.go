@@ -762,7 +762,7 @@ func TestProximityDockGateColorOverspeed(t *testing.T) {
 }
 
 // TestProximityDriftPathDrawsPlannedClass: the drift path reaches the
-// canvas as ClassPlanned (dashed) ink in render.ColorPlannedNode — the
+// canvas as ClassPlanned (dashed) ink in render.ColorPredictedPath — the
 // end-to-end wiring check that drawProximityDriftPath actually calls
 // sim.ProximityDriftPath and plots what comes back, not just that the
 // sim math is right (already covered at the sim layer).
@@ -772,7 +772,7 @@ func TestProximityDriftPathDrawsPlannedClass(t *testing.T) {
 	w.ViewMode = sim.ViewProximity
 	v.Render(w, 0, 80, 24)
 
-	if n := v.canvas.CountColor(render.ColorPlannedNode); n == 0 {
+	if n := v.canvas.CountColor(render.ColorPredictedPath); n == 0 {
 		t.Error("no ColorPlannedNode ink found on canvas — drift path did not draw")
 	}
 }

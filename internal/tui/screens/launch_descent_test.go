@@ -83,7 +83,7 @@ func TestDescentArcIsPlannedDashed(t *testing.T) {
 		c.SetScale(1)
 		c.Center(orbital.Vec3{})
 		c.Clear()
-		c.PlotPolylineClass(pts, render.ColorPlannedNode, class)
+		c.PlotPolylineClass(pts, render.ColorPredictedPath, class)
 		return countBrailleDots(c.String())
 	}
 	planned, solid := measure(widgets.ClassPlanned), measure(widgets.ClassReal)
@@ -116,7 +116,7 @@ func TestDescentArcAlarmRecolours(t *testing.T) {
 	}
 
 	okCanvas := draw(sim.ComputeBurnMargin(2000, 1000, 1, 10, 100, 100))
-	if n := okCanvas.CountColor(render.ColorPlannedNode); n == 0 {
+	if n := okCanvas.CountColor(render.ColorPredictedPath); n == 0 {
 		t.Error("nominal descent arc inked no planned-cyan cells")
 	}
 	if n := okCanvas.CountOverlayColor(render.ColorMarkerImpact); n != 1 {
@@ -127,7 +127,7 @@ func TestDescentArcAlarmRecolours(t *testing.T) {
 	if n := alarmCanvas.CountColor(render.ColorAlert); n == 0 {
 		t.Error("unstoppable descent arc inked no alert-red cells")
 	}
-	if n := alarmCanvas.CountColor(render.ColorPlannedNode); n != 0 {
+	if n := alarmCanvas.CountColor(render.ColorPredictedPath); n != 0 {
 		t.Errorf("unstoppable descent arc still inked %d planned-cyan cells — the alarm did not take the line", n)
 	}
 	if n := alarmCanvas.CountOverlayColor(render.ColorAlert); n != 1 {

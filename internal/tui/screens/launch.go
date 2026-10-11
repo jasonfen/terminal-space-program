@@ -1166,7 +1166,7 @@ func (v *LaunchView) drawDescentArc(bodyCentre, camFromBody orbital.Vec3, dc sim
 		return
 	}
 	alarm := dc.Margin.State == sim.MarginInsufficient
-	arcColor := render.ColorPlannedNode
+	arcColor := render.ColorPredictedPath
 	if alarm {
 		arcColor = render.ColorAlert
 	}
@@ -1219,7 +1219,7 @@ func (v *LaunchView) drawAscentArc(bodyCentre orbital.Vec3, arc sim.AscentPath) 
 	for i, p := range arc.Path {
 		pts[i] = bodyCentre.Add(p)
 	}
-	v.canvas.PlotPolylineClass(pts, render.ColorPlannedNode, widgets.ClassPlanned)
+	v.canvas.PlotPolylineClass(pts, render.ColorPredictedPath, widgets.ClassPlanned)
 }
 
 // ascentMarkerStubPx is the stub length, in canvas sub-pixels, each
@@ -1442,11 +1442,11 @@ func (v *LaunchView) drawPadMarker(w *sim.World, craft *spacecraft.Spacecraft, b
 		return
 	}
 	padWorld := bodyPos.Add(padFromBody)
-	// Pad accent: ColorPlannedNode (cyan) distinct from trail dim
+	// Pad accent: ColorPredictedPath (cyan, deliberately not the node colour) distinct from trail dim
 	// grey + craft yellow + warning amber. Plan called for an
 	// unnamed "ColorAccent"; the palette doesn't have one and
 	// cyan reads as "neutral reference marker."
-	v.canvas.PlotColored(padWorld, render.ColorPlannedNode)
+	v.canvas.PlotColored(padWorld, render.ColorPredictedPath)
 	v.canvas.SetCellOverlay(padWorld, '+')
 }
 

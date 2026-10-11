@@ -31,7 +31,17 @@ import (
 var (
 	ColorAlert        = lipgloss.Color("#FF5F5F") // hard errors, peri-below-surface
 	ColorWarning      = lipgloss.Color("#FFAF00") // warp clamps, near-collision
-	ColorPlannedNode  = lipgloss.Color("#5FD7FF") // maneuver-node markers
+	// ColorPlannedNode: the first planted burn's marker and its post-burn
+	// dashed leg. Periwinkle #7090F0, NOT the chrome cyan (#5FD7FF, the
+	// theme Primary) it was until 2026-10-11, which made a burn read as UI.
+	// Picked by CIE76 distance in Lab against every other marker, line and
+	// UI colour here (nearest neighbour is at dE 47.9);
+	// TestPlannedNodeColourIsDistinctFromEveryMarkerAndLine pins a floor of 30.
+	ColorPlannedNode = lipgloss.Color("#7090F0") // maneuver-node markers
+	// ColorPredictedPath keeps the old cyan for the three paths and marks
+	// that are NOT maneuver nodes: the launch pad accent, the descent
+	// corridor arc and the Proximity drift path (#592 call-site audit).
+	ColorPredictedPath = lipgloss.Color("#5FD7FF")
 	ColorTrajectory   = lipgloss.Color("#FFFFFF") // fallback trajectory preview
 	// ColorCurrentOrbit: your vessel's live Keplerian ellipse, in your
 	// vessel's own yellow (ColorCraftMarker), so it reads as "you" beside
@@ -97,7 +107,7 @@ var (
 // short enough that two-burn (Hohmann) and three-burn (Hohmann +
 // mid-course correction) plans get unique colors.
 var maneuverSegmentPalette = []lipgloss.Color{
-	lipgloss.Color("#5FD7FF"), // cyan — first maneuver leg
+	"", // first maneuver leg: ColorPlannedNode, read live (theme overrides)
 	lipgloss.Color("#5FFF87"), // mint — second
 	lipgloss.Color("#FFAF00"), // amber — third
 	lipgloss.Color("#FF87D7"), // pink  — fourth
@@ -110,6 +120,9 @@ var maneuverSegmentPalette = []lipgloss.Color{
 func ManeuverSegmentColor(n int) lipgloss.Color {
 	if n < 0 {
 		n = 0
+	}
+	if n%len(maneuverSegmentPalette) == 0 {
+		return ColorPlannedNode
 	}
 	return maneuverSegmentPalette[n%len(maneuverSegmentPalette)]
 }
