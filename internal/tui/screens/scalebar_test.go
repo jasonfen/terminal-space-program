@@ -236,7 +236,9 @@ func assertOnlyBarDiffers(t *testing.T, sz [2]int, name, with, without string) {
 		t.Errorf("%dx%d %s: bar changed the frame height %d -> %d", sz[0], sz[1], name, len(ol), len(wl))
 		return
 	}
-	width := b.cells + 2 + utf8.RuneCountInString(b.label)
+	// The bar's cells plus the one after the label, which it clears so no
+	// canvas dot touches the label (review #629 L3).
+	width := b.cells + 2 + utf8.RuneCountInString(b.label) + 1
 	for r := range wl {
 		a, c := []rune(wl[r]), []rune(ol[r])
 		if len(a) != len(c) {
@@ -461,5 +463,63 @@ func TestScaleBarLaunchSurvivesColour(t *testing.T) {
 	}
 	if _, ok := findScaleBar(frame); !ok {
 		t.Errorf("styled launch frame lost its bar: %q", strings.Split(frame, "\n")[38])
+	}
+}
+
+// Review #629 L3: the cell after the bar's label is canvas, not blank. Over a
+// planet the disk's dots filled it and read as part of the label
+// (`├───────────┤ 50 km⣿`). Saturate the canvas with ink, paint the bar, and
+// read the cell after the label out of the frame the player gets.
+func TestScaleBarLabelEndsInABlankCell(t *testing.T) {
+	cases := []struct {
+		name         string
+		fbRow, fbCol int
+		stripEnd     int
+	}{
+		{"last row, flush right", -1, -1, 0},
+		{"fallback cell, right-aligned", 2, -1, 1000},
+		{"fallback cell, left (Proximity)", 2, 0, 1000},
+	}
+	for _, sz := range scaleBarMapSizes() {
+		for _, tc := range cases {
+			w, _ := sim.NewWorld()
+			v := NewOrbitView(plainTheme())
+			v.Resize(sz[0], sz[1])
+			v.Render(w, 0, sz[0], sz[1])
+			inked := func(paint bool) string {
+				// Render with no bar of its own, so the only bar is the one
+				// painted below.
+				scaleBarOff = true
+				defer func() { scaleBarOff = false }()
+				v.Render(w, 0, sz[0], sz[1])
+				// Ink every pixel, then paint the bar over it.
+				for y := 0; y < v.canvas.Rows()*4; y++ {
+					for x := 0; x < v.canvas.Cols()*2; x++ {
+						v.canvas.PlotColoredTagged(v.canvas.Unproject(x, y), widgets.CellTag{})
+					}
+				}
+				if paint {
+					scaleBarOff = false
+					v.paintScaleBar(tc.stripEnd, tc.fbRow, tc.fbCol)
+				}
+				return stripANSIForBar(v.canvas.String())
+			}
+			with := inked(true)
+			b, ok := findScaleBar(with)
+			if !ok {
+				t.Errorf("%dx%d %s: no bar painted", sz[0], sz[1], tc.name)
+				continue
+			}
+			after := b.col + b.cells + 2 + utf8.RuneCountInString(b.label)
+			row := []rune(strings.Split(with, "\n")[b.row])
+			if after < len(row) && row[after] != ' ' {
+				t.Errorf("%dx%d %s: the cell after the label (%d,%d) is %q, want a blank", sz[0], sz[1], tc.name, after, b.row, row[after])
+			}
+			// Positive control: with the bar off, that cell is ink.
+			bare := []rune(strings.Split(inked(false), "\n")[b.row])
+			if after < len(bare) && bare[after] == ' ' {
+				t.Errorf("%dx%d %s: the cell is blank even without the bar, the saturation instrument is blind", sz[0], sz[1], tc.name)
+			}
+		}
 	}
 }
