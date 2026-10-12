@@ -1973,14 +1973,17 @@ func drawMarker(canvas *widgets.Canvas, pos orbital.Vec3, t render.MarkerType, s
 	drawMarkerAt(canvas, pos, pos, t, state, base, tag)
 }
 
-// drawMarkerAt is drawMarker with the glyph drawn at glyphPos while the
-// click-target pixel stays at the true point pos (GM Q2: a marker that steps
-// off a small body keeps its hit target where the thing really is).
+// drawMarkerAt is drawMarker with the glyph drawn at glyphPos. Normally the
+// click-target pixel sits under the glyph. When the glyph stepped off a small
+// body into another cell (GM Q2), the target steps with it (review #629 M2):
+// the glyph is what the player sees, so it is what they click, and the cell
+// the marker left belongs to the body again, so a click on the small body
+// focuses the body rather than opening the marker's node.
 func drawMarkerAt(canvas *widgets.Canvas, pos, glyphPos orbital.Vec3, t render.MarkerType, state render.MarkerState, base lipgloss.Color, tag widgets.CellTag) {
 	color := render.MarkerColor(t, state, base)
 	if tag.NodeIdx != 0 || tag.IsVessel || tag.BodyID != "" || tag.Owner != "" {
 		tag.Color = color
-		canvas.PlotColoredTagged(pos, tag)
+		canvas.PlotColoredTagged(glyphPos, tag)
 	}
 	canvas.SetCellOverlayColored(glyphPos, render.MarkerGlyph(t), color)
 }

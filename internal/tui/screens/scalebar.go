@@ -120,6 +120,12 @@ func (v *OrbitView) paintScaleBar(stripEnd, fbRow, fbCol int) {
 		return
 	}
 	v.canvas.SetCellLabelColored(col, row, bar.text(), v.theme.Primary.GetForeground())
+	// The cell after the label is blank, not canvas (review #629 L3): over a
+	// planet its dots would read as the last character of the label. Another
+	// glyph already in it keeps it.
+	if after := col + w; after < cols && !v.canvas.CellOccupied(after, row) {
+		v.canvas.SetCellLabel(after, row, " ")
+	}
 }
 
 // withScaleBar appends the scale bar to the launch view's last-row HUD

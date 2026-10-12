@@ -35,7 +35,17 @@ func (v *OrbitView) buildGuidanceBox(w *sim.World) []string {
 			chipRow2(guidanceCols, readout.LabelFPA, "—", readout.LabelOrbitFPA, "—"),
 		}
 	}
-	holdLabel := attitudeHoldLabel(w, c.AttitudeMode)
+	// A hold keeps the frame it was pressed in (ADR 0050), so after an
+	// automatic frame switch the nav: cell can name a different frame from
+	// the hold. Say so: the hold's frame word reads in Warning whenever it
+	// differs from the navball's, so a surface hold under nav: ORBIT looks
+	// deliberate, not stale (review #629 M1, Jason 2026-10-12).
+	holdName, holdFrame := attitudeHoldParts(w, c.AttitudeMode)
+	frameWord := navModeLabel(holdFrame)
+	if holdFrame != w.NavMode {
+		frameWord = v.theme.Warning.Render(frameWord)
+	}
+	holdLabel := fmt.Sprintf("%s (%s)", holdName, frameWord)
 	navLabel := fmt.Sprintf("%s", w.NavMode)
 
 	headingAbsDeg := (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi
