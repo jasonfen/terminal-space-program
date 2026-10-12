@@ -34,9 +34,65 @@ func (v *OrbitView) recordSmallBody(id string, pos orbital.Vec3, r int) {
 
 // drawMarkerClear is drawMarker for the map: same glyph, colour and click
 // tag, but a glyph that would land on a small body's cells steps off it
-// (markerGlyphPos).
+// (markerGlyphPos). ADR 0041 §3 amendment (GM Q2, #591): the one exception
+// to "draw order decides, no arbitration".
 func (v *OrbitView) drawMarkerClear(pos orbital.Vec3, t render.MarkerType, state render.MarkerState, base lipgloss.Color, tag widgets.CellTag) {
-	drawMarkerAt(v.canvas, pos, pos, t, state, base, tag)
+	drawMarkerAt(v.canvas, pos, v.markerGlyphPos(pos), t, state, base, tag)
+}
+
+// markerGlyphPos is where the glyph of a marker whose true point is pos is
+// drawn. Off every small body it is pos itself. On one it is the cell just
+// outside the body's cells, on the side the marker was already on (the
+// horizontal side when the offset is wider than tall in cell terms, else the
+// vertical side; dead centre goes up and to the right). The body keeps its
+// own cell, and only the glyph moves: the click target stays at pos.
+func (v *OrbitView) markerGlyphPos(pos orbital.Vec3) orbital.Vec3 {
+	px, py, ok := v.canvas.Project(pos)
+	if !ok {
+		return pos
+	}
+	mc, mr := px/2, py/4
+	for _, s := range v.smallBodies {
+		bx, by, on := v.canvas.Project(s.pos)
+		if !on {
+			continue
+		}
+		c0, c1 := floorDiv(bx-s.r, 2), floorDiv(bx+s.r, 2)
+		r0, r1 := floorDiv(by-s.r, 4), floorDiv(by+s.r, 4)
+		if mc < c0 || mc > c1 || mr < r0 || mr > r1 {
+			continue
+		}
+		dx, dy := px-bx, py-by
+		col, row := mc, mr
+		switch {
+		case dx == 0 && dy == 0:
+			col, row = c1+1, r0-1
+		case 2*absInt(dx) >= absInt(dy): // |dx|/2 >= |dy|/4, in cells
+			if dx > 0 {
+				col = c1 + 1
+			} else {
+				col = c0 - 1
+			}
+		default:
+			if dy < 0 {
+				row = r0 - 1
+			} else {
+				row = r1 + 1
+			}
+		}
+		if col < 0 || col >= v.canvas.Cols() || row < 0 || row >= v.canvas.Rows() {
+			return pos // no room to step off: the marker keeps its cell
+		}
+		return v.canvas.Unproject(col*2+1, row*4+2)
+	}
+	return pos
+}
+
+func absInt(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 // drawnBodyRadius is the radius the map draws body i at: mapBodyPixelRadius,

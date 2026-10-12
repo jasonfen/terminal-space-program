@@ -125,9 +125,38 @@ func TestInSOIExitAndPeriluneMarkersDraw(t *testing.T) {
 	if got, want := glyphAtProjected(t, v, out, w.ExitPosition(pass)), render.MarkerGlyph(render.MarkerSOIExit); got != want {
 		t.Errorf("cell at the SOI-exit crossing shows %q, want the Exit glyph %q", got, want)
 	}
-	if got, want := glyphAtProjected(t, v, out, w.PerilunePosition(pass)), render.MarkerGlyph(render.MarkerPerilune); got != want {
-		t.Errorf("cell at the perilune shows %q, want the Perilune glyph %q", got, want)
+	// The perilune sits on the Moon, a 2-dot disk at this framing, so the
+	// glyph steps one cell off the body (GM Q2, #591; it used to sit exactly
+	// on the perilune cell and erase the Moon): look within one cell of it.
+	if !glyphNearProjected(t, v, out, w.PerilunePosition(pass), render.MarkerGlyph(render.MarkerPerilune), 2) {
+		t.Errorf("no Perilune glyph %q within two cells of the perilune", render.MarkerGlyph(render.MarkerPerilune))
 	}
+}
+
+// glyphNearProjected reports whether glyph g shows within reach cells (each
+// way) of the cell pos projects to; glyphAtProjected's exact-cell test for a
+// marker that may have stepped off a small body.
+func glyphNearProjected(t *testing.T, v *OrbitView, out string, pos orbital.Vec3, g rune, reach int) bool {
+	t.Helper()
+	px, py, ok := v.canvas.Project(pos)
+	if !ok {
+		t.Fatalf("position %v projects off-canvas", pos)
+	}
+	lines := strings.Split(stripANSI(out), "\n")
+	for dr := -reach; dr <= reach; dr++ {
+		fr := py/4 + dr + 2
+		if fr < 0 || fr >= len(lines) {
+			continue
+		}
+		runes := []rune(lines[fr])
+		for dc := -reach; dc <= reach; dc++ {
+			fc := px/2 + dc + 1
+			if fc >= 0 && fc < len(runes) && runes[fc] == g {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // TestInSOIQuietLunarOrbitNoRing pins the quiet case at render level: a
