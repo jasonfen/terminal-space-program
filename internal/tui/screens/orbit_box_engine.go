@@ -245,7 +245,21 @@ func (v *OrbitView) engineBurnLine(w *sim.World, c *spacecraft.Spacecraft) (stri
 func (v *OrbitView) engineQueuedNodeLine(w *sim.World, c *spacecraft.Spacecraft) string {
 	n := c.Nodes[0]
 	if !n.IsResolved() {
-		return fmt.Sprintf("%s %s  %s  %s", hudNodeMarker, nodeEventLabel(n.Event), nodeModeLabel(n.Mode), readout.DeltaV(n.DV))
+		// An apsis node on an orbit with no apsides waits for good reason;
+		// say so, as the planner row does (wave 1 known issue 5).
+		label := nodeEventLabel(n.Event)
+		if sim.ApsisEventUndefined(c, n.Event) {
+			label += " (undefined)"
+			// The top-left tier is pinned (tierTopLeftWidth, border
+			// included) and the reason must stay: in the one frame-mode,
+			// five-digit-Δv combination that would not fit, the Δv yields.
+			full := fmt.Sprintf("%s %s  %s  %s", hudNodeMarker, label, nodeModeLabel(n.Mode), readout.DeltaV(n.DV))
+			if engineCols.value1+lipgloss.Width(full) > tierTopLeftWidth-2 {
+				return fmt.Sprintf("%s %s  %s", hudNodeMarker, label, nodeModeLabel(n.Mode))
+			}
+			return full
+		}
+		return fmt.Sprintf("%s %s  %s  %s", hudNodeMarker, label, nodeModeLabel(n.Mode), readout.DeltaV(n.DV))
 	}
 	dt := n.BurnStart().Sub(w.Clock.SimTime)
 	if dt < 0 {

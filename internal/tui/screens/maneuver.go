@@ -862,6 +862,12 @@ func (m *Maneuver) projection(w *sim.World, c *spacecraft.Spacecraft, dv float64
 	dur := c.BurnTimeForDV(dv)
 	mode := spacecraft.AllBurnModes[m.modeIdx]
 	event := sim.AllTriggerEvents[m.fireAtIdx]
+	// Same gate as the resolver (wave 1 known issue 6): an apsis event on
+	// an orbit with no apsides names no point, the node will not fire, so
+	// the preview draws no burn either.
+	if sim.ApsisEventUndefined(c, event) {
+		return plannerProjection{state: c.State, primary: c.Primary}
+	}
 	state, primary, ok := w.PreviewBurnState(mode, dv, dur, event)
 	if !ok {
 		dir := spacecraft.DirectionUnit(mode, c.State.R, c.State.V)
@@ -970,11 +976,8 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, proj plannerProjection, 
 	// next peri / next apo on a near-circular orbit name no point on it
 	// (#585): same display threshold the orbit screen's navigation box
 	// uses, orbital.ApsisDefined. Only while the trigger is unresolved.
-	if m.loadedTriggerTime.IsZero() && (fireAt == sim.TriggerNextPeri || fireAt == sim.TriggerNextApo) {
-		el := orbital.ElementsFromState(c.State.R, c.State.V, c.Primary.GravitationalParameter())
-		if el.E < 1 && !orbital.ApsisDefined(el.E) {
-			fireAtLabel += " (undefined)"
-		}
+	if m.loadedTriggerTime.IsZero() && sim.ApsisEventUndefined(c, fireAt) {
+		fireAtLabel += " (undefined)"
 	}
 	if m.focus == 1 {
 		fireAtLabel = m.theme.Warning.Render(fireAtLabel) + "  (←/→ to cycle)"
