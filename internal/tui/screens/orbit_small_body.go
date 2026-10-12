@@ -3,8 +3,10 @@ package screens
 import (
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
@@ -35,4 +37,27 @@ func (v *OrbitView) recordSmallBody(id string, pos orbital.Vec3, r int) {
 // (markerGlyphPos).
 func (v *OrbitView) drawMarkerClear(pos orbital.Vec3, t render.MarkerType, state render.MarkerState, base lipgloss.Color, tag widgets.CellTag) {
 	drawMarkerAt(v.canvas, pos, pos, t, state, base, tag)
+}
+
+// drawnBodyRadius is the radius the map draws body i at: mapBodyPixelRadius,
+// except a body that sits inside its parent's drawn disk keeps its size
+// without the 2-dot floor (a top-level planet's parent is the star, so
+// Mercury at the whole-system view stays inside the Sun's disk too). At the whole-system view every moon is inside its
+// planet's disk, and a floored moon would recolour the planet's cells with
+// its own (GM Q1: Mars turned Phobos-brown, Saturn's glyph Enceladus-white).
+func drawnBodyRadius(sys *bodies.System, i int, pos orbital.Vec3, w *sim.World, scale float64, canvasReach int) int {
+	b := sys.Bodies[i]
+	r := mapBodyPixelRadius(b, i == 0, scale, canvasReach)
+	if r > minBodyDrawnRadius || i == 0 {
+		return r
+	}
+	parent := sys.ParentOf(b)
+	if parent == nil || parent.ID == b.ID {
+		return r
+	}
+	pr := mapBodyPixelRadius(*parent, parent.ID == sys.Primary().ID, scale, canvasReach)
+	if pos.Sub(w.BodyPosition(*parent)).Norm()*scale <= float64(pr) {
+		return BodyPixelRadius(b, false, scale, canvasReach)
+	}
+	return r
 }

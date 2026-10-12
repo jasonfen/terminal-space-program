@@ -938,7 +938,8 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	for i := range sys.Bodies {
 		b := sys.Bodies[i]
 		pos := w.BodyPosition(b)
-		r := mapBodyPixelRadius(b, i == 0, scale, canvasReach)
+		r := drawnBodyRadius(&sys, i, pos, w, scale, canvasReach)
+		v.recordSmallBody(b.ID, pos, r)
 		color := render.ColorFor(b)
 		// v0.6.4: tag body pixels with BodyID so HitAt resolves
 		// mouse clicks back to the body for click-to-focus.
@@ -1829,8 +1830,9 @@ func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64, maxP
 		cap = maxPx
 	}
 	r := b.RadiusMeters()
+	truePx := 0
 	if scale > 0 && r > 0 {
-		truePx := int(math.Round(r * scale))
+		truePx = int(math.Round(r * scale))
 		if truePx >= trueSizeThreshold {
 			if truePx > cap {
 				truePx = cap
@@ -1838,18 +1840,23 @@ func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64, maxP
 			return truePx
 		}
 	}
+	tier := 1
 	switch {
 	case isPrimary, r >= 1e8: // star-class
-		return 6
+		tier = 6
 	case r >= 2e7: // gas giant
-		return 4
+		tier = 4
 	case r >= 3e6: // terrestrial
-		return 2
-	case r > 0: // small body / moon / dwarf
-		return 1
-	default:
-		return 1
+		tier = 2
 	}
+	// Never smaller than true size (GM, #591): a moon at 2 to 3.9 dots of
+	// true radius used to draw at 1 until it reached 4, then jump to 4.
+	// Below the threshold the tier is a floor, not a replacement, so
+	// zooming in grows a small body a dot at a time.
+	if truePx > tier {
+		return truePx
+	}
+	return tier
 }
 
 // vec3FromRender adapts a render.Vec3 to an orbital.Vec3 for code
@@ -3063,8 +3070,18 @@ func mapBodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64, m
 			}
 		}
 	}
-	return BodyPixelRadius(b, isPrimary, scale, maxPx)
+	r := BodyPixelRadius(b, isPrimary, scale, maxPx)
+	if r < minBodyDrawnRadius {
+		r = minBodyDrawnRadius
+	}
+	return r
 }
+
+// minBodyDrawnRadius is the smallest disk any body draws on the map, in
+// braille dots (GM Q1, #591): about 3 cells by 2 rows, enough to see a moon
+// you framed under its own glyph. A moon inside its planet's drawn disk is
+// exempt (drawnBodyRadius).
+const minBodyDrawnRadius = 2
 
 // coronaRingRadii returns the pixel radii of the star's corona rings (1.4x
 // and 1.8x the drawn radius r). A ring is dropped when it would reach the

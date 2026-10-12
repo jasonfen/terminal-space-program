@@ -92,12 +92,13 @@ func (v *OrbitView) wideMapNameCandidates(w *sim.World, scale float64, canvasRea
 	var out []nameCandidate
 	for _, i := range want {
 		b := sys.Bodies[i]
-		px, py, ok := v.canvas.Project(w.BodyPosition(b))
+		pos := w.BodyPosition(b)
+		px, py, ok := v.canvas.Project(pos)
 		if !ok {
 			continue
 		}
 		out = append(out, nameCandidate{
-			idx: i, r: mapBodyPixelRadius(b, i == 0, scale, canvasReach),
+			idx: i, r: drawnBodyRadius(&sys, i, pos, w, scale, canvasReach),
 			px: px, py: py, name: b.EnglishName,
 		})
 	}
