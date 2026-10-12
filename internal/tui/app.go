@@ -115,6 +115,12 @@ type App struct {
 	// fromMenu: the active screen was opened from the pause menu, so
 	// back returns there (backToOpener).
 	fromMenu bool
+	// helpFrom is the screen F1 was pressed on (GK Q3, #589); closing help
+	// puts the player back on it, state untouched. helpFromSet is false when
+	// help was opened from the pause menu's Help row, which keeps the
+	// backToOpener rule.
+	helpFrom    screenID
+	helpFromSet bool
 	// menuHeld: the pause menu owns the clock's pause (openMenu), and
 	// menuPrevPaused is the state to give back on closeMenu.
 	menuHeld, menuPrevPaused bool
@@ -1019,6 +1025,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
+		// F1 / ? opens help from every screen, on that screen's own page,
+		// and closing it puts the player back exactly where they were
+		// (GK Q3, #589). Sits above every per-screen block so no screen
+		// can swallow it. Inside a free-text box only F1 opens it: `?` is
+		// a character there. Screens keep their state because the key is
+		// never forwarded to them.
+		if key.Matches(m, a.keys.Help) && a.active != screenHelp && (m.String() != "?" || !a.capturingText()) {
+			a.openHelpHere()
+			return a, nil
+		}
 		// Rendezvous Planner picker (ADR 0045 S6, #399): a walkable chip on
 		// the orbit map, not a screen — a.active never changes while it's
 		// open, so this can't be handled by any of the a.active==screenXxx
@@ -1220,7 +1236,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			if key.Matches(m, a.keys.Help) || key.Matches(m, a.keys.Back) {
-				a.backToOpener()
+				a.closeHelp()
 				return a, nil
 			}
 			a.help.HandleKey(m)
@@ -1262,12 +1278,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch {
 		case key.Matches(m, a.keys.Help):
-			if a.active == screenHelp {
-				a.backToOpener()
-			} else {
-				a.help.ResetScroll() // always open at the top
-				a.active = screenHelp
-			}
+			// Unreachable for Help itself (the block above and the
+			// early F1 intercept own it); kept as the one fallback.
+			a.openHelpHere()
 			return a, nil
 		case key.Matches(m, a.keys.Back):
 			// Inspect (ADR 0041 §3) claims Esc first: while a highlight
@@ -2535,6 +2548,7 @@ func (a *App) applyMenuAction(action screens.MenuAction) (tea.Model, tea.Cmd) {
 		// opens at the top, no guest restriction (help is read-only,
 		// unlike Settings/Controls which write the host's settings.json).
 		a.help.ResetScroll()
+		a.helpFromSet = false
 		a.active = screenHelp
 		return a, nil
 	case screens.MenuActionVAB:
@@ -2626,6 +2640,51 @@ func (a *App) closeMenu() {
 	a.active = screenOrbit
 }
 
+// helpPageFor names the help page that belongs to screen s ("" = the index).
+func helpPageFor(s screenID) string {
+	switch s {
+	case screenSpawn:
+		return "SPAWN FORM"
+	case screenVAB:
+		return "VEHICLE ASSEMBLY"
+	case screenSession:
+		return "MULTIPLAYER"
+	case screenManeuver, screenPorkchop:
+		return "PLAN BURNS"
+	case screenSaves:
+		return "SAVES"
+	case screenMissions:
+		return "MISSIONS"
+	case screenMenu, screenSettings, screenControls:
+		return "PAUSE MENU"
+	}
+	return ""
+}
+
+// openHelpHere opens help from the active screen: that screen's own page if
+// it has one, else the index, remembering the screen so closeHelp returns to
+// it with its focus and any half-typed text untouched.
+func (a *App) openHelpHere() {
+	a.helpFrom, a.helpFromSet = a.active, true
+	if title := helpPageFor(a.active); title != "" {
+		a.help.OpenFor(title)
+	} else {
+		a.help.ResetScroll() // the index, always at the top
+	}
+	a.active = screenHelp
+}
+
+// closeHelp leaves help for the screen F1 was pressed on, or by the back
+// rule when help came from the pause menu's Help row.
+func (a *App) closeHelp() {
+	if a.helpFromSet {
+		a.helpFromSet = false
+		a.active = a.helpFrom
+		return
+	}
+	a.backToOpener()
+}
+
 func (a *App) backToOpener() {
 	if a.fromMenu {
 		a.fromMenu = false
@@ -2674,6 +2733,8 @@ func (a *App) capturingText() bool {
 		return a.session.CapturingText()
 	case screenSpawn:
 		return a.spawn.CapturingText()
+	case screenVAB:
+		return a.vab.CapturingText()
 	}
 	return false
 }

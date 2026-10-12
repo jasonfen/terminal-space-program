@@ -105,6 +105,7 @@ expression of the **Nose Payload Plan**). A pre-seamed **CSM+LM** module
 pick drops the four Apollo Stages `[SM, CM, Descent, Ascent]` with the
 seam set between `CM` and `Descent`, so the spawned Composite fires the
 SM and carries the LM as an Undockable payload.
+The player-facing words (VAB key list, F1) are **payload from here up** (`d`).
 _Avoid_: Payload boundary, Split point, Stack divider.
 
 **Part**:
@@ -150,7 +151,7 @@ Isp is thrust-weighted, not summed).
 The in-game builder screen (`internal/tui/screens/vab.go`, v0.24 / ADR 0029),
 reached from the pause menu (`Esc → [Build (VAB)]`). The player composes
 **Components** into stages, stacks stages into a vehicle, marks **Dock Seams**
-(N **Nose Payloads**) and fused decouple groups, and reads a live **Δv / TWR /
+(N **Nose Payloads**) and fused decouple groups (**Fuse**, player-facing **drops with stage below**, `c`), and reads a live **Δv / TWR /
 mass** panel — then saves the result as a **Design**. Like every screen it
 reads shared state and routes mutations elsewhere; here it owns the **Designs
 Store** I/O directly (designs are app-managed catalog data, not World state).
@@ -194,7 +195,7 @@ _Avoid_: Empty slot, Ghost part.
 **Crack-Open** + **Vab Seed** (v0.25 / ADR 0032):
 Crack-Open is the `enter`-on-a-catalog-stage-header action that converts an
 atomic catalog **Part** into its editable seed **Components** in place (seam /
-decouple flags ride along), with a flash showing the honest Δv delta. The seed
+decouple flags ride along), with a flash showing the honest Δv delta. The player-facing words are **open part into pieces** (`enter`). The seed
 is a **Vab Seed** — an optional `vab_seed` component-ID list on a **Part** that
 is **seed-only and never stat-bearing**: **Aggregation** reads `components`,
 never `vab_seed`, so the part keeps its authored scalars and loadouts / budget

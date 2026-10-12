@@ -57,7 +57,7 @@ func TestHelpRelabelsForQWERTZ(t *testing.T) {
 // page, so the long READOUT GLOSSARY page stands in for the old flat list.
 func TestHelpScrollsToLastRow(t *testing.T) {
 	h := NewHelp(chipTestTheme())
-	h.OpenPage(15) // READOUT GLOSSARY
+	h.OpenPage(16) // READOUT GLOSSARY
 	const w, ht = 100, 12
 
 	top := h.Render(w, ht, keylayout.QWERTY)
@@ -78,7 +78,7 @@ func TestHelpScrollsToLastRow(t *testing.T) {
 // TestHelpScrollClamps — scroll can't go above the top or past the end.
 func TestHelpScrollClamps(t *testing.T) {
 	h := NewHelp(chipTestTheme())
-	h.OpenPage(15)
+	h.OpenPage(16)
 	const w, ht = 100, 12
 	h.Render(w, ht, keylayout.QWERTY) // populate geometry
 
@@ -102,7 +102,7 @@ func TestHelpScrollClamps(t *testing.T) {
 // TestHelpResetScroll — opening returns to the top.
 func TestHelpResetScroll(t *testing.T) {
 	h := NewHelp(chipTestTheme())
-	h.OpenPage(15)
+	h.OpenPage(16)
 	h.Render(100, 12, keylayout.QWERTY)
 	h.HandleKey(helpKey("end"))
 	if h.scroll == 0 {
@@ -117,7 +117,7 @@ func TestHelpResetScroll(t *testing.T) {
 // TestHelpPageAdvancesViewport — PgDn moves a near-full viewport.
 func TestHelpPageAdvancesViewport(t *testing.T) {
 	h := NewHelp(chipTestTheme())
-	h.OpenPage(15)
+	h.OpenPage(16)
 	const ht = 10
 	h.Render(100, ht, keylayout.QWERTY)
 	before := h.scroll
@@ -166,7 +166,7 @@ func TestHelpTitleAndFooterAlwaysShown(t *testing.T) {
 	h := NewHelp(chipTestTheme())
 	for _, ht := range []int{8, 20, 60} {
 		h.ResetScroll()
-		h.OpenPage(15)
+		h.OpenPage(16)
 		top := h.Render(120, ht, keylayout.QWERTY)
 		if !strings.Contains(top, "READOUT GLOSSARY") || !strings.Contains(top, "close") {
 			t.Errorf("height %d: title/footer missing at top:\n%s", ht, top)
