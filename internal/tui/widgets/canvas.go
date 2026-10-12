@@ -1892,7 +1892,7 @@ func (c *Canvas) String() string {
 			return
 		}
 		if runStyled {
-			b.WriteString(lipgloss.NewStyle().Foreground(runFg).Render(string(runBuf)))
+			b.WriteString(ink.styledRun(runFg, string(runBuf)))
 		} else {
 			for _, r := range runBuf {
 				b.WriteRune(r)

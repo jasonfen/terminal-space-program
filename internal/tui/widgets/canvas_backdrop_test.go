@@ -363,3 +363,37 @@ func TestSceneryIsBackdropUnderLiveInk(t *testing.T) {
 		t.Errorf("scenery under a live line lost no dots (%d lit, union %d): it is not Backdrop", got, union)
 	}
 }
+
+// styledRun replaces a lipgloss Style build per run of cells with a cached
+// escape prefix and suffix (idle-frame budget, GM Q7 / #580). It must render
+// the same bytes lipgloss does, for every kind of colour the canvas paints
+// with and every kind of run it writes.
+func TestStyledRunMatchesLipgloss(t *testing.T) {
+	forceANSIColor(t)
+	var s inkScratch
+	colours := []lipgloss.TerminalColor{
+		lipgloss.Color("#E8D940"), lipgloss.Color("#000000"), lipgloss.Color("9"), lipgloss.Color("240"),
+		lipgloss.AdaptiveColor{Light: "#112233", Dark: "#EEDDCC"},
+	}
+	runs := []string{"⣿", "⣿⣿⣿⣿⣿⣿⣿⣿", "⠀⠀", "⢀⡠⠔⠊⠁", "▲", "Δ", "Mars"}
+	sawEscape := false
+	for _, fg := range colours {
+		for _, run := range runs {
+			for pass := 0; pass < 2; pass++ { // second pass is a cache hit
+				want := lipgloss.NewStyle().Foreground(fg).Render(run)
+				if got := s.styledRun(fg, run); got != want {
+					t.Errorf("styledRun(%v, %q) pass %d = %q, lipgloss renders %q", fg, run, pass, got, want)
+				}
+				if strings.Contains(want, "\x1b[") {
+					sawEscape = true
+				}
+			}
+		}
+	}
+	if !sawEscape {
+		t.Fatal("setup: lipgloss emitted no escape sequence, so the comparison is vacuous (profile not forced)")
+	}
+	if len(s.sgr) == 0 {
+		t.Fatal("setup: nothing was cached, the fast path never ran")
+	}
+}

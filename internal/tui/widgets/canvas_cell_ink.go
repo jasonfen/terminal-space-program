@@ -1,6 +1,8 @@
 package widgets
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -67,6 +69,55 @@ type inkScratch struct {
 	tagBack   []bool           // pixel tag index (0-based) -> Backdrop
 	tagStrong []bool           // pixel tag index (0-based) -> solid ink: wins over Backdrop
 	paletteOf map[lipgloss.Color]uint16
+	sgr       map[sgrKey]sgrWrap // styledRun's per-colour escape cache
+}
+
+// sgrKey identifies one rendered foreground: the colour and the colour
+// profile it was rendered under (a profile change, as tests make, must not
+// serve stale escapes).
+type sgrKey struct {
+	color   lipgloss.Color
+	profile int
+}
+
+// sgrWrap is what lipgloss puts before and after a run of text for one
+// foreground. ok false means the colour does not wrap text in a simple
+// prefix and suffix (never seen; the caller then renders through lipgloss).
+type sgrWrap struct {
+	prefix, suffix string
+	ok             bool
+}
+
+// styledRun is lipgloss.NewStyle().Foreground(fg).Render(text) for a run of
+// cells, without rebuilding the style and re-scanning the text for every run
+// of a frame. A textured planet is a run per cell, and the style build and
+// width scan were the largest single cost of Canvas.String (#364); this
+// renders each foreground once as a sentinel, learns its escape prefix and
+// suffix, and wraps every later run with them. Output is byte-identical
+// (TestStyledRunMatchesLipgloss). Only plain lipgloss.Color goes through the
+// cache; anything adaptive renders the long way.
+func (s *inkScratch) styledRun(fg lipgloss.TerminalColor, text string) string {
+	col, isPlain := fg.(lipgloss.Color)
+	if !isPlain {
+		return lipgloss.NewStyle().Foreground(fg).Render(text)
+	}
+	key := sgrKey{col, int(lipgloss.ColorProfile())}
+	w, seen := s.sgr[key]
+	if !seen {
+		const sentinel = "x"
+		out := lipgloss.NewStyle().Foreground(col).Render(sentinel)
+		if i := strings.Index(out, sentinel); i >= 0 && strings.Count(out, sentinel) == 1 {
+			w = sgrWrap{prefix: out[:i], suffix: out[i+len(sentinel):], ok: true}
+		}
+		if s.sgr == nil {
+			s.sgr = make(map[sgrKey]sgrWrap)
+		}
+		s.sgr[key] = w
+	}
+	if !w.ok {
+		return lipgloss.NewStyle().Foreground(col).Render(text)
+	}
+	return w.prefix + text + w.suffix
 }
 
 // colorAt is the resolved colour of the cell at idx, "" when unstyled.
