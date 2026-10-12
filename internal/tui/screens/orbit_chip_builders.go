@@ -1159,6 +1159,13 @@ func (v *OrbitView) missionChipLines(flash string, flashing bool, m *missions.Mi
 // prograde under nav:SURFACE too (the nose does not move), and there is
 // no surface-frame equivalent of Normal+/- at all.
 func attitudeHoldLabel(w *sim.World, mode spacecraft.BurnMode) string {
+	label, frame := attitudeHoldParts(w, mode)
+	return fmt.Sprintf("%s (%s)", label, navModeLabel(frame))
+}
+
+// attitudeHoldParts is attitudeHoldLabel split into the mode's name and the
+// frame it is held in, so a caller can colour the frame word.
+func attitudeHoldParts(w *sim.World, mode spacecraft.BurnMode) (string, sim.NavMode) {
 	if w.NavMode == sim.NavTarget && w.HasRelativeTarget() {
 		switch mode {
 		case spacecraft.BurnPrograde:
@@ -1183,8 +1190,7 @@ func attitudeHoldLabel(w *sim.World, mode spacecraft.BurnMode) string {
 	// Retrograde (SURF)" -> "Retrograde (SURF)"). The frame was being
 	// named three times on the row otherwise: here, the tag, and (before
 	// NavMode.String()'s own A2 fix) the nav: cell beside it.
-	label := strings.TrimPrefix(mode.String(), "Surface ")
-	return fmt.Sprintf("%s (%s)", label, navModeLabel(frame))
+	return strings.TrimPrefix(mode.String(), "Surface "), frame
 }
 
 // buildFrameTransitionChip surfaces the next SOI / frame transition implied
