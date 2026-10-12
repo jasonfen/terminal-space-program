@@ -99,3 +99,44 @@ func TestMissionBoxDoneRowGreenOnlyDuringFlash(t *testing.T) {
 		t.Errorf("standing row lost after the flash: %q", after)
 	}
 }
+
+// The extra row must not outgrow the tier or push the box past 8 rows
+// (6 content + 2 border) at any rung: the 140x40 capture leaves 4 free
+// rows under MISSION, and Orientation step 1 is already 7 rows.
+func TestMissionBoxDoneRowFitsTier(t *testing.T) {
+	cat, err := missions.DefaultCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, _ := sim.NewWorld()
+	v := NewOrbitView(chipTestTheme())
+	for _, m := range cat.Missions {
+		name := strings.TrimPrefix(m.Name, "Flight School: ")
+		if got := lipgloss.Width("  ✓ done: " + name); got > tierBottomLeftWidth-2 {
+			t.Errorf("done row for %q is %d cells, tier content is %d", m.ID, got, tierBottomLeftWidth-2)
+		}
+		for cur := range m.Objectives {
+			mm := m
+			mm.Objectives = append([]missions.Objective(nil), m.Objectives...)
+			for j := range mm.Objectives {
+				mm.Objectives[j].Status = missions.InProgress
+				if j < cur {
+					mm.Objectives[j].Status = missions.Passed
+				}
+			}
+			mm.Status = missions.InProgress
+			w.Missions = []missions.Mission{
+				{ID: "done", Name: "Prev", Program: mm.Program, Status: missions.Passed}, mm,
+			}
+			mm.Requires = nil // keep the fixture rung active
+			w.Missions[1] = mm
+			lines := v.withDoneRow(v.missionChipLines("", false, &mm, 0), w)
+			if len(lines) < 2 || !strings.Contains(lines[1], "done: Prev") {
+				t.Fatalf("%s step %d: fixture produced no done row (vacuous): %q", m.ID, cur, lines)
+			}
+			if len(lines) > 6 {
+				t.Errorf("%s step %d: %d content rows with the done row, want <= 6", m.ID, cur, len(lines))
+			}
+		}
+	}
+}
