@@ -92,6 +92,10 @@ const (
 	vabModeTarget         // typing a Σ Δv target (ADR 0032 §8)
 )
 
+// CapturingText reports whether a free-text box (the design name, the Σ Δv
+// target) is open, so `?` types and only F1 opens help (GK Q3, #589).
+func (v *VAB) CapturingText() bool { return v.mode == vabModeNaming || v.mode == vabModeTarget }
+
 // vabStage is one stage under assembly: either a composition of component
 // IDs (the fine-parts path) or a reference to an existing atomic catalog
 // Part reused whole. The boundary flags describe the boundary BELOW this

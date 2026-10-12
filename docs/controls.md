@@ -137,6 +137,8 @@ character, which may not be under the same finger as on QWERTY. The choice is
 saved to your config and applies to every game. AZERTY, Dvorak, and free
 per-key remapping aren't supported yet.
 
+On the Keyboard layout screen `←` / `→`, `Space` or `Enter` cycle the layout and `Esc` goes back. On Settings, `↑` / `↓` pick a row, `Space` or `Enter` flips or cycles it (`Enter` does the same as `Space`), and `Esc` goes back to the pause menu.
+
 ## Keybindings
 
 ### Global
@@ -145,7 +147,8 @@ per-key remapping aren't supported yet.
 |---|---|
 | `Esc` | Back to the screen that opened you: a screen opened from the pause menu (saves, settings, keyboard layout, help, build) returns to the menu, one opened by a key (missions, spawn, body info, session) returns to the map. On the main view, open the pause menu: a card over the dimmed map with save / load / build / settings / keyboard layout / help / quit. While the card is open the clock is stopped (the flight bar reads `PAUSED`); closing it hands the clock back as it was. `↑`/`↓` pick a row (it is highlighted) and `Enter` opens it; the letter beside each row (`s` `l` `b` `t` `k` `h` `q`) is a shortcut. A second `Esc` from the menu flies |
 | `Ctrl+C` | Quit: asks whether to save first ([y] save and quit, [n] quit without saving, [esc] stay). The pause menu's Quit row asks the same question |
-| `F1` or `?` | Toggle the help overlay. It opens on an index: "Your first flight" first, then every section with a note on when you would want it. `1`-`9` jump to a page, `↑`/`↓` + `Enter` reach the rest, `Esc` goes back to the index (and closes from the index), `F1` closes from anywhere. Long pages scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`. `?` opens the same overlay as `F1` everywhere `F1` does |
+| `F1` or `?` | Toggle the help overlay. It opens on an index: "Your first flight" first, then every section with a note on when you would want it. `1`-`9` jump to a page, `↑`/`↓` + `Enter` reach the rest, `Esc` goes back to the index (and closes from the index), `F1` closes from anywhere. Long pages scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`. `?` opens the same overlay as `F1` everywhere `F1` does. From a form (spawn, VAB, roster, planner, porkchop, saves, settings, keyboard layout, the pause menu) it opens on that screen's own page, and `F1` or `Esc` puts you back exactly where you were: same field, any half-typed number or name kept. Inside a name or number box only `F1` opens it (`?` is a typed character there) |
+| `Enter` | Does the highlighted or typed thing; each screen's table says what. On the map it does nothing, except while `j` inspects |
 | `F2` | Declutter: hide all eight instrument boxes and the navball together for a clean look at the orbit. Press again to restore. ENGINE and PROPELLANT stay up while an engine is lit, so fuel and a live burn are never hidden mid-burn |
 | `` ` `` | **Boss key**: instantly swap the screen for a convincing fake developer shell. Type `exit`, `logout`, or `Ctrl+D` to come back where you left off. Left out of the `F1` overlay on purpose |
 | `Tab` | Switch star system (Sol first, then alphabetical: Alpha Centauri, Kepler-452, Lumen, TRAPPIST-1). A camera toggle only; vessels stay in the system they spawned in |
@@ -203,7 +206,7 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 | `alt` | The Alt key on Windows and Linux (WezTerm and most terminals send it as-is); Option on a Mac, see the next row |
 | `alt` on a Mac | Ghostty sends Option as alt as-is. Terminal.app and iTerm2 need Option sent as Meta: Terminal.app, Profiles > Keyboard > "Use Option as Meta key"; iTerm2, Profiles > Keys > Left Option key = Esc+ |
 | `\|` | Clear the manual tip and the commanded heading (both trims back to 0) |
-| `;` | Autopilot reference: Surface → Orbit → Target (skips Target when none is set) |
+| `;` | Autopilot reference: Surface → Orbit → Target (skips Target when none is set). It also switches itself: Surface → Orbit climbing through the upper atmosphere (Earth 51 km), Orbit → Surface coming back down, Orbit → Target inside 35 km of a target vessel. Press `;` to override; it is kept until the next crossing |
 | `k` | Steering style: smooth turning (default) or instant snap |
 | `r` | Switch between the main engine and RCS thrusters |
 | `p` | RCS pulse step: cycle the per-press Δv (0.1 → 0.01 → 0.001 m/s) |
@@ -235,7 +238,7 @@ refuse in one phrase.
 | Key | Action |
 |---|---|
 | `m` | Open the [maneuver planner](#maneuver-planner-m) |
-| `H` | Plan a transfer to your target. To a moon of your current planet it works out two routes and plans the cheaper, showing both costs. To another planet it plans a Hohmann transfer. To a moon's parent planet it plans an escape |
+| `H` | Plan a transfer to your target. Refuses while any burn is planted (clear it in `m` first) and for a moon of another planet. To a moon of your current planet it works out two routes and plans the cheaper, showing both costs. To another planet it plans a Hohmann transfer. To a moon's parent planet it plans an escape |
 | `I` | Plan a burn to match your target's orbital tilt (or to level out to the equator with no target) |
 | `C` | Plan a circularising burn at the top of your orbit; pairs with the ORBIT READY cue on launch. Refused if the top of your orbit is inside the atmosphere or you're on an escape trajectory |
 | `K` | Close in on a target vessel. Close and near-matched → plants a small nudge directly, using the closest-approach numbers in the target readout. Too far apart in phase → opens the [Rendezvous Planner](#rendezvous-planner-k) instead of refusing. Your planes differ → names `I` instead of planting anything. Needs a vessel target sharing your planet |
@@ -256,7 +259,7 @@ refuse in one phrase.
 | `c` | Re-arm docking. After an undock a pair is held apart until you clear 100 m or ten minutes pass, even if you drift back inside docking range. `c` clears that hold now: with a vessel targeted, just that pair; otherwise every hold on your active vessel. A pair already close and slow docks on the next tick |
 | `J` | Transfer control of a cross-player docked stack to the guest riding in it. Multiplayer only; see [multiplayer.md](multiplayer.md#docking-across-players) |
 | `E` | End the flight: remove a crashed vessel after a `y` / `n` confirm |
-| `F5` / `F9` | Quicksave / quickload to a fixed quick slot, separate from named saves. See [Saves](#saves-esc--save-game--load-game) |
+| `F5` / `F9` | Quicksave / quickload (`F9` asks `y`/`n` first; `Enter` does nothing) to a fixed quick slot, separate from named saves. See [Saves](#saves-esc--save-game--load-game) |
 
 ### Multiplayer
 
@@ -274,11 +277,14 @@ docking, chat) are in [multiplayer.md](multiplayer.md). The keys:
 | `w` | roster | Agree to a rendezvous warp with them: commits to an encounter when one's found (a planted node's own arrival, or the current course inside 4 h), otherwise arms with no plan yet; they answer `y` on their main screen |
 | `y` | flight view | Accept a rendezvous warp |
 | `/` | flight view | Cancel a rendezvous warp (either side) |
-| `h` | roster | Host: start hosting from single-player in place, or stop hosting (drops guests, keeps progress) |
-| `i` / `r` | roster | Host or admin: mint / revoke an invite code |
-| `x` | roster | Host or admin: remove the selected player |
+| `h` | roster | Host: start hosting from single-player in place, or stop hosting (asks `y`/`n` first; drops guests, keeps progress) |
+| `i` / `r` | roster | Host or admin: mint / revoke an invite code. In the invite box `Enter` keeps the typed handle and mints, `Esc` cancels |
+| `x` | roster | Host or admin: remove the selected player (asks `y`/`n` first). They stay connected until they disconnect, then need a new invite to return; their vessels stay saved |
 | `p` | roster | Host only: promote the selected player to admin, or demote them |
-| `F4` | roster | Host or admin: restart the server. Everyone is warned and drained with progress saved; on a self-updating host it adopts a newer release |
+| `F4` | roster | Host or admin: restart the server. Everyone is warned and drained with progress saved; on a self-updating host it adopts a newer release. Asks `y`/`n` first |
+
+The roster's KEYS box shows the keys that ask first (`x` remove player, `F4` restart server, `h` stop hosting) on their own amber row.
+
 
 Flight controls are inactive on the roster; only the keys listed apply.
 
@@ -327,7 +333,7 @@ overlay carries, so you can look one up without leaving the game.
 | `RCS` | The navball's toggle: amber when the RCS thrusters, not the main engine, are armed (`r` does the same) |
 | `rcs` | Monoprop's own delta-v, from the RCS thrusters rather than the main engine |
 | `◉ ● ○ ◇` | STAGES pips, bottom stage first: `◉` lit (burns next), `●` fuelled and waiting, `○` spent, `◇` no tank (a pod or payload) |
-| `speed` | Inertial speed, alongside `vert:` and `horiz:` |
+| `speed` | Speed in the navball frame, named (surface) / (orbit) / (target), alongside `vert:` and `horiz:` |
 | `(max N)` | The same figure at full throttle, when it differs from the current one |
 | `heading:` / `hdg` | GUIDANCE `heading:` is the bearing you have commanded; the navball's `pitch` and `hdg` are measured, where the nose points now (they agree on the pad, and differ while the nose slews). In ORBIT the ball's rungs count degrees out of the orbit plane, not above the horizon. `trim:` is how far ←/→ lean the nose down or up off the hold, so `15° down` on a level prograde nose reads `pitch -15°`; → leans toward your heading, which lowers a prograde nose and raises a retrograde one |
 | `● ORBIT READY [C]` | Apoapsis has cleared this world's orbit floor: press `C` to plant the circularising burn |
@@ -357,7 +363,19 @@ Each marker on the map is one glyph; the colour says what kind it is. This is th
 ### Spawn form (`n`)
 
 Choose a vessel, where to start (orbit or launchpad), which body, altitude,
-inclination, and direction.
+inclination, and direction. `F1` here opens the SPAWN FORM help page and `F1` / `Esc` brings you back with the field and any typed number kept.
+
+| Key | Action |
+|---|---|
+| `Tab` / `Shift+Tab` | Next / previous field |
+| `←` / `→` | Change the field; on ALTITUDE and INCLINATION step to the next stop |
+| `Enter` | Spawn the vessel; on ALTITUDE or INCLINATION the first `Enter` opens a box to type the number |
+| `Enter` (box open) | Keep the typed number; the next `Enter` spawns (the form says so beside the number) |
+| `Esc` (box open) | Put the old number back; `Esc` again leaves the form |
+| `0-9` / `Backspace` | In the box: type / erase the number (INCLINATION also takes one decimal point) |
+| `Esc` | Leave the form without spawning anything |
+| `f` | Show every system's vessels / only this system's |
+| `a` / `x` / `d` | Custom stack: add the picked module / remove the top stage / cycle the dock seam |
 
 - **Vessels** are grouped by category and filtered to the current system's
   scale class by default; `f` inside the form toggles the filter to show every
@@ -491,22 +509,23 @@ for a tank, `+` / `-` for the count, done.
 
 | Key | Action |
 |---|---|
-| `Tab` | Switch the active column (palette ↔ vehicle) |
+| `Tab` | Other column (palette ↔ vehicle) |
 | `↑` / `↓` | Move the cursor in the active column |
-| `PgUp` / `PgDn` | Previous / next kind section in the palette, or previous / next stage in the vehicle column |
-| `←` / `→` | Swap the selected row's part within its kind (engines on an engine row, tanks on a tank row). On an empty stage the placeholder rows cycle from nothing through the catalog. No-op on a stage header or in the palette |
+| `PgUp` / `PgDn` | Jump section: previous / next kind section in the palette, or previous / next stage in the vehicle column |
+| `←` / `→` | Change part: swap the selected row's part within its kind (engines on an engine row, tanks on a tank row). On an empty stage the placeholder rows cycle from nothing through the catalog. No-op on a stage header or in the palette |
 | `a` | Add the selected component to the current stage, or add a catalog part as a new whole stage |
 | `n` | Start a new empty stage on top |
 | `x` | Remove the component group under the cursor, or the whole stage when on a stage header or the stage is empty / a catalog part |
-| `+` / `-` | Increase / decrease the count of the component group under the cursor (`×N`) |
+| `+` / `-` | Count: raise / lower the count of the component group under the cursor (`×N`) |
 | `[` / `]` | Move the cursor's stage down / up in the stack |
-| `y` | Duplicate the stage under the cursor |
-| `Enter` | **Crack open** the catalog part under the cursor (a stage header) into editable components, so you can start from an S-IVB or a Falcon booster and tweak it. A flash shows the Δv change; parts with no decomposition stay whole |
-| `d` | Toggle a **dock seam** below the stage. Everything above the seam becomes a nose payload released with `U` instead of staging; mark several seams for several payloads |
-| `c` | Toggle a **fused decouple**: the stage drops together with the group below it on one staging press |
-| `t` | Set a session **Σ Δv target**. The stats strip reads `current / target (delta)`, and with a tank row selected a hint shows how many of that tank close the gap (`+2 → Σ ≈ 9280 ✓`) or that it's unreachable |
+| `y` | Copy stage: duplicate the stage under the cursor |
+| `Enter` | **Open part into pieces** (crack open): the catalog part under the cursor (a stage header) becomes editable components, no undo key, so you can start from an S-IVB or a Falcon booster and tweak it. A flash shows the Δv change; parts with no decomposition stay whole |
+| `d` | **Payload from here up** (dock seam): toggle a seam below the stage. Everything above the seam becomes a nose payload released with `U` instead of staging; mark several seams for several payloads |
+| `c` | **Drops with stage below** (fuse): toggle a fused decouple. The stage drops together with the group below it on one staging press |
+| `t` | **Δv goal**: set a session **Σ Δv target**. The stats strip reads `current / target (delta)`, and with a tank row selected a hint shows how many of that tank close the gap (`+2 → Σ ≈ 9280 ✓`) or that it's unreachable |
 | `s` | Name and save the design |
-| `o` | Open a saved design to edit (`x` deletes the highlighted one) |
+| `o` | Open a saved design to edit. In the list `Enter` loads the highlighted design and `x` asks `delete design 'name'? This cannot be undone. [y/n]` first (only `y` deletes; `Enter` never answers the ask) |
+| `Enter` in a box | Name box: keep the typed name and save. Δv goal box: keep the typed Σ Δv. `Esc` cancels either |
 | `Esc` | Back to the map |
 
 Rules the VAB enforces:
@@ -554,6 +573,8 @@ it in save mode (with a `＋ New save…` row), `[Load Game]` in load mode.
 |---|---|
 | `↑` / `↓` | Move the save cursor (click a row to select it; click again to activate) |
 | `Enter` | Load mode: load the save (asks first). Save mode: `＋ New save…` prompts for a name (prefilled with vessel + in-game day); an existing named save asks to overwrite |
+| `Enter` in the name box | Keep the typed name and save; `Esc` cancels |
+| `y` / `n` / `Esc` | On an ask (load, overwrite, delete): only `y` says yes; `n` or `Esc` says no; `Enter` does nothing and the question stays |
 | `d` | Delete the highlighted save (asks first; works on quicksave and autosaves too) |
 | `r` | Rename a named save. Quicksave and autosave slots are managed and can't be renamed or overwritten by hand |
 | `Esc` | Back |

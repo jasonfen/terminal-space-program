@@ -103,6 +103,7 @@ func TestHelpSectionOrder(t *testing.T) {
 		"PLAN BURNS",
 		"RENDEZVOUS PLANNER (map chip, opens from K)",
 		"VESSEL",
+		"SPAWN FORM (n)", // GK Q3, #589: the spawn form had no page
 		"VEHICLE ASSEMBLY (VAB)",
 		"MISSIONS (ladder screen, open with M)", // #426, screen-scoped, after VAB
 		"SAVES (menu → Save / Load Game)",
@@ -151,7 +152,7 @@ func TestHelpGlossaryBlockContent(t *testing.T) {
 		{"pro / retro", "prograde or retrograde"},
 		{"(ORBIT/SURF/TGT)", "one spelling everywhere"},
 		{"rcs", "RCS thrusters"},
-		{"speed", "inertial speed"},
+		{"speed", "navball frame"},
 		{"(max N)", "full throttle"},
 		{"● ORBIT READY [C]", "orbit floor"},
 	}

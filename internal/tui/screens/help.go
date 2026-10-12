@@ -29,6 +29,10 @@ type Help struct {
 	// Render (Render runs every frame, so this self-corrects immediately).
 	viewH     int
 	maxScroll int
+	// direct: opened by F1 from a form onto that form's own page (GK Q3).
+	// esc on such a page leaves help for the form at once instead of
+	// stepping to the index first, so "F1 or esc puts you back" is true.
+	direct bool
 }
 
 func NewHelp(th Theme) *Help { return &Help{theme: th, page: helpIndexPage} }
@@ -55,9 +59,11 @@ type helpSection struct {
 // on the HUD, not a "how do I fly" section (ADR 0049 stage A3a).
 var helpSections = []helpSection{
 	{"GENERAL", [][2]string{
-		{"F1 / ?", "toggle this help"},
+		{"F1 / ?", "help, opened on the page for the screen you are on; F1 or esc puts you back exactly where you were"},
+		{"F1 (in a box)", "inside a name or number box only F1 opens help (? is a typed character there); what you typed is kept"},
+		{"enter (any screen)", "does the highlighted or typed thing (each page says what); on the map nothing, except while [j] inspects"},
 		{"esc", "back to the screen that opened you: a screen opened from the pause menu returns to the menu, one opened by a key returns to the map (esc on the map opens the pause menu)"},
-		{"F5 / F9", "quicksave / quickload"},
+		{"F5 / F9", "quicksave / quickload (F9 asks [y/n] first: only y loads, enter does nothing)"},
 		{"ctrl+c", "quit: asks to save first, [esc] stays"},
 	}},
 	// `q` quits only inside the pause menu; in flight it is radial+
@@ -66,8 +72,10 @@ var helpSections = []helpSection{
 	{"PAUSE MENU (esc from the map)", [][2]string{
 		{"esc", "fly again: the menu stops the clock while it is open (the flight bar reads PAUSED) and closing it gives the clock back as it was; esc again from a screen the menu opened returns here"},
 		{"↑ / ↓", "pick a row (it is highlighted); [enter] opens it"},
-		{"s / l / b / t / k / h", "shortcuts beside each row: save / load / build (VAB) / settings / keyboard layout / help"},
+		{"s l b t k h", "shortcuts beside each row: save / load / build (VAB) / settings / keyboard layout / help"},
 		{"q", "quit: asks to save first, same prompt as ctrl+c (menu only; in flight q is radial+)"},
+		{"in Settings", "↑ / ↓ pick a row; space or enter flips or cycles the highlighted setting; esc back to the menu"},
+		{"in Keyboard layout", "← / →, space or enter cycle the layout (QWERTY / QWERTZ moves letters only); esc back to the menu"},
 	}},
 	{"CAMERA & VIEW", [][2]string{
 		{"f / F", "cycle camera focus forward / back (system → bodies → vessels; exits spectate)"},
@@ -113,6 +121,8 @@ var helpSections = []helpSection{
 		{"p", "rcs pulse step: 0.1 / 0.01 / 0.001 m/s (fine trim)"},
 		{"k", "SAS model: slew / instant"},
 		{";", "NavMode cycle: Surface → Orbit → Target (skips Target when none is set)"},
+		{"; (switches itself)", "Surface → Orbit climbing through the upper atmosphere (Earth 51 km); Orbit → Surface coming back down"},
+		{"; (near a target)", "Orbit → Target inside 35 km of a target vessel. Press ; to override; it is kept until the next crossing"},
 	}},
 	{"NAVIGATION", [][2]string{
 		{"l", "move the body cursor next (info only, not [t] target)"},
@@ -131,7 +141,7 @@ var helpSections = []helpSection{
 		{"ctrl+d", "planner: delete the node under the Plan Cursor"},
 		{"ctrl+k", "planner: clear ALL planned nodes for the active vessel"},
 		{"c", "planner: refuses, clear all is ctrl+k"},
-		{"H", "plant transfer to [t] target body (plane-aware); also works inside the planner (QUICK PLANS)"},
+		{"H", "plant transfer to [t] target (plane-aware); refuses if a burn is planted (clear in [m]) or for another planet's moon"},
 		{"I", "plant plane match ([t] target body / vessel / equatorial); also works inside the planner"},
 		{"C", "plant circularize burn at next apoapsis; also works inside the planner"},
 		{"K", "close on target vessel: plant nudge, or open the Rendezvous Planner if too far in phase; also works inside the planner"},
@@ -161,22 +171,38 @@ var helpSections = []helpSection{
 		{"space", "decouple bottom stage, instantly, pad included (the STAGES box names it; bare chute capsule: arm the chute)"},
 		{"E", "end flight: clear a crashed vessel from the slate (y/n confirm)"},
 	}},
+	{"SPAWN FORM (n)", [][2]string{
+		{"tab / shift+tab", "next / previous field"},
+		{"← / →", "change the field; on ALTITUDE and INCLINATION step to the next stop"},
+		{"enter", "spawn the vessel; on ALTITUDE or INCLINATION the first enter opens a box to type the number"},
+		{"enter (box open)", "keep the typed number; the next enter spawns (the form says so beside the number)"},
+		{"esc (box open)", "put the old number back; esc again leaves the form"},
+		{"0-9 / backspace", "in the box: type / erase the number (INCLINATION also takes one decimal point)"},
+		{"esc", "leave the form without spawning anything"},
+		{"f", "show every system's vessels / only this system's"},
+		{"a / x / d", "Custom stack: add the picked module / remove the top stage / cycle the dock seam (nose payload)"},
+		{"F1", "help from anywhere on this form; esc or F1 brings you back with the field and any typed number as you left them"},
+	}},
 	{"VEHICLE ASSEMBLY (VAB)", [][2]string{
 		{"esc → b", "open the VAB from the pause menu (Build)"},
-		{"tab", "switch active column (palette ↔ vehicle), the only column switch"},
-		{"← / →", "swap the selected vehicle row's part within its kind (engine leads chemistry)"},
+		{"tab", "other column (palette ↔ vehicle), the only column switch"},
+		{"← / →", "change part: swap the selected vehicle row's part within its kind (engine leads chemistry)"},
 		{"↑ / ↓", "move cursor in the active column"},
-		{"PgUp / PgDn", "jump to next/prev kind section (palette) or stage (vehicle)"},
+		{"PgUp / PgDn", "jump section: next / previous kind (palette) or stage (vehicle)"},
 		{"a", "add the selected component to the current stage (or part as a new stage)"},
 		{"n / x", "new empty stage on top / remove component group or stage under cursor"},
-		{"+ / -", "increase / decrease count of the component group under the cursor"},
-		{"[ / ]", "move the cursor's stage down / up in the stack (reorder)"},
-		{"y", "duplicate the stage under the cursor"},
-		{"enter", "crack an atomic catalog part into its editable seed components"},
-		{"d", "toggle dock seam below the stage (nose payload, [U]ndock-released)"},
-		{"c", "toggle fused decouple (stage drops with the group below)"},
-		{"t", "set a Σ Δv target (a tank row then hints the count to reach it)"},
+		{"+ / -", "count: raise / lower the count of the component group under the cursor"},
+		{"[ / ]", "move the cursor's stage down / up in the stack"},
+		{"y", "copy stage: duplicate the stage under the cursor"},
+		{"enter", "open part into pieces: a whole catalog part becomes its editable parts (no undo key)"},
+		{"d", "payload from here up: this stage and everything above becomes a payload released with [U]"},
+		{"c", "drops with stage below: this stage drops together with the one below on one [space]"},
+		{"t", "Δv goal: set a Σ Δv target (a tank row then hints the count to reach it)"},
 		{"s / o", "save the design (name it) / open a saved design"},
+		{"enter (name box)", "keep the typed name and save the design; esc cancels"},
+		{"enter (Δv box)", "keep the typed Σ Δv goal; esc cancels"},
+		{"enter (design list)", "load the highlighted design; esc closes the list"},
+		{"x (design list)", "delete the highlighted design: asks [y/n] first, only y deletes; enter never answers the ask"},
 	}},
 	{"MISSIONS (ladder screen, open with M)", [][2]string{
 		{"1", "turn Flight School on / off (the row under its list says which)"},
@@ -184,8 +210,10 @@ var helpSections = []helpSection{
 	}},
 	{"SAVES (menu → Save / Load Game)", [][2]string{
 		{"↑ / ↓", "move the save cursor"},
-		{"enter", "load-mode: load (confirms) · save-mode: new save / overwrite"},
-		{"d", "delete the highlighted save (confirms)"},
+		{"enter", "load-mode: load (asks [y/n]) · save-mode: new save / overwrite (asks [y/n])"},
+		{"enter (name box)", "keep the typed name and save; esc cancels"},
+		{"d", "delete the highlighted save (asks [y/n])"},
+		{"y / n / esc", "on an ask: only y says yes; n or esc says no; enter does nothing and the question stays"},
 		{"r", "rename a named save (quicksave / autosaves can't be renamed)"},
 		{"esc", "back to the map"},
 	}},
@@ -196,10 +224,13 @@ var helpSections = []helpSection{
 		{"s", "sync-warp forward to a player ahead of you (forward only)"},
 		{"w", "rendezvous warp: agree to rendezvous with them; commits to an encounter when one's found, otherwise arms with no plan yet"},
 		{"RANGE column", "live distance to them; warps lock inside 35 km at under 100 m/s closing"},
-		{"h", "start / stop hosting: accept ssh guests (stop confirms, drops guests)"},
-		{"i / r / x", "host + admins: mint invite / revoke code / remove player"},
+		{"h", "start / stop hosting: accept ssh guests (stop asks [y/n] first, drops guests)"},
+		{"i / r / x", "host + admins: mint invite / revoke code / remove player (x asks [y/n] first)"},
+		{"enter (invite box)", "keep the typed handle and mint the invite; esc cancels"},
+		{"x (what it does)", "a removed player stays connected until they disconnect, then needs a new invite; their vessels stay saved"},
+		{"asks [y/n] first", "x remove player, F4 restart server, h stop hosting: the roster shows them on their own amber row"},
 		{"p", "host only: promote the selected player to admin / demote them"},
-		{"F4", "host + admins: restart the server (drains guests, they reconnect)"},
+		{"F4", "host + admins: restart the server (drains guests, they reconnect); asks [y/n] first"},
 		{"J", "hand a cross-player stack to the guest (refused if they aren't in the session); from the guest seat, take the stick back when the pilot has gone (map)"},
 	}},
 	{"MOUSE", [][2]string{
@@ -253,7 +284,7 @@ var helpSections = []helpSection{
 		{"RCS", "navball toggle: amber when the RCS thrusters, not the main engine, are armed ([r] does the same)"},
 		{"rcs", "monoprop's own Δv, from the RCS thrusters rather than the main engine"},
 		{"◉ ● ○ ◇", "STAGES pips, bottom stage first: ◉ lit (burns next), ● fuelled and waiting, ○ spent, ◇ no tank (a pod or payload)"},
-		{"speed", "inertial speed, alongside vert: and horiz:"},
+		{"speed", "in the navball frame, named (surface) / (orbit) / (target), alongside vert: and horiz:"},
 		{"(max N)", "the same figure at full throttle, when it differs from the current one"},
 		{"heading: / hdg", "GUIDANCE heading: is the bearing you have commanded; the navball's pitch and hdg are measured, where the nose points now (they agree on the pad, and differ while the nose slews). In ORBIT the ball's rungs count degrees out of the orbit plane, not above the horizon. trim: is how far ←/→ lean the nose down or up off the hold, so 15° down on a level prograde nose reads pitch -15°; → leans toward your heading, which lowers a prograde nose and raises a retrograde one"},
 		{"● ORBIT READY [C]", "apoapsis has cleared this world's orbit floor: press [C] to plant the circularising burn"},
@@ -309,7 +340,7 @@ const firstFlightEnd = "F1 → MANUAL FLIGHT for the rest"
 // has one.
 var helpWhen = map[string]string{
 	"GENERAL":            "you want to close this, quit, or quicksave",
-	"PAUSE MENU":         "you pressed esc on the map and want to save, load or quit",
+	"PAUSE MENU":         "you pressed esc on the map: save, load, quit, settings, keyboard layout",
 	"CAMERA & VIEW":      "the map is too crowded, too far, or from the wrong angle",
 	"TIME & WARP":        "you are waiting on a burn or an orbit",
 	"MANUAL FLIGHT":      "you are flying by hand: throttle, engine, pointing the nose",
@@ -317,6 +348,7 @@ var helpWhen = map[string]string{
 	"PLAN BURNS":         "you are planning a transfer, a circularisation or a node",
 	"RENDEZVOUS PLANNER": "you are closing on another vessel and the planner opened",
 	"VESSEL":             "you are spawning, switching, staging, docking or undocking",
+	"SPAWN FORM":         "you pressed n and are choosing a vessel, a place to start and an altitude",
 	"VEHICLE ASSEMBLY":   "you are building your own rocket",
 	"MISSIONS":           "you want Flight School or the Challenge ladder on or off",
 	"SAVES":              "you are saving, loading, renaming or deleting a save",
@@ -483,6 +515,9 @@ func (h *Help) footer() string {
 	keys := "[1-9] jump   [↑/↓ enter] pages 10-" + strconv.Itoa(helpPageCount()) + "   [F1/esc] close"
 	if h.page != helpIndexPage {
 		keys = "[↑/↓ PgUp/PgDn] scroll  [esc] index  [F1] close"
+		if h.direct {
+			keys = "[↑/↓ PgUp/PgDn] scroll  [esc / F1] back to where you were"
+		}
 	}
 	// #498: the position line and cue are the only signs of where you are,
 	// so they get Primary rather than the dim Footer gray.
@@ -498,10 +533,23 @@ func (h *Help) OpenPage(n int) {
 	h.page, h.cursor, h.scroll = n, n, 0
 }
 
+// OpenFor opens the page titled title (as pageTitle spells it) in direct
+// mode, so esc and F1 both leave help. An unknown title opens the index.
+func (h *Help) OpenFor(title string) {
+	h.ResetScroll()
+	for n := 0; n < helpPageCount(); n++ {
+		if pageTitle(n) == title {
+			h.OpenPage(n)
+			h.direct = true
+			return
+		}
+	}
+}
+
 // Back returns from a page to the index and reports true; on the index it
 // reports false so the caller closes the overlay.
 func (h *Help) Back() bool {
-	if h.page == helpIndexPage {
+	if h.page == helpIndexPage || h.direct {
 		return false
 	}
 	h.page, h.scroll = helpIndexPage, 0
@@ -552,7 +600,9 @@ func (h *Help) HandleKey(msg tea.KeyMsg) {
 // ScrollBy moves the window by n rows (clamped). ResetScroll returns to
 // the index, called when the overlay opens.
 func (h *Help) ScrollBy(n int) { h.scroll += n; h.clamp() }
-func (h *Help) ResetScroll()   { h.scroll, h.page, h.cursor = 0, helpIndexPage, 0 }
+func (h *Help) ResetScroll() {
+	h.scroll, h.page, h.cursor, h.direct = 0, helpIndexPage, 0, false
+}
 
 // Page moves a near-full viewport in dir (±1), overlapping one row.
 func (h *Help) Page(dir int) { h.ScrollBy(dir * maxInt(1, h.viewH-1)) }
