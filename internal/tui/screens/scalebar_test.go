@@ -8,6 +8,9 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -380,5 +383,83 @@ func TestScaleBarLaunchOnlyTouchesItsOwnCells(t *testing.T) {
 		without := stripANSIForBar(NewLaunchView(th, NewOrbitView(th)).Render(w, sz[0], sz[1]))
 		scaleBarOff = false
 		assertOnlyBarDiffers(t, sz, "launch", with, without)
+	}
+}
+
+// Projection honesty: the tilted view is the one that foreshortens (the
+// vertical axis shrinks by cos of the tilt), so check it at several tilts
+// and in the pad fallback basis. The horizontal axis keeps the full scale at
+// the focus depth, which is what the bar measures.
+func TestScaleBarTiltedProjectionIsMeasuredOnTheHorizontalAxis(t *testing.T) {
+	for _, theta := range []float64{0, 30, 60, 85} {
+		w, _ := sim.NewWorld()
+		w.ViewMode = sim.ViewTilted
+		w.ViewTilt.Theta = theta
+		v := NewOrbitView(plainTheme())
+		v.Resize(140, 40)
+		b, ok := findScaleBar(v.Render(w, 0, 140, 40))
+		if !ok {
+			t.Fatalf("tilt %g: no bar", theta)
+		}
+		if got, ok := barAgreesWithCanvas(v.canvas, b); !ok {
+			t.Errorf("tilt %g: bar %d cells = %s, canvas draws %.1f", theta, b.cells, b.label, got)
+		}
+		if n := v.canvas.Basis().X.Norm(); n < 0.999999 || n > 1.000001 {
+			t.Errorf("tilt %g: horizontal basis has length %g, the one-scale premise fails", theta, n)
+		}
+	}
+	// The pad (landed) uses TiltedWorldBasis.
+	w, _ := spawnSaturnVOnPad(t)
+	w.ViewMode = sim.ViewTilted
+	v := NewOrbitView(plainTheme())
+	v.Resize(140, 40)
+	b, ok := findScaleBar(v.Render(w, 0, 140, 40))
+	if !ok {
+		t.Fatal("landed tilted view: no bar")
+	}
+	if got, ok := barAgreesWithCanvas(v.canvas, b); !ok {
+		t.Errorf("landed tilted: bar %d cells = %s, canvas %.1f", b.cells, b.label, got)
+	}
+}
+
+// A long target name fills the Proximity label row; the bar must step up a
+// row rather than land on the label or strip (the strip itself clips at this
+// name length on main; the bar must add nothing to that), and still be whole.
+func TestScaleBarProximityLongNameKeepsTheStrip(t *testing.T) {
+	w := proximityWorld(t, orbital.Vec3{X: 2000})
+	w.Crafts[1].Name = "Apollo Lunar Excursion Module Stack 12"
+	v := newProximityTestView(t, 140, 40)
+	w.ViewMode = sim.ViewProximity
+	frame := v.Render(w, 0, 140, 40)
+	b, ok := findScaleBar(frame)
+	if !ok {
+		t.Fatal("no bar with a long target name")
+	}
+	last := strings.Split(stripANSIForBar(frame), "\n")
+	if b.row == len(last)-2 {
+		t.Errorf("the bar sits on the full label row (row %d) instead of stepping up", b.row)
+	}
+	scaleBarOff = true
+	v2 := newProximityTestView(t, 140, 40)
+	without := stripANSIForBar(v2.Render(w, 0, 140, 40))
+	scaleBarOff = false
+	assertOnlyBarDiffers(t, [2]int{140, 40}, "Proximity long name", stripANSIForBar(frame), without)
+}
+
+// With real colour on, the launch row's styled bar is still whole (the HUD
+// strip's width is measured without the escapes).
+func TestScaleBarLaunchSurvivesColour(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+	th := launchThemeForTest()
+	th.Primary = lipgloss.NewStyle().Foreground(lipgloss.Color("#88CCFF"))
+	w, _ := spawnSaturnVOnPad(t)
+	frame := NewLaunchView(th, NewOrbitView(th)).Render(w, 140, 40)
+	if !strings.Contains(frame, "\x1b[") {
+		t.Fatal("colour is not on, the test would be vacuous")
+	}
+	if _, ok := findScaleBar(frame); !ok {
+		t.Errorf("styled launch frame lost its bar: %q", strings.Split(frame, "\n")[38])
 	}
 }
