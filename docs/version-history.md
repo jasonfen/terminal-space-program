@@ -2,6 +2,19 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.54.0
+
+Planning that refuses nonsense, help everywhere, and a clearer map: UX cycle 3 Phase 4, wave 2 (PRs `#621`-`#628`; review `#629` fixed in `#631`, `#632`; tag `v0.54.0`).
+
+- **One transfer at a time.** A second `H` while a burn is planted refuses and names it (`transfer: a burn is already planted (...); clear it in [m] first`). Clearing the planner stops a burn that is already firing (`burn stopped: ...`). `H` at another planet's moon refuses and names the planet to target instead (`#587`, `#588`, `#610`).
+- **F1 opens on every screen** at that screen's own help page and puts you back exactly where you were, half-typed numbers included. New SPAWN FORM page; F1 says what Enter does on every screen (`#589`).
+- **Keys that mean what they say.** Enter never answers a [y/n] question (only `y` is yes), so Enter, Enter can no longer delete a save. The roster marks the keys that ask first; deleting a saved VAB design asks; the VAB key list is in plain words; the spawn form's bottom edge says what Enter and Esc do right now (`#589`).
+- **`speed:` names its frame** (`0.00 m/s (surface)` on the pad, `(orbit)` above the air), and the navball frame switches itself between surface and orbit on the way up and down. A held direction keeps its frame and GUIDANCE marks it when it differs (`#601`).
+- **A finished rung says so:** the MISSION box keeps a `✓ done: <rung>` row that flashes green when it completes (`#594`).
+- **A scale bar on every view:** Proximity, every map projection and the launch view (`#602`).
+- **Small bodies and lines over planets.** Every body draws at least a small disk and never smaller than its true size; markers step off small bodies instead of hiding them; small bodies are lit; night sides are brighter; your orbit crosses a planet without the dark border (`#591`, `#580`).
+- **Body info and map greys:** apsides on the distance ladder, periapsis / apoapsis for moons, real gravity where the catalog had none, `Sidereal`; planet and moon orbits a lighter grey (`#617`, `#593`).
+
 ### v0.53.0
 
 Clearer screens and honest numbers: UX cycle 3 Phase 4, wave 1 (PRs `#605`-`#609`, `#612`, `#613`; review `#614` fixed in `#619`, `#620`; tag `v0.53.0`).
