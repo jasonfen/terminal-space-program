@@ -1557,6 +1557,15 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		strip = inspectHintStripText
 	}
 	v.paintHintStrip(utf8.RuneCountInString(viewLabel), strip)
+	// #602: the scale bar, right-aligned on the same row. Orthographic
+	// projections keep one horizontal scale at every depth, so
+	// canvas.Scale() is the truth in all six views. With F2 declutter the
+	// navball is gone, so a too-full row may drop the bar one row up.
+	fbRow := -1
+	if v.declutter {
+		fbRow = v.canvas.Rows() - 2
+	}
+	v.paintScaleBar(utf8.RuneCountInString(viewLabel)+hintStripGap+utf8.RuneCountInString(strip), fbRow, -1)
 	// v0.13: the "focus:" indicator moved to the title bar (renderTitleBar)
 	// — the canvas top-left corner is now home to the pinned VESSEL chip,
 	// and "focus: <craft>" was redundant with the chip's vessel name.

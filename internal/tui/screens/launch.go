@@ -380,7 +380,7 @@ func (v *LaunchView) Render(w *sim.World, totalCols, totalRows int) string {
 		// (ux-reviews/20260913-readout-overlap/adr0051-slice2b/04-burn-map.txt).
 		canvasStr = v.hudSource.composeChips(canvasStr, cCols, cRows, nbReserved, 1, 2, chips)
 	}
-	canvasStr = overlayHUDStrip(canvasStr, v.composeHUDLine(w, craft))
+	canvasStr = overlayHUDStrip(canvasStr, v.withScaleBar(v.composeHUDLine(w, craft)))
 
 	// Manual rounded-border wrapping. lipgloss.Border().Render() over
 	// a string with embedded per-cell ANSI escapes (the case here —
@@ -1764,10 +1764,12 @@ func overlayHUDStrip(canvasStr, hud string) string {
 	// getting padded to the inflated raw width, pushing every joined
 	// row off the right of the terminal.
 	tailWidth := displayWidth(canvasStr[idx+1:])
+	// Width is measured with the ANSI stripped (#602): a styled scale bar
+	// on this row would otherwise count its escapes as cells and be cut.
 	hudRunes := []rune(hud)
-	if len(hudRunes) < tailWidth {
-		hud = hud + strings.Repeat(" ", tailWidth-len(hudRunes))
-	} else if len(hudRunes) > tailWidth {
+	if hw := displayWidth(hud); hw < tailWidth {
+		hud = hud + strings.Repeat(" ", tailWidth-hw)
+	} else if hw > tailWidth {
 		hud = string(hudRunes[:tailWidth])
 	}
 	return canvasStr[:idx+1] + hud

@@ -162,6 +162,13 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 	// this row's label ended up being (the fixed "view: Proximity" form,
 	// or the longer sceneOK form with target name + axis legend).
 	v.paintHintStrip(utf8.RuneCountInString(label), proximityHintStripText)
+	// #602: the scale bar, right-aligned on this row so the far target's
+	// picture (identical at 2 km and 360 Mm) carries its own distance. A
+	// long target name can fill the row: the bar then sits one row up at
+	// the left, which nothing in this view composites over.
+	if sceneOK {
+		v.paintScaleBar(utf8.RuneCountInString(label)+hintStripGap+utf8.RuneCountInString(proximityHintStripText), v.canvas.Rows()-2, 0)
+	}
 
 	canvasStr := v.canvas.String()
 
