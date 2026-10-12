@@ -115,31 +115,32 @@ func TestNavAutoDescentReturnsToSurfOnceWithHysteresis(t *testing.T) {
 	}
 }
 
-func TestNavAutoOrbitToTargetOnApproachOnce(t *testing.T) {
+// Review #629 M1 (Jason, 2026-10-12): the frame never switches itself to TGT.
+// Approaching a rendezvous target in ORBIT stays ORBIT at every range, and a
+// hand-chosen TGT stays TGT when the vessel moves away. Only `;` reaches TGT.
+func TestNavAutoNeverSwitchesToTarget(t *testing.T) {
 	w := proximityPairWorld(t, orbital.Vec3{X: 100e3}, orbital.Vec3{})
 	w.NavMode = NavOrbit
 	w.Tick() // seed outside
-	if w.NavMode != NavOrbit {
-		t.Fatalf("far target: NavMode = %v, want ORBIT", w.NavMode)
+	for _, r := range []float64{60e3, 35e3, 20e3, 1e3, 100} {
+		setProximityRange(t, w, r)
+		w.Tick()
+		w.Tick()
+		if w.NavMode != NavOrbit {
+			t.Fatalf("range %g m: NavMode = %v, want ORBIT (no automatic TGT)", r, w.NavMode)
+		}
 	}
-	// Move the sister to 20 km (inside coWarpCoupleRangeM).
-	setProximityRange(t, w, 20e3)
-	w.Tick()
+	// By hand it still gets there, and stays there on the way out.
+	w.CycleNavMode()
 	if w.NavMode != NavTarget {
-		t.Fatalf("inside range: NavMode = %v, want TGT", w.NavMode)
+		t.Fatalf("manual ; from ORBIT with a target: NavMode = %v, want TGT", w.NavMode)
 	}
-	// Manual ; TGT -> SURF -> ORBIT, then more ticks inside the range: ORBIT
-	// is the frame the auto rule would flip, so a level rule fights here.
-	w.CycleNavMode()
-	w.CycleNavMode()
-	if w.NavMode != NavOrbit {
-		t.Fatalf("setup: NavMode = %v, want ORBIT", w.NavMode)
-	}
-	prev := w.NavMode
-	w.Tick()
-	w.Tick()
-	if w.NavMode != prev {
-		t.Errorf("manual choice fought inside range: %v -> %v", prev, w.NavMode)
+	for _, r := range []float64{20e3, 38e3, 50e3, 100e3} {
+		setProximityRange(t, w, r)
+		w.Tick()
+		if w.NavMode != NavTarget {
+			t.Fatalf("range %g m: manual TGT lost: NavMode = %v", r, w.NavMode)
+		}
 	}
 }
 
@@ -178,26 +179,5 @@ func TestNavAutoThresholdsPerBody(t *testing.T) {
 	}
 	if got := NavAutoAscentAltitude(11e3, 0, 0, false); math.Abs(got-1.1e3) > 1e-6 {
 		t.Errorf("Phobos-like = %g, want 1100", got)
-	}
-}
-
-func TestNavAutoTargetLeavesAtDecoupleRange(t *testing.T) {
-	w := proximityPairWorld(t, orbital.Vec3{X: 100e3}, orbital.Vec3{})
-	w.NavMode = NavOrbit
-	w.Tick()
-	setProximityRange(t, w, 20e3)
-	w.Tick()
-	if w.NavMode != NavTarget {
-		t.Fatalf("setup: NavMode = %v, want TGT", w.NavMode)
-	}
-	setProximityRange(t, w, 38e3) // inside the hysteresis band: stays
-	w.Tick()
-	if w.NavMode != NavTarget {
-		t.Errorf("inside the band: NavMode = %v, want TGT kept", w.NavMode)
-	}
-	setProximityRange(t, w, 50e3)
-	w.Tick()
-	if w.NavMode != NavOrbit {
-		t.Errorf("beyond decouple range: NavMode = %v, want ORBIT", w.NavMode)
 	}
 }

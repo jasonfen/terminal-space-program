@@ -3923,7 +3923,7 @@ func (a *App) doPlanTransfer() {
 	// cannot be un-flown) and nothing is stacked. The game does not
 	// remember which burns H planted, so a hand-made burn blocks it too.
 	if planted := a.plantedBurnSummary(); planted != "" {
-		a.refuse("transfer", fmt.Sprintf("a transfer is already planted (%s); clear it in [m] first", planted))
+		a.refuse("transfer", fmt.Sprintf("a burn is already planted (%s); clear it in [m] first", planted))
 		return
 	}
 	switch a.world.Target.Kind {

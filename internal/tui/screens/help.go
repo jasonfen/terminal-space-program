@@ -32,6 +32,7 @@ type Help struct {
 	// direct: opened by F1 from a form onto that form's own page (GK Q3).
 	// esc on such a page leaves help for the form at once instead of
 	// stepping to the index first, so "F1 or esc puts you back" is true.
+	// A digit jump (1-9) drops it: esc then steps to the index (#629 L4).
 	direct bool
 }
 
@@ -121,8 +122,8 @@ var helpSections = []helpSection{
 		{"p", "rcs pulse step: 0.1 / 0.01 / 0.001 m/s (fine trim)"},
 		{"k", "SAS model: slew / instant"},
 		{";", "NavMode cycle: Surface → Orbit → Target (skips Target when none is set)"},
-		{"; (switches itself)", "Surface → Orbit climbing through the upper atmosphere (Earth 51 km); Orbit → Surface coming back down"},
-		{"; (near a target)", "Orbit → Target inside 35 km of a target vessel. Press ; to override; it is kept until the next crossing"},
+		{"; (self-switch)", "Surface → Orbit climbing through the upper atmosphere (Earth 51 km); Orbit → Surface coming back down. ; overrides"},
+		{"; (to a target)", "Target is chosen by hand only; it never switches itself"},
 	}},
 	{"NAVIGATION", [][2]string{
 		{"l", "move the body cursor next (info only, not [t] target)"},
@@ -563,6 +564,9 @@ func (h *Help) HandleKey(msg tea.KeyMsg) {
 	k := msg.String()
 	if len(k) == 1 && k[0] >= '1' && k[0] <= '9' {
 		h.OpenPage(int(k[0] - '1'))
+		// Review #629 L4: a jump leaves the form's own page, so esc no
+		// longer means "back to the form"; it steps to the index.
+		h.direct = false
 		return
 	}
 	if h.page == helpIndexPage {

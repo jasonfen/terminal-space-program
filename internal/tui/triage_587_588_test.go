@@ -62,7 +62,7 @@ func TestSecondTransferRefusesWhilePlanted(t *testing.T) {
 
 	// GS Q6: the second H refuses and names the planted burn with the
 	// time ENGINE's node: row shows (the burn's start).
-	want := regexp.MustCompile(`^transfer: a transfer is already planted \(Prograde 3062 m/s in \d+m\d\ds\); clear it in \[m\] first$`)
+	want := regexp.MustCompile(`^transfer: a burn is already planted \(Prograde 3062 m/s in \d+m\d\ds\); clear it in \[m\] first$`)
 	if !want.MatchString(a.statusMsg) {
 		t.Errorf("second H flash = %q, want the planted-transfer refusal", a.statusMsg)
 	}

@@ -631,10 +631,11 @@ active-Vessel switches); revisit if that asymmetry starts to bite.
 also moves itself, KSP's way, on crossings only:** SURF to ORBIT climbing
 through 6 atmosphere scale heights (clamped to the atmosphere cutoff; Earth
 51 km; airless bodies 10 km, at most a tenth of the radius), ORBIT back to
-SURF descending through 80% of that altitude, ORBIT to TGT coming inside 35 km
-of a vessel Target (the Proximity hint moment), TGT back to ORBIT beyond
-42 km. An automatic switch is an edge, not a level, and only leaves the frame
-it is meant to leave, so a manual `;` choice is kept until the next crossing.
+SURF descending through 80% of that altitude. **It never moves itself to TGT**
+(Jason, review #629): near a rendezvous target the frame stays put and `;`
+reaches TGT by hand. An automatic switch is an edge, not a level, and only
+leaves the frame it is meant to leave, so a manual `;` choice is kept until the
+next crossing.
 Not saved: after a load the crossing memory re-seeds silently.
 
 **Every `hold:` row names the frame it holds in** (ADR 0050) —

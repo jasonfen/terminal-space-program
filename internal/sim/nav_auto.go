@@ -12,12 +12,13 @@ import (
 //
 // KSP's way: the navball speed readout follows the frame (Surface / Orbit /
 // Target), `;` cycles it by hand, and the frame also moves itself on the way
-// up (Surface to Orbit) and near a rendezvous target (Orbit to Target).
+// up (Surface to Orbit) and back down (Orbit to Surface). It never moves
+// itself to Target: Jason's call on review #629 (2026-10-12), a frame that
+// flips under the pilot's hands near a rendezvous is worse than one `;`.
 //
 // The rule that keeps a manual choice safe: an automatic switch fires only
 // on CROSSING a threshold (an edge, never a level), and only out of the one
-// frame it is meant to leave (SURF on the way up, ORBIT on the way down,
-// ORBIT on the way into rendezvous range, TGT on the way out). A player who
+// frame it is meant to leave (SURF on the way up, ORBIT on the way down). A player who
 // presses `;` keeps that frame until the next crossing.
 //
 // Thresholds:
@@ -32,10 +33,6 @@ import (
 //   - ORBIT to SURF on descent: 80% of the ascent altitude. The gap is the
 //     hysteresis band, so a vessel hovering or skimming at the line does
 //     not flicker.
-//   - ORBIT to TGT: range to a vessel Target at or inside the co-warp couple
-//     range (35 km), the same moment the Proximity View hint appears and
-//     "you are now flying relative to them" becomes true. TGT back to ORBIT
-//     at the co-warp decouple range (42 km), the same hysteresis pair.
 
 const (
 	navAutoScaleHeights   = 6.0
@@ -54,9 +51,6 @@ type navAutoState struct {
 	seeded  bool
 	above   bool // above the ascent line (with hysteresis)
 
-	target    Target
-	tgtSeeded bool
-	tgtInside bool
 }
 
 // NavAutoAscentAltitude is the SURF to ORBIT altitude for a body, from its
@@ -130,30 +124,6 @@ func (w *World) updateAutoNavMode() {
 			if w.NavMode == NavOrbit {
 				w.NavMode = NavSurface
 			}
-		}
-	}
-
-	// Rendezvous range.
-	ps, ok := w.ProximityState()
-	if !ok {
-		st.tgtSeeded = false
-		return
-	}
-	if !st.tgtSeeded || st.target != w.Target {
-		st.target, st.tgtSeeded = w.Target, true
-		st.tgtInside = ps.RangeM <= coWarpCoupleRangeM
-		return
-	}
-	switch {
-	case !st.tgtInside && ps.RangeM <= coWarpCoupleRangeM:
-		st.tgtInside = true
-		if w.NavMode == NavOrbit {
-			w.NavMode = NavTarget
-		}
-	case st.tgtInside && ps.RangeM >= coWarpDecoupleRangeM:
-		st.tgtInside = false
-		if w.NavMode == NavTarget {
-			w.NavMode = NavOrbit
 		}
 	}
 }
