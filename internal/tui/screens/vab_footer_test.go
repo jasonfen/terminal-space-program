@@ -34,9 +34,9 @@ func TestVABFooterWrapsAndKeepsSaveOpenAt104Columns(t *testing.T) {
 }
 
 // TestVABFooterFitsOnOneRowWhenWide confirms the wrap is a real word-wrap,
-// not an unconditional split: at a comfortably wide terminal both footer
-// hint rows stay on one physical line each (2 lines total), matching the
-// pre-#373 layout.
+// not an unconditional split: at a comfortably wide terminal all three footer
+// hint rows stay on one physical line each (3 lines total), matching the
+// pre-#373 layout (GK Q4 made it three rows, in plain words).
 func TestVABFooterFitsOnOneRowWhenWide(t *testing.T) {
 	v := NewVAB(Theme{})
 	v.Reset(testVABComps())
@@ -45,12 +45,12 @@ func TestVABFooterFitsOnOneRowWhenWide(t *testing.T) {
 
 	footerRows := 0
 	for _, ln := range lines {
-		if strings.Contains(ln, "[tab] column") || strings.Contains(ln, "[+/") {
+		if strings.Contains(ln, "[tab] other column") || strings.Contains(ln, "[+/-] count") || strings.Contains(ln, "[c] drops") {
 			footerRows++
 		}
 	}
-	if footerRows != 2 {
-		t.Errorf("got %d footer key-hint rows at width 160, want 2 (one per hint row):\n%s", footerRows, out)
+	if footerRows != 3 {
+		t.Errorf("got %d footer key-hint rows at width 160, want 3 (one per hint row):\n%s", footerRows, out)
 	}
 }
 

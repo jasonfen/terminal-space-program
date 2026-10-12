@@ -592,7 +592,7 @@ func TestSaveFromThePauseMenuLoadsAsFlown(t *testing.T) {
 		}
 		openSavesVia(t, a, "l")
 		press(a, "enter") // the one named save
-		press(a, "enter") // confirm the load
+		press(a, "y") // confirm the load (Enter never answers a [y/n] ask, GK Q7)
 		if a.active != screenOrbit {
 			t.Fatalf("wasPaused=%v: load left %v, want the map", wasPaused, a.active)
 		}
@@ -608,14 +608,14 @@ func TestSaveFromThePauseMenuLoadsAsFlown(t *testing.T) {
 	openSavesVia(t, a, "s")
 	press(a, "down")  // onto the existing save
 	press(a, "enter") // overwrite confirm
-	press(a, "enter")
+	press(a, "y")     // only y answers it (GK Q7)
 	if a.active != screenMenu {
 		t.Fatalf("overwrite left %v, want the menu", a.active)
 	}
 	press(a, "esc")
 	openSavesVia(t, a, "l")
 	press(a, "enter")
-	press(a, "enter")
+	press(a, "y")
 	if a.active != screenOrbit || a.world.Clock.Paused {
 		t.Errorf("overwritten save loaded: active %v paused %v, want the map running", a.active, a.world.Clock.Paused)
 	}
@@ -643,7 +643,7 @@ func TestLoadFromThePauseMenuReleasesTheMenuHold(t *testing.T) {
 	a.world.Clock.Paused = true // the player paused before opening the menu
 	openSavesVia(t, a, "l")
 	press(a, "enter") // the one named save
-	press(a, "enter") // confirm the load
+	press(a, "y") // confirm the load (Enter never answers a [y/n] ask, GK Q7)
 	if a.active != screenOrbit {
 		t.Fatalf("load left %v, want the map", a.active)
 	}

@@ -1009,6 +1009,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// stray flight key doesn't slip through mid-confirm.
 		if a.quickloadConfirm {
 			s := m.String()
+			if s == "enter" {
+				// GK Q7 (#589): Enter never answers a [y/n] ask.
+				return a, nil
+			}
 			a.quickloadConfirm = false
 			if s == "y" || s == "Y" {
 				a.flashStatus("load", a.doLoad())

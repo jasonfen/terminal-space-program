@@ -208,7 +208,9 @@ func (sc *SavesScreen) HandleKey(msg tea.KeyMsg) SavesCommand {
 
 	case savesStateConfirmLoad, savesStateConfirmDelete, savesStateConfirmOverwrite:
 		switch key {
-		case "y", "Y", "enter":
+		case "y", "Y":
+			// GK Q7 (#589): Enter is not yes. It does nothing here and the
+			// question stays up; only y confirms.
 			return sc.commitConfirm()
 		case "n", "N", "esc":
 			sc.state = savesStateBrowse
@@ -308,7 +310,7 @@ func (sc *SavesScreen) activateCursor() SavesCommand {
 }
 
 // commitConfirm resolves the active confirm gate into its finalised
-// command (shared by the keyboard y/enter path and the [Yes] click).
+// command (shared by the keyboard y path and the [Yes] click).
 func (sc *SavesScreen) commitConfirm() SavesCommand {
 	st := sc.state
 	sc.state = savesStateBrowse
