@@ -262,6 +262,24 @@ func (w *World) resolveEventNodes() {
 	}
 }
 
+// ApsisEventUndefined reports whether ev is a next peri / next apo trigger
+// on an orbit whose apsides name no point (a bound orbit with e below
+// orbital.ApsisDegenerateEcc). One predicate for every surface: the node
+// resolver (the node waits), the planner row and draft preview, and
+// ENGINE's node: row, so they cannot disagree about a node that will not
+// fire.
+func ApsisEventUndefined(c *spacecraft.Spacecraft, ev TriggerEvent) bool {
+	if c == nil || (ev != TriggerNextPeri && ev != TriggerNextApo) {
+		return false
+	}
+	mu := c.Primary.GravitationalParameter()
+	if mu == 0 {
+		return false
+	}
+	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+	return el.E < 1 && !orbital.ApsisDefined(el.E)
+}
+
 func (w *World) resolveEventNodesFor(c *spacecraft.Spacecraft) {
 	mu := c.Primary.GravitationalParameter()
 	if mu == 0 {
@@ -290,7 +308,7 @@ func (w *World) resolveEventNodesFor(c *spacecraft.Spacecraft) {
 			// no point, so the node waits (the planner row reads
 			// "(undefined)"), exactly as AN/DN do on an equatorial
 			// orbit. It resolves if the orbit later becomes eccentric.
-			if el := orbital.ElementsFromState(c.State.R, c.State.V, mu); el.E < 1 && !orbital.ApsisDefined(el.E) {
+			if ApsisEventUndefined(c, n.Event) {
 				continue
 			}
 			if n.Event == TriggerNextPeri {
@@ -635,6 +653,14 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		w.PlanNode(transferNodeToManeuver(plan.Departure, now, c))
 		w.PlanNode(transferNodeToManeuver(plan.Arrival, now, c))
 		return &plan, nil
+	}
+
+	// #610: a moon of ANOTHER planet is beyond the planning assists. The
+	// heliocentric Hohmann below would read the moon's planet-relative
+	// semimajor axis as a distance from the Sun (Phobos from LEO: a 24 km/s
+	// departure at T+0 and a 1.5 million m/s arrival). Refuse instead.
+	if planet := sys.ParentOf(target); planet != nil && planet.ID != sys.Bodies[0].ID {
+		return nil, &OtherPlanetsMoonError{Moon: target.EnglishName, Planet: planet.EnglishName}
 	}
 
 	primary := sys.Bodies[0]
@@ -2625,38 +2651,72 @@ var (
 
 type transferError string
 
+// OtherPlanetsMoonError is PlanTransfer's refusal for a target that is a
+// moon of a planet other than the one the vessel orbits (#610).
+type OtherPlanetsMoonError struct{ Moon, Planet string }
+
+func (e *OtherPlanetsMoonError) Error() string {
+	return "H plans to a planet or a moon of your own planet; target " + e.Planet + " first"
+}
+
 func (e transferError) Error() string { return string(e) }
 
-// ClearNodes wipes every pending node from the active craft. v0.8.1+:
-// per-active-craft (was global pre-v0.8.1).
-func (w *World) ClearNodes() {
+// ClearNodes wipes every pending node from the active craft and stops a
+// planted burn that is already firing (#588 lead 1): the node list and the
+// engine must agree, so "clear all" leaves nothing of the cleared plan
+// still burning. Returns the burn it stopped, nil when none was firing.
+// v0.8.1+: per-active-craft (was global pre-v0.8.1).
+func (w *World) ClearNodes() *ActiveBurn {
 	c := w.ActiveCraft()
 	if c == nil {
-		return
+		return nil
 	}
 	if !w.canCommand(c) { // ADR 0027: editing the flight plan is a command (matches DeleteNode)
-		return
+		return nil
 	}
 	c.Nodes = nil
+	return w.stopFiringBurn(c)
+}
+
+// stopFiringBurn ends c's planted (node) burn: engine off, the burn gone,
+// a rendezvous plan whose burn it was withdrawn (same as a throttle-zero
+// abort). The player's Throttle setting is a standing order and stays as
+// it was; a manual burn is not a planted burn and is not touched.
+func (w *World) stopFiringBurn(c *spacecraft.Spacecraft) *ActiveBurn {
+	ab := c.ActiveBurn
+	if ab == nil {
+		return nil
+	}
+	if c.RendezvousPlan != nil && c.RendezvousPlan.BurnActive {
+		w.withdrawRendezvousPlan(c)
+	}
+	c.ActiveBurn = nil
+	return ab
 }
 
 // DeleteNode removes the node at idx from the active craft's plan.
 // Out-of-range idx is a no-op (callers may pass -1 to indicate
 // "no edit target"). v0.8.6+ — paired with the maneuver form's
 // per-node delete action that replaces the v0.8.5-and-earlier
-// "wipe everything via N" keybinding.
-func (w *World) DeleteNode(idx int) {
+// "wipe everything via N" keybinding. Deleting the last row of the plan
+// stops a burn that is already firing, like ClearNodes (#588 lead 1);
+// the stopped burn is returned, nil otherwise.
+func (w *World) DeleteNode(idx int) *ActiveBurn {
 	c := w.ActiveCraft()
 	if c == nil {
-		return
+		return nil
 	}
 	if idx < 0 || idx >= len(c.Nodes) {
-		return
+		return nil
 	}
 	if !w.canCommand(c) { // ADR 0027: editing the flight plan is a command
-		return
+		return nil
 	}
 	c.Nodes = append(c.Nodes[:idx], c.Nodes[idx+1:]...)
+	if len(c.Nodes) == 0 {
+		return w.stopFiringBurn(c)
+	}
+	return nil
 }
 
 // GhostAbsentGrace is the wall-clock tolerance a ghost ref gets before the

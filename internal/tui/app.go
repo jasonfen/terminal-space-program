@@ -607,16 +607,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case screens.NodeDeleteMsg:
 		// v0.8.6+: per-node delete from the maneuver form. Form
 		// dispatched ctrl+d for the node under the Plan Cursor (ADR 0047).
-		a.world.DeleteNode(m.EditingIdx)
+		stopped := a.world.DeleteNode(m.EditingIdx)
 		a.closeManeuverToOrbit()
+		a.flashStoppedBurn(stopped)
 		return a, nil
 
 	case screens.NodeClearAllMsg:
 		// v0.8.6+: clear-all from the maneuver form. Replaces the
 		// retired N global keybinding.
-		a.world.ClearNodes()
+		stopped := a.world.ClearNodes()
 		a.world.RecordAction(missions.ActionClearNodes) // ADR 0025 §7
 		a.closeManeuverToOrbit()
+		a.flashStoppedBurn(stopped)
 		return a, nil
 
 	case tea.MouseMsg:
@@ -3805,6 +3807,42 @@ func (a *App) activeCraftNodes() []sim.ManeuverNode {
 	return nil
 }
 
+// plantedBurnSummary names the burn that makes H refuse, in the words and
+// with the time ENGINE's node: row uses for it: a firing burn reads like
+// the row's live-burn branch, a queued node by its burn start (or its
+// trigger event while it waits to resolve). Empty when nothing is planted
+// or firing.
+func (a *App) plantedBurnSummary() string {
+	c := a.world.ActiveCraft()
+	if c == nil {
+		return ""
+	}
+	if ab := c.ActiveBurn; ab != nil {
+		return fmt.Sprintf("%s %s left, firing", ab.Mode, readout.DeltaV(ab.DVRemaining))
+	}
+	if len(c.Nodes) == 0 {
+		return ""
+	}
+	n := c.Nodes[0]
+	if !n.IsResolved() {
+		return fmt.Sprintf("%s %s, %s", n.Mode, readout.DeltaV(n.DV), n.Event)
+	}
+	dt := n.BurnStart().Sub(a.world.Clock.SimTime)
+	if dt < 0 {
+		dt = 0
+	}
+	return fmt.Sprintf("%s %s in %s", n.Mode, readout.DeltaV(n.DV), readout.Duration(dt))
+}
+
+// flashStoppedBurn announces a planted burn that clearing the plan just
+// stopped (#588 lead 1). Silent when nothing was firing.
+func (a *App) flashStoppedBurn(ab *sim.ActiveBurn) {
+	if ab == nil {
+		return
+	}
+	a.flash(fmt.Sprintf("burn stopped: %s, %s unburned", ab.Mode, readout.DeltaV(ab.DVRemaining)))
+}
+
 // doPlanTransfer executes `H`: plant a transfer to World.Target. Shared
 // by the map binding and the planner's QUICK PLANS block (ADR 0047 §4 /
 // #428), which routes H to this exact method so pressing it inside the
@@ -3815,9 +3853,23 @@ func (a *App) doPlanTransfer() {
 		a.refuse("transfer", "vessel not in this system")
 		return
 	}
+	// #587 (GS Q6): one transfer at a time. Any planted burn, or a planted
+	// burn already firing, blocks H: nothing is replaced (half a departure
+	// cannot be un-flown) and nothing is stacked. The game does not
+	// remember which burns H planted, so a hand-made burn blocks it too.
+	if planted := a.plantedBurnSummary(); planted != "" {
+		a.refuse("transfer", fmt.Sprintf("a transfer is already planted (%s); clear it in [m] first", planted))
+		return
+	}
 	switch a.world.Target.Kind {
 	case sim.TargetBody:
-		_, _ = a.world.PlanTransfer(a.world.Target.BodyIdx)
+		if _, err := a.world.PlanTransfer(a.world.Target.BodyIdx); err != nil {
+			var other *sim.OtherPlanetsMoonError
+			if errors.As(err, &other) { // #610: beyond the planning assists
+				a.refuse("transfer", err.Error())
+				return
+			}
+		}
 		a.world.RecordAction(missions.ActionPlanTransfer) // ADR 0025 §7
 		// v0.12.x (ADR 0005): the intra-primary auto-plant is
 		// now a plane-aware dual-strategy solver (combined
