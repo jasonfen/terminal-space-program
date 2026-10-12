@@ -319,6 +319,10 @@ type OrbitView struct {
 	diskRasterCacheHits     int
 	diskRasterCacheComputes int
 
+	// smallBodies lists the bodies drawn this frame at smallBodyMaxR dots or
+	// less, refilled every Render, so markers can step off them (GM Q2).
+	smallBodies []smallBodyDisk
+
 	// rendezvousPicker holds the Rendezvous Planner picker's UI navigation state
 	// (ADR 0045 S6, #399): a walkable chip on the orbit map, not a
 	// separate screen, so it lives here alongside the other interactive-
@@ -824,6 +828,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// Inspect (ADR 0041 §3): the inspectable set is a property of the
 	// frame, so it is emptied here and refilled by the draw sites below.
 	v.resetInspectables()
+	v.smallBodies = v.smallBodies[:0]
 	v.canvas.SetBasis(viewBasis(w))
 	center := w.FocusPosition()
 	// Burn-frozen camera: hold the center steady while a burn is live so
@@ -1244,10 +1249,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 					peri := gPrimaryPos.Add(orbital.PositionAtTrueAnomaly(el, 0))
 					apo := gPrimaryPos.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
 					if !v.canvas.IsBehindBody(peri, gPrimaryPos, gPxR) {
-						drawMarker(v.canvas, peri, render.MarkerPeriapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
+						v.drawMarkerClear(peri, render.MarkerPeriapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
 					}
 					if !v.canvas.IsBehindBody(apo, gPrimaryPos, gPxR) {
-						drawMarker(v.canvas, apo, render.MarkerApoapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
+						v.drawMarkerClear(apo, render.MarkerApoapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
 					}
 				}
 			}
@@ -1302,10 +1307,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			// apoapsis in their type colours, replacing the chunky FillDisk
 			// blobs. Occlusion behind the primary still hides them.
 			if !v.canvas.IsBehindBody(peri, primaryPos, primaryPxR) {
-				drawMarker(v.canvas, peri, render.MarkerPeriapsis, render.MarkerNominal, "", widgets.CellTag{})
+				v.drawMarkerClear(peri, render.MarkerPeriapsis, render.MarkerNominal, "", widgets.CellTag{})
 			}
 			if !v.canvas.IsBehindBody(apo, primaryPos, primaryPxR) {
-				drawMarker(v.canvas, apo, render.MarkerApoapsis, render.MarkerNominal, "", widgets.CellTag{})
+				v.drawMarkerClear(apo, render.MarkerApoapsis, render.MarkerNominal, "", widgets.CellTag{})
 			}
 		}
 		craftInertial := w.CraftInertial()
@@ -1441,10 +1446,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 					peri := otherPrimaryPos.Add(orbital.PositionAtTrueAnomaly(otherEl, 0))
 					apo := otherPrimaryPos.Add(orbital.PositionAtTrueAnomaly(otherEl, math.Pi))
 					if !v.canvas.IsBehindBody(peri, otherPrimaryPos, otherPxR) {
-						drawMarker(v.canvas, peri, render.MarkerPeriapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
+						v.drawMarkerClear(peri, render.MarkerPeriapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
 					}
 					if !v.canvas.IsBehindBody(apo, otherPrimaryPos, otherPxR) {
-						drawMarker(v.canvas, apo, render.MarkerApoapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
+						v.drawMarkerClear(apo, render.MarkerApoapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
 					}
 				}
 			}
@@ -1951,12 +1956,19 @@ func (v *OrbitView) plotCluster(center orbital.Vec3, n int) {
 // type. Occlusion is the caller's call: apsis markers gate on
 // IsBehindBody before calling; maneuver markers do not.
 func drawMarker(canvas *widgets.Canvas, pos orbital.Vec3, t render.MarkerType, state render.MarkerState, base lipgloss.Color, tag widgets.CellTag) {
+	drawMarkerAt(canvas, pos, pos, t, state, base, tag)
+}
+
+// drawMarkerAt is drawMarker with the glyph drawn at glyphPos while the
+// click-target pixel stays at the true point pos (GM Q2: a marker that steps
+// off a small body keeps its hit target where the thing really is).
+func drawMarkerAt(canvas *widgets.Canvas, pos, glyphPos orbital.Vec3, t render.MarkerType, state render.MarkerState, base lipgloss.Color, tag widgets.CellTag) {
 	color := render.MarkerColor(t, state, base)
 	if tag.NodeIdx != 0 || tag.IsVessel || tag.BodyID != "" || tag.Owner != "" {
 		tag.Color = color
 		canvas.PlotColoredTagged(pos, tag)
 	}
-	canvas.SetCellOverlayColored(pos, render.MarkerGlyph(t), color)
+	canvas.SetCellOverlayColored(glyphPos, render.MarkerGlyph(t), color)
 }
 
 // drawNodes plots every planned maneuver node at its projected inertial
@@ -2335,7 +2347,7 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		if v.isInspected(nodeRef) {
 			markerColor = render.ColorInspect
 		}
-		drawMarker(v.canvas, m.pos, render.MarkerManeuver, render.MarkerNominal, markerColor, tag)
+		v.drawMarkerClear(m.pos, render.MarkerManeuver, render.MarkerNominal, markerColor, tag)
 	}
 	v.plotPredictedLegs(w, data.legs)
 	// Snapshot the dashed legs so an imminent ignition can keep them visible
@@ -2546,7 +2558,7 @@ func (v *OrbitView) drawSOIPass(w *sim.World) {
 			if arc.counterfactual.Impact {
 				st = render.MarkerAlarm // sub-surface perilune → Impact (red+bright even when counterfactual)
 			}
-			drawMarker(v.canvas, w.PerilunePosition(arc.counterfactual), render.MarkerPerilune, st, "", widgets.CellTag{})
+			v.drawMarkerClear(w.PerilunePosition(arc.counterfactual), render.MarkerPerilune, st, "", widgets.CellTag{})
 		}
 		// SOI Entry / Exit glyphs at the arc's ring crossings (ADR 0021 C),
 		// in the same brightness=state vocabulary as the Perilune: dim when
@@ -2554,10 +2566,10 @@ func (v *OrbitView) drawSOIPass(w *sim.World) {
 		// it IS the live path. No Exit when the arc never leaves the SOI
 		// (impact / horizon-truncated / node-capped).
 		if arc.counterfactual.HasEntry {
-			drawMarker(v.canvas, w.EntryPosition(arc.counterfactual), render.MarkerSOIEntry, markerState, "", widgets.CellTag{})
+			v.drawMarkerClear(w.EntryPosition(arc.counterfactual), render.MarkerSOIEntry, markerState, "", widgets.CellTag{})
 		}
 		if arc.counterfactual.HasExit {
-			drawMarker(v.canvas, w.ExitPosition(arc.counterfactual), render.MarkerSOIExit, markerState, "", widgets.CellTag{})
+			v.drawMarkerClear(w.ExitPosition(arc.counterfactual), render.MarkerSOIExit, markerState, "", widgets.CellTag{})
 		}
 	}
 
@@ -2572,13 +2584,13 @@ func (v *OrbitView) drawSOIPass(w *sim.World) {
 			if arc.planned.Impact {
 				st = render.MarkerAlarm
 			}
-			drawMarker(v.canvas, w.PerilunePosition(arc.planned), render.MarkerPerilune, st, "", widgets.CellTag{})
+			v.drawMarkerClear(w.PerilunePosition(arc.planned), render.MarkerPerilune, st, "", widgets.CellTag{})
 		}
 		if arc.planned.HasEntry {
-			drawMarker(v.canvas, w.EntryPosition(arc.planned), render.MarkerSOIEntry, render.MarkerNominal, "", widgets.CellTag{})
+			v.drawMarkerClear(w.EntryPosition(arc.planned), render.MarkerSOIEntry, render.MarkerNominal, "", widgets.CellTag{})
 		}
 		if arc.planned.HasExit {
-			drawMarker(v.canvas, w.ExitPosition(arc.planned), render.MarkerSOIExit, render.MarkerNominal, "", widgets.CellTag{})
+			v.drawMarkerClear(w.ExitPosition(arc.planned), render.MarkerSOIExit, render.MarkerNominal, "", widgets.CellTag{})
 		}
 	}
 }
