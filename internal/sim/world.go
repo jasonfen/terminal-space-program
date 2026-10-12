@@ -1299,6 +1299,10 @@ func (w *World) LastFinishedRung() (name string, ok bool) {
 	return "", false
 }
 
+// ExpireRungDoneFlash ends the done flash now (the standing row stays).
+// Lets tests step past the wall-clock window without sleeping.
+func (w *World) ExpireRungDoneFlash() { w.rungDoneUntil = time.Time{} }
+
 // RungDoneFlash reports whether a rung finished within the last
 // rungDoneFlashWindow (wall-clock, so it expires while paused). Armed only
 // by a live InProgress to Passed transition in evaluateMissions, never by a
