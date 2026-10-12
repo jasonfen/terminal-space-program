@@ -3112,6 +3112,21 @@ _Avoid_: Footer (the pre-v0.13 cheat-sheet row, which was removed),
 Cheat sheet, Key bar, Rotating hints (rejected: a moving row that
 duplicates the MISSION box).
 
+**Scale Bar** (grilled 2026-10-11, GS Q7, #602):
+A rounded distance on the bottom canvas row, right-aligned, drawn as
+`├──────┤ 200 Mm`: a 1, 2 or 5 x 10^n distance spanning at least six
+cells, its unit on the ADR 0049 distance ladder (`m`, `km`, `Mm`, `Gm`,
+`AU`) with a round value's trailing `.0` dropped (`1 km`, not `1.000 km`;
+round AU values past 0.1 AU). On the **Proximity View**, the orbit map in
+every projection, and the launch view; it updates with `+`/`-` and with
+every Framing Event. One scale holds in all of them: every projection is
+orthographic with a unit horizontal axis, so the bar measures the
+screen's horizontal axis, at any depth, in the tilted views too (only the
+vertical axis foreshortens). The bar goes after the **Hint Strip**, or one
+row up when a long label fills the row; it never covers a key hint, and is
+dropped before it would.
+_Avoid_: Ruler, zoom readout.
+
 **Title Row** (grilled 2026-10-04, G9, B11 / #508):
 Row 0 of every screen, one template: the **Wordmark** with the version,
 then the screen and its context (the map: system, active vessel, focus;
