@@ -477,6 +477,8 @@ type World struct {
 	// deadline is wall-clock, not sim-time, so it expires even if the player
 	// pauses the instant they fail. Session scoped, not persisted.
 	missionFailMsg   string
+	rungDoneUntil    time.Time
+	lastRungDoneID   string
 	missionFailUntil time.Time
 
 	// commBlockedUntil drives the "NO SIGNAL" transient (v0.23 / ADR 0027):
@@ -1058,6 +1060,13 @@ func (w *World) evaluateMissions() {
 		}
 		prev := w.Missions[i].Status
 		w.Missions[i].Evaluate(ctx)
+		// A fresh InProgress→Passed transition arms the green "done" flash
+		// and remembers which rung it was (#594). Transient: a load never
+		// re-arms it, LastFinishedRung re-derives from the saved statuses.
+		if prev == missions.InProgress && w.Missions[i].Status == missions.Passed {
+			w.lastRungDoneID = w.Missions[i].ID
+			w.rungDoneUntil = time.Now().Add(rungDoneFlashWindow)
+		}
 		// A fresh InProgress→Failed transition arms the chip's failure flash
 		// (ADR 0025 §5). Naming the reason needs the failed objective: scan
 		// for it and ask which opt-in fail_on condition fired.
@@ -1257,6 +1266,51 @@ func (w *World) ConnectedRelayCount() int {
 // frozen progress while the ladder screen — which classifies the same mission
 // as locked — shows a different active card. Both surfaces now share one
 // definition of "active". Used by the HUD to surface a single-line status.
+// rungDoneFlashWindow is how long (wall-clock) the standing "done" row
+// flashes green after a rung completes: the mirror of missionFailFlashWindow.
+const rungDoneFlashWindow = missionFailFlashWindow
+
+// LastFinishedRung names the most recently finished rung of the active
+// rung's program, for the MISSION box's standing "done" row (#594, GS Q5).
+// Derived from persisted Mission.Status, so it survives save/load with no
+// new field: this session's newest completion wins when there is one,
+// otherwise the last Passed mission of that program in catalog order (the
+// ladder order for Flight School). ok is false when no rung is active or
+// none of its program has finished yet.
+func (w *World) LastFinishedRung() (name string, ok bool) {
+	active := w.ActiveMission()
+	if active == nil {
+		return "", false
+	}
+	if w.lastRungDoneID != "" {
+		for i := range w.Missions {
+			m := &w.Missions[i]
+			if m.ID == w.lastRungDoneID && m.Status == missions.Passed && m.Program == active.Program {
+				return m.Name, true
+			}
+		}
+	}
+	for i := len(w.Missions) - 1; i >= 0; i-- {
+		m := &w.Missions[i]
+		if m.Status == missions.Passed && m.Program == active.Program {
+			return m.Name, true
+		}
+	}
+	return "", false
+}
+
+// ExpireRungDoneFlash ends the done flash now (the standing row stays).
+// Lets tests step past the wall-clock window without sleeping.
+func (w *World) ExpireRungDoneFlash() { w.rungDoneUntil = time.Time{} }
+
+// RungDoneFlash reports whether a rung finished within the last
+// rungDoneFlashWindow (wall-clock, so it expires while paused). Armed only
+// by a live InProgress to Passed transition in evaluateMissions, never by a
+// load, so it fires once per rung.
+func (w *World) RungDoneFlash() bool {
+	return !w.rungDoneUntil.IsZero() && time.Now().Before(w.rungDoneUntil)
+}
+
 func (w *World) ActiveMission() *missions.Mission {
 	passed := missions.PassedSet(w.Missions)
 	for i := range w.Missions {

@@ -2,6 +2,7 @@ package screens
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -96,7 +97,36 @@ func (v *OrbitView) buildMissionBox(w *sim.World) []string {
 		}
 	}
 	if lines := v.missionChipLines(flash, flashing, w.ActiveMission(), w.ConnectedRelayCount()); lines != nil {
+		if !flashing {
+			lines = v.withDoneRow(lines, w)
+		}
 		return lines
 	}
 	return []string{v.theme.Primary.Render("MISSION") + "  —"}
+}
+
+// rungDoneGreen is the colour of the done row while its completion flash
+// runs (the green mirror of the red failure flash, #594). Mint, the same
+// hue the planner's second leg already uses; the theme has no green.
+var rungDoneGreen = lipgloss.NewStyle().Foreground(lipgloss.Color("#5FFF87"))
+
+// withDoneRow inserts the standing "✓ done: <last finished rung>" row
+// directly under the box's title line (#594, GS Q5). Green while the
+// completion flash runs, Dim once it settles; absent until a rung has
+// finished. It is the one extra row the box costs for the whole rung.
+func (v *OrbitView) withDoneRow(lines []string, w *sim.World) []string {
+	name, ok := w.LastFinishedRung()
+	if !ok || len(lines) == 0 {
+		return lines
+	}
+	name = strings.TrimPrefix(name, "Flight School: ")
+	row := "  ✓ done: " + name
+	if w.RungDoneFlash() {
+		row = rungDoneGreen.Render(row)
+	} else {
+		row = v.theme.Dim.Render(row)
+	}
+	out := make([]string, 0, len(lines)+1)
+	out = append(out, lines[0], row)
+	return append(out, lines[1:]...)
 }
