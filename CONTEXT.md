@@ -621,6 +621,19 @@ Unlike Focus and Target, NavMode lives on `World`, not on the Vessel — it's
 a known scope cap (each Vessel does not yet remember its own NavMode across
 active-Vessel switches); revisit if that asymmetry starts to bite.
 
+**NAVIGATION's `speed:` follows NavMode and names it** (#601, ADR 0051 13d):
+`0.00 m/s (surface)` on the pad (speed over the turning ground),
+`7617 m/s (orbit)` in orbit (the number insertion and Δv use),
+`3.00 m/s (target)` relative to the Target. **`;` cycles by hand and NavMode
+also moves itself, KSP's way, on crossings only:** SURF to ORBIT climbing
+through 6 atmosphere scale heights (clamped to the atmosphere cutoff; Earth
+51 km; airless bodies 10 km, at most a tenth of the radius), ORBIT back to
+SURF descending through 80% of that altitude, ORBIT to TGT coming inside 35 km
+of a vessel Target (the Proximity hint moment), TGT back to ORBIT beyond
+42 km. An automatic switch is an edge, not a level, and only leaves the frame
+it is meant to leave, so a manual `;` choice is kept until the next crossing.
+Not saved: after a load the crossing memory re-seeds silently.
+
 **Every `hold:` row names the frame it holds in** (ADR 0050) —
 `Prograde (ORBIT)`, `Radial+ (SURF)`, `Target+ (TGT)` — read off the
 **held mode**, never the live NavMode, so it can't contradict itself: a
