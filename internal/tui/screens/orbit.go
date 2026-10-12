@@ -940,6 +940,9 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		pos := w.BodyPosition(b)
 		r := drawnBodyRadius(&sys, i, pos, w, scale, canvasReach)
 		v.recordSmallBody(b.ID, pos, r)
+		// A disk drawn at the body's true size is a sphere and gets the Sun's
+		// shading; one drawn bigger than true (a tier icon) stays flat.
+		trueSizeDisk := int(math.Round(b.RadiusMeters()*scale)) >= r
 		color := render.ColorFor(b)
 		// v0.6.4: tag body pixels with BodyID so HitAt resolves
 		// mouse clicks back to the body for click-to-focus.
@@ -1057,7 +1060,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// already no-op per off-canvas pixel, so skipping the whole
 		// call draws identically (nothing) while skipping the setup.
 		if v.canvas.DiskIntersectsCanvas(pos, r) {
-			if tex := render.TextureFor(b, r, subLat, subLon, upX, upY, light); tex != nil {
+			if tex := render.DiskShader(b, r, subLat, subLon, upX, upY, light, trueSizeDisk); tex != nil {
 				pxR := r
 				// #363: serve the cached raster grid on a quantized-key
 				// hit instead of re-evaluating tex per pixel every tick.
@@ -1149,7 +1152,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// Also skip when the body has a per-pixel texture rendering
 		// (v0.7.2.1+) — the glyph would blot the centre of the
 		// continent/cloud detail it's meant to highlight.
-		if i != 0 && !render.BodyHasTexture(b, r) && !foldsIntoParent(&sys, b, pos, w, scale) {
+		// GM Q3 (#591): from 3 dots up the day/night shading says "body" and
+		// the glyph goes; it stays on the 1- and 2-dot disks where shading
+		// cannot show, on a tier icon drawn bigger than true size (Jupiter at
+		// the whole-system view), and on a star (never shaded).
+		if i != 0 && !render.BodyHasTexture(b, r) && (r < render.FlatLitMinRadius || !trueSizeDisk || b.BodyType == "Star") && !foldsIntoParent(&sys, b, pos, w, scale) {
 			if g := render.GlyphFor(b); g != 0 {
 				v.canvas.SetCellOverlay(pos, g)
 			}

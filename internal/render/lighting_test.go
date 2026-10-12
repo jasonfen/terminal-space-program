@@ -184,3 +184,24 @@ func TestTextureForNilLightUnshaded(t *testing.T) {
 		t.Errorf("sub-solar center pixel: got %q want unshaded %q", got, want)
 	}
 }
+
+// The night side is a dim version of the body, not black (GM Q4, #591): at
+// 18% an airless body's night half measured rgb(42,39,12) for Io and read as
+// nothing on a black terminal. The floor is a number Jason chose, so the test
+// states the number rather than the constant.
+func TestNightSideStaysAboveFloor(t *testing.T) {
+	night := &SolarLight{SubSolarLatDeg: 0, SubSolarLonDeg: 180}
+	if got := night.FactorAt(0, 0, 32, 0, 0, 0, 1); got < 0.40-1e-6 {
+		t.Errorf("anti-solar pixel factor = %.3f, want at least 0.40", got)
+	}
+	// Positive control: the same light still reaches full day on the far side.
+	day := &SolarLight{SubSolarLatDeg: 0, SubSolarLonDeg: 0}
+	if got := day.FactorAt(0, 0, 32, 0, 0, 0, 1); got < 0.999 {
+		t.Fatalf("setup: sub-solar factor = %.3f, want 1", got)
+	}
+	// The eclipse floor stays darker than any night side.
+	eclipsed := &SolarLight{SubSolarLatDeg: 0, SubSolarLonDeg: 0, EclipseFactor: 0.1}
+	if got := eclipsed.FactorAt(0, 0, 32, 0, 0, 0, 1); got > 0.15 {
+		t.Errorf("a fully eclipsed pixel factor = %.3f, want the 10%% umbra floor (darker than night)", got)
+	}
+}

@@ -75,6 +75,7 @@ func TestSmallBodyHasMinimumDrawnRadius(t *testing.T) {
 	w.Focus = sim.Focus{Kind: sim.FocusBody, BodyIdx: earthIdx}
 	w.ViewMode = sim.ViewTop
 	v := NewOrbitView(plainTheme())
+	v.Resize(140, 40)
 	v.Render(w, 0, 140, 40)
 	moon, ok := smallBodyNamed(v, "moon")
 	if !ok {
@@ -97,6 +98,7 @@ func TestMoonInsidePlanetDiskIsExempt(t *testing.T) {
 	w.Focus = sim.Focus{Kind: sim.FocusSystem}
 	w.ViewMode = sim.ViewTop
 	v := NewOrbitView(plainTheme())
+	v.Resize(140, 40)
 	v.Render(w, 0, 140, 40)
 
 	_, phobos := bodyByID(t, w, "phobos")
