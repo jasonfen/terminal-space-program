@@ -319,6 +319,10 @@ type OrbitView struct {
 	diskRasterCacheHits     int
 	diskRasterCacheComputes int
 
+	// smallBodies lists the bodies drawn this frame at smallBodyMaxR dots or
+	// less, refilled every Render, so markers can step off them (GM Q2).
+	smallBodies []smallBodyDisk
+
 	// rendezvousPicker holds the Rendezvous Planner picker's UI navigation state
 	// (ADR 0045 S6, #399): a walkable chip on the orbit map, not a
 	// separate screen, so it lives here alongside the other interactive-
@@ -824,6 +828,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// Inspect (ADR 0041 §3): the inspectable set is a property of the
 	// frame, so it is emptied here and refilled by the draw sites below.
 	v.resetInspectables()
+	v.smallBodies = v.smallBodies[:0]
 	v.canvas.SetBasis(viewBasis(w))
 	center := w.FocusPosition()
 	// Burn-frozen camera: hold the center steady while a burn is live so
@@ -933,7 +938,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	for i := range sys.Bodies {
 		b := sys.Bodies[i]
 		pos := w.BodyPosition(b)
-		r := mapBodyPixelRadius(b, i == 0, scale, canvasReach)
+		r := drawnBodyRadius(&sys, i, pos, w, scale, canvasReach)
+		v.recordSmallBody(b.ID, pos, r)
+		// A disk drawn at the body's true size is a sphere and gets the Sun's
+		// shading; one drawn bigger than true (a tier icon) stays flat.
+		trueSizeDisk := int(math.Round(b.RadiusMeters()*scale)) >= r
 		color := render.ColorFor(b)
 		// v0.6.4: tag body pixels with BodyID so HitAt resolves
 		// mouse clicks back to the body for click-to-focus.
@@ -1051,7 +1060,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// already no-op per off-canvas pixel, so skipping the whole
 		// call draws identically (nothing) while skipping the setup.
 		if v.canvas.DiskIntersectsCanvas(pos, r) {
-			if tex := render.TextureFor(b, r, subLat, subLon, upX, upY, light); tex != nil {
+			if tex := render.DiskShader(b, r, subLat, subLon, upX, upY, light, trueSizeDisk); tex != nil {
 				pxR := r
 				// #363: serve the cached raster grid on a quantized-key
 				// hit instead of re-evaluating tex per pixel every tick.
@@ -1143,7 +1152,11 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// Also skip when the body has a per-pixel texture rendering
 		// (v0.7.2.1+) — the glyph would blot the centre of the
 		// continent/cloud detail it's meant to highlight.
-		if i != 0 && !render.BodyHasTexture(b, r) && !foldsIntoParent(&sys, b, pos, w, scale) {
+		// GM Q3 (#591): from 3 dots up the day/night shading says "body" and
+		// the glyph goes; it stays on the 1- and 2-dot disks where shading
+		// cannot show, on a tier icon drawn bigger than true size (Jupiter at
+		// the whole-system view), and on a star (never shaded).
+		if i != 0 && !render.BodyHasTexture(b, r) && (r < render.FlatLitMinRadius || !trueSizeDisk || b.BodyType == "Star") && !foldsIntoParent(&sys, b, pos, w, scale) {
 			if g := render.GlyphFor(b); g != 0 {
 				v.canvas.SetCellOverlay(pos, g)
 			}
@@ -1244,10 +1257,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 					peri := gPrimaryPos.Add(orbital.PositionAtTrueAnomaly(el, 0))
 					apo := gPrimaryPos.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
 					if !v.canvas.IsBehindBody(peri, gPrimaryPos, gPxR) {
-						drawMarker(v.canvas, peri, render.MarkerPeriapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
+						v.drawMarkerClear(peri, render.MarkerPeriapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
 					}
 					if !v.canvas.IsBehindBody(apo, gPrimaryPos, gPxR) {
-						drawMarker(v.canvas, apo, render.MarkerApoapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
+						v.drawMarkerClear(apo, render.MarkerApoapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
 					}
 				}
 			}
@@ -1302,10 +1315,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			// apoapsis in their type colours, replacing the chunky FillDisk
 			// blobs. Occlusion behind the primary still hides them.
 			if !v.canvas.IsBehindBody(peri, primaryPos, primaryPxR) {
-				drawMarker(v.canvas, peri, render.MarkerPeriapsis, render.MarkerNominal, "", widgets.CellTag{})
+				v.drawMarkerClear(peri, render.MarkerPeriapsis, render.MarkerNominal, "", widgets.CellTag{})
 			}
 			if !v.canvas.IsBehindBody(apo, primaryPos, primaryPxR) {
-				drawMarker(v.canvas, apo, render.MarkerApoapsis, render.MarkerNominal, "", widgets.CellTag{})
+				v.drawMarkerClear(apo, render.MarkerApoapsis, render.MarkerNominal, "", widgets.CellTag{})
 			}
 		}
 		craftInertial := w.CraftInertial()
@@ -1441,10 +1454,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 					peri := otherPrimaryPos.Add(orbital.PositionAtTrueAnomaly(otherEl, 0))
 					apo := otherPrimaryPos.Add(orbital.PositionAtTrueAnomaly(otherEl, math.Pi))
 					if !v.canvas.IsBehindBody(peri, otherPrimaryPos, otherPxR) {
-						drawMarker(v.canvas, peri, render.MarkerPeriapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
+						v.drawMarkerClear(peri, render.MarkerPeriapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
 					}
 					if !v.canvas.IsBehindBody(apo, otherPrimaryPos, otherPxR) {
-						drawMarker(v.canvas, apo, render.MarkerApoapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
+						v.drawMarkerClear(apo, render.MarkerApoapsis, render.MarkerCounterfactual, "", widgets.CellTag{})
 					}
 				}
 			}
@@ -1824,8 +1837,9 @@ func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64, maxP
 		cap = maxPx
 	}
 	r := b.RadiusMeters()
+	truePx := 0
 	if scale > 0 && r > 0 {
-		truePx := int(math.Round(r * scale))
+		truePx = int(math.Round(r * scale))
 		if truePx >= trueSizeThreshold {
 			if truePx > cap {
 				truePx = cap
@@ -1833,18 +1847,23 @@ func BodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64, maxP
 			return truePx
 		}
 	}
+	tier := 1
 	switch {
 	case isPrimary, r >= 1e8: // star-class
-		return 6
+		tier = 6
 	case r >= 2e7: // gas giant
-		return 4
+		tier = 4
 	case r >= 3e6: // terrestrial
-		return 2
-	case r > 0: // small body / moon / dwarf
-		return 1
-	default:
-		return 1
+		tier = 2
 	}
+	// Never smaller than true size (GM, #591): a moon at 2 to 3.9 dots of
+	// true radius used to draw at 1 until it reached 4, then jump to 4.
+	// Below the threshold the tier is a floor, not a replacement, so
+	// zooming in grows a small body a dot at a time.
+	if truePx > tier {
+		return truePx
+	}
+	return tier
 }
 
 // vec3FromRender adapts a render.Vec3 to an orbital.Vec3 for code
@@ -1951,12 +1970,19 @@ func (v *OrbitView) plotCluster(center orbital.Vec3, n int) {
 // type. Occlusion is the caller's call: apsis markers gate on
 // IsBehindBody before calling; maneuver markers do not.
 func drawMarker(canvas *widgets.Canvas, pos orbital.Vec3, t render.MarkerType, state render.MarkerState, base lipgloss.Color, tag widgets.CellTag) {
+	drawMarkerAt(canvas, pos, pos, t, state, base, tag)
+}
+
+// drawMarkerAt is drawMarker with the glyph drawn at glyphPos while the
+// click-target pixel stays at the true point pos (GM Q2: a marker that steps
+// off a small body keeps its hit target where the thing really is).
+func drawMarkerAt(canvas *widgets.Canvas, pos, glyphPos orbital.Vec3, t render.MarkerType, state render.MarkerState, base lipgloss.Color, tag widgets.CellTag) {
 	color := render.MarkerColor(t, state, base)
 	if tag.NodeIdx != 0 || tag.IsVessel || tag.BodyID != "" || tag.Owner != "" {
 		tag.Color = color
 		canvas.PlotColoredTagged(pos, tag)
 	}
-	canvas.SetCellOverlayColored(pos, render.MarkerGlyph(t), color)
+	canvas.SetCellOverlayColored(glyphPos, render.MarkerGlyph(t), color)
 }
 
 // drawNodes plots every planned maneuver node at its projected inertial
@@ -2335,7 +2361,7 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		if v.isInspected(nodeRef) {
 			markerColor = render.ColorInspect
 		}
-		drawMarker(v.canvas, m.pos, render.MarkerManeuver, render.MarkerNominal, markerColor, tag)
+		v.drawMarkerClear(m.pos, render.MarkerManeuver, render.MarkerNominal, markerColor, tag)
 	}
 	v.plotPredictedLegs(w, data.legs)
 	// Snapshot the dashed legs so an imminent ignition can keep them visible
@@ -2546,7 +2572,7 @@ func (v *OrbitView) drawSOIPass(w *sim.World) {
 			if arc.counterfactual.Impact {
 				st = render.MarkerAlarm // sub-surface perilune → Impact (red+bright even when counterfactual)
 			}
-			drawMarker(v.canvas, w.PerilunePosition(arc.counterfactual), render.MarkerPerilune, st, "", widgets.CellTag{})
+			v.drawMarkerClear(w.PerilunePosition(arc.counterfactual), render.MarkerPerilune, st, "", widgets.CellTag{})
 		}
 		// SOI Entry / Exit glyphs at the arc's ring crossings (ADR 0021 C),
 		// in the same brightness=state vocabulary as the Perilune: dim when
@@ -2554,10 +2580,10 @@ func (v *OrbitView) drawSOIPass(w *sim.World) {
 		// it IS the live path. No Exit when the arc never leaves the SOI
 		// (impact / horizon-truncated / node-capped).
 		if arc.counterfactual.HasEntry {
-			drawMarker(v.canvas, w.EntryPosition(arc.counterfactual), render.MarkerSOIEntry, markerState, "", widgets.CellTag{})
+			v.drawMarkerClear(w.EntryPosition(arc.counterfactual), render.MarkerSOIEntry, markerState, "", widgets.CellTag{})
 		}
 		if arc.counterfactual.HasExit {
-			drawMarker(v.canvas, w.ExitPosition(arc.counterfactual), render.MarkerSOIExit, markerState, "", widgets.CellTag{})
+			v.drawMarkerClear(w.ExitPosition(arc.counterfactual), render.MarkerSOIExit, markerState, "", widgets.CellTag{})
 		}
 	}
 
@@ -2572,13 +2598,13 @@ func (v *OrbitView) drawSOIPass(w *sim.World) {
 			if arc.planned.Impact {
 				st = render.MarkerAlarm
 			}
-			drawMarker(v.canvas, w.PerilunePosition(arc.planned), render.MarkerPerilune, st, "", widgets.CellTag{})
+			v.drawMarkerClear(w.PerilunePosition(arc.planned), render.MarkerPerilune, st, "", widgets.CellTag{})
 		}
 		if arc.planned.HasEntry {
-			drawMarker(v.canvas, w.EntryPosition(arc.planned), render.MarkerSOIEntry, render.MarkerNominal, "", widgets.CellTag{})
+			v.drawMarkerClear(w.EntryPosition(arc.planned), render.MarkerSOIEntry, render.MarkerNominal, "", widgets.CellTag{})
 		}
 		if arc.planned.HasExit {
-			drawMarker(v.canvas, w.ExitPosition(arc.planned), render.MarkerSOIExit, render.MarkerNominal, "", widgets.CellTag{})
+			v.drawMarkerClear(w.ExitPosition(arc.planned), render.MarkerSOIExit, render.MarkerNominal, "", widgets.CellTag{})
 		}
 	}
 }
@@ -3051,8 +3077,18 @@ func mapBodyPixelRadius(b bodies.CelestialBody, isPrimary bool, scale float64, m
 			}
 		}
 	}
-	return BodyPixelRadius(b, isPrimary, scale, maxPx)
+	r := BodyPixelRadius(b, isPrimary, scale, maxPx)
+	if r < minBodyDrawnRadius {
+		r = minBodyDrawnRadius
+	}
+	return r
 }
+
+// minBodyDrawnRadius is the smallest disk any body draws on the map, in
+// braille dots (GM Q1, #591): about 3 cells by 2 rows, enough to see a moon
+// you framed under its own glyph. A moon inside its planet's drawn disk is
+// exempt (drawnBodyRadius).
+const minBodyDrawnRadius = 2
 
 // coronaRingRadii returns the pixel radii of the star's corona rings (1.4x
 // and 1.8x the drawn radius r). A ring is dropped when it would reach the

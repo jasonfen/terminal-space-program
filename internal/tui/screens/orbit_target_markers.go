@@ -83,8 +83,8 @@ func (v *OrbitView) drawClosestApproachMarker(w *sim.World) {
 		// has to resolve — anchored on the end the player can actually see.
 		v.registerDrawnOwner(caRef, inspectApproachName(w), targetPos, false)
 	}
-	drawMarker(v.canvas, ownPos, render.MarkerClosestApproach, render.MarkerNominal, "", caTag)
-	drawMarker(v.canvas, targetPos, render.MarkerClosestApproach, render.MarkerNominal, "", caTag)
+	v.drawMarkerClear(ownPos, render.MarkerClosestApproach, render.MarkerNominal, "", caTag)
+	v.drawMarkerClear(targetPos, render.MarkerClosestApproach, render.MarkerNominal, "", caTag)
 	if v.isInspected(caRef) {
 		// Flare BOTH ends: the pair is the entity, and lighting only one
 		// ✕ would hide the very thing the marker exists to show — which
@@ -117,9 +117,9 @@ func (v *OrbitView) drawTargetPlaneNodes(w *sim.World) {
 	vesselPos := w.BodyPosition(c.Primary).Add(c.State.R)
 	vesselHere := func(pos orbital.Vec3) bool { return v.canvas.SameCell(pos, vesselPos) }
 	if hasAN && !vesselHere(anPos) {
-		drawMarker(v.canvas, anPos, render.MarkerAscendingNode, render.MarkerNominal, "", widgets.CellTag{})
+		v.drawMarkerClear(anPos, render.MarkerAscendingNode, render.MarkerNominal, "", widgets.CellTag{})
 	}
 	if hasDN && !vesselHere(dnPos) {
-		drawMarker(v.canvas, dnPos, render.MarkerDescendingNode, render.MarkerNominal, "", widgets.CellTag{})
+		v.drawMarkerClear(dnPos, render.MarkerDescendingNode, render.MarkerNominal, "", widgets.CellTag{})
 	}
 }

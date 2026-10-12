@@ -67,14 +67,12 @@ type CellTag struct {
 	// unchanged.
 	Backdrop bool
 	// Sparse marks dotted or dashed ink (a Planned leg, the CommNet beam):
-	// it neither wins its cells over Backdrop nor is cut by another line's
-	// moat, so it votes by majority as before. Set by the canvas's dotted
-	// and dashed drawers, never by callers. Knocked out and moated like a
-	// solid line, the gaps between its dots turned the dark channel into a
-	// zig-zag of blotches that read as a wavy line (Jason 2026-10-10: "a
-	// strange light blue line that renders in a wavy shape"; it was the
-	// CommNet beam crossing the planet). And a moat would erase a dashed
-	// leg where it peels off a solid orbit at its burn.
+	// it does not win its cells over Backdrop, so it votes by majority as
+	// before. Set by the canvas's dotted and dashed drawers, never by
+	// callers. Knocked out like a solid line, the gaps between its dots
+	// turned the cells it crossed into a zig-zag of blotches that read as a
+	// wavy line (Jason 2026-10-10: "a strange light blue line that renders
+	// in a wavy shape"; it was the CommNet beam crossing the planet).
 	Sparse bool
 	// OwnerTied is a HitAt OUTPUT only — never set by a drawer, and
 	// ignored on any tag passed into a draw helper. It reports that two
@@ -1894,7 +1892,7 @@ func (c *Canvas) String() string {
 			return
 		}
 		if runStyled {
-			b.WriteString(lipgloss.NewStyle().Foreground(runFg).Render(string(runBuf)))
+			b.WriteString(ink.styledRun(runFg, string(runBuf)))
 		} else {
 			for _, r := range runBuf {
 				b.WriteRune(r)

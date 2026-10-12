@@ -25,8 +25,11 @@ const (
 	// nightFloor is the minimum illumination on the anti-solar side.
 	// Non-zero so the dark hemisphere stays a dim version of the
 	// body's real color (disk outline + identity stay readable)
-	// rather than collapsing to black.
-	nightFloor = 0.18
+	// rather than collapsing to black. 0.40 since GM Q4 (#591): at
+	// 0.18 an airless body's night half (Io: rgb(42,39,12)) read as
+	// nothing on a black terminal and the far half of an orbit seemed
+	// to stop in empty space instead of going behind something.
+	nightFloor = 0.40
 	// terminatorSoft is the half-width of the terminator band in
 	// cosΘ units. ~0.15 gives a band a few px wide on a 32px disk —
 	// visibly soft without washing the day/night line out.

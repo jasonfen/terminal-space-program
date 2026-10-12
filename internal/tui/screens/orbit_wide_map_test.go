@@ -250,7 +250,7 @@ func TestWideMapLabelCounts(t *testing.T) {
 		{"Sol", 140, 40, 6, []string{"Sun", "Mars", "Jupiter", "Saturn", "Uranus"}},
 		{"Sol", 181, 49, 7, []string{"Sun", "Jupiter", "Saturn", "Uranus", "Neptune"}},
 		{"Lumen", 140, 40, 7, []string{"Lumen", "Kern", "Cache"}},
-		{"Lumen", 181, 49, 7, []string{"Lumen", "Rust", "Cache"}},
+		{"Lumen", 181, 49, 8, []string{"Lumen", "Rust", "Cache"}}, // was 7 before the 2-dot body floor (S10, #591): Lumen's small planets draw a dot wider and one more name fits (re-measured: every mustHave placed, no overlap)
 	}
 	for _, c := range cases {
 		v, w, _ := wideMapRender(t, c.system, c.cols, c.rows)
@@ -534,13 +534,27 @@ func TestWideMapSideNamesAbutOnlyTheirOwnBody(t *testing.T) {
 	for _, fx := range wideMapFixtures {
 		v, w, _ := wideMapRender(t, fx.system, fx.cols, fx.rows)
 		cells := map[[2]int][]string{}
-		for _, b := range w.System().Bodies {
+		// disks: the cells each body's drawn disk touches. Since the 2-dot
+		// floor (GM Q1, #591) a small planet's disk spans the cell beside its
+		// centre, so a name beside it sits flush against the disk, not the
+		// centre cell; the positive control counts those.
+		disks := map[[2]int][]string{}
+		sys := w.System()
+		for i, b := range sys.Bodies {
 			if b.BodyType == "Moon" {
 				continue
 			}
-			if px, py, ok := v.canvas.Project(w.BodyPosition(b)); ok {
+			pos := w.BodyPosition(b)
+			if px, py, ok := v.canvas.Project(pos); ok {
 				k := [2]int{px / 2, py / 4}
 				cells[k] = append(cells[k], b.EnglishName)
+				r := drawnBodyRadius(&sys, i, pos, w, v.canvas.Scale(), v.canvas.Cols()*2+v.canvas.Rows()*4)
+				for cx := floorDiv(px-r, 2); cx <= floorDiv(px+r, 2); cx++ {
+					for cy := floorDiv(py-r, 4); cy <= floorDiv(py+r, 4); cy++ {
+						dk := [2]int{cx, cy}
+						disks[dk] = append(disks[dk], b.EnglishName)
+					}
+				}
 			}
 		}
 		for _, l := range v.nameLabels {
@@ -550,6 +564,11 @@ func TestWideMapSideNamesAbutOnlyTheirOwnBody(t *testing.T) {
 					sawSide++
 					if who != l.Name {
 						t.Errorf("%s %dx%d: name %s sits flush against %s's dot", fx.system, fx.cols, fx.rows, l.Name, who)
+					}
+				}
+				for _, who := range disks[nb] {
+					if who == l.Name {
+						sawSide++
 					}
 				}
 			}

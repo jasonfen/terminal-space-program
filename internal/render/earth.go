@@ -155,3 +155,32 @@ func bodyTextureBase(b bodies.CelestialBody, subLatDeg, subLonDeg, screenUpX, sc
 func BodyHasTexture(b bodies.CelestialBody, pxRadius int) bool {
 	return TextureFor(b, pxRadius, 0, 0, 0, 1, nil) != nil
 }
+
+// FlatLitMinRadius is the smallest disk radius, in dots, at which a body
+// without surface texture is lit by the Sun (GM Q3, #591). Below it the disk
+// is 5 to 13 pixels and shading cannot show.
+const FlatLitMinRadius = 3
+
+// DiskShader returns the per-pixel colour function for a body's disk, or nil
+// when the disk is one flat colour. A body with surface data and a disk of
+// BodyTextureMinRadius or more gets its texture (TextureFor). Any other
+// non-star body, from FlatLitMinRadius up, gets its flat colour lit by the
+// Sun like the textured ones, so a small moon reads as a sphere with a day
+// side and a night side instead of a coin. light nil, a star, and tiny disks
+// return nil: the caller fills them flat. litFlat says the disk is drawn at
+// the body's true size: a disk drawn bigger than true (a gas giant's 4-dot
+// icon at the whole-system view) is a marker for the body, not a sphere, and
+// stays flat.
+func DiskShader(b bodies.CelestialBody, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64, light *SolarLight, litFlat bool) BodyTexture {
+	if tex := TextureFor(b, pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY, light); tex != nil {
+		return tex
+	}
+	isStar := b.ID == "sun" || b.BodyType == "Star" || (b.Texture != nil && b.Texture.Star != nil)
+	if light == nil || isStar || !litFlat || pxRadius < FlatLitMinRadius {
+		return nil
+	}
+	base := ColorFor(b)
+	return func(dx, dy, r int) lipgloss.Color {
+		return Shade(base, light.FactorAt(dx, dy, r, subLatDeg, subLonDeg, screenUpX, screenUpY))
+	}
+}
