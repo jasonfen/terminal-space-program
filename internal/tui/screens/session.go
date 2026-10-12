@@ -173,6 +173,13 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		return SessionCommand{}
 	}
 
+	// GK Q7 (#589): Enter never answers a [y/n] ask. It does nothing and
+	// the question stays; only y says yes, n / esc (or any other key, as
+	// before) says no.
+	if msg.String() == "enter" && (s.confirmRemove || s.confirmStopHost || s.confirmRestart) {
+		return SessionCommand{}
+	}
+
 	if s.confirmRemove {
 		s.confirmRemove = false
 		if msg.String() == "y" || msg.String() == "Y" {
@@ -809,7 +816,7 @@ func (s *SessionScreen) Render(w *sim.World, width, height int) string {
 
 	if s.confirmRemove {
 		if p, ok := s.selectedPlayer(info); ok {
-			b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  remove %s from the session? [y/n]", p.Handle)) + "\n")
+			b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  remove %s? they stay connected until they disconnect and need a new invite to return; their vessels stay saved [y/n]", p.Handle)) + "\n")
 		}
 	}
 	if s.confirmStopHost {
@@ -843,13 +850,24 @@ func (s *SessionScreen) Render(w *sim.World, width, height int) string {
 
 	keys := "[t] target vessel  [v] spectate  [s] sync-to  [w] rendezvous warp"
 	if info.CanAdminister {
-		keys += "  [i] invite  [r] revoke code  [x] remove player  " + restartKeyLabel(info)
+		keys += "  [i] invite  [r] revoke code"
 	}
 	if info.IsHost {
-		keys += "  [p] promote/demote  [h] stop hosting"
+		keys += "  [p] promote/demote"
 	}
 	if info.CanAdminister {
 		keys += "  [tab] section"
+	}
+	// GK Q1 (#589): the keys that ask [y/n] first sit on their own amber
+	// row, so the grey rows are the keys that act at once. Exactly the
+	// asking keys this seat can press: x and F4 for the host and admins,
+	// h for the host.
+	var asks []string
+	if info.CanAdminister {
+		asks = append(asks, "[x] remove player", restartKeyLabel(info))
+	}
+	if info.IsHost {
+		asks = append(asks, "[h] stop hosting")
 	}
 	var body []string
 	body = append(body, formBox(s.theme, "ROSTER  "+fmt.Sprintf("%d players", len(info.Players)), splitLines(roster.String()), boxW)...)
@@ -860,6 +878,11 @@ func (s *SessionScreen) Render(w *sim.World, width, height int) string {
 	var keyLines []string
 	for _, ln := range wrapFooterHints(keys, boxW-4) {
 		keyLines = append(keyLines, s.theme.Footer.Render(ln))
+	}
+	if len(asks) > 0 {
+		for _, ln := range wrapFooterHints("asks [y/n] first:  "+strings.Join(asks, "  "), boxW-4) {
+			keyLines = append(keyLines, s.theme.Warning.Render(ln))
+		}
 	}
 	body = append(body, formBox(s.theme, "KEYS", keyLines, boxW)...)
 	return formFrame(s.theme, body, width, height, s.theme.Footer.Render("[esc] close"))

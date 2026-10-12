@@ -164,6 +164,26 @@ func (v *VAB) handleNamingKey(key string) VABAction {
 }
 
 func (v *VAB) handleLoadKey(key string) VABAction {
+	if v.confirmDelete {
+		// GK Q2 + Q7 (#589): x asks first; only y says yes, n / esc says no,
+		// and Enter does nothing (the question stays).
+		switch key {
+		case "y", "Y":
+			v.confirmDelete = false
+			if v.loadIdx >= 0 && v.loadIdx < len(v.designs) {
+				id := v.designs[v.loadIdx].ID()
+				if err := spacecraft.DeleteDesign(id); err == nil {
+					v.refreshDesigns()
+					v.flash = fmt.Sprintf("deleted %q", id)
+				} else {
+					v.flash = "delete failed: " + err.Error()
+				}
+			}
+		case "n", "N", "esc":
+			v.confirmDelete = false
+		}
+		return VABActionNone
+	}
 	switch key {
 	case "esc":
 		v.mode = vabModeBuild
@@ -182,13 +202,7 @@ func (v *VAB) handleLoadKey(key string) VABAction {
 		}
 	case "x":
 		if v.loadIdx >= 0 && v.loadIdx < len(v.designs) {
-			id := v.designs[v.loadIdx].ID()
-			if err := spacecraft.DeleteDesign(id); err == nil {
-				v.refreshDesigns()
-				v.flash = fmt.Sprintf("deleted %q", id)
-			} else {
-				v.flash = "delete failed: " + err.Error()
-			}
+			v.confirmDelete = true
 		}
 	}
 	return VABActionNone
@@ -197,6 +211,7 @@ func (v *VAB) handleLoadKey(key string) VABAction {
 func (v *VAB) enterLoadMode() {
 	v.refreshDesigns()
 	v.loadIdx = 0
+	v.confirmDelete = false
 	v.mode = vabModeLoad
 	v.flash = ""
 }
@@ -239,13 +254,15 @@ func (v *VAB) Render(width, height int) string {
 	}
 }
 
-// vabBuildHints are the build screen's two key-hint rows. #373: they used to
-// be single un-wrapped strings that ran off the right edge at 104 columns
-// and hid "[s] save" / "[o] open" outright; wrapFooterHints wraps whole
-// "[key] hint" pairs instead of cutting mid-token.
+// vabBuildHints are the build screen's three key-hint rows, in plain words
+// (GK Q4, #589: "open part into pieces", not "crack part"). #373: they used
+// to be single un-wrapped strings that ran off the right edge at 104
+// columns and hid "[s] save" / "[o] open" outright; wrapFooterHints wraps
+// whole "[key] hint" pairs instead of cutting mid-token.
 const (
-	vabHints1 = "[tab] column  [↑/↓] move  [←/→] swap  [PgUp/Dn] section  [a] add  [n] new stage  [x] remove"
-	vabHints2 = "[+/−] qty  ['['/']'] reorder  [y] duplicate  [enter] crack part  [d] dock seam  [c] fuse  [t] target  [s] save  [o] open"
+	vabHints1 = "[tab] other column  [↑/↓] move  [←/→] change part  [PgUp/Dn] jump section  [a] add  [n] new stage  [x] remove"
+	vabHints2 = "[+/-] count  [ [ / ] ] move stage down / up  [y] copy stage  [enter] open part into pieces  [d] payload from here up"
+	vabHints3 = "[c] drops with stage below  [t] Δv goal  [s] save  [o] open"
 )
 
 // renderBuild lays out the VAB as three titled boxes in the frame (B11 / G9
@@ -270,6 +287,9 @@ func (v *VAB) renderBuild(width, height int) string {
 		keys = append(keys, v.theme.Footer.Render(ln))
 	}
 	for _, ln := range wrapFooterHints(vabHints2, inner-2) {
+		keys = append(keys, v.theme.Footer.Render(ln))
+	}
+	for _, ln := range wrapFooterHints(vabHints3, inner-2) {
 		keys = append(keys, v.theme.Footer.Render(ln))
 	}
 	keysBox := formBox(v.theme, "KEYS", keys, inner)
@@ -445,7 +465,7 @@ func (v *VAB) inspectStackRow(inner int, add func(string), addText func(string))
 	g := groups[r.group]
 	if g.placeholder {
 		add(v.theme.Primary.Render(truncWidth(g.kind+": empty slot", inner)))
-		addText(fmt.Sprintf("[←/→] picks a %s for S%d", g.kind, r.stageIdx+1))
+		addText(fmt.Sprintf("[←/→] picks %s %s for S%d", aOrAn(g.kind), g.kind, r.stageIdx+1))
 		return true
 	}
 	v.inspectComponent(g.compID, inner, add, addText)
@@ -820,7 +840,7 @@ func (v *VAB) renderLoad(width, height int) string {
 	} else {
 		for i, d := range v.designs {
 			marker := "  "
-			row := fmt.Sprintf("%s  (%d stages)", d.Name(), len(d.Loadout.Parts))
+			row := fmt.Sprintf("%s  (%s)", d.Name(), stageCount(len(d.Loadout.Parts)))
 			if i == v.loadIdx {
 				marker = v.theme.Primary.Render("▸") + " "
 				row = v.theme.Warning.Render(row)
@@ -830,8 +850,29 @@ func (v *VAB) renderLoad(width, height int) string {
 			lines = append(lines, "  "+marker+row)
 		}
 	}
+	if v.confirmDelete && v.loadIdx >= 0 && v.loadIdx < len(v.designs) {
+		lines = append(lines, "", "  "+v.theme.Alert.Render(
+			fmt.Sprintf("delete design '%s'? This cannot be undone. [y/n]", v.designs[v.loadIdx].Name())))
+		return v.vabModalBox("LOAD DESIGN", lines, width, height, "[y] delete it · [n] / [esc] keep it")
+	}
 	if v.flash != "" {
 		lines = append(lines, "", "  "+v.theme.Warning.Render(v.flash))
 	}
 	return v.vabModalBox("LOAD DESIGN", lines, width, height, "[↑/↓] pick · [enter] load · [x] delete · [esc] back")
+}
+
+// stageCount is "1 stage" / "3 stages".
+func stageCount(n int) string {
+	if n == 1 {
+		return "1 stage"
+	}
+	return fmt.Sprintf("%d stages", n)
+}
+
+// aOrAn picks the article for a part kind ("an engine", "a tank").
+func aOrAn(word string) string {
+	if word != "" && strings.ContainsRune("aeiouAEIOU", rune(word[0])) {
+		return "an"
+	}
+	return "a"
 }

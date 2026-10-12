@@ -122,17 +122,18 @@ func TestAltitudeArmedHintTellsThePlayerEnterLaunches(t *testing.T) {
 	s := NewSpawnCraft(Theme{})
 	s.Reset(bandTestBodies(), "earth", nil, "", "", nil)
 	s.fieldIdx = 3
-	if out := s.Render(80, 0); !strings.Contains(out, "Enter to edit") {
-		t.Fatalf("quiet focused ALTITUDE does not offer %q:\n%s", "Enter to edit", out)
+	// GK Q5: "Enter to edit" moved from beside the number to the bottom edge.
+	if out := s.Render(140, 40); !strings.Contains(out, "[enter] type a number") || strings.Contains(out, "Enter to edit") {
+		t.Fatalf("quiet focused ALTITUDE does not offer %q on the bottom edge:\n%s", "[enter] type a number", out)
 	}
 	enterAltEdit(t, s)
 	typeDigits(s, 900)
 	s.HandleKey("enter")
-	out := s.Render(80, 0)
+	out := s.Render(140, 40)
 	if !strings.Contains(out, "Enter now launches") {
 		t.Errorf("after leaving the box the hint does not say Enter launches:\n%s", out)
 	}
-	if strings.Contains(out, "Enter to edit") {
+	if strings.Contains(out, "Enter to edit") || strings.Contains(out, "[enter] type a number") {
 		t.Errorf("after leaving the box the hint still offers to edit:\n%s", out)
 	}
 }

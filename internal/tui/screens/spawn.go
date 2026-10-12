@@ -861,16 +861,11 @@ func (s *SpawnCraft) inclinationLines() []string {
 	var line string
 	switch {
 	case s.inclEditing:
-		line = s.theme.Warning.Render(fmt.Sprintf("incl: [%s_]°", s.inclInput)) +
-			"  " + s.theme.Footer.Render("Enter keeps · Esc reverts")
+		line = s.theme.Warning.Render(fmt.Sprintf("incl: [%s_]°", s.inclInput))
 	default:
 		line = "incl: " + s.fieldValue(inclFieldIdx, inclLabel(s.inclDeg))
-		if s.fieldIdx == inclFieldIdx {
-			hint := "Enter to edit"
-			if s.inclLeftBox {
-				hint = "Enter now launches"
-			}
-			line += "  " + s.theme.Footer.Render(hint)
+		if s.fieldIdx == inclFieldIdx && s.inclLeftBox {
+			line += "  " + s.theme.Footer.Render("Enter now launches")
 		}
 	}
 	out := []string{"  " + line}
@@ -1258,6 +1253,27 @@ func craftTypeRowsFor(height, fixedLines int) int {
 // spawnLegend is the key legend on the frame's bottom edge.
 const spawnLegend = "[tab] field · [←/→] cycle · [f] system filter · [enter] spawn · [esc] cancel"
 
+// The other two moments of the number fields (GK Q5, #589): the bottom edge
+// follows what Enter and Esc do right now.
+const (
+	spawnLegendNumberField = "[tab] field · [←/→] step · [enter] type a number · [f] system filter · [esc] cancel"
+	spawnLegendNumberBox   = "[0-9] type · [backspace] erase · [enter] keep this number · [esc] put the old one back"
+)
+
+// legend picks the bottom edge for the form's current moment: a typing box is
+// open (Enter keeps, Esc puts the old number back); focused on ALTITUDE or
+// INCLINATION with Enter about to open a box; otherwise Enter spawns.
+func (s *SpawnCraft) legend() string {
+	switch {
+	case s.altEditing || s.inclEditing:
+		return spawnLegendNumberBox
+	case s.posMode == posOrbit && !s.altBandEmpty &&
+		((s.fieldIdx == 3 && !s.altLeftBox) || (s.fieldIdx == inclFieldIdx && !s.inclLeftBox)):
+		return spawnLegendNumberField
+	}
+	return spawnLegend
+}
+
 // Render returns the form inside the shared frame (B11 / G9 Q4): the
 // VESSEL TYPE catalog in a box on the left (windowed to the box), the
 // POSITION / PARENT BODY / ALTITUDE (or LAUNCH SITE) / DIRECTION fields as
@@ -1326,7 +1342,7 @@ func (s *SpawnCraft) Render(width, height int) string {
 	left := formBox(s.theme, s.boxTitle(0, "VESSEL TYPE"), ls, lw)
 	left = append(left, stack...)
 
-	return formFrame(s.theme, joinBoxes(left, right, lw, 1), width, height, s.theme.Footer.Render(spawnLegend))
+	return formFrame(s.theme, joinBoxes(left, right, lw, 1), width, height, s.theme.Footer.Render(s.legend()))
 }
 
 // spawnWidths splits a framed block of the given width into the catalog
@@ -1582,19 +1598,14 @@ func (s *SpawnCraft) altitudeValueLine(dimmed bool) string {
 		return s.fieldValueDimmed(3, label, true)
 	}
 	if s.altEditing {
-		return s.theme.Warning.Render(fmt.Sprintf("[%s_] km", s.altInput)) +
-			"  " + s.theme.Footer.Render("Enter keeps · Esc reverts")
+		return s.theme.Warning.Render(fmt.Sprintf("[%s_] km", s.altInput))
 	}
 	if s.altBandEmpty {
 		return s.theme.Dim.Render("——  no orbit here")
 	}
 	val := s.fieldValue(3, label)
-	if s.fieldIdx == 3 {
-		hint := "Enter to edit"
-		if s.altLeftBox {
-			hint = "Enter now launches"
-		}
-		val += "  " + s.theme.Footer.Render(hint)
+	if s.fieldIdx == 3 && s.altLeftBox {
+		val += "  " + s.theme.Footer.Render("Enter now launches")
 	}
 	return val
 }
