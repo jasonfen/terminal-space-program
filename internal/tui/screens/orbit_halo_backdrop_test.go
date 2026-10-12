@@ -9,7 +9,7 @@ import (
 // The atmosphere halo ring is Backdrop (review #582 M2-S18; the v0.51.4
 // row: it "no longer cuts a dark gap into the planet's edge"). Drawn as
 // strong ink the ring wins the cells it shares with the planet's limb and
-// moats the limb's dots. Zoomed in on a low orbit, the shipped ring owns 53
+// knocks out the limb's cells. Zoomed in on a low orbit, the shipped ring owns 53
 // cells; with the tag off it owns 65.
 func TestAtmosphereHaloRingIsBackdrop(t *testing.T) {
 	w := lowOrbitTargetingSeed(t)

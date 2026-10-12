@@ -84,13 +84,14 @@ func litDots(t *testing.T, c *Canvas) map[[2]int]bool {
 	return lit
 }
 
-// A line over a body sits in a dark moat (Jason 2026-10-10: "can it be
-// smart about background colors like on Io"): no backdrop dot touching
-// one of the line's dots stays lit, so the line reads on a planet of any
-// colour or texture (yellow over Io, green over Kern or Earth's land)
-// without changing colour. The moat is one dot wide; backdrop further out
-// is untouched.
-func TestLineOverBackdropSitsInADarkMoat(t *testing.T) {
+// A solid line over a body wins the cells it touches and leaves the rest of
+// the planet alone (GM Q5 "a", #580; Jason 2026-10-10: "a would be best").
+// v0.51.3 also cleared every planet dot touching a line dot, a one-dot dark
+// moat that stair-stepped along the cell grid and read as a jagged trench.
+// The knockout stays (TestLineAcrossBackdropDiskWinsItsCells); the moat is
+// gone: a planet dot next to the line, in a cell the line does not touch,
+// stays lit.
+func TestSolidOrbitOverBodyHasNoMoat(t *testing.T) {
 	const planet, line = lipgloss.Color("#E8D940"), lipgloss.Color("#FFD93D") // Io under your orbit
 	c := NewCanvas(40, 20)
 	c.SetScale(1)
@@ -98,38 +99,51 @@ func TestLineOverBackdropSitsInADarkMoat(t *testing.T) {
 	c.PlotDenseLineColored(orbital.Vec3{X: -36, Y: 1}, orbital.Vec3{X: 36, Y: 1}, line, 1)
 
 	fore := map[[2]int]bool{}
+	foreCells := map[[2]int]bool{}
 	c.pixelTags.each(func(px, py int, tag CellTag) {
 		if !tag.Backdrop {
 			fore[[2]int{px, py}] = true
+			foreCells[[2]int{px / 2, py / 4}] = true
 		}
 	})
 	if len(fore) < 50 {
 		t.Fatalf("setup: the line drew %d pixels", len(fore))
 	}
 	lit := litDots(t, c)
-	touching, moatEdge := 0, 0
+	beside, litBeside := 0, 0
 	for p := range fore {
 		for dy := -1; dy <= 1; dy++ {
 			for dx := -1; dx <= 1; dx++ {
 				q := [2]int{p[0] + dx, p[1] + dy}
-				if fore[q] {
-					continue
+				if fore[q] || foreCells[[2]int{q[0] / 2, q[1] / 4}] {
+					continue // the line's own pixel, or a cell the knockout owns
 				}
-				if tag, ok := c.pixelTags.get(q[0], q[1]); ok && tag.Backdrop && lit[q] {
-					touching++
+				if tag, ok := c.pixelTags.get(q[0], q[1]); ok && tag.Backdrop {
+					beside++
+					if lit[q] {
+						litBeside++
+					}
 				}
 			}
 		}
-		// Two dots out is beyond the moat: the planet is still there.
-		if q := [2]int{p[0], p[1] + 2}; !fore[q] && lit[q] {
-			moatEdge++
+	}
+	// Instrument: there are planet dots beside the line in untouched cells.
+	if beside < 20 {
+		t.Fatalf("setup: only %d planet dots sit beside the line outside its cells", beside)
+	}
+	if litBeside != beside {
+		t.Errorf("%d of %d planet dots beside the line, in cells it does not touch, are dark: that is the moat", beside-litBeside, beside)
+	}
+	// The knockout stays: a cell the line touches shows the line's dots only.
+	for cell := range foreCells {
+		for dy := 0; dy < 4; dy++ {
+			for dx := 0; dx < 2; dx++ {
+				q := [2]int{cell[0]*2 + dx, cell[1]*4 + dy}
+				if lit[q] && !fore[q] {
+					t.Fatalf("cell %v still shows a planet dot at %v: the knockout is gone", cell, q)
+				}
+			}
 		}
-	}
-	if touching != 0 {
-		t.Errorf("%d planet dots still lit right beside the line; want a one-dot dark moat", touching)
-	}
-	if moatEdge == 0 {
-		t.Error("no planet dots two out from the line: the moat is wider than one dot, or the disk vanished")
 	}
 }
 
@@ -193,7 +207,7 @@ func TestCellInkScratchDoesNotLeakBetweenFrames(t *testing.T) {
 }
 
 // Dotted and dashed ink (a Planned leg, the CommNet beam) does not win its
-// cells over a body or cut a moat: knocked out, the gaps between its dots
+// cells over a body: knocked out, the gaps between its dots
 // turned the dark channel into a zig-zag that read as a strange wavy line
 // across the planet (Jason 2026-10-10, the CommNet beam). It keeps the old
 // majority vote, so over a disk it yields as it did before v0.51.3.
@@ -216,9 +230,9 @@ func TestSparseLineOverBackdropYields(t *testing.T) {
 		t.Errorf("a dotted line takes %d cells over the disk, want it to yield (only the few cells off the disk's edge)", n)
 	}
 	if got := len(litDots(t, dotted)); got < wantDots {
-		t.Errorf("a dotted line cleared planet dots (%d lit, the bare disk has %d): no moat for sparse ink", got, wantDots)
+		t.Errorf("a dotted line cleared planet dots (%d lit, the bare disk has %d): sparse ink must not knock out", got, wantDots)
 	}
-	// The same line drawn solid still wins and cuts its moat.
+	// The same line drawn solid still wins its cells.
 	if solid := draw(1); solid.CountColor(beam) < 25 {
 		t.Errorf("a solid line takes only %d cells over the disk; solid ink should still win", solid.CountColor(beam))
 	}
@@ -226,7 +240,7 @@ func TestSparseLineOverBackdropYields(t *testing.T) {
 
 // The far (behind-the-plane) half of a Real ellipse is dotted ink at
 // classRealFarSpacingPx, so it must yield over a Backdrop the way every
-// other dotted line does: no knockout, no moat (review #582 M1). The near
+// other dotted line does: no knockout (review #582 M1). The near
 // half of the same orbit is solid and keeps winning. Drawn both fresh and
 // through the curve cache, whose replay used to carry one tag for the
 // whole curve.
@@ -292,7 +306,7 @@ func TestRealEllipseFarHalfYieldsOverBackdrop(t *testing.T) {
 				t.Errorf("cached=%v far half ceded only %d cells to the disk, want it to yield like any dotted line", cached, ceded)
 			}
 			if got := inDisk(with); got < wantDots {
-				t.Errorf("cached=%v far half cleared planet dots (%d lit in the disk, bare %d): it moats", cached, got, wantDots)
+				t.Errorf("cached=%v far half cleared planet dots (%d lit in the disk, bare %d): it knocks out", cached, got, wantDots)
 			}
 		}
 	}
@@ -302,7 +316,7 @@ func TestRealEllipseFarHalfYieldsOverBackdrop(t *testing.T) {
 // live line and body (review #582 M2-S24). Two consequences are pinned,
 // one per way of losing the tag: a moon's disk keeps its cells where the
 // body's own orbit line crosses it, and a live solid line across a
-// Scenery line dims the Scenery dots beside it (the moat) rather than the
+// Scenery line knocks out the Scenery dots in the cells it shares rather than the
 // two sharing the cell.
 func TestSceneryIsBackdropUnderLiveInk(t *testing.T) {
 	const moon, scenery, live = lipgloss.Color("#9AA0A6"), lipgloss.Color("#506070"), lipgloss.Color("#FFD93C")
@@ -326,7 +340,7 @@ func TestSceneryIsBackdropUnderLiveInk(t *testing.T) {
 		t.Errorf("moon disk keeps only %d cells under its own scenery orbit", n)
 	}
 
-	// 2. Live solid ink crossing Scenery moats it.
+	// 2. Live solid ink crossing Scenery knocks out the Scenery dots in its cells.
 	only := func(draw func(*Canvas)) map[[2]int]bool {
 		c := newCanvas()
 		draw(c)

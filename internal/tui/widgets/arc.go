@@ -272,7 +272,7 @@ func (c *Canvas) drawEllipseAdaptiveTaggedRecording(
 	// restart at phase 0).
 	nearPhase, farPhase := 0.0, 0.0
 	// A spacing above 1 is dotted ink, and dotted ink yields over a
-	// Backdrop instead of knocking it out and cutting a moat (CONTEXT.md
+	// Backdrop instead of knocking it out (CONTEXT.md
 	// Line Class). Each half is tagged for its own cadence: a Real orbit's
 	// near half is solid while its far half is dotted (review #582 M1).
 	nearTag, farTag := tag, tag

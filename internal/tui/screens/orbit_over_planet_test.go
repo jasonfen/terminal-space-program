@@ -42,8 +42,8 @@ func TestTargetOrbitShowsAcrossThePlanet(t *testing.T) {
 	own := v.canvas.CountColor(render.ColorCurrentOrbit)
 	// Measured on this scene: 7 green / 3 own-orbit cells before the
 	// knockout, 29 / 24 with it. The floors sit just under that so a
-	// refactor that keeps the moat but loses the knockout (19 / 16, review
-	// #582 L1, sabotage S11b) goes red.
+	// refactor that weakens the knockout (19 / 16, review #582 L1, sabotage
+	// S11b) goes red.
 	if green < 26 {
 		t.Errorf("target orbit shows in %d cells, want >= 26: the planet is outvoting it", green)
 	}

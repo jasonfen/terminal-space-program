@@ -44,14 +44,12 @@ func (t *colorTally) dominant(palette []lipgloss.Color) uint16 {
 }
 
 // cellInk is one terminal cell's resolved ink: color (a palette id, 0 =
-// unstyled), dots (a whole braille rune replacing the cell's own, 0 =
-// none) and moat (braille bits to clear from the cell's own rune).
-// all/fore/foreDots/backdrop are working state.
+// unstyled) and knockout (the cell shows only foreDots, replacing its own
+// braille rune). all/fore/foreDots/backdrop are working state.
 type cellInk struct {
 	all, fore colorTally
 	color     uint16
 	foreDots  uint8
-	moat      uint8
 	backdrop  bool
 	knockout  bool
 }
@@ -62,28 +60,22 @@ type cellInk struct {
 // frame. A Canvas is single-owner already (every draw mutates it), so the
 // scratch needs no lock.
 type inkScratch struct {
-	cells     []cellInk // cols*rows, zero except at touched
-	touched   []int32   // cell indices written this call
-	moatPx    []bool    // pxW*pxH, false except at moatSet
-	moatSet   []int32
+	cells     []cellInk        // cols*rows, zero except at touched
+	touched   []int32          // cell indices written this call
 	palette   []lipgloss.Color // palette id -> colour; id 0 = ""
 	tagColor  []uint16         // pixel tag index (0-based) -> palette id
 	tagBack   []bool           // pixel tag index (0-based) -> Backdrop
-	tagStrong []bool           // pixel tag index (0-based) -> solid ink: wins over Backdrop, cuts a moat
+	tagStrong []bool           // pixel tag index (0-based) -> solid ink: wins over Backdrop
 	paletteOf map[lipgloss.Color]uint16
 }
 
 // colorAt is the resolved colour of the cell at idx, "" when unstyled.
 func (s *inkScratch) colorAt(idx int) lipgloss.Color { return s.palette[s.cells[idx].color] }
 
-// runeAt applies the cell's moat and knockout to ch, the cell's own rune.
+// runeAt applies the cell's knockout to ch, the cell's own rune.
 func (s *inkScratch) runeAt(idx int, ch rune) rune {
-	ci := &s.cells[idx]
-	if ci.knockout {
+	if ci := &s.cells[idx]; ci.knockout {
 		return 0x2800 | rune(ci.foreDots)
-	}
-	if ci.moat != 0 && ch >= 0x2800 && ch <= 0x28FF {
-		return ch &^ rune(ci.moat)
 	}
 	return ch
 }
@@ -94,10 +86,6 @@ func (s *inkScratch) release() {
 		s.cells[idx] = cellInk{}
 	}
 	s.touched = s.touched[:0]
-	for _, idx := range s.moatSet {
-		s.moatPx[idx] = false
-	}
-	s.moatSet = s.moatSet[:0]
 }
 
 // resolveCellInk is the one per-cell colour rule String() and CountColor
@@ -107,11 +95,14 @@ func (s *inkScratch) release() {
 // Sparse dotted or dashed ink, which keeps the plain majority):
 //   - a cell holding both shows only the other ink, its majority colour and
 //     its own dots (knockout), so a line across a planet stays a line
-//     rather than losing the vote 8 to 2;
-//   - every backdrop dot touching a dot of other ink (8-neighbour) is
-//     cleared (moat), so the line sits in a one-dot dark channel and reads
-//     on a body of any colour or texture, yellow over Io, green over Kern
-//     or Earth's land (Jason 2026-10-10), without the line changing colour.
+//     rather than losing the vote 8 to 2, on a body of any colour or
+//     texture: yellow over Io, green over Kern or Earth's land.
+//
+// There is no moat: v0.51.3 also cleared every backdrop dot touching a dot
+// of other ink, a one-dot dark border that stair-stepped along the cell
+// grid and read as a jagged trench (Jason 2026-10-10: variants b, c, d
+// rejected, "a would be best"; GM Q5, #580). The planet keeps every cell and
+// dot the line does not touch.
 //
 // The caller must release() the result before the next call.
 func (c *Canvas) resolveCellInk() *inkScratch {
@@ -120,10 +111,6 @@ func (c *Canvas) resolveCellInk() *inkScratch {
 	if n := c.cols * c.rows; len(s.cells) != n {
 		s.cells = make([]cellInk, n)
 		s.touched = s.touched[:0]
-	}
-	if n := c.pxW * c.pxH; len(s.moatPx) != n {
-		s.moatPx = make([]bool, n)
-		s.moatSet = s.moatSet[:0]
 	}
 
 	// Palette: one id per distinct colour in this frame's tag table, so the
@@ -149,36 +136,7 @@ func (c *Canvas) resolveCellInk() *inkScratch {
 		s.tagStrong = append(s.tagStrong, !tag.Backdrop && !tag.Sparse && tag.Color != "")
 	}
 
-	// Pass 1: the moat, every backdrop pixel touching non-backdrop ink.
-	for _, pi := range g.touched {
-		t := g.tagIdx[pi] - 1
-		if t < 0 || !s.tagStrong[t] {
-			continue
-		}
-		px, py := int(pi)%g.w, int(pi)/g.w
-		for dy := -1; dy <= 1; dy++ {
-			qy := py + dy
-			if qy < 0 || qy >= g.h {
-				continue
-			}
-			for dx := -1; dx <= 1; dx++ {
-				qx := px + dx
-				if qx < 0 || qx >= g.w {
-					continue
-				}
-				qi := qy*g.w + qx
-				if s.moatPx[qi] {
-					continue
-				}
-				if qt := g.tagIdx[qi] - 1; qt >= 0 && s.tagBack[qt] {
-					s.moatPx[qi] = true
-					s.moatSet = append(s.moatSet, int32(qi))
-				}
-			}
-		}
-	}
-
-	// Pass 2: tally every cell; moat dots are cleared and cast no vote.
+	// Tally every cell.
 	for _, pi := range g.touched {
 		t := g.tagIdx[pi] - 1
 		if t < 0 || s.tagColor[t] == 0 {
@@ -191,16 +149,12 @@ func (c *Canvas) resolveCellInk() *inkScratch {
 		}
 		idx := cy*c.cols + cx
 		ci := &s.cells[idx]
-		if ci.all.n == 0 && ci.moat == 0 {
+		if ci.all.n == 0 {
 			s.touched = append(s.touched, int32(idx))
 		}
 		bit := uint8(brailleDotBit[py%4][px%2])
 		id := s.tagColor[t]
 		if s.tagBack[t] {
-			if s.moatPx[pi] {
-				ci.moat |= bit
-				continue
-			}
 			ci.backdrop = true
 			ci.all.add(id)
 			continue
@@ -216,7 +170,7 @@ func (c *Canvas) resolveCellInk() *inkScratch {
 	for _, idx := range s.touched {
 		ci := &s.cells[idx]
 		switch {
-		case ci.fore.n > 0 && (ci.backdrop || ci.moat != 0):
+		case ci.fore.n > 0 && ci.backdrop:
 			ci.color = ci.fore.dominant(s.palette)
 			ci.knockout = true
 		case ci.all.n > 0:
@@ -224,4 +178,23 @@ func (c *Canvas) resolveCellInk() *inkScratch {
 		}
 	}
 	return s
+}
+
+// CountColorIn is CountColor limited to the cells in the inclusive cell
+// rectangle [col0, col1] x [row0, row1]: how much of a colour shows on a
+// given patch of the canvas (a planet's disk), not anywhere on it.
+func (c *Canvas) CountColorIn(color lipgloss.Color, col0, row0, col1, row1 int) int {
+	ink := c.resolveCellInk()
+	defer ink.release()
+	n := 0
+	for _, idx := range ink.touched {
+		col, row := int(idx)%c.cols, int(idx)/c.cols
+		if col < col0 || col > col1 || row < row0 || row > row1 {
+			continue
+		}
+		if ink.colorAt(int(idx)) == color {
+			n++
+		}
+	}
+	return n
 }
