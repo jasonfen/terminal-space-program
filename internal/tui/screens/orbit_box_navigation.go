@@ -107,20 +107,44 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 	// avoid a false alert on ordinary orbital speed.
 	_, descending := sim.DescentCorridorFor(c, sim.DescentPredictHorizon)
 	horizLabel := readout.Speed(vHoriz)
+	speedCell := navSpeedCell(w, true)
 	if descending && vHoriz > sim.CrashVCritMps {
 		horizLabel = v.theme.Alert.Render(readout.Speed(vHoriz) + " (CRASH on contact)")
+		// The alert already spends the right tier's width pin (62 cells,
+		// pinned by TestNavigationStopNamesTheLitStage); the frame word
+		// would push the row 5 to 7 cells over, so it yields to the alert.
+		speedCell = navSpeedCell(w, false)
 	}
 
 	return []string{
 		title,
 		chipRow2(navigationCols, readout.LabelAltitude, readout.Distance(c.Altitude()), readout.LabelVert, readout.Speed(vVert)),
-		chipRow2(navigationCols, readout.LabelHoriz, horizLabel, "speed:", readout.Speed(c.OrbitalSpeed())),
+		chipRow2(navigationCols, readout.LabelHoriz, horizLabel, "speed:", speedCell),
 		chipRow2(navigationCols, readout.LabelAp, apCell, readout.LabelPe, peCell),
 		chipRow2(navigationCols, readout.LabelIncl, inclCell, readout.LabelPeriod, periodCell),
 		chipRow2(navigationCols, readout.LabelDepart, departV, "e:", eV),
 		chipRow2(navigationCols, readout.LabelImpact, impactCell, "stop:", stopCell),
 		planRow,
 	}
+}
+
+// navSpeedCell is the speed: value: the speed in the navball's current
+// frame, followed by that frame's word in the navball's own vocabulary
+// (surface / orbit / target; #601, ADR 0051 13d). The word makes the
+// reference visible: 0.00 m/s (surface) on the pad, 7617 m/s (orbit) in LEO.
+func navSpeedCell(w *sim.World, withFrame bool) string {
+	v, frame := w.NavSpeed()
+	word := "orbit"
+	switch frame {
+	case sim.NavSurface:
+		word = "surface"
+	case sim.NavTarget:
+		word = "target"
+	}
+	if !withFrame {
+		return readout.Speed(v)
+	}
+	return readout.Speed(v) + " (" + word + ")"
 }
 
 // navigationDockGuestBox is buildNavigationBox's rider-view sibling (ADR
@@ -162,7 +186,7 @@ func (v *OrbitView) navigationDockGuestBox(w *sim.World) ([]string, bool) {
 	return []string{
 		title,
 		chipRow2(navigationCols, readout.LabelAltitude, "—", readout.LabelVert, "—"),
-		chipRow2(navigationCols, readout.LabelHoriz, "—", "speed:", readout.Speed(g.Vel.Norm())),
+		chipRow2(navigationCols, readout.LabelHoriz, "—", "speed:", readout.Speed(g.Vel.Norm())+" (orbit)"),
 		chipRow2(navigationCols, readout.LabelAp, readout.Distance(apoAlt), readout.LabelPe, peCell),
 		chipRow2(navigationCols, readout.LabelIncl, readout.Angle(el.I*180/math.Pi)+v.orbitDirectionTag(el.I), readout.LabelPeriod, readout.Period(secondsToDuration(period))),
 		chipRow2(navigationCols, readout.LabelDepart, "—", "e:", "—"),

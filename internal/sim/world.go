@@ -168,6 +168,10 @@ type World struct {
 	// persisted, and its zero value is the correct cold start.
 	proxHint proximityHint
 
+	// navAuto is the edge memory behind the automatic navball-frame
+	// switches (#601, nav_auto.go). Transient: never saved.
+	navAuto navAutoState
+
 	// ViewTilt carries the polar tilt θ and yaw φ (degrees) that
 	// ViewTilted applies to the projection basis. v0.10.6+. Per-
 	// session UI state — not persisted. NewWorld seeds defaults via
@@ -951,6 +955,8 @@ func (w *World) Tick() {
 	// last, on final post-integration positions, so the range it gates on
 	// is the one the TARGET chip is about to display.
 	w.updateProximityHint()
+	// #601: the navball frame follows the flight, on edges only.
+	w.updateAutoNavMode()
 }
 
 // LocalReArmRefusalEvent records the latest same-World dock a localReArm
