@@ -33,7 +33,7 @@ func (v *OrbitView) recordSmallBody(id string, pos orbital.Vec3, r int) {
 }
 
 // drawMarkerClear is drawMarker for the map: same glyph, colour and click
-// tag, but a glyph that would land on a small body's cells steps off it
+// tag (the tag steps off with the glyph), but a glyph that would land on a small body's cells steps off it
 // (markerGlyphPos). ADR 0041 §3 amendment (GM Q2, #591): the one exception
 // to "draw order decides, no arbitration".
 func (v *OrbitView) drawMarkerClear(pos orbital.Vec3, t render.MarkerType, state render.MarkerState, base lipgloss.Color, tag widgets.CellTag) {
@@ -45,7 +45,8 @@ func (v *OrbitView) drawMarkerClear(pos orbital.Vec3, t render.MarkerType, state
 // outside the body's cells, on the side the marker was already on (the
 // horizontal side when the offset is wider than tall in cell terms, else the
 // vertical side; dead centre goes up and to the right). The body keeps its
-// own cell, and only the glyph moves: the click target stays at pos.
+// own cell, and the glyph moves with its click target (review #629 M2), so
+// the small body's cell clicks as the body.
 func (v *OrbitView) markerGlyphPos(pos orbital.Vec3) orbital.Vec3 {
 	px, py, ok := v.canvas.Project(pos)
 	if !ok {

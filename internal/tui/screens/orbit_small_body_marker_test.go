@@ -107,14 +107,25 @@ func TestMarkerNeverCoversASmallBody(t *testing.T) {
 	}
 }
 
-// The click target stays at the true point; only the glyph moves (GM Q2).
-func TestMarkerOnSmallBodyKeepsItsClickTarget(t *testing.T) {
+// The click target steps off with the glyph (review #629 M2, superseding the
+// GM Q2 "stays at the true point"): the drawn glyph's cell resolves to the
+// marker's node, and the small body's own cell no longer does.
+func TestMarkerOnSmallBodyClicksWhereItIsDrawn(t *testing.T) {
 	v, _, _, px, py, _ := moonInView(t)
 	at := v.canvas.Unproject(px, py)
 	v.drawMarkerClear(at, render.MarkerManeuver, render.MarkerNominal, "", widgets.CellTag{NodeIdx: 7})
-	hit := v.canvas.HitAt(px/2, py/4)
-	if hit.NodeIdx != 7 {
-		t.Errorf("click on the marker's true cell resolves to node %d, want 7", hit.NodeIdx)
+	col, row, found := glyphCell(v, render.MarkerGlyph(render.MarkerManeuver))
+	if !found {
+		t.Fatal("marker not drawn")
+	}
+	if col == px/2 && row == py/4 {
+		t.Fatal("setup: the glyph did not step off the body's cell")
+	}
+	if hit := v.canvas.HitAt(col, row); hit.NodeIdx != 7 {
+		t.Errorf("click on the drawn glyph at (%d,%d) resolves to node %d, want 7", col, row, hit.NodeIdx)
+	}
+	if hit := v.canvas.HitAt(px/2, py/4); hit.NodeIdx != 0 {
+		t.Errorf("click on the small body's cell still resolves to node %d, want the body", hit.NodeIdx)
 	}
 }
 
