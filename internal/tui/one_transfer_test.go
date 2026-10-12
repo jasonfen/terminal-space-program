@@ -52,7 +52,7 @@ func TestSecondTransferCaptionMatchesEngineNodeRow(t *testing.T) {
 		t.Fatalf("setup: no queued Prograde node: row in the frame:\n%s", a.View())
 	}
 	pressKey(a, 'H')
-	want := "transfer: a transfer is already planted (Prograde 3062 m/s in " + row[1] + "); clear it in [m] first"
+	want := "transfer: a burn is already planted (Prograde 3062 m/s in " + row[1] + "); clear it in [m] first"
 	if a.statusMsg != want {
 		t.Errorf("flash = %q\nwant      %q", a.statusMsg, want)
 	}
