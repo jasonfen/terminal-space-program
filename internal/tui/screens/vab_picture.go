@@ -48,7 +48,8 @@ func stackPictureSprite(stages []spacecraft.Stage) []SpritePixel {
 
 // renderStackPicture rasterises stages (bottom first) into h lines of w
 // cells: the rocket stands on the bottom row, centred left of its stage
-// labels, scaled down by a whole factor only when it is taller than the box.
+// labels, squeezed vertically (never in width) only when it is taller than
+// the box.
 // labels[i] names stage i; focus is the stage to mark with a pointer (-1 for
 // none).
 func renderStackPicture(th Theme, stages []spacecraft.Stage, labels []string, focus, w, h int) []string {
@@ -59,6 +60,9 @@ func renderStackPicture(th Theme, stages []spacecraft.Stage, labels []string, fo
 	}
 	px := stackPictureSprite(stages)
 	if len(px) == 0 || w < 8 || h < 2 {
+		if len(px) == 0 && h >= 1 && w >= 8 {
+			out[0] = th.Dim.Render(padCells("  nothing to draw yet", w))
+		}
 		return out
 	}
 
@@ -68,7 +72,7 @@ func renderStackPicture(th Theme, stages []spacecraft.Stage, labels []string, fo
 		yMin, yMax = math.Min(yMin, y), math.Max(yMax, y)
 	}
 	totalPx := yMax - yMin + 1
-	k := math.Max(1, totalPx/float64(4*h))
+	k := math.Max(1, totalPx/float64(4*h)) // vertical squeeze
 
 	// Rocket column: leave room for the labels on the right.
 	labelRoom := 0
@@ -82,7 +86,7 @@ func renderStackPicture(th Theme, stages []spacecraft.Stage, labels []string, fo
 	}
 	cells := map[[2]int]*cell{}
 	for _, p := range px {
-		ix := int(math.Floor(p.OffsetWorld.X/k + float64(2*cx)))
+		ix := int(math.Floor(p.OffsetWorld.X + float64(2*cx))) // widths are never scaled
 		iy := int(math.Floor((p.OffsetWorld.Y - yMin) / k))
 		if ix < 0 || ix >= 2*w || iy < 0 || iy >= 4*h {
 			continue

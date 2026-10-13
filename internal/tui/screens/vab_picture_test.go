@@ -160,3 +160,13 @@ func TestVABRender_ShortTerminalDropsPictureNotKeys(t *testing.T) {
 		}
 	}
 }
+
+// An empty stack says why the box is blank rather than leaving it silent.
+func TestVABPicture_EmptyStackSaysSo(t *testing.T) {
+	v := NewVAB(Theme{})
+	v.Reset(spacecraft.Components)
+	lines := v.renderPicture(60, 12)
+	if len(lines) != 12 || !strings.Contains(strings.Join(lines, "\n"), "nothing to draw yet") {
+		t.Errorf("empty stack picture should say so, got %q", lines)
+	}
+}
