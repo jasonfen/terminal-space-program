@@ -11,6 +11,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
@@ -1154,9 +1155,9 @@ func layoutCatalog(rows []catalogRow, level int) []catalogGridRow {
 	}
 	for i, r := range rows {
 		c := &cs[i]
-		c.dry = fmt.Sprintf("%.0f", spacecraft.SumDryMass(r.stages))
+		c.dry = readout.Mass(spacecraft.SumDryMass(r.stages))
 		if fuel := spacecraft.SumFuelMass(r.stages); fuel > 0 {
-			c.fuel = fmt.Sprintf("%.0f", fuel)
+			c.fuel = readout.Mass(fuel)
 		}
 		if len(r.stages) > 0 && r.stages[0].Thrust > 0 {
 			c.thrust = fmt.Sprintf("%.0f", r.stages[0].Thrust/1000)
@@ -1188,20 +1189,20 @@ func layoutCatalog(rows []catalogRow, level int) []catalogGridRow {
 		engW = len("RCS-only")
 	}
 	out := make([]catalogGridRow, len(rows))
-	wDryCell := len("dry ") + wDry + len("kg")
-	wFuelCell := len("fuel ") + wFuel + len("kg")
+	wDryCell := len("dry ") + wDry
+	wFuelCell := len("fuel ") + wFuel
 	for i, r := range rows {
 		c := cs[i]
 		fuel := ""
 		if c.fuel != "" {
-			fuel = "fuel " + c.fuel + "kg"
+			fuel = "fuel " + c.fuel
 		}
 		eng := "RCS-only"
 		if !c.rcs {
 			eng = padLeftCells(c.thrust, wThr) + "kN @ " + ispWord + c.isp + "s"
 		}
 		head := padCells(r.name, wName) + "  " + padCells(r.crew, wCrew) + "  " +
-			padCells("dry "+c.dry+"kg", wDryCell) + "  " + padCells(fuel, wFuelCell) + "  " + padCells(eng, engW)
+			padCells("dry "+c.dry, wDryCell) + "  " + padCells(fuel, wFuelCell) + "  " + padCells(eng, engW)
 		out[i] = catalogGridRow{head: head, tail: c.tail}
 	}
 	return out
@@ -1400,8 +1401,8 @@ func (s *SpawnCraft) stackLines() []string {
 				eng = "RCS-only"
 			}
 			lines = append(lines, "  "+s.theme.Primary.Render(
-				fmt.Sprintf("%s  dry %.0fkg fuel %.0fkg  %s  (%s)",
-					padCells(st.Name, 7), st.DryMass, st.FuelMass, eng, tag)))
+				fmt.Sprintf("%s  dry %s fuel %s  %s  (%s)",
+					padCells(st.Name, 7), readout.Mass(st.DryMass), readout.Mass(st.FuelMass), eng, tag)))
 		}
 	}
 	// Catalog part-picker line.
@@ -1420,14 +1421,20 @@ func (s *SpawnCraft) stackLines() []string {
 		if len(stages) > 1 {
 			name = fmt.Sprintf("%s (%d-stage)", m.Name, len(stages))
 		}
-		pickLabel := fmt.Sprintf("%s  [%s]  dry %.0fkg fuel %.0fkg  %s",
+		pickLabel := fmt.Sprintf("%s  [%s]  dry %s fuel %s  %s",
 			name, m.Tier,
-			spacecraft.SumDryMass(stages), spacecraft.SumFuelMass(stages), eng)
+			readout.Mass(spacecraft.SumDryMass(stages)), readout.Mass(spacecraft.SumFuelMass(stages)), eng)
 		lines = append(lines, "  "+s.fieldValue(stackFieldIdx, "part: "+pickLabel))
 	}
 	lines = append(lines, "  "+s.theme.Footer.Render(
 		"[←/→] pick part  [a] add on top  [x] remove top  [d] dock seam"))
 	return lines
+}
+
+// parentStatsLine is the PARENT BODY box's second line: surface gravity and
+// mean radius through the readout helpers, `g 9.807 m/s²  R 6371 km`.
+func parentStatsLine(pb bodies.CelestialBody) string {
+	return fmt.Sprintf("g %s  R %s", bodyGravity(pb), readout.Distance(pb.RadiusMeters()))
 }
 
 // positionBoxes is the right-hand column: one titled box per field.
@@ -1478,12 +1485,19 @@ func (s *SpawnCraft) positionBoxes(rw int) []string {
 	dimDir := s.posMode != posOrbit
 
 	// Field 2: parent body, a single-line cycle.
+	// The name rides the cycle row; gravity and radius sit on their own
+	// line, because the longest names (18 cells) leave no room for both
+	// readouts inside the 32-cell label budget at the 140x40 Design Size.
 	parentLabel := "(none)"
+	var parentLines []string
 	if pb := s.currentParent(); pb != nil {
-		parentLabel = fmt.Sprintf("%s  (μ %.2e, R %.0f km)",
-			pb.EnglishName, pb.GravitationalParameter(), pb.RadiusMeters()/1000)
+		parentLabel = pb.EnglishName
 	}
-	box(2, "PARENT BODY", []string{"  " + s.fieldValueDimmed(2, parentLabel, dimParent)})
+	parentLines = append(parentLines, "  "+s.fieldValueDimmed(2, parentLabel, dimParent))
+	if pb := s.currentParent(); pb != nil {
+		parentLines = append(parentLines, "  "+s.theme.Dim.Render(parentStatsLine(*pb)))
+	}
+	box(2, "PARENT BODY", parentLines)
 
 	// Field 3: altitude (orbit) or launch site (launchpad), a preset cycle.
 	if s.posMode == posLaunchpad {
@@ -1810,10 +1824,10 @@ func stagesSummary(stages []spacecraft.Stage) string {
 	}
 	var summary string
 	if bottomThrust == 0 {
-		summary = fmt.Sprintf("dry %.0fkg%s, RCS-only", dry, stageNote)
+		summary = fmt.Sprintf("dry %s%s, RCS-only", readout.Mass(dry), stageNote)
 	} else {
-		summary = fmt.Sprintf("dry %.0fkg, fuel %.0fkg%s, %.0fkN @ Isp %.0fs",
-			dry, fuel, stageNote, bottomThrust/1000, bottomIsp)
+		summary = fmt.Sprintf("dry %s, fuel %s%s, %.0fkN @ Isp %.0fs",
+			readout.Mass(dry), readout.Mass(fuel), stageNote, bottomThrust/1000, bottomIsp)
 	}
 	return summary
 }

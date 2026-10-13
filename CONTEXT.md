@@ -607,7 +607,7 @@ their kind-less defaults.
 
 **Target Cycle** (grilled 2026-09-04, #425): the order `t` walks. **Nearest
 first**: none, then the moons of the Vessel's current Primary, then other
-Vessels, then the remaining Bodies outward in catalog order with their
+Vessels (nearest first), then the remaining Bodies outward in catalog order with their
 moons after them; the Vessel's own Primary is skipped (it is never a
 useful aim). From LEO the first press is the Moon; from lunar orbit it is
 Earth. The order re-derives when the Primary changes, but the bound

@@ -342,7 +342,7 @@ func TestSpawnSavedDesignRowCarriesMassAndThrust(t *testing.T) {
 	out := s.Render(140, 60)
 	for _, line := range strings.Split(out, "\n") {
 		if strings.Contains(line, "Probe Hopper") {
-			for _, want := range []string{"dry 500kg", "fuel 1500kg", "20kN @ Isp 300s"} {
+			for _, want := range []string{"dry 500 kg", "fuel 1.500 t", "20kN @ Isp 300s"} {
 				if !strings.Contains(line, want) {
 					t.Errorf("design row missing %q: %q", want, line)
 				}

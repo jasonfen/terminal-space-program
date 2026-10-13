@@ -121,7 +121,7 @@ func TestHelpPageNamesItselfOnce(t *testing.T) {
 			if title == "" {
 				t.Fatalf("page %d: title row not found:\n%s", n, strings.Join(rows[:5], "\n"))
 			}
-			if body == title {
+			if body == title || strings.HasPrefix(body, title+" ") {
 				t.Errorf("%dx%d page %d: %q is written twice on consecutive rows", sz[0], sz[1], n, title)
 			}
 		}

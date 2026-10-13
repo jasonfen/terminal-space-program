@@ -537,3 +537,15 @@ func TestYears(t *testing.T) {
 		}
 	}
 }
+
+func TestAccelFourSigFigsNoTrailingZeros(t *testing.T) {
+	cases := map[float64]string{
+		9.80665: "9.807 m/s²", 24.79: "24.79 m/s²", 274.0: "274.0 m/s²",
+		0.006: "0.006 m/s²", 0.113: "0.113 m/s²", 9.9996: "10.00 m/s²", 1234.5: "1234 m/s²",
+	}
+	for in, want := range cases {
+		if got := Accel(in); got != want {
+			t.Errorf("Accel(%v) = %q, want %q", in, got, want)
+		}
+	}
+}

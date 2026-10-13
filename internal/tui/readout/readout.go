@@ -50,21 +50,21 @@ const (
 	// the same kind of quantity on the same chip. Signed through
 	// readout.Countdown like every other countdown in the contract.
 	LabelEntry     = "entry:"
-	LabelBurn      = "burn:"      // t_burn -> burn:
-	LabelIncl      = "incl:"      // inclin. -> incl:
-	LabelDeltaIncl = "Δincl:"     // Δi -> Δincl:
+	LabelBurn      = "burn:"  // t_burn -> burn:
+	LabelIncl      = "incl:"  // inclin. -> incl:
+	LabelDeltaIncl = "Δincl:" // Δi -> Δincl:
 	// LabelDepart is ADR 0050 decision 5's `depart:` row: the angle
 	// between the orbit a launch would reach (or, in flight, the live
 	// orbit) and the plane the world beneath the player travels in.
-	LabelDepart = "depart:"
-	LabelApproach  = "approach:"  // Proximity View's CA: -> approach:
-	LabelTCA       = "TCA:"       // unchanged code
-	LabelRelSpeed  = "rel speed:" // |v_rel| -> rel speed:
-	LabelArrival   = "arrival:"   // capture chip's "approach: N m/s relative" -> arrival:
-	LabelImpact    = "impact:"    // impact in: -> impact:
-	LabelAltitude  = "altitude:"  // unchanged label, now rides the SI ladder
-	LabelPeriod    = "period:"    // unchanged label; the one duration that keeps seconds
-	LabelDeltaV    = "Δv:"        // Δv budget -> Δv: <stage> / <vehicle> m/s
+	LabelDepart   = "depart:"
+	LabelApproach = "approach:"  // Proximity View's CA: -> approach:
+	LabelTCA      = "TCA:"       // unchanged code
+	LabelRelSpeed = "rel speed:" // |v_rel| -> rel speed:
+	LabelArrival  = "arrival:"   // capture chip's "approach: N m/s relative" -> arrival:
+	LabelImpact   = "impact:"    // impact in: -> impact:
+	LabelAltitude = "altitude:"  // unchanged label, now rides the SI ladder
+	LabelPeriod   = "period:"    // unchanged label; the one duration that keeps seconds
+	LabelDeltaV   = "Δv:"        // Δv budget -> Δv: <stage> / <vehicle> m/s
 )
 
 // auThreshold is the existing 0.1 AU distance-ladder boundary, reused
@@ -421,6 +421,16 @@ func formatDeltaVMps(mps float64) string {
 // same decision 12 sentence pins to an integer at and above 100 m/s.
 func Speed(mps float64) string {
 	return formatMps(mps) + " m/s"
+}
+
+// Accel renders a surface gravity in m/s² at 4 significant figures, capped
+// at 3 decimals (the one readout that needs a third decimal: Phobos reads
+// 0.006 and Earth 9.807, not 0.01 and 9.81), with no trailing zeros past
+// the significant figures: "9.807 m/s²", "24.79 m/s²", "274.0 m/s²".
+func Accel(mps2 float64) string {
+	av := math.Abs(mps2)
+	dec := chooseDecimals(av, 3)
+	return fmt.Sprintf("%.*f m/s²", dec, Nzero(mps2, dec))
 }
 
 // SignedSpeed renders a relative rate (closing, approach) at Speed's same

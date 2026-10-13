@@ -329,6 +329,7 @@ overlay carries, so you can look one up without leaving the game.
 | `plan` | The world the planned burn's numbers are measured from, plus its node angles |
 | `pro` / `retro` | Prograde or retrograde: which way the orbit runs, tagged on `incl:` |
 | `(ORBIT/SURF/TGT)` | The frame a held direction or `nav:` reads in: orbit, surface, or target-relative, one spelling everywhere it's named |
+| `amber (SURF)` | GUIDANCE `hold:` amber frame word differs from `nav:`; it keeps the frame it was pressed in, on purpose |
 | `[MAN]` / `[AUT]` | The navball's attitude tag: MAN turns the nose at a rate-limited slew; AUT (amber) snaps it instantly. Click it to switch |
 | `RCS` | The navball's toggle: amber when the RCS thrusters, not the main engine, are armed (`r` does the same) |
 | `rcs` | Monoprop's own delta-v, from the RCS thrusters rather than the main engine |
