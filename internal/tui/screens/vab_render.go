@@ -298,20 +298,42 @@ func (v *VAB) renderBuild(width, height int) string {
 	// keys box leaves (#501): frame rows, keys box, then the vehicle box's
 	// own top edge, title and bottom edge.
 	vehRows := 0
+	avail := 0 // rows the right column may use, boxes included
 	if height > 0 {
-		vehRows = height - 2 - len(keysBox) - 3
+		avail = height - 2 - len(keysBox)
+		vehRows = avail - 3
 	}
 
 	name := v.name
 	if name == "" {
 		name = "(unsaved)"
 	}
-	vehLines := append([]string{v.theme.Dim.Render("design: ") + v.theme.Primary.Render(name)},
-		v.renderVehicleColumn(vehW-2, vehRows-1)...)
+	designLine := v.theme.Dim.Render("design: ") + v.theme.Primary.Render(name)
+
+	// The PICTURE box (#596) takes whatever the right column has left under
+	// the stage list. It is offered only when the whole list fits above it
+	// (or windows no tighter than vabVehicleMinBox); on a short terminal the
+	// list keeps its rows and the picture is dropped, never the keys.
+	picRows := 0 // picture box height; 0 = not shown
+	if avail > 0 && len(v.stages) > 0 {
+		natural := 3 + 1 + len(v.renderVehicleColumn(vehW-2, 0)) // box edges+title, design line, body
+		vehBox := natural
+		if vehBox > avail-vabPictureMinBox {
+			vehBox = avail - vabPictureMinBox
+		}
+		if vehBox >= vabVehicleMinBox || vehBox >= natural {
+			picRows = clampI(avail-vehBox, vabPictureMinBox, vabPictureMaxBox)
+			vehRows = vehBox - 3
+		}
+	}
+	vehLines := append([]string{designLine}, v.renderVehicleColumn(vehW-2, vehRows-1)...)
 
 	left := formBox(v.theme, v.focusTitle("PALETTE  components · parts", focusPalette), v.renderPalette(palW-2), palW)
 	left = append(left, v.renderInspector(palW)...)
 	right := formBox(v.theme, v.focusTitle("VEHICLE  top → bottom", focusStack), vehLines, vehW)
+	if picRows > 0 {
+		right = append(right, formBox(v.theme, "PICTURE", v.renderPicture(vehW-2, picRows-3), vehW)...)
+	}
 
 	body := joinBoxes(left, right, palW, 1)
 	body = append(body, keysBox...)

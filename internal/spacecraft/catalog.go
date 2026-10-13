@@ -65,6 +65,9 @@ type Part struct {
 	LaunchSpriteWidthPx int    `json:"launch_sprite_width_px,omitempty"`
 	LaunchSpriteColor   string `json:"launch_sprite_color,omitempty"`
 	LaunchSpriteHasLegs bool   `json:"launch_sprite_has_legs,omitempty"`
+	// LaunchSpriteDerived is set by applyDerivedSprite when it fills any
+	// sprite field; never read from a catalog file.
+	LaunchSpriteDerived bool   `json:"-"`
 	FuelType            string `json:"fuel_type,omitempty"`
 
 	// Capability flags (per-stage, mirror Stage).
@@ -210,6 +213,7 @@ func (p Part) ToStage() Stage {
 		LaunchSpriteRowsPx:   p.LaunchSpriteRowsPx,
 		LaunchSpriteWidthPx:  p.LaunchSpriteWidthPx,
 		LaunchSpriteColor:    p.LaunchSpriteColor,
+		LaunchSpriteDerived:  p.LaunchSpriteDerived,
 		FuelType:             p.FuelType,
 		LaunchSpriteHasLegs:  p.LaunchSpriteHasLegs,
 		CanSoftLand:          p.CanSoftLand,

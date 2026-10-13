@@ -171,6 +171,13 @@ type Stage struct {
 	// silhouette colour.
 	LaunchSpriteColor string `json:",omitempty"`
 
+	// LaunchSpriteDerived marks a stage whose sprite fields were filled from
+	// its mass and chemistry (a parts-built stage) rather than authored in
+	// the catalog. The launch drawing shades a same-colour neighbour only
+	// when one of the two stages is derived, so catalog loadouts paint
+	// exactly as authored.
+	LaunchSpriteDerived bool `json:",omitempty"`
+
 	// FuelType (v0.11.5) names the main-engine propellant chemistry
 	// so the renderer can tint the exhaust flame to a per-fuel
 	// palette. Values: "kerolox" (RP-1 + LOX, orange — F-1, Merlin),
