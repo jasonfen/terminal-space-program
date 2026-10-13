@@ -501,6 +501,15 @@ structure) into stages, stack the stages, and read a live **Δv / TWR / mass**
 panel as you go. Saved designs are global across games and show up in the
 spawn form (`n`) alongside the built-in vessels.
 
+Under the stage list a **PICTURE** box draws the rocket you are building, with
+the stage under the cursor marked (`▸ S2`). It is the same drawing the pad shows
+in the launch view. A stage you built from parts is drawn too: its height and
+width come from its mass (a heavier stage is a taller block) and its colour from
+its fuel (kerolox terracotta, hydrolox ice blue, hypergolic khaki, solid mauve,
+no propellant grey); two neighbours of one fuel are shaded apart. On a short
+terminal the picture is dropped so the stage list and the key hints keep their
+rows.
+
 Editing happens **in place** on the vehicle rows, the same idiom as the
 maneuver form. The VAB opens focused on the vehicle column with the cursor on
 a fresh stage's `engine` placeholder, and `←` / `→` cycles that row's part.
