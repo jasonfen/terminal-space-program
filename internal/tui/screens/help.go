@@ -281,7 +281,7 @@ var helpSections = []helpSection{
 		{"plan", "the world the planned burn's numbers are measured from, plus its node angles"},
 		{"pro / retro", "prograde or retrograde: which way the orbit runs, tagged on incl:"},
 		{"(ORBIT/SURF/TGT)", "the frame a held direction or nav: reads in: orbit, surface, or target-relative, one spelling everywhere it's named"},
-		{"amber (SURF)", "GUIDANCE hold: shows its frame word in amber when it differs from nav: (a hold keeps the frame it was pressed in); a surface hold under nav: ORBIT is deliberate, not stale"},
+		{"amber (SURF)", "GUIDANCE hold: amber frame word differs from nav:; it keeps the frame it was pressed in, on purpose"},
 		{"[MAN] / [AUT]", "the navball's attitude tag: MAN turns the nose at a rate-limited slew; AUT (amber) snaps it instantly"},
 		{"RCS", "navball toggle: amber when the RCS thrusters, not the main engine, are armed ([r] does the same)"},
 		{"rcs", "monoprop's own Δv, from the RCS thrusters rather than the main engine"},

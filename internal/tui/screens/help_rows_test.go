@@ -433,3 +433,32 @@ func TestHelpExplainsGuidanceAmberFrameWord(t *testing.T) {
 	}
 	t.Fatal("no READOUT GLOSSARY section in helpSections")
 }
+
+// TestHelpAmberRowSurvivesDesignSize: the `amber (SURF)` glossary row, as
+// rendered on the F1 page at 140x40, ends in its point (the hold keeps its
+// frame on purpose) rather than an ellipsis. The sections-level test above
+// reads the source text and cannot see a render-time cut.
+func TestHelpAmberRowSurvivesDesignSize(t *testing.T) {
+	h := NewHelp(chipTestTheme())
+	for n := 0; n < helpPageCount(); n++ {
+		if pageTitle(n) == helpIndexTitle("READOUT GLOSSARY") {
+			h.OpenPage(n)
+		}
+	}
+	found := false
+	for _, ln := range strings.Split(ansi.Strip(h.Render(140, 40, keylayout.QWERTY)), "\n") {
+		if !strings.Contains(ln, "amber (SURF)") {
+			continue
+		}
+		found = true
+		if strings.Contains(ln, "…") {
+			t.Errorf("amber (SURF) row truncated at 140x40: %q", ln)
+		}
+		if !strings.Contains(ln, "on purpose") {
+			t.Errorf("amber (SURF) row lost its meaning (on purpose) at 140x40: %q", ln)
+		}
+	}
+	if !found {
+		t.Fatal("amber (SURF) row not on the rendered glossary page; instrument blind")
+	}
+}
