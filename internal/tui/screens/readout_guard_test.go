@@ -150,7 +150,7 @@ var ispExceptionLines = map[string]bool{
 	"vab_render.go:638": true,
 	"spawn.go:1399":     true,
 	"spawn.go:1419":     true,
-	"spawn.go:1816":     true,
+	"spawn.go:1829":     true,
 }
 
 // isIspException reports whether a `%.0fs` hit at path:lineNo is

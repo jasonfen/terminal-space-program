@@ -121,11 +121,11 @@ func (b *BodyInfo) Render(w *sim.World, selectedIdx, cols, rows int) string {
 // out for every Sol moon and most exoplanet bodies; zero means "not given".
 func bodyGravity(cb bodies.CelestialBody) string {
 	if cb.Gravity > 0 {
-		return fmt.Sprintf("%.3f m/s²", cb.Gravity)
+		return readout.Accel(cb.Gravity)
 	}
 	r := cb.RadiusMeters()
 	if gm := cb.GravitationalParameter(); gm > 0 && r > 0 {
-		return fmt.Sprintf("%.3f m/s²", gm/(r*r))
+		return readout.Accel(gm / (r * r))
 	}
 	return "--"
 }

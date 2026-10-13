@@ -1431,6 +1431,12 @@ func (s *SpawnCraft) stackLines() []string {
 	return lines
 }
 
+// parentStatsLine is the PARENT BODY box's second line: surface gravity and
+// mean radius through the readout helpers, `g 9.807 m/s²  R 6371 km`.
+func parentStatsLine(pb bodies.CelestialBody) string {
+	return fmt.Sprintf("g %s  R %s", bodyGravity(pb), readout.Distance(pb.RadiusMeters()))
+}
+
 // positionBoxes is the right-hand column: one titled box per field.
 func (s *SpawnCraft) positionBoxes(rw int) []string {
 	var out []string
@@ -1479,12 +1485,19 @@ func (s *SpawnCraft) positionBoxes(rw int) []string {
 	dimDir := s.posMode != posOrbit
 
 	// Field 2: parent body, a single-line cycle.
+	// The name rides the cycle row; gravity and radius sit on their own
+	// line, because the longest names (18 cells) leave no room for both
+	// readouts inside the 32-cell label budget at the 140x40 Design Size.
 	parentLabel := "(none)"
+	var parentLines []string
 	if pb := s.currentParent(); pb != nil {
-		parentLabel = fmt.Sprintf("%s  (g %s, R %s)",
-			pb.EnglishName, bodyGravity(*pb), readout.Distance(pb.RadiusMeters()))
+		parentLabel = pb.EnglishName
 	}
-	box(2, "PARENT BODY", []string{"  " + s.fieldValueDimmed(2, parentLabel, dimParent)})
+	parentLines = append(parentLines, "  "+s.fieldValueDimmed(2, parentLabel, dimParent))
+	if pb := s.currentParent(); pb != nil {
+		parentLines = append(parentLines, "  "+s.theme.Dim.Render(parentStatsLine(*pb)))
+	}
+	box(2, "PARENT BODY", parentLines)
 
 	// Field 3: altitude (orbit) or launch site (launchpad), a preset cycle.
 	if s.posMode == posLaunchpad {
