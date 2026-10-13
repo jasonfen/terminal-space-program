@@ -239,5 +239,6 @@ func composePart(p Part, comps map[string]Component) (Part, error) {
 	} else {
 		out.Antenna = nil
 	}
+	applyDerivedSprite(&out)
 	return out, nil
 }
