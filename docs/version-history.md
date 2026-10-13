@@ -2,6 +2,15 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.55.0
+
+The VAB draws your rocket, and tidier readouts (PRs `#638`, `#636`; review in the planning vault, 1 medium and 2 low findings fixed before merge; tag `v0.55.0`).
+
+- **The VAB draws your rocket.** A PICTURE box under the stage list draws the stack with each stage labelled by its fuel and the focused stage marked. Stages built from parts are drawn now, in the VAB and on the pad, as a block sized from their mass in their fuel's colour, instead of vanishing (`#596`).
+- **Spawn form readouts:** catalog masses in tonnes (`181.0 t`), and PARENT BODY shows the body's gravity and radius on their own line instead of `μ 3.99e+14`.
+- **`t` picks the nearest vessel first**, so a vessel 2 km away comes before one 12 km away.
+- **F1 explains GUIDANCE's amber frame word** (a hold kept in the frame it was pressed in), and seven help pages no longer repeat their title.
+
 ### v0.54.0
 
 Planning that refuses nonsense, help everywhere, and a clearer map: UX cycle 3 Phase 4, wave 2 (PRs `#621`-`#628`; review `#629` fixed in `#631`, `#632`; tag `v0.54.0`).
