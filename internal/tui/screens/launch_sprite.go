@@ -1,7 +1,9 @@
 package screens
 
 import (
+	"fmt"
 	"math"
+	"strconv"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -304,65 +306,123 @@ func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis
 	widthX, widthY := stackY, -stackX
 
 	var pixels []SpritePixel
-	rowOffset := 0
-	emitRect := func(rowsBase int, rows, width int, color lipgloss.Color) {
-		for r := 0; r < rows; r++ {
-			rowAbove := float64(r + rowsBase)
-			for col := 0; col < width; col++ {
-				xPx := float64(col) - float64(width-1)/2.0
+	for _, r := range launchStackLayout(stages) {
+		for row := 0; row < r.rows; row++ {
+			rowAbove := float64(row + r.rowBase)
+			for col := 0; col < r.width; col++ {
+				xPx := float64(col) - float64(r.width-1)/2.0
 				screenSX := rowAbove*pxSize*stackX + xPx*pxSize*widthX
 				screenSY := rowAbove*pxSize*stackY + xPx*pxSize*widthY
 				offset := basis.X.Scale(screenSX).Add(basis.Y.Scale(screenSY))
 				pixels = append(pixels, SpritePixel{
 					OffsetWorld: offset,
-					Color:       color,
+					Color:       r.color,
 				})
 			}
-		}
-	}
-	for i, s := range stages {
-		if s.LaunchSpriteRowsPx <= 0 {
-			continue
-		}
-		width := stageSpriteWidthPx(s)
-		color := stageSpriteColor(s)
-		emitRect(rowOffset, s.LaunchSpriteRowsPx, width, color)
-		rowOffset += s.LaunchSpriteRowsPx
-		// Inter-stage taper (v0.11.5 sub-scope 2): when both adjacent
-		// stages have LaunchSpriteRowsPx ≥ taperThreshold, paint a
-		// synthetic 1-row band in the lower stage's colour at width
-		// round((lower.width + upper.width) / 2). Suppressed at the
-		// top of the stack (no upper neighbour). The taper rows do
-		// NOT alter Stage.LaunchSpriteRowsPx — they extend the
-		// composed stack height by 1 row per boundary.
-		if i+1 < len(stages) && taperRowBetween(s, stages[i+1]) > 0 {
-			upWidth := stageSpriteWidthPx(stages[i+1])
-			taperWidth := (width + upWidth + 1) / 2 // round half-up
-			emitRect(rowOffset, 1, taperWidth, color)
-			rowOffset++
-		}
-		// Stage separator (issue #424 / ADR 0048 §4): an UNCONDITIONAL
-		// 1-row dark band at every boundary between two rendered
-		// stages, wide enough to cap both. Unlike the taper above
-		// (gated on taperThreshold, shape-only, painted in the lower
-		// stage's own colour) this exists purely to keep the stack
-		// reading as segmented when colour doesn't carry it — the
-		// Saturn V's four near-white stages were the review's second
-		// finding. Sits right at the seam, after any taper flare.
-		if i+1 < len(stages) && separatorRowBetween(s, stages[i+1]) > 0 {
-			upWidth := stageSpriteWidthPx(stages[i+1])
-			sepWidth := width
-			if upWidth > sepWidth {
-				sepWidth = upWidth
-			}
-			emitRect(rowOffset, 1, sepWidth, stageSeparatorColor())
-			rowOffset++
 		}
 	}
 	if len(pixels) == 0 {
 		return nil
 	}
 	return pixels
+}
+
+// stackRectKind says what a stackRect is: a stage body, the inter-stage
+// taper band, or the dark separator row.
+type stackRectKind int
+
+const (
+	rectBody stackRectKind = iota
+	rectTaper
+	rectSeparator
+)
+
+// stackRect is one filled rectangle of the composed launch sprite:
+// rowBase sub-pixel rows above the stack's bottom, rows tall, width wide,
+// centred on the stack axis. stage is the index into the stage slice the
+// rectangle belongs to (a taper or separator belongs to the LOWER stage).
+type stackRect struct {
+	stage   int
+	kind    stackRectKind
+	rowBase int
+	rows    int
+	width   int
+	color   lipgloss.Color
+}
+
+// launchStackLayout is the single place that decides where every stage,
+// taper and separator sits in the composed rocket. ComposeLaunchSprite (the
+// launch view and Proximity view) emits pixels from it, composedStackRows
+// takes its height from it, and the VAB picture (#596) reads the per-stage
+// spans from it, so the three can never disagree about the drawing.
+//
+// Stages with LaunchSpriteRowsPx <= 0 are skipped. Inter-stage taper
+// (v0.11.5 sub-scope 2): when both adjacent stages have LaunchSpriteRowsPx
+// >= taperThreshold, a 1-row band in the lower stage's colour at
+// round((lower.width + upper.width) / 2). Stage separator (issue #424 /
+// ADR 0048 §4): an unconditional 1-row dark band between two drawn stages,
+// wide enough to cap both. A stage whose colour equals the stage below it
+// is shaded darker so adjacent blocks always read as two (#596: parts-built
+// stages of one chemistry share a colour), but only when at least one of the
+// two is parts-built (LaunchSpriteDerived): authored catalog stages paint
+// exactly their authored colour.
+func launchStackLayout(stages []spacecraft.Stage) []stackRect {
+	var out []stackRect
+	rowOffset := 0
+	var prevColor lipgloss.Color
+	var prevDerived bool
+	for i, s := range stages {
+		if s.LaunchSpriteRowsPx <= 0 {
+			continue
+		}
+		width := stageSpriteWidthPx(s)
+		color := stageSpriteColor(s)
+		if prevColor != "" && color == prevColor && (prevDerived || s.LaunchSpriteDerived) {
+			color = shadeHex(color, adjacentShade)
+		}
+		prevColor = color
+		prevDerived = s.LaunchSpriteDerived
+		out = append(out, stackRect{stage: i, kind: rectBody, rowBase: rowOffset, rows: s.LaunchSpriteRowsPx, width: width, color: color})
+		rowOffset += s.LaunchSpriteRowsPx
+		if i+1 < len(stages) && taperRowBetween(s, stages[i+1]) > 0 {
+			upWidth := stageSpriteWidthPx(stages[i+1])
+			taperWidth := (width + upWidth + 1) / 2 // round half-up
+			out = append(out, stackRect{stage: i, kind: rectTaper, rowBase: rowOffset, rows: 1, width: taperWidth, color: color})
+			rowOffset++
+		}
+		if i+1 < len(stages) && separatorRowBetween(s, stages[i+1]) > 0 {
+			upWidth := stageSpriteWidthPx(stages[i+1])
+			sepWidth := width
+			if upWidth > sepWidth {
+				sepWidth = upWidth
+			}
+			out = append(out, stackRect{stage: i, kind: rectSeparator, rowBase: rowOffset, rows: 1, width: sepWidth, color: stageSeparatorColor()})
+			rowOffset++
+		}
+	}
+	return out
+}
+
+// adjacentShade is how much darker (fraction toward black) a stage is
+// painted when the stage below it has the same colour.
+const adjacentShade = 0.28
+
+// shadeHex darkens a #RRGGBB colour by frac toward black. Anything that is
+// not a 7-char hex colour is returned unchanged.
+func shadeHex(c lipgloss.Color, frac float64) lipgloss.Color {
+	s := string(c)
+	if len(s) != 7 || s[0] != '#' {
+		return c
+	}
+	var rgb [3]int
+	for i := 0; i < 3; i++ {
+		v, err := strconv.ParseUint(s[1+2*i:3+2*i], 16, 8)
+		if err != nil {
+			return c
+		}
+		rgb[i] = int(math.Round(float64(v) * (1 - frac)))
+	}
+	return lipgloss.Color(fmt.Sprintf("#%02X%02X%02X", rgb[0], rgb[1], rgb[2]))
 }
 
 // Canopy geometry constants (v0.12 Slice 3, ADR 0008). A deployed
@@ -433,15 +493,8 @@ func separatorRowBetween(lower, upper spacecraft.Stage) int {
 // ComposeCanopy can anchor itself just above the top stage.
 func composedStackRows(stages []spacecraft.Stage) int {
 	rows := 0
-	for i, s := range stages {
-		if s.LaunchSpriteRowsPx <= 0 {
-			continue
-		}
-		rows += s.LaunchSpriteRowsPx
-		if i+1 < len(stages) {
-			rows += taperRowBetween(s, stages[i+1])
-			rows += separatorRowBetween(s, stages[i+1])
-		}
+	for _, r := range launchStackLayout(stages) {
+		rows += r.rows
 	}
 	return rows
 }
