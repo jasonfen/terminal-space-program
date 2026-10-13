@@ -281,6 +281,7 @@ var helpSections = []helpSection{
 		{"plan", "the world the planned burn's numbers are measured from, plus its node angles"},
 		{"pro / retro", "prograde or retrograde: which way the orbit runs, tagged on incl:"},
 		{"(ORBIT/SURF/TGT)", "the frame a held direction or nav: reads in: orbit, surface, or target-relative, one spelling everywhere it's named"},
+		{"amber (SURF)", "GUIDANCE hold: shows its frame word in amber when it differs from nav: (a hold keeps the frame it was pressed in); a surface hold under nav: ORBIT is deliberate, not stale"},
 		{"[MAN] / [AUT]", "the navball's attitude tag: MAN turns the nose at a rate-limited slew; AUT (amber) snaps it instantly"},
 		{"RCS", "navball toggle: amber when the RCS thrusters, not the main engine, are armed ([r] does the same)"},
 		{"rcs", "monoprop's own Δv, from the RCS thrusters rather than the main engine"},
@@ -422,7 +423,11 @@ func (h *Help) bodyLines(layout keylayout.Layout) []string {
 		// parenthetical keeps its row because it adds the when-clause.
 		return h.renderRows(layout, sec.rows)
 	}
-	return h.sectionLines(layout, sec)
+	// The box title already names the page; the row keeps only the scope
+	// note in parentheses, so "SPAWN FORM" is not followed by "SPAWN FORM (n)".
+	note := sec.header[len(helpIndexTitle(sec.header))+1:]
+	lines := []string{h.theme.Dim.Render(note)}
+	return append(lines, h.renderRows(layout, sec.rows)...)
 }
 
 // indexLines is the index: a numbered row per page with its when-clause.

@@ -173,7 +173,7 @@ func TestHelpGlossaryBlockContent(t *testing.T) {
 // retired `dir` in favour of `pro / retro` (same row, new token) and
 // added two: the frame-spelling entry and the `rcs` line ADR 0049's own
 // decision-6 comment always meant to include, for 19. G8 Q3 (#507) added
-// `heading: / hdg` (commanded vs measured), for 20, and #592 added the navball's `[MAN] / [AUT]` and `RCS` tags, for 22, and #600 the STAGES pips, for 23. Tightened from
+// `heading: / hdg` (commanded vs measured), for 20, and #592 added the navball's `[MAN] / [AUT]` and `RCS` tags, for 22, and #600 the STAGES pips, for 23, and the amber hold frame word, for 24. Tightened from
 // the original loose "at least 7" bound to an exact count so a stray
 // addition or removal is caught rather than silently absorbed.
 func TestHelpGlossarySection(t *testing.T) {
@@ -181,7 +181,7 @@ func TestHelpGlossarySection(t *testing.T) {
 		if s.header != "READOUT GLOSSARY" {
 			continue
 		}
-		const want = 23
+		const want = 24
 		if len(s.rows) != want {
 			t.Errorf("READOUT GLOSSARY has %d rows, want exactly %d", len(s.rows), want)
 		}
@@ -414,4 +414,22 @@ func TestHelpExpandsManAndRcsTags(t *testing.T) {
 			t.Errorf("glossary row truncated at 140x40: %q", ln)
 		}
 	}
+}
+
+// TestHelpExplainsGuidanceAmberFrameWord: GUIDANCE's hold: frame word turns
+// amber when it differs from nav: (review #629 M1); F1 must say what that
+// means, in the glossary.
+func TestHelpExplainsGuidanceAmberFrameWord(t *testing.T) {
+	for _, s := range helpSections {
+		if s.header != "READOUT GLOSSARY" {
+			continue
+		}
+		for _, r := range s.rows {
+			if strings.Contains(r[1], "amber") && strings.Contains(r[1], "hold:") && strings.Contains(r[1], "nav:") {
+				return
+			}
+		}
+		t.Fatal("READOUT GLOSSARY has no row explaining hold:'s amber frame word")
+	}
+	t.Fatal("no READOUT GLOSSARY section in helpSections")
 }
