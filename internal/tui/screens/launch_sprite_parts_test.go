@@ -103,3 +103,90 @@ func TestShadeHex(t *testing.T) {
 		t.Errorf("non-hex changed: %s", got)
 	}
 }
+
+// L1 (review of #638): the same-colour shading is for parts-built stages
+// (they share a derived chemistry colour). Authored catalog loadouts paint
+// exactly as they did before the rule: the relay carriers author one green
+// for every stage on purpose.
+func TestLaunchStackLayout_CatalogLoadoutsKeepAuthoredColours(t *testing.T) {
+	forceTrueColor(t)
+	cmd, basis := upBasis()
+	checked := 0
+	for _, id := range spacecraft.LoadoutOrder {
+		l := spacecraft.Loadouts[id]
+		allowed := map[lipgloss.Color]bool{stageSeparatorColor(): true}
+		for _, st := range l.Stages {
+			allowed[stageSpriteColor(st)] = true
+			allowed[lipgloss.Color(st.Color)] = true // landing legs
+		}
+		for _, r := range launchStackLayout(l.Stages) {
+			if r.kind == rectSeparator {
+				continue
+			}
+			if want := stageSpriteColor(l.Stages[r.stage]); r.color != want {
+				t.Errorf("%s: stage %d painted %s, authored %s", id, r.stage, r.color, want)
+			}
+		}
+		for _, p := range ComposeLaunchSprite(l.Stages, cmd, basis, 1) {
+			if !allowed[p.Color] {
+				t.Errorf("%s: pixel colour %s is not an authored stage colour", id, p.Color)
+				break
+			}
+		}
+		checked++
+	}
+	if checked < 30 {
+		t.Fatalf("only %d catalog loadouts checked; instrument blind", checked)
+	}
+}
+
+// The relay carriers are the loadouts the unconditional rule recoloured;
+// pin that each really has two adjacent drawn stages authored in one colour,
+// so the test above has teeth.
+func TestLaunchStackLayout_RelayCarriersHaveSameColourNeighbours(t *testing.T) {
+	for _, id := range []string{"Comsat-Carrier-3", "Node-Carrier-3", "Survey-Pack", "Scan-Pack"} {
+		l, ok := spacecraft.Loadouts[id]
+		if !ok {
+			t.Fatalf("no loadout %s", id)
+		}
+		var prev lipgloss.Color
+		same := false
+		for _, st := range l.Stages {
+			if st.LaunchSpriteRowsPx <= 0 {
+				continue
+			}
+			if c := stageSpriteColor(st); prev != "" && c == prev {
+				same = true
+			}
+			prev = stageSpriteColor(st)
+		}
+		if !same {
+			t.Errorf("%s: no adjacent same-colour stages; premise of the L1 guard changed", id)
+		}
+	}
+}
+
+// Parts-built next to authored still shades (one derived stage is enough);
+// two authored stages of one colour do not.
+func TestLaunchStackLayout_ShadeNeedsADerivedStage(t *testing.T) {
+	mk := func(derived bool) spacecraft.Stage {
+		return spacecraft.Stage{LaunchSpriteRowsPx: 8, LaunchSpriteWidthPx: 3, LaunchSpriteColor: "#8CE0C0", LaunchSpriteDerived: derived}
+	}
+	body := func(stages ...spacecraft.Stage) []lipgloss.Color {
+		var cs []lipgloss.Color
+		for _, r := range launchStackLayout(stages) {
+			if r.kind == rectBody {
+				cs = append(cs, r.color)
+			}
+		}
+		return cs
+	}
+	if cs := body(mk(false), mk(false)); cs[0] != cs[1] {
+		t.Errorf("two authored same-colour stages were recoloured: %v", cs)
+	}
+	for _, pair := range [][2]bool{{false, true}, {true, false}, {true, true}} {
+		if cs := body(mk(pair[0]), mk(pair[1])); cs[0] == cs[1] {
+			t.Errorf("derived=%v: same-colour neighbours painted alike: %v", pair, cs)
+		}
+	}
+}

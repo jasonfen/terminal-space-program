@@ -79,11 +79,14 @@ func applyDerivedSprite(p *Part) {
 	rows, width := derivedSpriteDims(mass)
 	if p.LaunchSpriteRowsPx == 0 {
 		p.LaunchSpriteRowsPx = rows
+		p.LaunchSpriteDerived = true
 	}
 	if p.LaunchSpriteWidthPx == 0 {
 		p.LaunchSpriteWidthPx = width
+		p.LaunchSpriteDerived = true
 	}
 	if p.LaunchSpriteColor == "" {
 		p.LaunchSpriteColor = derivedSpriteColor(p.FuelType)
+		p.LaunchSpriteDerived = true
 	}
 }

@@ -363,21 +363,25 @@ type stackRect struct {
 // ADR 0048 §4): an unconditional 1-row dark band between two drawn stages,
 // wide enough to cap both. A stage whose colour equals the stage below it
 // is shaded darker so adjacent blocks always read as two (#596: parts-built
-// stages of one chemistry share a colour).
+// stages of one chemistry share a colour), but only when at least one of the
+// two is parts-built (LaunchSpriteDerived): authored catalog stages paint
+// exactly their authored colour.
 func launchStackLayout(stages []spacecraft.Stage) []stackRect {
 	var out []stackRect
 	rowOffset := 0
 	var prevColor lipgloss.Color
+	var prevDerived bool
 	for i, s := range stages {
 		if s.LaunchSpriteRowsPx <= 0 {
 			continue
 		}
 		width := stageSpriteWidthPx(s)
 		color := stageSpriteColor(s)
-		if prevColor != "" && color == prevColor {
+		if prevColor != "" && color == prevColor && (prevDerived || s.LaunchSpriteDerived) {
 			color = shadeHex(color, adjacentShade)
 		}
 		prevColor = color
+		prevDerived = s.LaunchSpriteDerived
 		out = append(out, stackRect{stage: i, kind: rectBody, rowBase: rowOffset, rows: s.LaunchSpriteRowsPx, width: width, color: color})
 		rowOffset += s.LaunchSpriteRowsPx
 		if i+1 < len(stages) && taperRowBetween(s, stages[i+1]) > 0 {
