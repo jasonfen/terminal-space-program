@@ -2,6 +2,7 @@ package sim
 
 import (
 	"math"
+	"sort"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -147,8 +148,8 @@ func (w *World) CycleTarget(forward bool) {
 // targetCycle enumerates the valid target slots for the current
 // system + craft slate, in nearest-first cycle order (grilled
 // 2026-09-04, #425; CONTEXT.md §"Target Cycle"): none, then the moons
-// of the active Vessel's current primary, then other Vessels (existing
-// slate order), then the remaining bodies outward in catalog order with
+// of the active Vessel's current primary, then other Vessels (nearest
+// to the active Vessel first), then the remaining bodies outward in catalog order with
 // their own moons appended right after each. The active Vessel's own
 // primary never appears — it has no orbital radius relative to itself,
 // so it was never a useful aim. Rebuilt each call so a freshly spawned
@@ -196,13 +197,29 @@ func (w *World) targetCycle() []Target {
 		}
 	}
 
-	// 2. Other Vessels, existing slate order.
+	// 2. Other Vessels, nearest to the active Vessel first (slate order
+	// breaks ties and orders everything when there is no active Vessel).
+	// Slate order alone put a vessel 12 km away before one 2 km away.
+	type nearCraft struct {
+		id   uint64
+		dist float64
+	}
+	var others []nearCraft
+	ac := w.ActiveCraft()
 	for i, c := range w.Crafts {
 		if c == nil || i == w.ActiveCraftIdx {
 			continue
 		}
 		w.stampCraftID(c)
-		cycle = append(cycle, Target{Kind: TargetCraft, CraftID: c.ID})
+		d := 0.0
+		if ac != nil {
+			d = w.BodyPosition(c.Primary).Add(c.State.R).Sub(w.BodyPosition(ac.Primary).Add(ac.State.R)).Norm()
+		}
+		others = append(others, nearCraft{c.ID, d})
+	}
+	sort.SliceStable(others, func(a, b int) bool { return others[a].dist < others[b].dist })
+	for _, o := range others {
+		cycle = append(cycle, Target{Kind: TargetCraft, CraftID: o.id})
 	}
 
 	// 3. Remaining bodies OUTWARD from wherever the active Vessel
