@@ -81,6 +81,14 @@ type Part struct {
 	CommandSource string   `json:"command_source,omitempty"`
 	Antenna       *Antenna `json:"antenna,omitempty"`
 
+	// Ports (ADR 0053 §2-3) lists the docking ports this part carries.
+	// Today at most one entry, the top end (`"ports": [{"end": "top"}]`); a
+	// list so later side ports need no format change. Absent means the part
+	// cannot dock, which is also what a user overlay part that omits it
+	// reads as. Never copied onto a Stage and never persisted: the flag is
+	// looked up at read time (Stage.Ports, portIndex below).
+	Ports []PartPort `json:"ports,omitempty"`
+
 	// Components (v0.24 / ADR 0029 §1, the VAB cycle) optionally declares
 	// this Part a composition of finer Components by ID. Absent ⇒ the Part
 	// is atomic and its inline scalar fields above are authoritative
@@ -101,6 +109,17 @@ type Part struct {
 	// parts catalog (ADR 0026 §4).
 	VabSeed []string `json:"vab_seed,omitempty"`
 }
+
+// PartPort is one docking port on a catalog part. End says where on the
+// stack it sits; "top" (the nose, away from the engine) is the only end
+// ADR 0053 defines, and an entry with any other end is ignored by
+// Stage.Ports until a later ADR gives it a place.
+type PartPort struct {
+	End string `json:"end"`
+}
+
+// PortEndTop is the nose: the end of the stack away from the engine.
+const PortEndTop = "top"
 
 // Antenna is the forward-compatible (ADR 0027) per-part antenna attribute:
 // kind is "none" | "direct" | "relay"; a direct antenna can use the
@@ -255,6 +274,7 @@ func LoadCatalogOverlay() []CatalogWarning {
 	Loadouts = lo
 	LoadoutOrder = order
 	Components = comps
+	portIdx = buildPortIndex(parts, defs)
 	return warnings
 }
 
@@ -398,4 +418,92 @@ func userCatalogDir() string {
 		return ""
 	}
 	return filepath.Join(home, ".config", "terminal-space-program", "loadouts")
+}
+
+// portIndex answers "does this stage carry a docking port" without the
+// answer ever being stored on the Stage or in a save (ADR 0053 "Settled
+// here" item 7: a persisted flag would be a schema bump, and an absent
+// omitempty bool cannot tell an old save from a port-less stage). It is
+// rebuilt from the merged catalog at startup and by LoadCatalogOverlay, so
+// a user overlay part that omits `ports` reads port-less.
+type portIndex struct {
+	// byLoadout is authoritative: loadout ID, then the stage's display
+	// name as that loadout resolves it (part name or override name).
+	byLoadout map[string]map[string][]PartPort
+	// byName is the fallback for stages with no loadout behind them
+	// (catalog modules, custom VAB stages carry an empty LoadoutID). A name
+	// has ports only when EVERY part of that name carries them, so a
+	// collision between a ported and a port-less part reads port-less.
+	byName map[string][]PartPort
+}
+
+var portIdx = embeddedPortIndex()
+
+func embeddedPortIndex() portIndex {
+	comps, parts, defs, err := loadEmbeddedCatalog()
+	if err != nil {
+		panic("spacecraft: embedded catalog failed to load: " + err.Error())
+	}
+	parts, _ = aggregateComponents(parts, comps)
+	return buildPortIndex(parts, defs)
+}
+
+func buildPortIndex(parts map[string]Part, defs []LoadoutDef) portIndex {
+	idx := portIndex{
+		byLoadout: make(map[string]map[string][]PartPort, len(defs)),
+		byName:    make(map[string][]PartPort, len(parts)),
+	}
+	total := map[string]int{}
+	ported := map[string]int{}
+	for _, p := range parts {
+		total[p.Name]++
+		if len(topPorts(p.Ports)) > 0 {
+			ported[p.Name]++
+			idx.byName[p.Name] = topPorts(p.Ports)
+		}
+	}
+	for name, n := range total {
+		if ported[name] != n {
+			delete(idx.byName, name)
+		}
+	}
+	for _, d := range defs {
+		names := make(map[string][]PartPort, len(d.Parts))
+		for _, ref := range d.Parts {
+			p, ok := parts[ref.PartID]
+			if !ok {
+				continue
+			}
+			name := p.Name
+			if ref.Override != nil && ref.Override.Name != "" {
+				name = ref.Override.Name
+			}
+			if prev, seen := names[name]; seen && len(prev) > 0 {
+				continue
+			}
+			names[name] = topPorts(p.Ports)
+		}
+		idx.byLoadout[d.ID] = names
+	}
+	return idx
+}
+
+// topPorts keeps the ports ADR 0053 knows how to place (the nose).
+func topPorts(in []PartPort) []PartPort {
+	var out []PartPort
+	for _, p := range in {
+		if p.End == PortEndTop {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (idx portIndex) lookup(loadoutID, name string) []PartPort {
+	if names, ok := idx.byLoadout[loadoutID]; ok && loadoutID != "" {
+		if ports, ok := names[name]; ok {
+			return ports
+		}
+	}
+	return idx.byName[name]
 }

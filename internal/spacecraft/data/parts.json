@@ -180,6 +180,7 @@
     },
     {
       "id": "lander-ascent",
+      "ports": [{"end": "top"}],
       "name": "Ascent",
       "glyph": "➤",
       "color": "#7BFFA0",
@@ -197,6 +198,7 @@
     },
     {
       "id": "csm",
+      "ports": [{"end": "top"}],
       "vab_seed": ["sps-transfer", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "crew-capsule"],
       "name": "CSM",
       "command_source": "crewed",
@@ -232,6 +234,7 @@
     },
     {
       "id": "command-module",
+      "ports": [{"end": "top"}],
       "name": "CM",
       "command_source": "crewed",
       "glyph": "➤",
@@ -245,6 +248,7 @@
     },
     {
       "id": "csm-lm",
+      "ports": [{"end": "top"}],
       "name": "CSM+LM",
       "glyph": "➤",
       "color": "#C0C0FF",
@@ -261,6 +265,7 @@
     },
     {
       "id": "capsule",
+      "ports": [{"end": "top"}],
       "name": "Capsule",
       "command_source": "crewed",
       "glyph": "➤",
@@ -274,6 +279,7 @@
     },
     {
       "id": "rcs-tug",
+      "ports": [{"end": "top"}],
       "vab_seed": ["ballast-plate"],
       "name": "RCS Tug",
       "glyph": "➤",
@@ -348,6 +354,7 @@
     },
     {
       "id": "apollo-ascent",
+      "ports": [{"end": "top"}],
       "name": "Ascent",
       "command_source": "crewed",
       "glyph": "➤",
@@ -430,6 +437,7 @@
     },
     {
       "id": "kern-pod",
+      "ports": [{"end": "top"}],
       "name": "Pod",
       "command_source": "crewed",
       "glyph": "➤",
@@ -443,6 +451,7 @@
     },
     {
       "id": "ntr-tug",
+      "ports": [{"end": "top"}],
       "name": "NTR Tug",
       "glyph": "➤",
       "color": "#8CE0C0",
@@ -464,6 +473,7 @@
     },
     {
       "id": "ion-keeper",
+      "ports": [{"end": "top"}],
       "name": "Ion Keeper",
       "glyph": "➤",
       "color": "#C49BFF",
@@ -485,6 +495,7 @@
     },
     {
       "id": "deep-space-relay",
+      "ports": [{"end": "top"}],
       "name": "Deep-Space Relay",
       "glyph": "➤",
       "color": "#FFD27F",
@@ -561,6 +572,7 @@
     },
     {
       "id": "probe-sat-stage",
+      "ports": [{"end": "top"}],
       "name": "Probe Sat",
       "glyph": "➤",
       "color": "#5BB3FF",
@@ -731,6 +743,7 @@
     },
     {
       "id": "socket-ascent",
+      "ports": [{"end": "top"}],
       "name": "Ascent",
       "glyph": "➤",
       "color": "#7BFFD0",
@@ -749,6 +762,7 @@
     },
     {
       "id": "nudge-tug",
+      "ports": [{"end": "top"}],
       "name": "Nudge Tug",
       "glyph": "➤",
       "color": "#C49BFF",
@@ -759,6 +773,7 @@
     },
     {
       "id": "thread-relay",
+      "ports": [{"end": "top"}],
       "name": "Thread Relay",
       "glyph": "➤",
       "color": "#8CE0C0",
@@ -780,6 +795,7 @@
     },
     {
       "id": "heartbeat-keeper",
+      "ports": [{"end": "top"}],
       "name": "Heartbeat Keeper",
       "glyph": "➤",
       "color": "#C49BFF",
@@ -801,6 +817,7 @@
     },
     {
       "id": "uplink-relay",
+      "ports": [{"end": "top"}],
       "name": "Uplink Relay",
       "glyph": "➤",
       "color": "#FFD27F",
@@ -838,6 +855,7 @@
     },
     {
       "id": "endpoint-station",
+      "ports": [{"end": "top"}],
       "name": "Endpoint Station",
       "glyph": "➤",
       "color": "#C0E0A0",

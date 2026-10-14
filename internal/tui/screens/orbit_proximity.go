@@ -722,11 +722,17 @@ func (v *OrbitView) drawProximityHull(shown *bool, stages []spacecraft.Stage, at
 // the hysteresis band yet — "glyphs beyond" the ADR's own words for the
 // far side of this same rule.
 func (v *OrbitView) drawProximityVessels(w *sim.World, st sim.ProximityState) {
+	// The port line goes down first so both hulls, drawn after, win any
+	// pixel they share with it (ADR 0053 decision 6).
+	v.drawProximityPortLine(w, st)
+
 	targetStages, targetAttitude := proximityTargetHullInputs(w)
 	if !v.drawProximityHull(&v.proxTargetSpriteShown, targetStages, targetAttitude, st.TargetWorld, st.Frame) {
 		v.canvas.FillColoredDiskTagged(st.TargetWorld, 1,
 			widgets.CellTag{Color: render.ColorTarget, IsVessel: true})
 		v.canvas.SetCellOverlayColored(st.TargetWorld, '◆', render.ColorTarget)
+	} else if st.Target.HasPort() {
+		v.drawProximityPortMark(st.TargetWorld, targetAttitude, st.Frame, st.Target.Ports[0].OffsetM, render.ColorTarget)
 	}
 
 	activeColor := render.ColorCraftMarker
@@ -751,6 +757,8 @@ func (v *OrbitView) drawProximityVessels(w *sim.World, st sim.ProximityState) {
 			v.canvas.FillColoredDiskTagged(st.CraftWorld, 1,
 				widgets.CellTag{Color: activeColor, IsVessel: true})
 			v.canvas.SetCellOverlayColored(st.CraftWorld, glyph, activeColor)
+		} else if st.Own.HasPort() {
+			v.drawProximityPortMark(st.CraftWorld, ownAttitude, st.Frame, st.Own.Ports[0].OffsetM, activeColor)
 		}
 		return
 	}
@@ -846,16 +854,25 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 	// exactly when the pair is inside the distance gate but over the
 	// velocity gate — the failure a textbook (or a lateral-pass) approach
 	// can hit with no other on-screen explanation.
-	return []string{
-		v.theme.Primary.Render("PROXIMITY") + "  " + st.TargetName,
+	rows := []string{
+		v.proximityChipHeader(st),
 		chipRow("range:", readout.Distance(st.RangeM)),
+		v.proximityPortRow(st),
+	}
+	if st.HasPort {
+		rows = append(rows, proximityAlignRow(st))
+		if proximityInsideRing(st) {
+			rows = append(rows, proximityOffAxisRow(st))
+		}
+	}
+	return append(rows,
 		chipRow(readout.LabelRelSpeed, readout.Speed(st.VRelMS)+proximityOverSpeedSuffix(st)),
 		chipRow("closing:", readout.SignedSpeed(st.ClosingMS)),
 		proximityTrimRow(w),
 		v.proximityEngineRow(w),
 		v.proximityRCSRow(w),
 		proximityMonopropRow(w),
-	}
+	)
 }
 
 // proximityEngineRow is the main engine's throttle state (the ENGINE box's
@@ -936,8 +953,16 @@ func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
 		}
 	}
 	lines := []string{
-		v.theme.Primary.Render("PROXIMITY") + "  " + st.TargetName,
+		v.proximityChipHeader(st),
 		chipRow("range:", readout.Distance(st.RangeM)),
+	}
+	// ADR 0053 decision 6: port: and align: survive the shrink, but only
+	// inside 50 m and out of gate; off-axis: is dropped in Compact Form.
+	if proximityInsideRing(st) && proximityPortOutOfGate(st) {
+		lines = append(lines, v.proximityPortRow(st))
+		if st.HasPort {
+			lines = append(lines, proximityAlignRow(st))
+		}
 	}
 	// A trim that is on stays visible even in the Compact Form: it is the
 	// one reading that says why the vessel is not holding its attitude.

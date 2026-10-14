@@ -337,6 +337,30 @@ func Distance(m float64) string {
 	return formatLadder(m, distanceRungs, distanceRungIndex(av), 3)
 }
 
+// PortDistance renders a port-to-port range (ADR 0053 decision 6, "Settled
+// here" item 6): two decimals under 10 m ("1.10 m", "0.31 m"), because the
+// docking gate is 0.5 m and a whole-metre reading would hide the last
+// approach, then the ordinary Distance ladder from 10 m. This is the
+// deliberate exception to ADR 0049's whole-metre rule for metres; it is
+// confined to the port: row and the port-line label.
+func PortDistance(m float64) string {
+	if math.Abs(m) < 10 {
+		return fmt.Sprintf("%.2f m", Nzero(m, 2))
+	}
+	return Distance(m)
+}
+
+// PortOffset renders one axis of the off-axis row: one decimal under 1 km
+// ("0.6 m", "12.3 m"), the Distance ladder above. The sign is the caller's
+// to turn into an arrow, so the magnitude is rendered.
+func PortOffset(m float64) string {
+	a := math.Abs(m)
+	if a < 1000 {
+		return fmt.Sprintf("%.1f m", Nzero(a, 1))
+	}
+	return Distance(a)
+}
+
 var massRungs = []ladderRung{
 	{"kg", 1, 1000},
 	{"t", 1e3, 1000}, // last rung (no kt): promoteAt is never consulted

@@ -549,3 +549,41 @@ func TestAccelFourSigFigsNoTrailingZeros(t *testing.T) {
 		}
 	}
 }
+
+// --- Port-to-port range: two decimals under 10 m (ADR 0053 item 6). ---
+
+func TestPortDistanceTwoDecimalsUnderTenMetres(t *testing.T) {
+	cases := []struct {
+		m    float64
+		want string
+	}{
+		{0, "0.00 m"},
+		{0.31, "0.31 m"},
+		{0.504, "0.50 m"},
+		{1.1, "1.10 m"},
+		{9.994, "9.99 m"},
+		{-0.001, "0.00 m"}, // no "-0.00 m" flicker
+		{10, "10 m"},       // from 10 m the ordinary ladder (whole metres)
+		{47.6, "48 m"},
+		{1500, "1.500 km"},
+	}
+	for _, c := range cases {
+		if got := PortDistance(c.m); got != c.want {
+			t.Errorf("PortDistance(%g) = %q, want %q", c.m, got, c.want)
+		}
+	}
+}
+
+func TestPortOffsetIsOneDecimalMagnitude(t *testing.T) {
+	cases := []struct {
+		m    float64
+		want string
+	}{
+		{0.6, "0.6 m"}, {-0.2, "0.2 m"}, {0.04, "0.0 m"}, {12.34, "12.3 m"}, {-49.96, "50.0 m"},
+	}
+	for _, c := range cases {
+		if got := PortOffset(c.m); got != c.want {
+			t.Errorf("PortOffset(%g) = %q, want %q", c.m, got, c.want)
+		}
+	}
+}

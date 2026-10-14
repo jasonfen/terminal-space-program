@@ -624,7 +624,7 @@ func TestProximityOverSpeedReadoutSuffix(t *testing.T) {
 	if len(chip) < 4 {
 		t.Fatalf("buildProximityChip returned %d rows, want at least 4", len(chip))
 	}
-	vRelRow, closingRow := chip[2], chip[3]
+	vRelRow, closingRow := chipLine(chip, "rel speed:"), chipLine(chip, "closing:")
 	if !strings.Contains(vRelRow, "need < 0.10") {
 		t.Errorf("|v_rel| row = %q, want it to carry the gate reminder (need < %.2f)", vRelRow, sim.DockingVMS)
 	}
@@ -642,11 +642,11 @@ func TestProximityOverSpeedReadoutSuffix(t *testing.T) {
 	if len(lateralChip) < 4 {
 		t.Fatalf("buildProximityChip (lateral) returned %d rows, want at least 4", len(lateralChip))
 	}
-	if !strings.Contains(lateralChip[2], "need < 0.10") {
-		t.Errorf("lateral-pass |v_rel| row = %q, want it to carry the gate reminder even though closing is slow", lateralChip[2])
+	if row := chipLine(lateralChip, "rel speed:"); !strings.Contains(row, "need < 0.10") {
+		t.Errorf("lateral-pass |v_rel| row = %q, want it to carry the gate reminder even though closing is slow", row)
 	}
-	if strings.Contains(lateralChip[3], "need <") {
-		t.Errorf("lateral-pass closing row = %q, must not carry the reminder (closing rate itself is under the limit)", lateralChip[3])
+	if row := chipLine(lateralChip, "closing:"); strings.Contains(row, "need <") {
+		t.Errorf("lateral-pass closing row = %q, must not carry the reminder (closing rate itself is under the limit)", row)
 	}
 
 	readyW := proximityWorld(t, orbital.Vec3{X: 30}) // inside 50 m, matched v — actually ready, no gate to remind about
@@ -656,8 +656,8 @@ func TestProximityOverSpeedReadoutSuffix(t *testing.T) {
 	if len(readyChip) < 4 {
 		t.Fatalf("buildProximityChip (ready) returned %d rows, want at least 4", len(readyChip))
 	}
-	if strings.Contains(readyChip[2], "need <") {
-		t.Errorf("ready-case |v_rel| row = %q, must not carry the gate reminder", readyChip[2])
+	if row := chipLine(readyChip, "rel speed:"); strings.Contains(row, "need <") {
+		t.Errorf("ready-case |v_rel| row = %q, must not carry the gate reminder", row)
 	}
 
 	farW := proximityOverspeedWorld(t, orbital.Vec3{X: 100}, 0.96, 0.96) // outside 50 m even though fast
@@ -667,8 +667,8 @@ func TestProximityOverSpeedReadoutSuffix(t *testing.T) {
 	if len(farChip) < 4 {
 		t.Fatalf("buildProximityChip (far) returned %d rows, want at least 4", len(farChip))
 	}
-	if strings.Contains(farChip[2], "need <") {
-		t.Errorf("out-of-range |v_rel| row = %q, must not carry the gate reminder", farChip[2])
+	if row := chipLine(farChip, "rel speed:"); strings.Contains(row, "need <") {
+		t.Errorf("out-of-range |v_rel| row = %q, must not carry the gate reminder", row)
 	}
 }
 
@@ -683,19 +683,24 @@ func TestProximityOverSpeedSurvivesCompactForm(t *testing.T) {
 	overspeedV := newProximityTestView(t, 80, 24)
 	overspeedW.ViewMode = sim.ViewProximity
 	compact := overspeedV.buildProximityChipCompact(overspeedW)
-	if len(compact) != 3 {
-		t.Fatalf("Compact Form over the gate returned %d rows, want 3 (name, range, |v_rel|)", len(compact))
+	// name, range, the port: row (this pair has no known port shape, and
+	// a pair that cannot dock is always out of gate, ADR 0053 decision 6)
+	// and |v_rel|.
+	if len(compact) != 4 {
+		t.Fatalf("Compact Form over the gate returned %d rows, want 4 (name, range, port, |v_rel|)", len(compact))
 	}
-	if !strings.Contains(compact[2], "need < 0.10") || !strings.Contains(compact[2], "0.50") {
-		t.Errorf("Compact |v_rel| row = %q, want the same gate-suffixed row the full chip carries", compact[2])
+	if row := chipLine(compact, "rel speed:"); !strings.Contains(row, "need < 0.10") || !strings.Contains(row, "0.50") {
+		t.Errorf("Compact |v_rel| row = %q, want the same gate-suffixed row the full chip carries", row)
 	}
 
-	readyW := proximityWorld(t, orbital.Vec3{X: 30})
+	// A ported pair sitting in the gate has nothing to remind about: back
+	// to name and range only.
+	readyW := portedPairWorld(t, []string{"rcs-tug"}, []string{"nudge-tug"}, orbital.Vec3{X: 0.3}, 0)
 	readyV := newProximityTestView(t, 80, 24)
 	readyW.ViewMode = sim.ViewProximity
 	readyCompact := readyV.buildProximityChipCompact(readyW)
 	if len(readyCompact) != 2 {
-		t.Fatalf("Compact Form outside the gate returned %d rows, want 2 (name, range only)", len(readyCompact))
+		t.Fatalf("Compact Form inside the gate returned %d rows, want 2 (name, range only): %q", len(readyCompact), readyCompact)
 	}
 }
 
