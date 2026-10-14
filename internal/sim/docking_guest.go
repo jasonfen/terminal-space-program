@@ -47,7 +47,7 @@ func (w *World) DockGuestCraft(dockerIdx int, guest *spacecraft.Spacecraft, gues
 	}
 	w.Crafts = append(w.Crafts, guest)
 	guestIdx := len(w.Crafts) - 1
-	comp, idx, ok := w.fuseComposite(dockerIdx, guestIdx)
+	comp, idx, ok := w.fuseCompositeAt(dockerIdx, guestIdx, true)
 	if !ok {
 		return nil, -1, false
 	}

@@ -3,8 +3,6 @@ package sim
 import (
 	"testing"
 	"time"
-
-	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
 // TestLocalReArmLatchHoldsDriftedPairApart is the #343 decision-2 regression
@@ -28,10 +26,9 @@ func TestLocalReArmLatchHoldsDriftedPairApart(t *testing.T) {
 	// Simulate the pair drifting back together: park them well inside both
 	// gates, matched velocity — exactly the state checkDocking looks for.
 	a, b := w.Crafts[0], w.Crafts[1]
-	b.State.R = a.State.R.Add(orbital.Vec3{X: 5})
-	b.State.V = a.State.V
+	placePortToPort(a, b, 0.3)
 
-	if _, _, ok := w.checkDocking(); ok {
+	if startsMagnet(w) {
 		t.Fatal("checkDocking fused a latched pair that drifted back inside both gates — the local re-arm latch did not hold")
 	}
 	if len(w.Crafts) != 2 {
@@ -40,9 +37,8 @@ func TestLocalReArmLatchHoldsDriftedPairApart(t *testing.T) {
 
 	// Once they separate past ReArmDistM, the latch clears and an ordinary
 	// rendezvous (same position/velocity gates, no history) may fuse again.
-	b.State.R = a.State.R.Add(orbital.Vec3{X: ReArmDistM + 10})
-	b.State.V = a.State.V
-	if _, _, ok := w.checkDocking(); ok {
+	placePortToPort(a, b, ReArmDistM+10)
+	if startsMagnet(w) {
 		t.Fatal("checkDocking fused while the pair is still beyond the proximity gate — unexpected match on distance alone")
 	}
 
@@ -50,11 +46,11 @@ func TestLocalReArmLatchHoldsDriftedPairApart(t *testing.T) {
 	// should have dropped the latch even though the pair is currently too
 	// far apart to dock. Bring them back together now that the latch is
 	// gone and confirm an ordinary re-dock succeeds.
-	b.State.R = a.State.R.Add(orbital.Vec3{X: 5})
-	b.State.V = a.State.V
-	if _, _, ok := w.checkDocking(); !ok {
+	placePortToPort(a, b, 0.3)
+	if !startsMagnet(w) {
 		t.Fatal("checkDocking refused to re-fuse a pair that had legitimately cleared the re-arm latch by separating past ReArmDistM")
 	}
+	tickFor(w, 5.5) // the capture runs its five seconds, then docks
 	if len(w.Crafts) != 1 {
 		t.Errorf("slate count = %d after the cleared-latch re-dock, want 1", len(w.Crafts))
 	}
@@ -74,11 +70,10 @@ func TestReArmDockingClearsTargetedLatch(t *testing.T) {
 	a, b := w.Crafts[0], w.Crafts[1]
 	// Drift back together, matched velocity — exactly the state the issue
 	// describes (undock, do nothing, settle back inside the gates).
-	b.State.R = a.State.R.Add(orbital.Vec3{X: 5})
-	b.State.V = a.State.V
+	placePortToPort(a, b, 0.3)
 	w.SetTargetCraft(1)
 
-	if _, _, ok := w.checkDocking(); ok {
+	if startsMagnet(w) {
 		t.Fatal("precondition: checkDocking fused a freshly-latched pair")
 	}
 
@@ -95,9 +90,10 @@ func TestReArmDockingClearsTargetedLatch(t *testing.T) {
 
 	// Nothing else about docking changed: the pair fuses on the very next
 	// tick exactly as an un-latched approach would.
-	if _, _, ok := w.checkDocking(); !ok {
+	if !startsMagnet(w) {
 		t.Fatal("checkDocking still refused a pair inside both gates after ReArmDocking cleared their latch")
 	}
+	tickFor(w, 5.5) // the capture runs its five seconds, then docks
 	if len(w.Crafts) != 1 {
 		t.Errorf("slate count = %d after the re-armed re-dock, want 1", len(w.Crafts))
 	}
@@ -211,17 +207,17 @@ func TestLocalReArmLatchClearsAtCeiling(t *testing.T) {
 		t.Fatal("Undock returned false on a 2-component composite")
 	}
 	a, b := w.Crafts[0], w.Crafts[1]
-	b.State.R = a.State.R.Add(orbital.Vec3{X: 5})
-	b.State.V = a.State.V
+	placePortToPort(a, b, 0.3)
 
-	if _, _, ok := w.checkDocking(); ok {
+	if startsMagnet(w) {
 		t.Fatal("checkDocking fused a freshly-latched pair — latch should hold immediately after undock")
 	}
 
 	w.Clock.SimTime = w.Clock.SimTime.Add(ReArmCeiling + time.Minute)
-	if _, _, ok := w.checkDocking(); !ok {
+	if !startsMagnet(w) {
 		t.Fatal("checkDocking still refused to fuse after ReArmCeiling of sim-time elapsed — latch never expires")
 	}
+	tickFor(w, 5.5) // the capture runs its five seconds, then docks
 	if len(w.Crafts) != 1 {
 		t.Errorf("slate count = %d after the ceiling-expired re-dock, want 1", len(w.Crafts))
 	}
@@ -239,13 +235,12 @@ func TestLocalReArmRefusalChipsOncePerLatch(t *testing.T) {
 		t.Fatal("Undock returned false on a 2-component composite")
 	}
 	a, b := w.Crafts[0], w.Crafts[1]
-	b.State.R = a.State.R.Add(orbital.Vec3{X: 5})
-	b.State.V = a.State.V
+	placePortToPort(a, b, 0.3)
 
 	if w.LastLocalReArmRefusal != nil {
 		t.Fatal("precondition: a refusal event already exists before any refused checkDocking pass")
 	}
-	if _, _, ok := w.checkDocking(); ok {
+	if startsMagnet(w) {
 		t.Fatal("checkDocking fused a latched pair sitting inside both gates")
 	}
 	ev := w.LastLocalReArmRefusal
@@ -261,7 +256,7 @@ func TestLocalReArmRefusalChipsOncePerLatch(t *testing.T) {
 
 	// Same still-latched pair, same gates — a second refused pass must NOT
 	// raise a second chip.
-	if _, _, ok := w.checkDocking(); ok {
+	if startsMagnet(w) {
 		t.Fatal("checkDocking fused a still-latched pair on the second pass")
 	}
 	if w.LastLocalReArmRefusal != nil {

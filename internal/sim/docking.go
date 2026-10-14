@@ -89,35 +89,21 @@ func (w *World) Undock(idx int) bool {
 		totalCapMono += comp.MonopropCapacity
 	}
 
-	// Synthesize new craft, pushed apart along the velocity vector
-	// (prograde/retrograde) rather than radially (#343: a radial push
-	// leaves the pair on slightly different orbital energy whose secular
-	// along-track drift can still bring them back inside the docking
-	// gates over time; an along-track impulse deliberately changes
-	// semi-major axis so the separation grows and does not reverse).
-	//
-	// Sized by the ADJACENT gap, not the span between the two ends
-	// (#342): the old scheme fixed the OUTER span at a constant 70 m
-	// total and packed every component in between, so the gap between
-	// neighbours shrank to 70/(n-1) m as n grew — 35 m at n=3, 17.5 m at
-	// n=5 — both inside DockingDistM (50 m) and DockingVMS (0.1 m/s), so
-	// checkDocking re-fused the composite on the very next tick for any
-	// stack of 3+ components. (Easy to reach in play: a loaded carrier
-	// already holds its payloads as DockedComponents, so docking onto one
-	// starts at n≥3.) gapM/gapVMS are the same 75 m / 0.15 m/s magnitude
-	// sim.SeparationPush already uses for the cross-player path, reused
-	// here so the two paths agree on what "clear" means; every adjacent
-	// pair of restored components ends up exactly gapM apart regardless
-	// of n.
-	const (
-		gapM   = DockingDistM * 1.5 // 75 m — comfortably outside the 50 m gate
-		gapVMS = DockingVMS * 1.5   // 0.15 m/s — comfortably outside the 0.1 m/s gate
-	)
-	alongTrack := progradeUnit(c)
+	// ADR 0053 "Settled here" item 4: the pair parts along the seam, from the
+	// seam. The lead (component 0) keeps its state; every component above it
+	// is placed where its hull was drawn (the composite sprite draws it nose
+	// to the seam, flipped: ComposeLaunchSprite's seams) and pushed
+	// UndockSpringMS along +a_hat relative to the one below, nose pointing
+	// back along -a_hat. No teleport: the hulls start in contact and open
+	// into a gap the pilot can watch. The re-arm latch below, not distance,
+	// keeps them from re-fusing; with a 0.5 m / 4 degree gate an accidental
+	// re-dock needs a flown approach anyway (#343's secular-drift worry).
+	axis := c.CurrentAttitudeDir.Unit()
+	if axis.Norm() == 0 {
+		axis = progradeUnit(c)
+	}
 
 	restored := make([]*spacecraft.Spacecraft, 0, len(c.DockedComponents))
-	n := len(c.DockedComponents)
-	half := float64(n-1) / 2.0
 	stageOffset := 0 // running index into c.Stages for the breakdown path
 	for i, comp := range c.DockedComponents {
 		var stages []spacecraft.Stage
@@ -161,14 +147,20 @@ func (w *World) Undock(idx int) bool {
 				HasParachute: comp.HasParachute,
 			}}
 		}
-		// Symmetric integer offsets centred on zero (-(n-1)/2 .. +(n-1)/2
-		// in steps of 1) so every ADJACENT pair is exactly one gapM/gapVMS
-		// apart, independent of n — the #342 fix. n==1 can't reach here
-		// (Undock refuses below 2 components), so half is never NaN.
-		offset := float64(i) - half
-		s := w.restoreComponentCraft(c, comp, stages,
-			c.State.R.Add(alongTrack.Scale(offset*gapM)),
-			c.State.V.Add(alongTrack.Scale(offset*gapVMS)))
+		r, v, att := c.State.R, c.State.V, c.CurrentAttitudeDir
+		if i > 0 {
+			// Where this component's bottom row was drawn: the composite
+			// sprite reflects it, so its row 0 sits at the TOP of its block.
+			if useBreakdown {
+				if top := StackRows(c.Stages[:stageOffset]); top > 0 {
+					r = r.Add(axis.Scale(float64(top-1) * DockStrideM))
+				}
+			}
+			v = v.Add(axis.Scale(float64(i) * UndockSpringMS))
+			att = axis.Scale(-1)
+		}
+		s := w.restoreComponentCraft(c, comp, stages, r, v)
+		s.CurrentAttitudeDir = att
 		restored = append(restored, s)
 	}
 
@@ -433,13 +425,21 @@ func CompositeEngineSummary(c *spacecraft.Spacecraft) (totalThrust, weightedIsp 
 	return totalThrust, weightedIsp
 }
 
-// Docking proximity gates. Craft within DockingDistM and below
-// |v_rel| = DockingVMS while sharing the same primary frame fuse
-// into a single composite at the next tick. v0.8.3+.
+// Docking distances and speeds. Since ADR 0053 these no longer fuse anything
+// by themselves: docking is the port gate (dockGateHolds, docking_magnet.go).
+// DockingDistM (50 m) is "clear of the pair": the Proximity ring, the fit
+// floor, the Deploy/staging/handback push distances, the re-arm distance and
+// the warp-cap zone. DockingVMS (0.1 m/s) is the gate's relative-speed term
+// and the push speeds' yardstick.
 const (
-	DockingDistM = 50.0 // metres — KSP-ish "soft capture" distance.
-	DockingVMS   = 0.1  // m/s — typical proximity-ops null-residual.
+	DockingDistM = 50.0 // metres, the ring radius and the "clear of the pair" distance.
+	DockingVMS   = 0.1  // m/s, the gate's relative-speed term.
 )
+
+// UndockSpringMS is the Spring Release: how fast each component above the
+// seam is pushed along +a_hat, relative to the one below it, on Undock (ADR
+// 0053 "Settled here" item 4).
+const UndockSpringMS = 0.15
 
 // ReArmDistM is the re-arm-by-leaving distance (ADR 0038 §5): once a
 // cross-player pair undocks, a fresh Claim() between the SAME pair of craft
@@ -612,9 +612,15 @@ func (w *World) ReArmDocking() (partners []string, ok bool) {
 // tick. v0.8.3+.
 func (w *World) checkDocking() (int, int, bool) {
 	if len(w.Crafts) < 2 {
+		w.dockMagnet = nil
 		return 0, 0, false
 	}
 	w.pruneLocalReArms()
+	// A pull already running owns the tick: it either lets go, keeps
+	// pulling, or completes (the dock).
+	if w.dockMagnet != nil {
+		return w.stepDockMagnet()
+	}
 	for i := 0; i < len(w.Crafts); i++ {
 		a := w.Crafts[i]
 		if a == nil {
@@ -622,75 +628,25 @@ func (w *World) checkDocking() (int, int, bool) {
 		}
 		for j := i + 1; j < len(w.Crafts); j++ {
 			b := w.Crafts[j]
-			if b == nil {
+			if b == nil || !dockPairEligible(a, b) {
 				continue
 			}
-			// v0.16 / ADR 0015: Vessels in different Systems share no
-			// common inertial frame, so their positions aren't
-			// comparable — never auto-dock across a System boundary.
-			// (Same-Primary already implies same System today, but the
-			// explicit guard documents the invariant and is robust to a
-			// future cross-System body-ID collision.)
-			if a.SystemIdx != b.SystemIdx {
-				continue
-			}
-			// SOI mismatch — won't be near each other in the same
-			// frame even if their inertial positions are close.
-			if a.Primary.ID != b.Primary.ID {
-				continue
-			}
-			// Either Landed — skip (v0.12 Slice 2 / ADR 0007, broadened
-			// after the surface-staging playtest). A Landed craft must
-			// not auto-fuse with anything by proximity:
-			//
-			//   1. A surface-staged descent + ascent pair sits co-
-			//      located at the same lat/lon, both Landed, with
-			//      identical V = ω×R — inside both gates. integrateLanded
-			//      re-pins each from its stored coords every tick, so the
-			//      orbital retrograde-nudge separation can't apply.
-			//   2. When the player ignites the ascent to lift off, its
-			//      Landed flag clears while it is STILL co-located with
-			//      the parked descent stage (it hasn't climbed clear
-			//      yet). A both-Landed-only guard would let that
-			//      liftoff moment re-fuse the pair — exactly the
-			//      "undocking rejoins the vessels" bug.
-			//
-			// Skipping when EITHER craft is Landed closes both windows.
-			// Deliberate landed-docking (moon bases) is a future feature
-			// that will revisit this guard (ADR 0007 forward hook);
-			// orbital rendezvous docking is unaffected (both partners
-			// are in flight, Landed=false).
-			if a.Landed || b.Landed {
-				continue
-			}
-			// #467: debris never docks. Stages shed in succession spawn at the
-			// same offset and push, so they sit inside each other's gates
-			// forever; nobody flies them and a fused wreck gains nothing. A
-			// shed stage can still dock with any other vessel. Unlike a
-			// re-arm latch this has no ceiling and survives save/load.
-			if a.Role == spacecraft.RoleJettisonedStage && b.Role == spacecraft.RoleJettisonedStage {
-				continue
-			}
-			dr := a.State.R.Sub(b.State.R)
-			if dr.Norm() > DockingDistM {
-				continue
-			}
-			dv := a.State.V.Sub(b.State.V)
-			if dv.Norm() > DockingVMS {
+			// ADR 0053 decision 5: the port gate, not the old 50 m / 0.1 m/s
+			// click. Holding it starts the magnet; the dock is the magnet
+			// completing.
+			if !dockPairGateHolds(a, b) {
 				continue
 			}
 			// #343: a just-undocked (or otherwise latched) pair stays apart
-			// regardless of proximity — the local mirror of the cross-player
+			// regardless of the gate, the local mirror of the cross-player
 			// re-arm-by-leaving latch. #372: say so, once per latch, so the
-			// refusal isn't silent (relay/dock.go's raiseReArmNotice already
-			// does this cross-player; internal/sim had no channel to report
-			// a refusal upward at all until now).
+			// refusal isn't silent.
 			if w.isLocalReArmed(a.ID, b.ID) {
 				w.raiseLocalReArmRefusal(a.ID, b.ID)
 				continue
 			}
-			w.DockCrafts(i, j)
-			return i, j, true
+			w.startDockMagnet(i, j)
+			return 0, 0, false
 		}
 	}
 	return 0, 0, false
@@ -765,6 +721,15 @@ func (w *World) DockCrafts(idxA, idxB int) {
 // identical to the classic single-World dock. ok is false for invalid or nil
 // slots or a zero-mass pair. v0.28 S5.
 func (w *World) fuseComposite(lead, drop int) (*spacecraft.Spacecraft, int, bool) {
+	return w.fuseCompositeAt(lead, drop, false)
+}
+
+// fuseCompositeAt is fuseComposite with the composite's position chosen:
+// atCentroid=false keeps the LEAD's State.R (ADR 0053 "Settled here" item 1:
+// the hulls stay where they were, no jump to a mass centroid a stack length
+// away); true is the legacy mass-weighted centroid, which the cross-player
+// guest dock (DockGuestCraft) keeps until slice E reworks that path.
+func (w *World) fuseCompositeAt(lead, drop int, atCentroid bool) (*spacecraft.Spacecraft, int, bool) {
 	if lead == drop || lead < 0 || drop < 0 || lead >= len(w.Crafts) || drop >= len(w.Crafts) {
 		return nil, -1, false
 	}
@@ -809,12 +774,16 @@ func (w *World) fuseComposite(lead, drop int) (*spacecraft.Spacecraft, int, bool
 	composite.Stages = append(composite.Stages, b.Stages...)
 	composite.SyncFields()
 
-	composite.State = physics.StateVector{
-		R: orbital.Vec3{
+	compR := a.State.R
+	if atCentroid {
+		compR = orbital.Vec3{
 			X: (mA*a.State.R.X + mB*b.State.R.X) / mTotal,
 			Y: (mA*a.State.R.Y + mB*b.State.R.Y) / mTotal,
 			Z: (mA*a.State.R.Z + mB*b.State.R.Z) / mTotal,
-		},
+		}
+	}
+	composite.State = physics.StateVector{
+		R: compR,
 		V: orbital.Vec3{
 			X: (mA*a.State.V.X + mB*b.State.V.X) / mTotal,
 			Y: (mA*a.State.V.Y + mB*b.State.V.Y) / mTotal,

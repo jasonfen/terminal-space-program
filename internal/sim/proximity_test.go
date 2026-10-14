@@ -496,59 +496,89 @@ func TestProximityDriftPathRefusalPaths(t *testing.T) {
 	}
 }
 
-// TestProximityDockGateReady checks all four quadrants around the
-// DockingDistM / DockingVMS thresholds — ready iff BOTH gates are
-// satisfied, using the exact same constants checkDocking's auto-fuse
-// reads, so the ring and the actual dock event can never disagree.
+// TestProximityDockGateReady walks the port gate's terms one at a time: ready
+// iff the pair carries ports AND port range <= 0.5 m AND relative speed
+// < 0.1 m/s AND the noses are within 4 degrees. It calls the same predicate
+// checkDocking fuses on, so the ring and the dock can never disagree. The
+// first row is the positive control.
 func TestProximityDockGateReady(t *testing.T) {
 	w := mustWorld(t)
 	tests := []struct {
 		name      string
-		rangeM    float64
+		hasPort   bool
+		portM     float64
 		vRelMS    float64
+		alignDeg  float64
 		wantReady bool
 	}{
-		{"inside both gates", DockingDistM - 1, DockingVMS - 0.01, true},
-		{"outside range, inside velocity", DockingDistM + 1, DockingVMS - 0.01, false},
-		{"inside range, outside velocity", DockingDistM - 1, DockingVMS + 0.01, false},
-		{"outside both gates", DockingDistM + 1, DockingVMS + 0.01, false},
-		{"exactly at range threshold (not <)", DockingDistM, DockingVMS - 0.01, false},
-		{"exactly at velocity threshold (not <)", DockingDistM - 1, DockingVMS, false},
+		{"inside all three terms", true, 0.4, 0.05, 2, true},
+		{"port range 0.6 m", true, 0.6, 0.05, 2, false},
+		{"exactly 0.5 m (<= holds)", true, 0.5, 0.05, 2, true},
+		{"rel speed exactly 0.1 (not <)", true, 0.4, DockingVMS, 2, false},
+		{"rel speed 0.15", true, 0.4, 0.15, 2, false},
+		{"lateral pass: 3 m port range at 0.05 m/s", true, 3, 0.05, 2, false},
+		{"20 deg misaligned at 0.3 m", true, 0.3, 0.05, 20, false},
+		{"exactly 4 deg (<= holds)", true, 0.4, 0.05, 4, true},
+		{"4.5 deg", true, 0.4, 0.05, 4.5, false},
+		{"no port on one side", false, 0.1, 0.01, 0, false},
+		{"inside the OLD 50 m / 0.1 m/s pair but not at a port", true, 30, 0.01, 0, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			st := ProximityState{RangeM: tc.rangeM, VRelMS: tc.vRelMS}
+			st := ProximityState{HasPort: tc.hasPort, PortRangeM: tc.portM, VRelMS: tc.vRelMS, AlignDeg: tc.alignDeg, RangeM: tc.portM}
 			if got := w.ProximityDockGateReady(st); got != tc.wantReady {
-				t.Errorf("range=%.1f vRel=%.3f: ready=%v, want %v", tc.rangeM, tc.vRelMS, got, tc.wantReady)
+				t.Errorf("ready=%v, want %v", got, tc.wantReady)
 			}
 		})
+	}
+}
+
+// ProximityDockGateReady and the real dock agree on a live pair: sweep a
+// lateral pass and a misalignment through the real ProximityState and check
+// the ring predicate equals the dock predicate at every point.
+func TestProximityDockGateReadyMatchesDockPredicate(t *testing.T) {
+	for _, c := range []struct {
+		name           string
+		gap, rel, tilt float64
+	}{
+		{"in gate", 0.4, 0.05, 2},
+		{"lateral pass 0.05 m/s, port 3 m", 3, 0.05, 0},
+		{"20 deg at 0.3 m", 0.3, 0.05, 20},
+		{"too fast", 0.3, 0.3, 0},
+	} {
+		p := newPortPair(t, "rcs-tug", "rcs-tug", c.gap, c.rel, c.tilt)
+		p.w.SetTargetCraft(1)
+		st, ok := p.w.ProximityState()
+		if !ok {
+			t.Fatalf("%s: no ProximityState", c.name)
+		}
+		want := dockPairGateHolds(p.a, p.b)
+		if got := p.w.ProximityDockGateReady(st); got != want {
+			t.Errorf("%s: ring ready=%v but the dock gate says %v", c.name, got, want)
+		}
 	}
 }
 
 // TestProximityDockGateReadyFalseWhileLatched is the #372 acceptance
 // regression test: a same-World re-arm latch (#343) between the active
 // vessel and its Target must hold ProximityDockGateReady false even while
-// the pair sits inside BOTH raw gates — otherwise the ring lies green at
-// the exact moment checkDocking's own auto-fuse is refusing the pair.
+// the pair sits inside the whole gate, otherwise the ring lies green at the
+// exact moment checkDocking is refusing the pair. The unlatched read is the
+// positive control.
 func TestProximityDockGateReadyFalseWhileLatched(t *testing.T) {
-	w := proximityPairWorld(t, orbital.Vec3{X: 10}, orbital.Vec3{})
-	active := w.ActiveCraft()
-	if w.Target.Kind != TargetCraft {
-		t.Fatal("precondition: proximityPairWorld did not leave a vessel targeted")
-	}
-	w.localReArms = append(w.localReArms, localReArm{idA: active.ID, idB: w.Target.CraftID})
-
+	p := newPortPair(t, "rcs-tug", "rcs-tug", 0.3, 0, 0)
+	w := p.w
+	w.SetTargetCraft(1)
 	st, ok := w.ProximityState()
 	if !ok {
 		t.Fatal("ProximityState refused a resolvable vessel target")
 	}
-	// Sanity: the RAW gates (range/velocity alone) are satisfied — the only
-	// thing standing between this pair and "ready" is the latch.
-	if st.RangeM >= DockingDistM || st.VRelMS >= DockingVMS {
-		t.Fatalf("test setup: pair not inside both raw gates (range=%.2f vRel=%.4f)", st.RangeM, st.VRelMS)
+	if !w.ProximityDockGateReady(st) {
+		t.Fatal("control: the unlatched pair in the gate must read ready")
 	}
+	w.localReArms = append(w.localReArms, localReArm{idA: p.a.ID, idB: p.b.ID})
 	if w.ProximityDockGateReady(st) {
-		t.Fatal("ProximityDockGateReady = true for a latched pair inside both gates — the ring would show green while the dock is actually refused")
+		t.Fatal("ProximityDockGateReady = true for a latched pair inside the gate: the ring would show green while the dock is refused")
 	}
 }
 

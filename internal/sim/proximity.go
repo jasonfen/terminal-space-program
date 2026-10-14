@@ -326,21 +326,20 @@ func (w *World) ProximityHintActive() bool {
 	return w.ProximityAvailable()
 }
 
-// ProximityDockGateReady reports whether the pair sits inside BOTH
-// docking gates right now AND isn't held apart by a same-World re-arm
-// latch (#343) — exactly checkDocking's own auto-fuse predicate
-// (DockingDistM / DockingVMS, PLUS isLocalReArmed), reused rather than
-// re-thresholded so the dock-gate ring's green state and the game's
-// actual "you are about to dock" moment can never drift apart (issue
-// #348 §1: "DOCK READY becomes a place on screen").
+// ProximityDockGateReady reports whether the pair holds the port gate right
+// now (ADR 0053 decision 5: port within 0.5 m, relative speed under 0.1 m/s,
+// noses within 4 degrees of facing, both carrying a port) AND isn't held
+// apart by a same-World re-arm latch (#343). It reads dockGateHolds, the
+// very predicate checkDocking fuses on and the magnet keeps pulling on, so the
+// ring's green state and the game's actual "you are about to dock" moment can
+// never drift apart (issue #348 §1, the #421 rule). A pair with no port on
+// either side, or a ghost whose shape is unknown, is never ready.
 //
-// #372: the latch #343 added to checkDocking had drifted out of this
-// predicate — a just-undocked pair sitting inside both gates read
-// "ready" here while checkDocking was actually refusing to fuse it.
-// Folding the same isLocalReArmed check in restores the invariant the
-// doc comment above already promised.
+// #372: the latch had once drifted out of this predicate; keeping the same
+// isLocalReArmed check here is what makes a just-undocked pair read "not
+// ready" while checkDocking refuses to fuse it.
 func (w *World) ProximityDockGateReady(st ProximityState) bool {
-	if st.RangeM >= DockingDistM || st.VRelMS >= DockingVMS {
+	if !dockGateHolds(st.HasPort, st.PortRangeM, st.VRelMS, st.AlignDeg) {
 		return false
 	}
 	if c := w.ActiveCraft(); c != nil && w.Target.Kind == TargetCraft {
