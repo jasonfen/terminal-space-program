@@ -55,9 +55,10 @@ func TestDockPortStackRowsHandCounted(t *testing.T) {
 	}
 }
 
-// The port point is R + L*axis: the nose, measured from the stack bottom.
-// A vector test with a tilted axis, so a "centre +- half height" reading
-// (the grill's wrong claim) cannot pass.
+// The port point is the nose measured from the stack BOTTOM along the
+// axis (R + (L - half a row)*axis; see dockPortTipInsetM for why not
+// exactly L). A vector test with a tilted axis, so a "centre +- half
+// height" reading (the grill's wrong claim) cannot pass.
 func TestDockPortPointIsNoseFromStackBottom(t *testing.T) {
 	g := PortGeometryOf([]spacecraft.Stage{stageOf(t, "rcs-tug")}, orbital.Vec3{X: 3, Y: 4}) // not unit on purpose
 	if !g.HasPort() {
@@ -65,7 +66,7 @@ func TestDockPortPointIsNoseFromStackBottom(t *testing.T) {
 	}
 	r := orbital.Vec3{X: 1000, Y: -2000, Z: 50}
 	p := g.PortPoint(r, 0)
-	want := r.Add(orbital.Vec3{X: 0.6 * 6, Y: 0.8 * 6})
+	want := r.Add(orbital.Vec3{X: 0.6 * 5.25, Y: 0.8 * 5.25}) // 6 m hull, nose edge 0.75 m in from L
 	if d := p.Sub(want).Norm(); d > 1e-9 {
 		t.Errorf("port point off by %g m: got %+v want %+v", d, p, want)
 	}
@@ -172,7 +173,11 @@ func dockPair(t *testing.T, own, tgt []string, offsetFromTgtPort orbital.Vec3, o
 		Add(frame.AlongTrack.Scale(offsetFromTgtPort.X)).
 		Add(frame.RadialOut.Scale(offsetFromTgtPort.Y)).
 		Add(frame.CrossTrack.Scale(offsetFromTgtPort.Z))
-	a.State.R = pa.Sub(a.CurrentAttitudeDir.Scale(ga.NoseM))
+	ownOff := ga.NoseM
+	if ga.HasPort() {
+		ownOff = ga.Ports[0].OffsetM
+	}
+	a.State.R = pa.Sub(a.CurrentAttitudeDir.Scale(ownOff))
 	a.State.V = b.State.V
 	w.SetTargetCraft(1)
 	return w

@@ -27,6 +27,15 @@ const (
 	// dockTaperThresholdRows / dockDefaultWidthPx / dockMinWidthPx mirror
 	// launch_sprite.go's taperThreshold, defaultSpriteWidthPx and
 	// minRenderedStageWidthPx.
+	// dockPortTipInsetM is how far the port sits inside the hull length
+	// L = rows*1.5 m. The composer draws row r as a dot at r*1.5 m from the
+	// anchor, so a hull occupies -0.75 m to L-0.75 m along the axis, and its
+	// nose, the edge a second hull's nose touches, is at L-0.75 m. ADR 0053
+	// decision 2 says R+L*a_hat; that overshoots the drawn nose by half a
+	// row, more than the 0.5 m gate and a 1.5 m visible gap between two
+	// docked hulls. TestProximityPortMarkLandsOnDrawnNose measures this.
+	dockPortTipInsetM = DockStrideM / 2
+
 	dockTaperThresholdRows = 6
 	dockDefaultWidthPx     = 2
 	dockMinWidthPx         = 4
@@ -83,8 +92,9 @@ type DockPort struct {
 	Name string
 	// End is the stack end the port is on ("top" = the nose).
 	End string
-	// OffsetM is the port's distance from the vessel position (the stack
-	// bottom) along the attitude axis.
+	// OffsetM is the port's distance from the vessel position along the
+	// attitude axis: the drawn nose, half a row inside the hull length
+	// (see dockPortTipInsetM).
 	OffsetM float64
 }
 
@@ -133,7 +143,7 @@ func PortGeometryOf(stages []spacecraft.Stage, attitude orbital.Vec3) PortGeomet
 	top := stages[len(stages)-1]
 	g.TopName = top.Name
 	for _, p := range top.Ports() {
-		g.Ports = append(g.Ports, DockPort{Name: top.Name, End: p.End, OffsetM: g.NoseM})
+		g.Ports = append(g.Ports, DockPort{Name: top.Name, End: p.End, OffsetM: g.NoseM - dockPortTipInsetM})
 	}
 	return g
 }
