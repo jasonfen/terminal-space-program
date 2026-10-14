@@ -188,7 +188,10 @@ func TestRefusedClaimLeavesBothSeatsFreeAndConsistent(t *testing.T) {
 	hostID, guestID := hw.Crafts[0].ID, gw.Crafts[0].ID
 	pulls, pullTicks := false, 0
 	for i := 0; i < 400; i++ {
-		if ghostPulling(gw) {
+		if ghostPulling(gw) || pulls {
+			// From the first pull on the refusal stands (a latch that does not
+			// lapse), so the pair is blocked: the hulls may bounce apart, but
+			// no second magnet may start.
 			pulls = true
 			srv.dock.Seed([]relay.DockRecord{{
 				ID: 90, Owner: "local", DockerCraftID: hostID,
