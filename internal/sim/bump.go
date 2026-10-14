@@ -144,6 +144,72 @@ func hullsTouch(a0, a1 orbital.Vec3, wa float64, b0, b1 orbital.Vec3, wb float64
 	return true, n
 }
 
+// hullNearParallelCos is the |cos| of the axis angle above which two hulls are
+// treated as lying (anti)parallel for the contact test: within 45 degrees.
+const hullNearParallelCos = 0.7071
+
+// hullContact is the contact test AND the contact normal for two hulls
+// (flat-ended cylinders as axis segments with widths). It returns whether they
+// touch and, when they do, the unit normal pointing from B to A (the
+// direction A is pushed), or the zero vector when no usable normal exists and
+// the caller should fall back to the line between the positions. A
+// cross-player bump against a ghost's reported hull calls this same helper.
+//
+// For hulls lying within 45 degrees of parallel the contact is decided by
+// LEAST PENETRATION, not by the closest-point line between the axes: with the
+// noses laterally off the same line by more than a few cm (a crooked or
+// off-centre nose-first hit) that line is the mostly LATERAL nose-to-nose
+// offset, while the real contact is the end FACE, so the closing speed along
+// it read ~0 and the hulls passed through (review finding 1). Here the axial
+// overlap (how far the entering end has crossed the other's face plane) is
+// compared with the lateral depth ((wa+wb)/2 - axis distance); the smaller
+// one is the face the hulls are really touching, so a nose-first approach
+// bounces along the axis, and a side hit, whose axial overlap is long, keeps
+// the lateral normal. Touch needs axial overlap, which keeps the flat-ended
+// rule (two noses never touch with a positive gap between them). Hulls at a
+// steeper angle (a nose into a flank) use hullsTouch and its closest-point
+// normal unchanged.
+func hullContact(a0, a1 orbital.Vec3, wa float64, b0, b1 orbital.Vec3, wb float64) (bool, orbital.Vec3) {
+	ua, ub := a1.Sub(a0).Unit(), b1.Sub(b0).Unit()
+	cos := ua.Dot(ub)
+	if math.Abs(cos) < hullNearParallelCos || ua.Norm() == 0 || ub.Norm() == 0 {
+		touch, n := hullsTouch(a0, a1, wa, b0, b1, wb)
+		if !touch || n.Norm() < bumpMinNormalM {
+			return touch, orbital.Vec3{}
+		}
+		return true, n.Unit()
+	}
+	pa, pb := segmentClosest(a0, a1, b0, b1)
+	n := pa.Sub(pb)
+	rsum := (wa + wb) / 2
+	if n.Norm() >= rsum {
+		return false, orbital.Vec3{}
+	}
+	if cos < 0 {
+		ub = ub.Scale(-1)
+	}
+	u := ua.Add(ub).Unit()
+	// Axial intervals along u, relative to b0 to keep the numbers small.
+	ta0, ta1 := a0.Sub(b0).Dot(u), a1.Sub(b0).Dot(u)
+	tb0, tb1 := 0.0, b1.Sub(b0).Dot(u)
+	loA, hiA := math.Min(ta0, ta1), math.Max(ta0, ta1)
+	loB, hiB := math.Min(tb0, tb1), math.Max(tb0, tb1)
+	overlap := math.Min(hiA, hiB) - math.Max(loA, loB)
+	if overlap <= 1e-9 {
+		return false, orbital.Vec3{}
+	}
+	if overlap <= rsum-n.Norm() {
+		if (loA+hiA)/2 >= (loB+hiB)/2 {
+			return true, u
+		}
+		return true, u.Scale(-1)
+	}
+	if n.Norm() < bumpMinNormalM {
+		return true, orbital.Vec3{}
+	}
+	return true, n.Unit()
+}
+
 // segmentEnd reports whether p sits on an end of segment p0-p1, and if so
 // whether it is the p1 (nose) end.
 func segmentEnd(p, p0, p1 orbital.Vec3) (isEnd, isP1 bool) {
@@ -194,7 +260,7 @@ func (w *World) checkBumps() {
 			if !okA || !okB {
 				continue
 			}
-			touch, n := hullsTouch(a0, a1, wa, b0, b1, wb)
+			touch, nh := hullContact(a0, a1, wa, b0, b1, wb)
 			if !touch {
 				delete(w.bumpOverlap, key)
 				continue
@@ -202,18 +268,15 @@ func (w *World) checkBumps() {
 			if w.bumpOverlap[key] || bumpPairInGate(w, a, b) {
 				continue
 			}
-			// Crossing or collinear axes have no usable closest-point line
-			// (a coaxial head-on pair carries only integrator-noise
-			// lateral offset, ~1e-4 m, which would read as a sideways
-			// normal and a zero closing speed); fall back to the line
+			// No usable contact normal (collinear axes carrying only
+			// integrator-noise lateral offset): fall back to the line
 			// between the positions.
-			if n.Norm() < bumpMinNormalM {
-				n = dr
+			if nh.Norm() == 0 {
+				if dr.Norm() < 1e-9 {
+					continue
+				}
+				nh = dr.Unit()
 			}
-			if n.Norm() < 1e-9 {
-				continue
-			}
-			nh := n.Unit()
 			s := -a.State.V.Sub(b.State.V).Dot(nh)
 			if s <= 0 {
 				continue // already parting: nothing to bounce
