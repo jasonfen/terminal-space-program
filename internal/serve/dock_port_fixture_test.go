@@ -33,7 +33,8 @@ func tugIn(t *testing.T, w *sim.World, id uint64) *spacecraft.Spacecraft {
 // guest 0.4 m port to port ahead of the host's nose, drifting in at 0.05 m/s,
 // 2 degrees off straight: inside the port gate (0.5 m / 0.1 m/s / 4 degrees),
 // so the host's magnet starts on the first tick the host sees the guest's
-// report. The host is the approacher (the one ticking first).
+// report. Who APPROACHES is no longer tick order (review 2026-10-14 finding 3):
+// a test names its approacher by targeting the other's ghost, see aimAtGhost.
 func arrangePortContact(t *testing.T, hw, gw *sim.World, guestID uint64) {
 	t.Helper()
 	arrangePortContactAt(t, hw, gw, guestID, 0.4)
@@ -52,4 +53,15 @@ func arrangePortContactAt(t *testing.T, hw, gw *sim.World, guestID uint64, gapM 
 	guest.State.V = host.State.V.Sub(axis.Scale(0.05))
 	guest.CurrentAttitudeDir = gAxis
 	guest.SlewRateDegPerSec = 1e-9 // hold the placed pointing
+}
+
+// aimAtGhost makes w's seat the approacher of the pair: it targets the first
+// ghost on its slate (the approacher rule, relay/dock_approach.go, ranks a seat
+// that has the other's vessel targeted above one that has not).
+func aimAtGhost(t *testing.T, w *sim.World) {
+	t.Helper()
+	if len(w.Ghosts) == 0 {
+		t.Fatal("no ghost to aim at: tick both seats first")
+	}
+	w.SetTargetGhost(w.Ghosts[0].Owner, w.Ghosts[0].CraftID)
 }

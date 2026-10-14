@@ -69,6 +69,34 @@ func ghostPairGateHolds(a *spacecraft.Spacecraft, g Ghost) bool {
 	return dockGateHolds(ghostPairGate(a, g))
 }
 
+// GhostPullGate decides, for the viewer's seat, who of a pair runs the
+// cross-player magnet (the approacher rule, relay/dock_approach.go). The serve
+// layer installs one per tick; with none installed (a lone World, unit tests)
+// every seat may pull, the pre-rule behaviour.
+type GhostPullGate interface {
+	// Approacher: the rule names this seat's vessel the approacher for the ghost.
+	Approacher(GhostRef) bool
+	// BeginPull registers (or refreshes) this seat as the pair's one puller;
+	// false when the other seat holds the pair or the rule names it.
+	BeginPull(GhostRef) bool
+	// EndPull releases the registration.
+	EndPull(GhostRef)
+	// PullingToward: the ghost's seat is the live puller toward us.
+	PullingToward(GhostRef) bool
+}
+
+// SetGhostPullGate installs the approacher rule for this tick (nil clears it).
+func (w *World) SetGhostPullGate(g GhostPullGate) { w.ghostDock.gate = g }
+
+// dropGhostMagnet ends any running pull and releases its registration.
+func (w *World) dropGhostMagnet() {
+	gd := &w.ghostDock
+	if gd.magnet != nil && gd.gate != nil {
+		gd.gate.EndPull(gd.magnet.ghost)
+	}
+	gd.magnet = nil
+}
+
 // ghostMagnet is a cross-player capture in progress. Transient, never saved.
 type ghostMagnet struct {
 	pullerID          uint64
@@ -80,6 +108,8 @@ type ghostMagnet struct {
 // completed-pull latch, the ledger's refusals and the bump latches.
 type ghostDock struct {
 	magnet *ghostMagnet
+	// gate is the approacher rule, nil when none is installed.
+	gate GhostPullGate
 	// done is the ghost whose pull completed and whose Claim has been filed;
 	// no new pull starts on it until the pair leaves the gate (a refused or
 	// slow Claim must not loop the magnet).
@@ -138,14 +168,21 @@ func (w *World) StepGhostCapture(eligible func(GhostRef) bool) (ref GhostRef, do
 	gd.refused = nil
 	a := w.ActiveCraft()
 	if a == nil || a.Landed || a.Crashed {
-		gd.magnet, gd.done = nil, nil
+		w.dropGhostMagnet()
+		gd.done = nil
 		return GhostRef{}, false
 	}
 	if m := gd.magnet; m != nil {
 		g, ok := w.ghostByKey(m.ghost)
 		if !ok || m.pullerID != a.ID || !w.ghostPairEligible(a, g) || !ghostPairGateHolds(a, g) ||
 			(eligible != nil && !eligible(m.ghost)) {
-			gd.magnet = nil // let go: both back in free flight, nothing claimed
+			w.dropGhostMagnet() // let go: both back in free flight, nothing claimed
+			return GhostRef{}, false
+		}
+		// Refresh the pair's registration; if another seat has taken the pair
+		// (a stale registration expired under us), this seat lets go too.
+		if gd.gate != nil && !gd.gate.BeginPull(m.ghost) {
+			gd.magnet = nil
 			return GhostRef{}, false
 		}
 		return w.pullToGhost(a, g)
@@ -167,11 +204,19 @@ func (w *World) StepGhostCapture(eligible func(GhostRef) bool) (ref GhostRef, do
 		if gd.done != nil && *gd.done == r {
 			continue
 		}
+		// Only the approacher pulls or files a Claim; the other seat is
+		// hands-off and keeps its hold.
+		if gd.gate != nil && !gd.gate.Approacher(r) {
+			continue
+		}
 		if w.ghostBlocked(r) {
 			gd.refused = append(gd.refused, r)
 			continue
 		}
 		if eligible != nil && !eligible(r) {
+			continue
+		}
+		if gd.gate != nil && !gd.gate.BeginPull(r) {
 			continue
 		}
 		w.stampCraftID(a)
@@ -217,7 +262,7 @@ func (w *World) pullToGhost(a *spacecraft.Spacecraft, g Ghost) (GhostRef, bool) 
 		return GhostRef{}, false
 	}
 	ref := m.ghost
-	w.ghostDock.magnet = nil
+	w.dropGhostMagnet()
 	w.ghostDock.done = &ref
 	return ref, true
 }
@@ -226,7 +271,8 @@ func (w *World) pullToGhost(a *spacecraft.Spacecraft, g Ghost) (GhostRef, bool) 
 // the viewer can no longer capture (it is a guest, or flies a stack that has
 // one), so nothing is left half-done.
 func (w *World) ReleaseGhostCapture() {
-	w.ghostDock.magnet, w.ghostDock.done = nil, nil
+	w.dropGhostMagnet()
+	w.ghostDock.done = nil
 	w.ghostDock.refused = nil
 }
 
@@ -264,7 +310,9 @@ func (w *World) CheckGhostBumps() {
 		r := GhostRef{g.Owner, g.CraftID}
 		key := ghostBumpKey{a.ID, r}
 		dr := a.State.R.Sub(g.RelPos)
-		if dr.Norm() > DockingDistM {
+		// The 50 m zone is hull to hull (review finding 4), not anchor to
+		// anchor: a friend's long stack's nose can be inside it from far off.
+		if HullDistanceM(a.State.R, VesselPortGeometry(a), g.RelPos, GhostPortGeometry(g)) > DockingDistM {
 			delete(w.ghostDock.bump, key)
 			continue
 		}
@@ -273,7 +321,7 @@ func (w *World) CheckGhostBumps() {
 		if !okA || !okG {
 			continue
 		}
-		touch, n := hullsTouch(a0, a1, wa, g0, g1, wg)
+		touch, nh := hullContact(a0, a1, wa, g0, g1, wg)
 		if !touch {
 			delete(w.ghostDock.bump, key)
 			continue
@@ -281,13 +329,19 @@ func (w *World) CheckGhostBumps() {
 		if w.ghostDock.bump[key] || w.ghostBumpInGate(a, g, r) {
 			continue
 		}
-		if n.Norm() < bumpMinNormalM {
-			n = dr
-		}
-		if n.Norm() < 1e-9 {
+		// A bump pushes only the bumper, and the bumper is the approacher:
+		// the other seat's World sees the same overlap against the
+		// approacher's ghost and must not kick itself as well.
+		if w.ghostDock.gate != nil && !w.ghostDock.gate.Approacher(r) {
 			continue
 		}
-		nh := n.Unit()
+		// No usable contact normal: fall back to the line between positions.
+		if nh.Norm() == 0 {
+			if dr.Norm() < 1e-9 {
+				continue
+			}
+			nh = dr.Unit()
+		}
 		s := -a.State.V.Sub(g.Vel).Dot(nh)
 		if s <= 0 {
 			continue
@@ -313,6 +367,10 @@ func (w *World) ghostBumpInGate(a *spacecraft.Spacecraft, g Ghost, r GhostRef) b
 	if w.GhostCapturing(r.Owner, r.CraftID) {
 		return true
 	}
+	// The friend is the one pulling toward us: the dock takes the touch.
+	if w.ghostDock.gate != nil && w.ghostDock.gate.PullingToward(r) {
+		return true
+	}
 	return ghostPairGateHolds(a, g) && !w.ghostBlocked(r)
 }
 
@@ -325,7 +383,8 @@ func (w *World) activeNearGhostHull() bool {
 		return false
 	}
 	for _, g := range w.Ghosts {
-		if g.PrimaryID == a.Primary.ID && a.State.R.Sub(g.RelPos).Norm() <= DockingDistM {
+		if g.PrimaryID == a.Primary.ID &&
+			HullDistanceM(a.State.R, VesselPortGeometry(a), g.RelPos, GhostPortGeometry(g)) <= DockingDistM {
 			return true
 		}
 	}

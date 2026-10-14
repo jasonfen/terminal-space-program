@@ -1637,6 +1637,19 @@ is not asked and nothing of theirs moves), and the ledger Claim is filed when
 the pull completes, not when the gate first holds.
 _Avoid_: Soft capture, Auto-dock, Snap.
 
+**Approacher**:
+The one seat of a cross-player pair that runs the **Magnet** and, when it
+completes, files the Claim and so owns the **Composite**; the other seat is
+hands-off, unmoved, and rides in the approacher's stack. Both seats name the
+same approacher without a round trip, from intent each publishes on the host:
+the rendezvous initiator (ADR 0037) first, else the seat that has the other's
+vessel targeted, else the lower (owner fingerprint, vessel ID). Never tick
+order, and never the physics: a port gate is symmetric, so relative motion
+cannot say who closed on whom. Once a pull runs, the pair is latched to its
+puller until the pull completes or lets go.
+_Avoid_: Docker (the ledger's word for the same seat), Initiator (the
+rendezvous seat, which is only the first tie-break).
+
 **Bump**:
 What happens when two hulls touch outside the **Docking Gate**: the pair
 pushes apart along the line of contact at half the closing speed (never
