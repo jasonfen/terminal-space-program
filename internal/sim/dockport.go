@@ -112,6 +112,11 @@ type PortGeometry struct {
 	// vessel on the chip ("S-IVB has no port" / "top is Relay Comsat-3").
 	TopName string
 	Stacked bool
+	// PortsInUse is true when the vessel's top stage carries a port that is
+	// not free because it sits at a dock seam (a docked composite): Ports is
+	// empty, and the chip says the port is in use rather than that there is
+	// none.
+	PortsInUse bool
 	// Known is false when the attitude is uninitialised, so the axis, and
 	// everything measured against it, cannot be trusted.
 	Known bool
@@ -126,9 +131,9 @@ func (g PortGeometry) PortPoint(r orbital.Vec3, i int) orbital.Vec3 {
 }
 
 // PortGeometryOf derives a stack's hull and port from its stages and
-// attitude. A vessel has a port when its TOP stage's part does (a
-// composite's port is its top component's, a loaded carrier has none until
-// its last payload is deployed).
+// attitude. A vessel has a port when its TOP stage's part does. This is the
+// raw stack: VesselPortGeometry removes the ports a dock seam consumes, so a
+// docked composite or a loaded carrier has none until the partner leaves.
 func PortGeometryOf(stages []spacecraft.Stage, attitude orbital.Vec3) PortGeometry {
 	g := PortGeometry{
 		Axis:    attitude.Unit(),
@@ -148,12 +153,27 @@ func PortGeometryOf(stages []spacecraft.Stage, attitude orbital.Vec3) PortGeomet
 	return g
 }
 
-// VesselPortGeometry is PortGeometryOf for a live vessel.
+// VesselPortGeometry is PortGeometryOf for a live vessel, less the ports a
+// dock seam has consumed. A composite (a nose-to-nose fuse, `D`, or a spawn
+// nose payload plan) is drawn with every block above a seam flipped so its top
+// meets the seam (ADR 0053 "Settled here" item 1). Each seam therefore
+// consumes the nose port of the block below it and of the block above it, and
+// the far end of the stack is the flipped partner's ENGINE end, which never has
+// a port. With one nose port per part that leaves a composite NO free port; it
+// exposes only the ports not used at a seam, as a list (review finding 2). A
+// lone vessel, or a composite whose seams the record does not tile (an old
+// save, drawn linear), exposes its top stage's, and a vessel gets its port back
+// when the partner leaves.
 func VesselPortGeometry(c *spacecraft.Spacecraft) PortGeometry {
 	if c == nil {
 		return PortGeometry{}
 	}
-	return PortGeometryOf(c.Stages, c.CurrentAttitudeDir)
+	g := PortGeometryOf(c.Stages, c.CurrentAttitudeDir)
+	if len(DockSeams(c)) > 0 && len(g.Ports) > 0 {
+		g.Ports = nil
+		g.PortsInUse = true
+	}
+	return g
 }
 
 // PortFaceBasis is orbital.PortFaceBasis: the pair of directions across a

@@ -207,6 +207,9 @@ func (w *World) resolveProximityPorts(st *ProximityState, own *spacecraft.Spacec
 // its top component's and a loaded carrier has none until the last payload
 // is deployed.
 func portlessReason(g PortGeometry) string {
+	if g.PortsInUse {
+		return "its port is in use"
+	}
 	if g.Stacked {
 		return "top is " + g.TopName
 	}
