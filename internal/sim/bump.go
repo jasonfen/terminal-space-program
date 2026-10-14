@@ -83,24 +83,43 @@ func hullSegmentOf(r orbital.Vec3, g PortGeometry) (p0, p1 orbital.Vec3, width f
 	return p0, p1, g.WidthM, true
 }
 
-// HullDistanceM is the distance between two hulls' axis segments: how far
-// apart the vessels ARE, as opposed to how far apart their anchors are
-// (State.R is the BOTTOM of a stack, so a 55 m stack's nose is 55 m from
-// its anchor; ADR 0053 decision 8's "inside 50 m" is a statement about the
-// hulls, review finding 4). It is the one measure behind every "near another
-// hull" rule: the warp cap, the bump scan, the Proximity ring, the need
-// reminders and the chip's range: row. A hull whose shape is unknown (attitude
-// uninitialised) falls back to the anchor distance, the best that can be said.
-// Radii are not subtracted: it is at most one hull width conservative, and it
-// is exact for the nose-to-nose approach the zone exists for.
+// HullDistanceM is the gap between two hulls' SURFACES: how far apart the
+// vessels ARE, as opposed to how far apart their anchors are (State.R is the
+// BOTTOM of a stack, so a 55 m stack's nose is 55 m from its anchor; ADR 0053
+// decision 8's "inside 50 m" is a statement about the hulls, review finding
+// 4). It is the one measure behind every "near another hull" rule: the warp
+// cap, the bump scan, the Proximity ring, the need reminders and the chip's
+// range: row, and it reads 0 when the hulls touch. Hulls within 45 degrees of
+// parallel are flat-ended cylinders: the gap is the axial gap between their
+// spans combined with the lateral gap between their sides (axis distance less
+// the radii). Steeper pairs use the axis-segment distance less the radii. A
+// hull whose shape is unknown (attitude uninitialised) falls back to the
+// anchor distance, the best that can be said.
 func HullDistanceM(aR orbital.Vec3, ga PortGeometry, bR orbital.Vec3, gb PortGeometry) float64 {
-	a0, a1, _, okA := hullSegmentOf(aR, ga)
-	b0, b1, _, okB := hullSegmentOf(bR, gb)
+	a0, a1, wa, okA := hullSegmentOf(aR, ga)
+	b0, b1, wb, okB := hullSegmentOf(bR, gb)
 	if !okA || !okB {
 		return aR.Sub(bR).Norm()
 	}
 	pa, pb := segmentClosest(a0, a1, b0, b1)
-	return pa.Sub(pb).Norm()
+	n := pa.Sub(pb)
+	rsum := (wa + wb) / 2
+	ua, ub := a1.Sub(a0).Unit(), b1.Sub(b0).Unit()
+	cos := ua.Dot(ub)
+	if math.Abs(cos) < hullNearParallelCos {
+		return math.Max(0, n.Norm()-rsum)
+	}
+	if cos < 0 {
+		ub = ub.Scale(-1)
+	}
+	u := ua.Add(ub).Unit()
+	ta0, ta1 := a0.Sub(b0).Dot(u), a1.Sub(b0).Dot(u)
+	tb1 := b1.Sub(b0).Dot(u)
+	loA, hiA := math.Min(ta0, ta1), math.Max(ta0, ta1)
+	loB, hiB := math.Min(0, tb1), math.Max(0, tb1)
+	axial := math.Max(0, math.Max(loA, loB)-math.Min(hiA, hiB))
+	lateral := math.Max(0, n.Sub(u.Scale(n.Dot(u))).Norm()-rsum)
+	return math.Hypot(axial, lateral)
 }
 
 // craftHullDistanceM is HullDistanceM for two live vessels.

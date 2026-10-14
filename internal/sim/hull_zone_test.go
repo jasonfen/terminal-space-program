@@ -2,6 +2,8 @@ package sim
 
 import (
 	"testing"
+
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
 // tugAtStartVessel is the first dock a new player flies: the default Apollo
@@ -68,5 +70,23 @@ func TestBumpScanReachesTheFarEndOfALongStack(t *testing.T) {
 	w.checkBumps()
 	if w.LastBumpEvent == nil {
 		t.Fatal("no bump: the scan skipped a pair whose hulls overlap because the anchors are 60 m apart")
+	}
+}
+
+// HullDistanceM is a surface gap: the port gap for a coaxial nose-to-nose
+// pair, 0 for hulls touching side by side, and never the anchor distance.
+func TestHullDistanceIsASurfaceGap(t *testing.T) {
+	p := newPortPair(t, "rcs-tug", "rcs-tug", 0.4, 0, 0)
+	if got := craftHullDistanceM(p.a, p.b); !near(got, 0.4, 1e-6) {
+		t.Errorf("coaxial pair 0.4 m apart: hull distance = %.4f m", got)
+	}
+	w, a, b := bumpWorld(t, 4, 0) // two parallel S-IVBs, axes 4 m apart, widths 6 m: touching
+	_ = w
+	if got := craftHullDistanceM(a, b); got != 0 {
+		t.Errorf("hulls overlapping side by side: hull distance = %.3f m, want 0", got)
+	}
+	b.State.R = a.State.R.Add(orbital.Vec3{X: 26}) // 26 m axis distance, 6 m radii sum: 20 m of air
+	if got := craftHullDistanceM(a, b); !near(got, 20, 1e-6) {
+		t.Errorf("side by side 26 m between axes: hull distance = %.3f m, want 20", got)
 	}
 }
