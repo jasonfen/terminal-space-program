@@ -38,6 +38,7 @@ func TestSplitCaptureAimPhaseSweep(t *testing.T) {
 	for i := 0; i < 24; i++ {
 		phase := float64(i) * 15
 		w := mustWorld(t)
+		useBareStage(w) // the sweep was authored on the bare S-IVB-1; the capture trim depends on the vessel's burn
 		cursorIdx, _, cursor := setupKernCursor(t, w)
 		c := w.ActiveCraft()
 		n := c.State.R.Cross(c.State.V).Unit()

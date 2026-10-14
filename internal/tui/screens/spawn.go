@@ -156,7 +156,7 @@ type spawnPosMode int
 
 const (
 	posOrbit     spawnPosMode = iota // pre-v0.8.3 default — circular orbit
-	posAlongside                     // v0.8.3+ — within docking gate of active craft
+	posAlongside                     // v0.8.3+ — 25 m port to port ahead of the active vessel (ADR 0053)
 	posLaunchpad                     // v0.9.2+ — surface co-rotating, altitude 0
 )
 
@@ -1445,13 +1445,13 @@ func (s *SpawnCraft) positionBoxes(rw int) []string {
 	}
 	width := rw
 	// Field 1: position mode, a tri-state cycle. orbit (uses PARENT
-	// + ALTITUDE + DIRECTION below); alongside (drops inside
-	// docking gate, all three ignored); launchpad (surface, parent
-	// + LATITUDE only, direction ignored).
+	// + ALTITUDE + DIRECTION below); alongside (25 m port to port ahead
+	// of the active nose, outside the gate; all three ignored);
+	// launchpad (surface, parent + LATITUDE only, direction ignored).
 	var posLabel string
 	switch s.posMode {
 	case posAlongside:
-		posLabel = "alongside active (within docking gate)"
+		posLabel = "alongside (25 m port to port)"
 	case posLaunchpad:
 		posLabel = "launchpad (surface, co-rotating)"
 	default:

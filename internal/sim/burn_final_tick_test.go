@@ -20,6 +20,11 @@ func deliveredDV(t *testing.T, warpIdx int, dv float64) float64 {
 	t.Helper()
 	burn := rendezvousSizesWorld(t, 500e3, 500e3, 90)
 	twin := rendezvousSizesWorld(t, 500e3, 500e3, 90)
+	// The final-tick split is measured on the bare S-IVB, whose burn the
+	// 0.05 m/s tolerance was set on; the heavier Apollo TLI start vessel
+	// has a different mass flow and is not what this test is about.
+	useBareStage(burn)
+	useBareStage(twin)
 	c := burn.ActiveCraft()
 	c.ActiveBurn = &spacecraft.ActiveBurn{
 		Mode:        spacecraft.BurnPrograde,

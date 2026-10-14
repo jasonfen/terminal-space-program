@@ -39,9 +39,13 @@ behind a one-row `▸ +N hidden` marker rather than overlap each other.
 
 ## Quick tour
 
-You start as a vessel called **S-IVB-1** in a 500 km circular orbit around
-Earth, tilted 51.6° to the equator (so a launch from the KSC pad can meet
-it), moving prograde (the direction of travel). The left panel is the map:
+You start as a vessel called **Apollo TLI-1** in a 500 km circular orbit
+around Earth, tilted 51.6° to the equator (so a launch from the KSC pad can
+meet it), moving prograde (the direction of travel). It is the S-IVB with the
+Lunar Module and the CSM still on top, the way a Saturn V stack sits after
+trans-lunar injection; its docking port is the Command Module's nose. Press
+`space` once to drop the S-IVB, then `D` for the Apollo transposition. (The
+bare S-IVB is still in the spawn form and on the command line as `S-IVB-1`.) The left panel is the map:
 the Sun (or whatever you've focused on) in the middle, planets on their real
 orbits, and your vessel as a little chevron pointing the way it's moving. The
 right-hand panel is your readout: the clock, what you're looking at, fuel and
@@ -168,7 +172,7 @@ On the Keyboard layout screen `←` / `→`, `Space` or `Enter` cycle the layout
 | `v` | Cycle the projection: Tilted (default, a 3D-style perspective) → Top → Right → Bottom → Left → Orbit-flat. Two rows above the `view:` label read which way north points (`N ↑` up the screen, `N ⊙` toward you, `N ⊗` away; in Tilted and Orbit-flat a degree figure, `N ↑ 42°`, is how far north tilts out of the screen toward or away from you, 0° being flat on the screen, and it is not the orbit ring's `plane` angle) and how open your orbit ring looks (`plane ◠ 67° open`: 0° `─` is a flat line, 90° `○` a full circle); the maneuver planner shows the same cue. The camera re-frames once when focus, view, or system changes and otherwise stays where you put it |
 | `>` / `<` | Tilt the 3D view up / down (tilted view only). Camera only: a missed shift can move the view, never the vessel |
 | `{` / `}` | Yaw the 3D view left / right in 5° steps, wrapping (tilted view only) |
-| `o` | **Proximity view** for the last kilometres of a rendezvous: the target vessel sits dead centre, its direction of travel runs right, the planet is below, so you read your drift the way the physics works. Needs a vessel target; a `CLOSE RANGE` chip reminds you once within 35 km. The plain arrows still trim your vessel here; the PROXIMITY chip's `trim:` row and the bottom legend show it. Press again to return to the map as you left it |
+| `o` | **Proximity view** for the last kilometres of a rendezvous: the target vessel sits dead centre, its direction of travel runs right, the planet is below, so you read your drift the way the physics works. Needs a vessel target; a `CLOSE RANGE` chip reminds you once within 35 km. Both vessels' docking ports are marked `○` (theirs in target green, yours in your vessel's colour), a port line joins them with its length, and the chip gains `port:`, `align:` and `off-axis:` rows (see [Docking](#docking)). The plain arrows still trim your vessel here; the PROXIMITY chip's `trim:` row and the bottom legend show it. Press again to return to the map as you left it |
 | `V` | **Launch / surface view**: chase-cam on your active vessel with a curved horizon, pad marker, and breadcrumb trail, scaled tight at liftoff and pulled back high up. Lifting off routes you here automatically. Press again to return to the map |
 | `j` | **Inspect**: each press steps a bright highlight onto the next thing drawn (bodies, vessels, other players' ghosts, planned burns, the closest-approach `✕`) and names it in a chip. One press past the last item clears it; `Esc` clears immediately. Clicking any orbit line or marker jumps the highlight there |
 | `Enter` | While inspecting: make the highlighted thing your target and clear the highlight. Works on vessels and other players, not just bodies. Things that can't be a target say so |
@@ -178,9 +182,10 @@ On the Keyboard layout screen `←` / `→`, `Space` or `Enter` cycle the layout
 | Key | Action |
 |---|---|
 | `0` | Pause / resume |
-| `.` / `,` | Speed time up / down, to 100,000×. Eases off automatically around a burn |
+| `.` / `,` | Speed time up / down, to 100,000×. Eases off automatically around a burn, and is held to 10× within 50 m of another vessel (see [Docking](#docking)) |
 | `G` | Auto-warp to the next burn (any vessel's): warps to 30 s before it fires, ramps down, and hands you 1× to watch it arm. On the pad with a target, it warps to 30 s before the launch window on the `plan:` row instead (the best moment, when there is no exact pass) and turns your heading to the one the row names, so you only have to light the engine. Inside the last 30 s there is nothing left to warp, so `G` just turns the heading to the window's and says so (`heading 045° for the launch window`). `|` still clears both trims. `↑` / `↓` afterwards are yours. `.` / `,` or the `[»Burn]` button cancels it |
 | `/` | Cancel warp: straight back to 1× from any level, and cancel auto-warp or a rendezvous warp if one is running |
+| warp caps | 10× while an engine burns, or within 50 m of another vessel (so two hulls cannot skip through each other); 1× while the dock magnet pulls |
 
 During a multiplayer rendezvous warp the manual warp keys and `G` are inert
 and `/` is the only cancel; in the terminal phase `,` and `.` become the
@@ -206,7 +211,7 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 | `alt` | The Alt key on Windows and Linux (WezTerm and most terminals send it as-is); Option on a Mac, see the next row |
 | `alt` on a Mac | Ghostty sends Option as alt as-is. Terminal.app and iTerm2 need Option sent as Meta: Terminal.app, Profiles > Keyboard > "Use Option as Meta key"; iTerm2, Profiles > Keys > Left Option key = Esc+ |
 | `\|` | Clear the manual tip and the commanded heading (both trims back to 0) |
-| `;` | Autopilot reference: Surface → Orbit → Target → Port (Target needs a targeted vessel; Port needs that vessel to have a docking port). It also switches itself: Surface → Orbit climbing through the upper atmosphere (Earth 51 km), Orbit → Surface coming back down. Press `;` to override; it is kept until the next crossing. Target and Port are only ever chosen by hand: they never switch themselves, even right beside a target vessel |
+| `;` | Autopilot reference: Surface → Orbit → Target → Port (Target needs a targeted vessel; Port needs that vessel, yours or a friend's, to have a docking port). It also switches itself: Surface → Orbit climbing through the upper atmosphere (Earth 51 km), Orbit → Surface coming back down. Press `;` to override; it is kept until the next crossing. Target and Port are only ever chosen by hand: they never switch themselves, even right beside a target vessel |
 | `k` | Steering style: smooth turning (default) or instant snap |
 | `r` | Switch between the main engine and RCS thrusters |
 | `p` | RCS pulse step: cycle the per-press Δv (0.1 → 0.01 → 0.001 m/s) |
@@ -264,11 +269,67 @@ refuse in one phrase.
 | `space` | Drop the bottom stage (only if there's more than one), instantly, on the pad too; the STAGES box names it (`▸ S-IC (1/3) [space]`) and a flash confirms what dropped. On a bare capsule with a parachute this arms the chute instead; it opens on its own in the atmosphere |
 | `Y` | Deploy the top carried payload as its own vessel (satellite, probe, station) while you keep flying the carrier. Asks `[y/n]` first (there is no undo). Press again for the next one |
 | `D` | Apollo transposition: flip the Service Module to the front to do the flying, leaving the Lunar Module as a nose payload (then `U` to release it). Asks `[y/n]` first (there is no undo) |
-| `U` | Undock a docked vessel into its parts and switch you to a released piece. On a cross-player stack it releases your partner's vessel through the dock ledger, connected or not (an absent partner's vessel is parked as a **Parcel** and delivered, safed, when they next connect) |
-| `c` | Re-arm docking. After an undock a pair is held apart until you clear 100 m or ten minutes pass, even if you drift back inside docking range. `c` clears that hold now: with a vessel targeted, just that pair; otherwise every hold on your active vessel. A pair already close and slow docks on the next tick |
+| `U` | Undock a docked vessel into its parts and switch you to a released piece. Each piece comes back where its hull was drawn, port to port 1.5 m apart, and parts along the seam at 0.15 m/s. On a cross-player stack it releases your partner's vessel through the dock ledger, connected or not (an absent partner's vessel is parked as a **Parcel** and delivered, safed, when they next connect) |
+| `c` | Re-arm docking. After an undock a pair is held apart until you clear 100 m or ten minutes pass, even if you fly back into the docking gate. `c` clears that hold now: with a vessel targeted, just that pair; otherwise every hold on your active vessel. A pair already holding the gate starts the magnet on the next tick |
 | `J` | Transfer control of a cross-player docked stack to the guest riding in it. Multiplayer only; see [multiplayer.md](multiplayer.md#docking-across-players) |
 | `E` | End the flight: remove a crashed vessel after a `y` / `n` confirm |
 | `F5` / `F9` | Quicksave / quickload (`F9` asks `y`/`n` first; `Enter` does nothing) to a fixed quick slot, separate from named saves. See [Saves](#saves-esc--save-game--load-game) |
+
+#### Docking
+
+Docking is flown, port to port. Nothing fuses at a distance or by drifting
+past: you bring your vessel's docking port to the other vessel's port,
+slowly and straight, and the last half metre closes by itself.
+
+- **Who has a port.** One docking port sits on the nose, the end away from the
+  engine, of crewed modules and capsules, ascent stages, tugs, keepers,
+  relays, stations and the Probe Sat. Launch vehicles, bare upper stages
+  (the S-IVB, the ICPS), comsats, relay nodes and science probes have none
+  and cannot dock. A stack's port is its top stage's, so a docked stack
+  keeps the top component's port and a carrier gets one back once its last
+  payload is out. Any port mates with any port. Targeting a port-less
+  vessel in the Proximity view reads `no port`.
+- **The gate.** A dock needs all three at once: the two ports within 0.5 m,
+  relative speed under 0.1 m/s, and the two noses within 4° of pointing at
+  each other. The Proximity view shows them as the `port:`, `rel speed:` and
+  `align:` rows, each with a `(need < ...)` reminder while you are inside
+  50 m and that term fails; `off-axis:` splits the miss into up/down and
+  left/right across the port. The port line goes solid green when the gate
+  holds. The 50 m ring is where the close picture starts, no longer a dock.
+- **The magnet.** The tick the gate holds, a five-second pull starts. It moves
+  the vessel you are flying (the active one) the last half metre onto the
+  port axis and turns its nose square; warp drops to 1×, and your RCS pulses
+  and attitude keys are ignored until it finishes (the `port:` row reads
+  `capturing`). If the other vessel leaves the gate meanwhile, by turning or
+  pulsing away, the magnet lets go and nothing fuses. Completing the pull is
+  the dock: the composite stays where the lead vessel's hull was, with the
+  partner drawn nose to the seam above it.
+- **The PORT frame.** `;` reaches `[PORT]` once your target has a port. There
+  `q` / `e` push in / out along the port's axis, `w` / `s` up / down and
+  `a` / `d` left / right across its face (RCS armed), and the main-engine `q`
+  hold (`Port+`) puts your nose on the port axis, the docking attitude. The
+  speed readout is then relative to the target and tagged `(port)`.
+  `p` steps the pulse down to 0.01 or 0.001 m/s for the last metres.
+- **A bad approach bumps.** Hulls that touch outside the gate (too fast, too
+  crooked, or not at the ports) bounce: the pair pushes apart at half the
+  closing speed, never under 0.05 m/s, and the bottom edge reads
+  `bumped <vessel> at <speed>; re-approach under 0.10 m/s`. Nothing breaks.
+  Hulls are flat-ended, so nose against nose only touches when the ends
+  meet. Landed vessels and two debris stages never bump. Within 50 m of
+  another vessel warp is held to 10×, the cap a burn imposes, so hulls cannot
+  skip through each other between ticks.
+- **Undocking.** `U` parts a composite along its seam: each piece comes back
+  where its hull was drawn, port to port 1.5 m apart, opening at 0.15 m/s.
+  The pair cannot re-dock until it clears 100 m or ten minutes pass; `c`
+  clears that hold now.
+- **Alongside spawn.** The spawn form's `alongside` position puts the new
+  vessel 25 m port to port ahead of your nose, pointing back at you, at your
+  velocity: a straight, slow approach, outside the gate, with no bump.
+- **Across players.** Docking to a friend's vessel is the same skill: the
+  approacher flies it, their hull and port are drawn from what they last
+  reported, and `;` reaches `[PORT]` against their vessel too. A friend whose
+  report carries no hull reads `port: unknown` and cannot be captured. See
+  [multiplayer.md](multiplayer.md#docking-to-a-friend).
 
 ### Multiplayer
 
@@ -337,13 +398,13 @@ overlay carries, so you can look one up without leaving the game.
 | `⚠` (on a node) | The planned burn exceeds the stage's Δv budget |
 | `plan` | The world the planned burn's numbers are measured from, plus its node angles |
 | `pro` / `retro` | Prograde or retrograde: which way the orbit runs, tagged on `incl:` |
-| `(ORBIT/SURF/TGT)` | The frame a held direction or `nav:` reads in: orbit, surface, or target-relative, one spelling everywhere it's named |
+| `(ORBIT/SURF/TGT)` | The frame a held direction or `nav:` reads in: orbit, surface, target or PORT (the aimed docking port's frame, see [Docking](#docking)); one spelling everywhere it's named |
 | `amber (SURF)` | GUIDANCE `hold:` amber frame word differs from `nav:`; it keeps the frame it was pressed in, on purpose |
 | `[MAN]` / `[AUT]` | The navball's attitude tag: MAN turns the nose at a rate-limited slew; AUT (amber) snaps it instantly. Click it to switch |
 | `RCS` | The navball's toggle: amber when the RCS thrusters, not the main engine, are armed (`r` does the same) |
 | `rcs` | Monoprop's own delta-v, from the RCS thrusters rather than the main engine |
 | `◉ ● ○ ◇` | STAGES pips, bottom stage first: `◉` lit (burns next), `●` fuelled and waiting, `○` spent, `◇` no tank (a pod or payload) |
-| `speed` | Speed in the navball frame, named (surface) / (orbit) / (target), alongside `vert:` and `horiz:` |
+| `speed` | Speed in the navball frame, named (surface) / (orbit) / (target) / (port), alongside `vert:` and `horiz:` |
 | `(max N)` | The same figure at full throttle, when it differs from the current one |
 | `heading:` / `hdg` | GUIDANCE `heading:` is the bearing you have commanded; the navball's `pitch` and `hdg` are measured, where the nose points now (they agree on the pad, and differ while the nose slews). In ORBIT the ball's rungs count degrees out of the orbit plane, not above the horizon. `trim:` is how far ←/→ lean the nose down or up off the hold, so `15° down` on a level prograde nose reads `pitch -15°`; → leans toward your heading, which lowers a prograde nose and raises a retrograde one |
 | `● ORBIT READY [C]` | Apoapsis has cleared this world's orbit floor: press `C` to plant the circularising burn |

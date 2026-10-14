@@ -594,7 +594,7 @@ func NewInLEO(earth bodies.CelestialBody) *Spacecraft {
 const SeedInclinationDeg = 51.6
 
 // NewInLEOAtPhase is NewInLEO generalised over the position on the
-// orbit: the same default S-IVB-1 on the same 500 km circular
+// orbit: the same default Apollo TLI on the same 500 km circular
 // SeedInclinationDeg orbit, placed phaseDeg degrees prograde around the ring
 // from the seed spot (body-frame +X). NewInLEO is exactly phase 0.
 // The multiplayer fleet reset (--reset-fleet) uses this to space each
@@ -627,8 +627,8 @@ func NewInLEOAtInclination(earth bodies.CelestialBody, phaseDeg, inclDeg float64
 	r := earth.RadiusMeters() + 500e3
 	mu := earth.GravitationalParameter()
 	v := math.Sqrt(mu / r)
-	c := NewFromLoadout(LoadoutSIVB1ID)
-	c.Name = "S-IVB-1" // first vessel of the slate keeps the historical instance name.
+	c := NewFromLoadout(LoadoutDefaultID)
+	c.Name = "Apollo TLI-1" // ADR 0053 §4: the fresh game starts in the S-IVB + LM + CSM stack.
 	// v0.23 / ADR 0027: the player's starting vessel is crew-tended, so it
 	// is never comms-gated — the player learns to fly without a connectivity
 	// constraint on their first ship; the probes they later launch ARE gated.

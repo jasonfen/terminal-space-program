@@ -394,6 +394,11 @@ reads from color + height + width; the LUT's body-fixed
 `SetCellOverlay` glyphs are cleared at rocket-pixel cells so the
 braille dots show through at the pad.
 
+The Vessel's position is the bottom of the stack (row 0 at the anchor), so
+the nose, and the **Docking Port**, sit `rows x 1.5 m` along
+`CurrentAttitudeDir`; a **Docked Component** above a **Dock Seam** is drawn
+nose to the seam.
+
 Stage convention: `LaunchSpriteRowsPx` / `LaunchSpriteWidthPx` are
 *stylised* (chosen so the stack reads well at typical pad-launch
 zoom), not derived from real metres. Zero `LaunchSpriteRowsPx` means
@@ -621,10 +626,15 @@ _Avoid_: Aim, Lock, Selection, Catalog order (the pre-#425 cycle, which
 put Mercury first from LEO and made the Moon the ninth press).
 
 **NavMode**:
-The orientation the navball displays directions in. Three values:
+The orientation the navball displays directions in. Four values:
 **NavOrbit** (frame of the active Vessel's current orbit), **NavSurface**
 (rotating frame of the Primary's surface — local up / horizon), **NavTarget**
-(target-relative frame, only meaningful when a TargetCraft Target is bound).
+(target-relative frame, only meaningful when a TargetCraft Target is bound),
+**NavPort** (the aimed **Docking Port**'s frame: in and out along its axis,
+up/down and left/right across its face; `;` offers it only when the Target
+has a port, the self-switch never enters it, and it drops to NavOrbit when
+the Target changes or loses its port). `Port+` is the hold that puts your
+nose on the port axis, the docking attitude.
 Unlike Focus and Target, NavMode lives on `World`, not on the Vessel — it's
 a known scope cap (each Vessel does not yet remember its own NavMode across
 active-Vessel switches); revisit if that asymmetry starts to bite.
@@ -1514,39 +1524,33 @@ _Avoid_: Thrusters (ambiguous — main engine also thrusts), Cold-gas
 How two Vessels fuse into one and how that fusion comes apart.
 Cluster anchors: **Docking** / **Undocking** are the actions; the
 result is a **Composite**; the threshold that fires Docking is the
-**Docking Gate**; pre-Docking identities are preserved as **Docked
+**Docking Gate**, tested between two **Docking Ports**, and closed by
+the **Magnet**; pre-Docking identities are preserved as **Docked
 Components**. "Component" and "Stage" are easily confused — see
 Flagged ambiguities.
 
 **Docking** / **Undocking**:
-The act of fusing two Vessels into a single **Composite** (Docking)
-and the inverse — splitting a Composite back into its pre-Dock
-identities (Undocking). Docking fires automatically each tick when
-two Vessels sit inside the **Docking Gate** within the same SOI;
-Undocking fires on a player keystroke against a Composite.
+The act of fusing two Vessels into one **Composite** (Docking) and the
+inverse (Undocking). Docking fires when the **Docking Gate** holds at a
+**Docking Port** for one tick and the **Magnet** then closes the last half
+metre; it never fires at a distance. Undocking fires on `U` against a
+Composite.
 
-Docking is **aggregate-preserving**: mass-weighted centroid for the
-Composite's position, momentum-conserving combination for velocity,
-summed pools for fuel / monoprop / capacities, concatenated roles
-("transfer-stage+lander"). The lead partner's identity — name,
-glyph, color, planted Maneuver Nodes, active Burn, attitude mode —
-survives, and its loadout becomes the Composite's. The other
-partner's identity is preserved only as a **Docked Component**
-snapshot for future Undocking.
+Docking keeps the lead partner's position (its hull does not move), takes
+the momentum-conserving velocity, sums the pools and concatenates the
+roles; the lead's identity (name, glyph, colour, Nodes, Burn, attitude
+mode) survives and the partner becomes a **Docked Component** stacked above
+the **Dock Seam**, drawn nose to the seam.
 
-Undocking is **lossy**: prorated fuel / monoprop shares (by pre-Dock
-capacity), each restored Vessel placed 35 m per side along the
-radial-out axis (outside the Docking Gate so re-fusing is suppressed
-on the next tick) with a 0.05 m/s **Spring Release** push for clear
-drift. Composite-level state tied to the *aggregate* — planted Nodes,
-active Burn, Manual Burn, attitude mode, engine mode — is dropped on
-Undocking. The player keeps flying the lead identity through both
-transitions: post-Docking on the Composite, post-Undocking on the
-first restored component.
-_Avoid_: Mate / Demate (NASA-correct but unfamiliar in the sim's
-player vernacular), Fuse / Split (close, but Fuse loses the
-"controlled rendezvous" connotation Docking carries), Couple /
-Decouple (collides with **Stage** decoupling).
+Undocking restores each component where its hull was drawn, pointing back
+along the seam, with a 0.15 m/s **Spring Release** along the seam between
+each adjacent pair; the live per-stage fuel comes back with it (the legacy
+prorate applies only to pre-ADR-0009 saves). Composite-level state (Nodes,
+active Burn, Manual Burn, attitude mode, engine mode) is dropped. The pair
+is held apart by the **Re-arm Latch** until it clears 100 m or ten minutes
+pass, or `c` clears it.
+_Avoid_: Mate / Demate, Fuse / Split, Couple / Decouple (collides with
+**Stage** decoupling).
 
 **Composite**:
 A Vessel formed by **Docking** two or more pre-Dock Vessels. From the
@@ -1576,29 +1580,83 @@ threatens), Stack (collides with the **Stage** stack — the propulsion
 ordering), Docked Vessel (emphasises the act, not the state).
 
 **Docking Gate**:
-The combined (distance + relative velocity) threshold within which
-**Docking** fires. Two values, both required on the same tick within
-the same SOI:
+The threshold at which **Docking** starts, tested every tick between the
+two **Docking Ports** of a pair in the same SOI, neither Landed, not two
+debris stages, not latched. Three terms, all required on the same tick:
 
-- **Docking Distance** — 50 m, the proximity radius. KSP-ish "soft
-  capture" range.
-- **Docking Velocity** — 0.1 m/s, the relative-velocity ceiling.
-  Typical proximity-ops null-residual.
+- **Port range**: port to port within 0.5 m.
+- **Docking Velocity**: relative speed under 0.1 m/s.
+- **Alignment**: the two noses within 4° of pointing at each other.
 
-Same-SOI is a hard prerequisite: two Vessels whose *inertial*
-positions are within 50 m but whose Primary IDs differ (one in
-Earth's SOI, the other in Moon's, near the SOI boundary) do **not**
-dock — they wouldn't be near each other in any common frame even if
-inertial coordinates suggest otherwise.
+The **Docking Distance** (50 m) survives as the ring on the Proximity View,
+the Proximity fit floor, the warp-cap zone and every "clear of the pair"
+push; it is no longer a capture distance. The Alongside spawn (the third
+spawn-form position-mode after orbital and **Launchpad**) places a new
+Vessel 25 m port to port ahead of the active Vessel's nose, pointing back
+at it: a straight, slow approach away from a dock, never inside the gate.
+Same-SOI is a hard prerequisite: two Vessels whose Primary IDs differ do
+not dock even if their inertial positions coincide. Against a friend's
+Vessel the gate is the same, measured from the approacher's side against the
+**Ghost**'s last reported hull and port.
+_Avoid_: Docking window (collides with launch / transfer windows, which are
+time intervals), Docking envelope, Docking threshold.
 
-The Alongside spawn (the third spawn-form position-mode after orbital
-and **Launchpad**) places a new Vessel at 25 m from the active Vessel
-with matching velocity — half the Docking Distance, so a single RCS
-tap or even free orbital drift closes the gap without precision
-approach.
-_Avoid_: Docking window (collides with launch / transfer windows,
-which are time intervals), Docking envelope (verbose), Docking
-threshold (reads as singular, missing the combined nature).
+**Docking Port**:
+A place on a Vessel where it can dock. Today every port is the nose, the
+top of the stack, the end away from the engine, and a Vessel has at most
+one (a list in the model, so stations may later carry several). Only parts
+listing `ports` in the catalog carry one (crewed modules, ascent stages,
+tugs, keepers, relays, stations, the Probe Sat); a Vessel whose top part is
+not flagged has no port and cannot dock at all, and a loaded carrier has
+none until its last payload is deployed. A **Composite**'s port is its top
+component's. The port sits at the drawn nose (half a sprite row inside
+`rows x 1.5 m` from the Vessel's position, which is the bottom of its
+stack) and is derived from the stack every time it is read, never stored.
+On screen: a `○` on the hull in the Proximity View, TARGET green for the
+aimed one, your vessel's colour for yours.
+_Avoid_: Docking node, Hatch, Clamp, Part (the catalog word).
+
+**Port Line**:
+The dashed line between the two **Docking Ports** in the Proximity View,
+labelled with its length. It turns solid TARGET green the tick the
+**Docking Gate** holds and stays so through the **Magnet**'s pull. Never
+disagrees with the gate: the same predicate drives both.
+_Avoid_: Capture line, Dock vector.
+
+**Magnet**:
+The five seconds between the **Docking Gate** holding and the **Composite**
+existing. The flown Vessel (the active one if it is in the pair, else the
+lighter) is pulled the last half metre onto the port axis at 1x warp with
+its hands off (RCS pulses and attitude keys ignored, its slew suspended,
+`port: ... capturing` on the chip); the other Vessel is not moved. If the
+other Vessel leaves the gate during the pull the Magnet lets go and nothing
+fuses. Completing the pull is the Docking. Cross-player, the approacher
+flies it: the same gate and Magnet run against a **Ghost**'s reported port in
+the approacher's own World, the Magnet moves only the approacher (the friend
+is not asked and nothing of theirs moves), and the ledger Claim is filed when
+the pull completes, not when the gate first holds.
+_Avoid_: Soft capture, Auto-dock, Snap.
+
+**Bump**:
+What happens when two hulls touch outside the **Docking Gate**: the pair
+pushes apart along the line of contact at half the closing speed (never
+under 0.05 m/s), momentum-conserving, with a bottom-edge caption naming the
+partner and the speed (`bumped <name> at <speed>; re-approach under
+0.10 m/s`). Hulls are flat-ended cylinders, so nose against nose touches
+only when the ends actually meet. It needs a closing speed (hulls already
+parting do not bump), happens once per contact, and never involves a
+Landed Vessel or two debris stages. No damage. Inside 50 m of another
+non-debris hull warp is capped at 10x, like a burn, so hulls cannot alias
+through each other. Cross-player, only the bumper moves: against a **Ghost** the friend's hull
+is immovable and the friend is not told.
+_Avoid_: Collision, Crash (reserved for ground impact), Bounce.
+
+**Re-arm Latch**:
+The hold that keeps a just-undocked pair from re-docking at once. It lifts
+when the pair clears 100 m (twice the Docking Distance), after ten minutes
+of sim time, or when the player presses `c`. Local to the World that
+undocked; the cross-player equivalent lives in the dock ledger.
+_Avoid_: Cooldown, Dock lock.
 
 **Docked Component**:
 A snapshot of one pre-Docking Vessel's identity preserved on a
@@ -1629,14 +1687,12 @@ rendered. The notification, not the act.
 _Avoid_: Docking notification, Fuse record, Dock notice.
 
 **Spring Release**:
-The small relative-velocity kick (0.05 m/s) applied to each restored
-Vessel on **Undocking**, along the radial-out axis from the Primary.
-Combined with the 35 m-per-side separation, the Spring Release
-guarantees the restored Vessels drift apart instead of immediately
-re-entering the **Docking Gate** and re-fusing on the next tick.
-Magnitude is deliberately tiny — enough to break the gate, small
-enough that the orbital math of each restored Vessel is essentially
-unchanged.
+The 0.15 m/s push along the **Dock Seam** between each adjacent pair of
+restored Vessels on **Undocking**, applied where the hulls stood: the pieces
+come back port to port 1.5 m apart, nothing is teleported. Enough to open a
+gap the pilot can see within seconds, small enough that each restored orbit
+is essentially unchanged. The **Re-arm Latch**, not the push, is what
+prevents an immediate re-dock.
 _Avoid_: Undock push, Separation impulse, Decouple kick.
 
 ### Deployable payloads & CommNet
@@ -1994,7 +2050,11 @@ _Avoid_: Latest subspace, head.
 The render-only appearance of a vessel from another Subspace: its
 last-reported orbit evaluated at the viewer's sim-time. Honest but
 stale — correct while the owner coasts, corrected on their next report.
-Never physically interactive.
+It carries the reported attitude, hull length and width, and ports, so the
+Proximity View can draw the friend's hull and port and the approacher can
+dock to it (see **Magnet**); a Ghost with none of these (an older report)
+draws as a diamond with `port: unknown` and cannot be captured. Otherwise
+never physically interactive: a bump off a Ghost moves only the bumper.
 _Avoid_: Shadow, phantom, remote vessel (a Ghost is a projection, not
 the vessel).
 
@@ -2478,14 +2538,14 @@ Encounter" or "v_rel between Vessels"), Closing velocity (technically
 only the range-rate component, not the full vector).
 
 **DOCK READY**:
-The HUD signal that fires when the active Vessel is currently inside
-the **Docking Gate** against its bound TargetCraft — range < 50 m AND
-`|v_rel|` < 0.1 m/s. Same numbers as the Docking Gate; the HUD just
-announces the gate condition in advance so the player knows fusion is
-imminent on the next tick (without it, the player would only see the
+The green state of the Proximity ring and the **Port Line**, and the HUD
+badge on the TARGET box: the **Docking Gate** holding at the port
+(0.5 m / 0.1 m/s / 4°), not a 50 m range. The HUD announces the gate
+condition in advance so the player knows the **Magnet** is about to take
+the last half metre (without it, the player would only see the
 **Composite** *after* the fact, via the **Dock Event** flash). A
-*current-state* readout, not a projection — reads off live separation,
-not **Closest Approach**.
+*current-state* readout, not a projection — reads off the live ports, not
+**Closest Approach**. A pair with no port on either side never shows it.
 _Avoid_: Dock soon, Capture imminent, Docking ready (the rendered
 label is two words, no "ing").
 

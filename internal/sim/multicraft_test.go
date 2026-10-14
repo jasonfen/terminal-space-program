@@ -229,11 +229,12 @@ func TestBurnFiresOnPlantedCraftNotActive(t *testing.T) {
 // same loadout family should bump the trailing `-N` suffix per
 // prefix. v0.8.2 cycles through LoadoutOrder so consecutive
 // spawns produce different prefixes; spawning enough to wrap
-// around forces a second S-IVB-1, which should land as S-IVB-2.
+// around forces a second start-loadout vessel, which should land as
+// Apollo TLI-2 (the start vessel has been Apollo TLI-1 since ADR 0053).
 func TestSpawnSisterCraftIncrementsName(t *testing.T) {
 	w, _ := NewWorld()
-	if got := w.Crafts[0].Name; got != "S-IVB-1" {
-		t.Fatalf("seed craft name = %q, want S-IVB-1", got)
+	if got := w.Crafts[0].Name; got != "Apollo TLI-1" {
+		t.Fatalf("seed craft name = %q, want Apollo TLI-1", got)
 	}
 	// Spawn enough sisters to wrap the loadout rotation back to
 	// S-IVB. The slate already has one S-IVB so the second one
@@ -243,18 +244,18 @@ func TestSpawnSisterCraftIncrementsName(t *testing.T) {
 	for i := 0; i < len(spacecraft.LoadoutOrder); i++ {
 		w.SpawnSisterCraft()
 	}
-	// Find the second S-IVB and confirm its name.
+	// Find the second Apollo TLI and confirm its name.
 	count := 0
 	for _, c := range w.Crafts {
-		if c.LoadoutID == "S-IVB-1" {
+		if c.LoadoutID == "Apollo-TLI" {
 			count++
-			if count == 2 && c.Name != "S-IVB-2" {
-				t.Errorf("second S-IVB name = %q, want S-IVB-2", c.Name)
+			if count == 2 && c.Name != "Apollo TLI-2" {
+				t.Errorf("second Apollo TLI name = %q, want Apollo TLI-2", c.Name)
 			}
 		}
 	}
 	if count < 2 {
-		t.Fatalf("expected at least 2 S-IVB crafts after wrap, got %d", count)
+		t.Fatalf("expected at least 2 Apollo TLI crafts after wrap, got %d", count)
 	}
 }
 

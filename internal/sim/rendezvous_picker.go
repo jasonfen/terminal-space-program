@@ -45,9 +45,9 @@ type RendezvousKOutcome struct {
 
 // rendezvousKStructuralRefusal reports whether err means there is nothing
 // for EITHER rung to work with, so K refuses outright rather than opening
-// the picker: no craft, no target bound, a different primary, or already
-// inside DOCK READY range. The Rendezvous Planner shares the identical first
-// three gates (it would just repeat the same refusal, less directly) and
+// the picker: no craft, no target bound, a different primary, or the
+// docking gate already holding (ADR 0053: the port gate, not a
+// range). The Rendezvous Planner shares the identical first three gates (it would just repeat the same refusal, less directly) and
 // has no "already docked" gate of its own to repeat the fourth — a docked
 // pair has nowhere to "meet".
 func rendezvousKStructuralRefusal(err error) bool {

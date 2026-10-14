@@ -77,17 +77,18 @@ func TestBurnConsumesFuel(t *testing.T) {
 	}
 }
 
-// TestRemainingDeltaV: v0.5.13+ default fuel 40000 kg / dry 11000 kg,
-// Isp 421s → Δv = 421 * 9.80665 * ln(51050/(11000+50)) ≈ 6314 m/s.
-// v0.8.0+: monoprop is dead weight to the main engine, so the
-// floor is dry+monoprop rather than just dry — slightly lower Δv
-// budget vs the pre-RCS 6326 m/s.
+// TestRemainingDeltaV: the firing stage's Δv with everything above it as
+// payload. The start vessel is Apollo TLI-1 (ADR 0053 §4), so the S-IVB's
+// 75 000 kg of post-insertion propellant and 421 s push the whole 126.9 t
+// stack: Δv = 421 * 9.80665 * ln(m0 / (m0 - 75 000)) ≈ 3690 m/s, enough for
+// the ~3.1 km/s trans-lunar burn alone, as in Apollo.
 func TestRemainingDeltaV(t *testing.T) {
 	systems, _ := bodies.LoadAll()
 	earth := systems[0].FindBody("Earth")
 	sc := NewInLEO(*earth)
 	got := sc.RemainingDeltaV()
-	want := 421.0 * 9.80665 * math.Log(sc.TotalMass()/(sc.DryMass+sc.Monoprop))
+	m0 := sc.TotalMass()
+	want := 421.0 * 9.80665 * math.Log(m0/(m0-sc.Stages[0].FuelMass))
 	if math.Abs(got-want) > 1 {
 		t.Errorf("Δv_remaining = %.2f m/s, want %.2f m/s", got, want)
 	}

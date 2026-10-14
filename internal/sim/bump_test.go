@@ -17,7 +17,7 @@ func bumpWorld(t *testing.T, gapM, relX float64) (*World, *spacecraft.Spacecraft
 	t.Helper()
 	w, _ := NewWorld()
 	earth := w.Systems[0].FindBody("Earth")
-	a := w.Crafts[0]
+	a := useBareStage(w) // hull geometry below is the 18 m S-IVB
 	a.State.R = orbital.Vec3{X: earth.RadiusMeters() + 500e3}
 	a.State.V = orbital.Vec3{Y: math.Sqrt(earth.GravitationalParameter() / a.State.R.Norm())}
 	a.CurrentAttitudeDir = orbital.Vec3{Y: 1}

@@ -133,7 +133,7 @@ func TestDockingPreservesMomentum(t *testing.T) {
 	w, _ := NewWorld()
 	earth := w.Systems[0].FindBody("Earth")
 
-	a := w.Crafts[0]
+	a := useBareStage(w) // equal masses: a is the same bare stage as b below
 	a.State.R = orbital.Vec3{X: earth.RadiusMeters() + 500e3}
 	a.State.V = orbital.Vec3{Z: 0.05} // half the docking gate, +Z
 

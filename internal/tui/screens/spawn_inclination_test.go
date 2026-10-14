@@ -185,3 +185,17 @@ func TestInclinationFormFitsAtDesignSizes(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0053: an Alongside spawn lands 25 m port to port, outside the docking
+// gate. The row must not still promise "within docking gate".
+func TestSpawnAlongsideRowSaysPortToPort(t *testing.T) {
+	s := inclForm(t)
+	s.posMode = posAlongside
+	out := s.Render(140, 40)
+	if strings.Contains(out, "within docking") {
+		t.Errorf("alongside row still says it drops within docking range:\n%s", out)
+	}
+	if !strings.Contains(out, "25 m port to port") {
+		t.Errorf("alongside row does not say 25 m port to port:\n%s", out)
+	}
+}

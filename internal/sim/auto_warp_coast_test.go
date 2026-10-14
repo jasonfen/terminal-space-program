@@ -51,6 +51,10 @@ func TestCanKeplerStepGatesOnEffectiveWarp(t *testing.T) {
 // stay bound to Earth on the trans-lunar trajectory.
 func TestAutoWarpLunarTransferStaysBound(t *testing.T) {
 	w := mustWorld(t)
+	// The Apollo TLI start vessel cannot fly the trans-lunar burn on its S-IVB
+	// alone (3062 m/s asked of 2358), so the burn never ends; this test is about
+	// the Kepler gate, so it flies the bare stage that can.
+	useBareStage(w)
 	moonIdx := -1
 	for i, b := range w.System().Bodies {
 		if b.ID == "moon" {

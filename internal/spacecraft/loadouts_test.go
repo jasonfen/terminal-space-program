@@ -97,12 +97,19 @@ func TestLoadoutsStagesHaveLaunchSprites(t *testing.T) {
 // to the S-IVB-1 default so legacy saves don't break.
 func TestLookupLoadoutFallback(t *testing.T) {
 	l := LookupLoadout("")
-	if l.ID != LoadoutSIVB1ID {
-		t.Errorf("empty ID resolved to %q, want %q", l.ID, LoadoutSIVB1ID)
+	if l.ID != "Apollo-TLI" {
+		t.Errorf("empty ID resolved to %q, want Apollo-TLI (ADR 0053 §4)", l.ID)
 	}
 	l = LookupLoadout("not-a-real-loadout")
-	if l.ID != LoadoutSIVB1ID {
-		t.Errorf("unknown ID resolved to %q, want %q", l.ID, LoadoutSIVB1ID)
+	if l.ID != "Apollo-TLI" {
+		t.Errorf("unknown ID resolved to %q, want Apollo-TLI (ADR 0053 §4)", l.ID)
+	}
+	// The bare stage stays in the catalog, port-less, for --loadout S-IVB-1.
+	if LookupLoadout(LoadoutSIVB1ID).ID != LoadoutSIVB1ID {
+		t.Error("S-IVB-1 must stay a real catalog entry")
+	}
+	if LoadoutOrder[0] != "Apollo-TLI" {
+		t.Errorf("row 0 of the catalog order = %q, want Apollo-TLI", LoadoutOrder[0])
 	}
 }
 

@@ -159,7 +159,7 @@ func TestResetFleetSpacingAndRoundTrip(t *testing.T) {
 }
 
 // (b) slate replacement: a 4-craft player ends with exactly one
-// default S-IVB-1 with full tanks.
+// default Apollo TLI-1 (ADR 0053 §4) with full tanks.
 func TestResetFleetReplacesSlate(t *testing.T) {
 	s, _ := resetStore(t)
 	entries, err := s.ResetFleet(time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC))
@@ -186,8 +186,8 @@ func TestResetFleetReplacesSlate(t *testing.T) {
 		t.Fatalf("alice crafts = %d, want 1", len(w.Crafts))
 	}
 	c := w.Crafts[0]
-	if c.LoadoutID != spacecraft.LoadoutSIVB1ID {
-		t.Errorf("loadout = %q, want %q", c.LoadoutID, spacecraft.LoadoutSIVB1ID)
+	if c.LoadoutID != spacecraft.LoadoutDefaultID {
+		t.Errorf("loadout = %q, want %q", c.LoadoutID, spacecraft.LoadoutDefaultID)
 	}
 	for i, st := range c.Stages {
 		if st.FuelMass != st.FuelCapacity {

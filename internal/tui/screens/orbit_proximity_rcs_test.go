@@ -60,7 +60,9 @@ func TestProximityBoxShowsRCSStateAndPulseStep(t *testing.T) {
 func TestProximityBoxShowsMonopropLeft(t *testing.T) {
 	w := proximityRCSWorld(t)
 	box := proximityChipText(t, w)
-	if !strings.Contains(box, "monoprop:") || !strings.Contains(box, "kg") {
+	// The start vessel (Apollo TLI-1) carries 1.7 t of monoprop, which reads
+	// in tonnes; a bare stage reads in kg. Either way the row names a mass.
+	if !strings.Contains(box, "monoprop:") || !(strings.Contains(box, "kg") || strings.Contains(box, " t")) {
 		t.Errorf("PROXIMITY lacks a monoprop: row with the tank mass:\n%s", box)
 	}
 }

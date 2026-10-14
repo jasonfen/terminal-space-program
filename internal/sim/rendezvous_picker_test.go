@@ -183,12 +183,9 @@ func TestPlanRendezvousOrOpenPicker_NoTarget(t *testing.T) {
 // (which the Rendezvous Planner has no equivalent of) still short-circuits
 // straight to a refusal rather than opening the picker.
 func TestPlanRendezvousOrOpenPicker_AlreadyDocked(t *testing.T) {
-	w := rendezvousTwoCraftWorld(t)
-	active := w.Crafts[0]
-	target := w.Crafts[1]
-	target.State.R = active.State.R
-	target.State.V = active.State.V
-	target.Primary = active.Primary
+	p := newPortPair(t, "rcs-tug", "rcs-tug", 0.3, 0.02, 1)
+	w := p.w
+	w.SetTargetCraft(1)
 
 	out, err := w.PlanRendezvousOrOpenPicker()
 	if !errors.Is(err, ErrRendezvousAlreadyDocked) {

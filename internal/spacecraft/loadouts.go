@@ -7,7 +7,8 @@ import "github.com/jasonfen/terminal-space-program/internal/bodies"
 // (glyph + color). v0.8.2 ship set + v0.9.1 Saturn-V multi-stage +
 // v0.9.4 SLS / Falcon 9:
 //
-//   - S-IVB-1:    J-2-powered third stage. The v0.5.13+ default.
+//   - S-IVB-1:    J-2-powered third stage, bare and port-less.
+//   - Apollo-TLI: S-IVB + LM + CSM, the default start vessel (ADR 0053).
 //   - ICPS:       RL-10-powered low-TWR transfer stage. Returns from
 //     v0.5.6 — long burns, less mass.
 //   - RCS-tug:    Pure-monoprop proximity-ops vehicle. No main engine;
@@ -155,8 +156,16 @@ func (l Loadout) Thrust() float64 {
 	return l.Stages[0].Thrust
 }
 
-// LoadoutS_IVB1 is the v0.5.13+ Apollo S-IVB / J-2 default.
+// LoadoutSIVB1ID is the bare Apollo S-IVB / J-2 upper stage: the v0.5.13-
+// v0.46 default, now a port-less catalog entry (--loadout S-IVB-1, fixtures).
 const LoadoutSIVB1ID = "S-IVB-1"
+
+// LoadoutDefaultID is the start vessel (ADR 0053 §4): the S-IVB with the
+// Lunar Module and CSM still on top, the way it sits after TLI. Its docking
+// port is the Command Module's nose. The empty / unknown-ID fallback of
+// LookupLoadout, the --loadout default, the fresh-game seed and the spawn
+// form's row 0 all point here.
+const LoadoutDefaultID = "Apollo-TLI"
 
 // LoadoutICPS is the v0.5.6 RL-10 low-TWR transfer stage.
 const LoadoutICPSID = "ICPS"
@@ -349,14 +358,14 @@ const VesselGlyph = "➤"
 var Loadouts, LoadoutOrder = buildLoadouts()
 
 // LookupLoadout returns the catalog entry for the given ID, or the
-// S-IVB-1 default when the ID is empty / unknown. v0.8.2+: the
+// Apollo-TLI default (LoadoutDefaultID) when the ID is empty / unknown. v0.8.2+: the
 // fallback path keeps pre-v0.8.2 saves loadable — those entries
 // have no LoadoutID and resolve to the default loadout.
 func LookupLoadout(id string) Loadout {
 	if l, ok := Loadouts[id]; ok {
 		return l
 	}
-	return Loadouts[LoadoutSIVB1ID]
+	return Loadouts[LoadoutDefaultID]
 }
 
 // NewFromLoadout constructs a Spacecraft from a loadout entry. The

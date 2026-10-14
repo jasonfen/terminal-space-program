@@ -44,7 +44,7 @@ rockets with accurate thrust and fuel loadouts.
   Σ Δv target, and your designs appear in the spawn form next to the built-in
   fleet.
 - **Staging, docking, and payloads.** Player-managed decouple chains, docking
-  with a proximity view, nose payloads on dock seams, deployable comsats, and
+  flown port to port with a proximity view, nose payloads on dock seams, deployable comsats, and
   a CommNet link model.
 - **Multiplayer over ssh.** Host from your own game; guests join from any
   terminal, each with their own persistent program and independent time.
@@ -56,8 +56,8 @@ rockets with accurate thrust and fuel loadouts.
 
 ## Quick start
 
-You spawn in an Apollo-style **S-IVB** in a 500 km circular Earth orbit tilted 51.6° to the equator (so a launch
-from the KSC pad can meet it).
+You spawn as **Apollo TLI-1**, an Apollo S-IVB with the Lunar Module and the CSM still on top, in a 500 km
+circular Earth orbit tilted 51.6° to the equator (so a launch from the KSC pad can meet it).
 Press `t` to target the Moon (`T` clears it), then `H` to plant a Hohmann
 transfer with inclination change, or fly it all by hand. `F1` shows every key
 in-game. See the **[controls & flight guide](docs/controls.md)** for a tour, a

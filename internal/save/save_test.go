@@ -916,6 +916,11 @@ func TestRCSFieldsRoundtrip(t *testing.T) {
 	// values into Stages[0] (the bottom = active stage) and let
 	// SyncFields refresh the flat shadow fields.
 	c := w.ActiveCraft()
+	// The start vessel is the five-stage Apollo TLI stack (ADR 0053): the
+	// flat Monoprop fields sum every stage, so pin them on a one-stage
+	// vessel to keep this a pure round-trip test.
+	c.Stages = c.Stages[:1]
+	c.DecouplePlan = nil
 	c.Stages[0].MonopropMass = 17.5
 	c.Stages[0].MonopropCap = 50
 	c.Stages[0].RCSThrust = 440

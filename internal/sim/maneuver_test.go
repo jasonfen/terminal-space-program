@@ -1008,6 +1008,7 @@ func TestPlanTransferIntraPrimaryBurnIsCentered(t *testing.T) {
 // 14-min TLI losing ~27% of apoapsis to integration error.
 func TestIntraPrimaryHohmannReachesLunaApoapsis(t *testing.T) {
 	w := mustWorld(t)
+	useBareStage(w) // the burn arithmetic below is the bare S-IVB-1's (110 s, high TWR)
 	moonIdx := -1
 	for i, b := range w.System().Bodies {
 		if b.ID == "moon" {
@@ -2201,6 +2202,7 @@ func TestPreviewBurnStateCapsByActiveStageFuel(t *testing.T) {
 // silently produces a wildly different orbit shape.
 func TestPreviewBurnStateFiniteVsImpulsiveAtLunaPeri(t *testing.T) {
 	w := mustWorld(t)
+	useBareStage(w) // "200 m/s in 10 s" is the bare S-IVB-1's thrust, not the Apollo TLI stack's
 	moon, _, _, _, seated := seatLunaCaptureOrbit(t, w)
 	if !seated {
 		t.Skip("Moon missing from Sol")

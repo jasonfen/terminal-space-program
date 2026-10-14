@@ -21,6 +21,7 @@ type seedLunarRun struct {
 	nodesLeft           int
 	moonEcc             float64 // eccentricity about the Moon after the flight; <1 is a bound capture
 	moonPeriKm          float64 // lowest distance from the Moon centre while flown in its frame (km)
+	staged              int     // times the pilot had to stage to finish a burn
 	crashed             bool    // hit the surface (Crashed or Landed) during the flight
 }
 
@@ -67,6 +68,20 @@ func runSeedLunarTransfer(t *testing.T, equatorial bool) seedLunarRun {
 	tu := func(w *World, n int, pred func() bool) (int, bool) {
 		return tickUntil(w, n, func() bool { track(); return pred() })
 	}
+	// A burn that runs the S-IVB dry stalls until the pilot stages (the SM's
+	// engine takes the rest, as in Apollo); fly it the way a player would.
+	burnDone := func() {
+		for k := 0; k < 3; k++ {
+			tu(w, 5_000_000, func() bool { return c.ActiveBurn == nil || c.BurnStalled() })
+			if !c.BurnStalled() {
+				return
+			}
+			r.staged++
+			if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+				return
+			}
+		}
+	}
 	for leg := 0; leg < 8 && len(c.Nodes) > 0 && c.Primary.ID == "earth"; leg++ {
 		if !w.EngageAutoWarp() {
 			break
@@ -76,7 +91,7 @@ func runSeedLunarTransfer(t *testing.T, equatorial bool) seedLunarRun {
 		}
 		n := len(c.Nodes)
 		tu(w, 5_000_000, func() bool { return len(c.Nodes) < n })
-		tu(w, 5_000_000, func() bool { return c.ActiveBurn == nil })
+		burnDone()
 	}
 	tu(w, 2_000_000, func() bool { return c.Primary.ID == "moon" })
 	r.enteredMoonSOI = c.Primary.ID == "moon"
@@ -89,7 +104,7 @@ func runSeedLunarTransfer(t *testing.T, equatorial bool) seedLunarRun {
 			tu(w, 5_000_000, func() bool { return w.AutoWarp == nil })
 			n := len(c.Nodes)
 			tu(w, 5_000_000, func() bool { return len(c.Nodes) < n })
-			tu(w, 5_000_000, func() bool { return c.ActiveBurn == nil })
+			burnDone()
 		}
 		r.nodesLeft = len(c.Nodes)
 		if c.Primary.ID == "moon" {

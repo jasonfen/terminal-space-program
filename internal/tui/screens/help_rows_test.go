@@ -103,6 +103,7 @@ func TestHelpSectionOrder(t *testing.T) {
 		"PLAN BURNS",
 		"RENDEZVOUS PLANNER (map chip, opens from K)",
 		"VESSEL",
+		"DOCKING (port to port)", // ADR 0053 slice F
 		"SPAWN FORM (n)", // GK Q3, #589: the spawn form had no page
 		"VEHICLE ASSEMBLY (VAB)",
 		"MISSIONS (ladder screen, open with M)", // #426, screen-scoped, after VAB
@@ -151,6 +152,7 @@ func TestHelpGlossaryBlockContent(t *testing.T) {
 		{"plan", "planned burn's numbers are measured from"},
 		{"pro / retro", "prograde or retrograde"},
 		{"(ORBIT/SURF/TGT)", "one spelling everywhere"},
+		{"(ORBIT/SURF/TGT)", "target or PORT"},
 		{"rcs", "RCS thrusters"},
 		{"speed", "navball frame"},
 		{"(max N)", "full throttle"},

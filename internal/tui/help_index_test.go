@@ -47,7 +47,7 @@ func TestHelpOpensOnIndex(t *testing.T) {
 	v := a.View()
 	for _, want := range []string{
 		"Your first flight", "MANUAL FLIGHT", "READOUT GLOSSARY",
-		"you are flying by hand", "INDEX", "18 pages",
+		"you are flying by hand", "INDEX", "19 pages",
 	} {
 		if !strings.Contains(v, want) {
 			t.Errorf("index missing %q:\n%s", want, v)
@@ -70,7 +70,7 @@ func TestHelpIndexDigitJumpEscAndReopen(t *testing.T) {
 	a := helpApp(t)
 	helpPress(a, "6") // 1 = first flight, 2 = GENERAL ... 6 = MANUAL FLIGHT
 	v := a.View()
-	if !strings.Contains(v, "MANUAL FLIGHT · 6 of 18") || !strings.Contains(v, "throttle full") {
+	if !strings.Contains(v, "MANUAL FLIGHT · 6 of 19") || !strings.Contains(v, "throttle full") {
 		t.Errorf("digit 6 did not open MANUAL FLIGHT with a position line:\n%s", v)
 	}
 	helpPress(a, "esc")
@@ -94,15 +94,15 @@ func TestHelpIndexDigitJumpEscAndReopen(t *testing.T) {
 }
 
 // TestHelpIndexCursorReachesPagesPastNine: only nine digit keys exist,
-// so pages 10-18 are reached with down + enter.
+// so pages 10-19 are reached with down + enter.
 func TestHelpIndexCursorReachesPagesPastNine(t *testing.T) {
 	a := helpApp(t)
-	for i := 0; i < 17; i++ {
+	for i := 0; i < 18; i++ {
 		helpPress(a, "down")
 	}
 	helpPress(a, "enter")
-	if v := a.View(); !strings.Contains(v, "MAP MARKERS · 18 of 18") {
-		t.Errorf("down x15 + enter did not open the last page:\n%s", v)
+	if v := a.View(); !strings.Contains(v, "MAP MARKERS · 19 of 19") {
+		t.Errorf("down x18 + enter did not open the last page:\n%s", v)
 	}
 }
 
@@ -113,7 +113,7 @@ func TestHelpFirstFlightPage(t *testing.T) {
 	a := helpApp(t)
 	helpPress(a, "1")
 	v := a.View()
-	if !strings.Contains(v, "Your first flight · 1 of 18") {
+	if !strings.Contains(v, "Your first flight · 1 of 19") {
 		t.Errorf("no position line on the first-flight page:\n%s", v)
 	}
 	orbit := strings.Index(v, "ORBIT START")
