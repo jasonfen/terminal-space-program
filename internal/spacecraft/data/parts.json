@@ -305,6 +305,21 @@
       "fuel_type": "hydrolox"
     },
     {
+      "id": "s-ivb-tli",
+      "name": "S-IVB",
+      "glyph": "➤",
+      "color": "#FFD93D",
+      "dry_mass_kg": 11000,
+      "fuel_mass_kg": 75000,
+      "fuel_capacity_kg": 75000,
+      "thrust_n": 1023000,
+      "isp_s": 421,
+      "launch_sprite_rows_px": 12,
+      "launch_sprite_width_px": 3,
+      "launch_sprite_color": "#D8D8D8",
+      "fuel_type": "hydrolox"
+    },
+    {
       "id": "icps-1",
       "name": "ICPS",
       "glyph": "➤",

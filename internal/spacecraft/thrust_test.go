@@ -79,9 +79,9 @@ func TestBurnConsumesFuel(t *testing.T) {
 
 // TestRemainingDeltaV: the firing stage's Δv with everything above it as
 // payload. The start vessel is Apollo TLI-1 (ADR 0053 §4), so the S-IVB's
-// 40 000 kg of fuel and 421 s lift the whole 91.9 t stack: Δv =
-// 421 * 9.80665 * ln(m0 / (m0 - 40 000)) ≈ 2358 m/s, not the bare
-// stage's ≈ 6314 m/s.
+// 75 000 kg of post-insertion propellant and 421 s push the whole 126.9 t
+// stack: Δv = 421 * 9.80665 * ln(m0 / (m0 - 75 000)) ≈ 3690 m/s, enough for
+// the ~3.1 km/s trans-lunar burn alone, as in Apollo.
 func TestRemainingDeltaV(t *testing.T) {
 	systems, _ := bodies.LoadAll()
 	earth := systems[0].FindBody("Earth")

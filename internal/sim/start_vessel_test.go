@@ -76,3 +76,20 @@ func useBareStage(w *World) *spacecraft.Spacecraft {
 	w.Crafts[0] = c
 	return c
 }
+
+// Jason's ruling 2026-10-14: the start stack's S-IVB carries the real Apollo
+// post-orbit-insertion propellant (~75 t) and flies the whole Moon burn alone;
+// the bare S-IVB-1 stays at 40 t.
+func TestApolloTLIStageCarriesPostInsertionPropellant(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := w.ActiveCraft().Stages[0]
+	if s.Name != "S-IVB" || s.FuelCapacity != 75000 || s.FuelMass != 75000 || s.DryMass != 11000 || s.Thrust != 1023000 || s.Isp != 421 {
+		t.Errorf("start S-IVB = %+v, want 75 t fuel, 11 t dry, 1023 kN, 421 s", s)
+	}
+	if bare := spacecraft.NewFromLoadout(spacecraft.LoadoutSIVB1ID).Stages[0]; bare.FuelCapacity != 40000 {
+		t.Errorf("bare S-IVB-1 fuel = %v, want 40000", bare.FuelCapacity)
+	}
+}

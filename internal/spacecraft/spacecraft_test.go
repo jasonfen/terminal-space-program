@@ -25,8 +25,8 @@ func TestNewInLEO(t *testing.T) {
 	for _, st := range sc.Stages {
 		wantMass += st.DryMass + st.FuelMass + st.MonopropMass
 	}
-	if wantMass < 90000 || wantMass > 94000 {
-		t.Errorf("summed stage mass = %v, want about 91.9 t", wantMass)
+	if wantMass < 125000 || wantMass > 129000 {
+		t.Errorf("summed stage mass = %v, want about 126.9 t", wantMass)
 	}
 	if math.Abs(sc.TotalMass()-wantMass) > 1e-6 {
 		t.Errorf("total mass = %v, want %v", sc.TotalMass(), wantMass)

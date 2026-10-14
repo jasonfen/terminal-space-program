@@ -196,6 +196,11 @@ func TestEngineBoxTWRWillNotLiftJudgesMax(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	c := w.ActiveCraft()
+	// The Apollo TLI start stack is 127 t on 1023 kN (max TWR 0.82 at the
+	// surface): fly the bare stage, whose max TWR clears 1.0, for this verdict.
+	c.Stages = c.Stages[:1]
+	c.DecouplePlan = nil
+	c.SyncFields()
 	c.Throttle = 0
 	lines := v.buildEngineBox(w)
 	if strings.Contains(lines[2], "will not lift") {
