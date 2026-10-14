@@ -440,82 +440,50 @@ func (v *OrbitView) drawProximityRangeRings(w *sim.World, st sim.ProximityState)
 	}
 }
 
-// drawProximityDockGate draws the 50 m dock-gate ring (sim.DockingDistM)
-// — the one ring whose COLOR carries state rather than just its
-// presence, in four states:
+// drawProximityDockGate draws the 50 m ring (sim.DockingDistM). The ring is
+// where the close picture starts, no longer "docked" (ADR 0053 decision 1);
+// its COLOUR carries the capture state, in four states (proximityGateRingColor
+// picks it):
 //
-//  1. dim — outside the distance gate.
-//  2. render.ColorAlert (red, #421): inside DockingDistM but rel speed is
-//     at or over DockingVMS: the SAME (RangeM, VRelMS) predicate
-//     checkDocking's auto-fuse itself refuses on (proximityOverSpeed),
-//     given a place on the ring rather than only a chip row a player
-//     might not be reading. Distinct from the #343 amber latch below —
-//     over-speed is something the PILOT can fix by braking; a latch is
-//     not.
-//  3. amber (ColorWarning) — inside BOTH DockingDistM and DockingVMS but
-//     a same-World re-arm latch (#343) is holding the pair apart.
-//  4. ColorTarget (green) — exactly when sim.ProximityDockGateReady
-//     reports the pair actually ready to fuse, the same predicate
-//     checkDocking's auto-fuse uses (plus the latch, #372), so the
-//     ring's green threshold and the game's actual "you are about to
-//     dock" threshold can never drift apart. This is issue #348 §1's
-//     "DOCK READY becomes a place on screen."
-//
-// #372: before the latch was folded into ProximityDockGateReady, a
-// latched pair sitting inside both raw gates had nowhere to read that —
-// the ring either lied green (the #343 bug this amber state fixes) or,
-// worse, looked identical to "still too far to dock" (plain dim) once
-// the ready predicate was corrected to say false. Amber gives the
-// latched state its own place on screen, distinct from both: it also
-// carries the "there is something to learn here" cue that the `c`
-// re-arm key exists (issue #372 §2's "worth considering").
-//
-// #421 (revised): the over-speed state (2) originally keyed off
-// ClosingMS (the closing: row's own number) rather than the raw
-// rel speed checkDocking's gate actually uses. That was a narrower, and
-// wrong, proxy: a pair sliding past laterally at rel speed 0.50 m/s while
-// closing at only 0.05 m/s sits inside the distance gate, never docks
-// (checkDocking refuses on the full rel speed), yet the ring stayed dim
-// and no row said why — exactly the silent failure #421 exists to fix,
-// just on the other axis. proximityOverSpeed now matches checkDocking's
-// own (RangeM, VRelMS) predicate exactly, so the ring can't disagree
-// with the game's actual refusal for ANY approach geometry, not only a
-// head-on one.
-//
-// No separate DOCK READY text callout is added alongside the green
-// state: the ready state is inherently momentary (checkDocking
-// auto-fuses the pair the very next tick it holds true), so a chip
-// would flicker on and off faster than a player could read it — exactly
-// the failure the hint chip's hysteresis band exists to prevent
-// elsewhere in this file. A ring doesn't need that guard because it's a
-// place, not a popup: it's already there, faint, before the moment
-// arrives, and it simply changes colour when the moment does. The amber
-// latched state has no such flicker risk — a latch persists for
-// ReArmDistM/ReArmCeiling's worth of time, not one tick; the red
-// over-speed state is exactly as continuous as rel speed itself.
+//  1. dim: outside 50 m, or inside it and nothing to say.
+//  2. render.ColorAlert (red, #421): inside 50 m with rel speed at or over
+//     DockingVMS, the over-speed predicate the rel speed row's "(need < 0.10)"
+//     reminder also keys on. Distinct from the latch below: over-speed is
+//     something the PILOT can fix by braking; a latch is not.
+//  3. amber (ColorWarning): the whole port gate holds but a same-World re-arm
+//     latch (#343) is holding the pair apart (#372).
+//  4. ColorTarget (green): exactly when sim.ProximityDockGateReady, the
+//     predicate checkDocking starts the magnet on and the magnet keeps pulling
+//     on, so the ring can never disagree with the dock (issue #348 §1, the
+//     #421 rule). The gate is port range, rel speed and alignment, not the
+//     50 m / 0.1 m/s pair that used to click. A pair with no port on either
+//     side, or a ghost whose shape is unknown, never goes green.
 func (v *OrbitView) drawProximityDockGate(w *sim.World, st sim.ProximityState) {
 	const gateRadius = sim.DockingDistM
 	if !v.proximityRingVisible(st, gateRadius) {
 		return
 	}
-	rawGatesOK := st.RangeM < sim.DockingDistM && st.VRelMS < sim.DockingVMS
-	color := render.ColorDim
+	pts := proximityRingPoints(st.TargetWorld, st.Frame.AlongTrack, st.Frame.RadialOut, gateRadius)
+	v.canvas.PlotPolylineClass(pts, proximityGateRingColor(w, st), widgets.ClassScenery)
+}
+
+// proximityGateRingColor is the ring's colour for a scene. Pure, so a test
+// can read the state itself rather than infer it from canvas cells.
+func proximityGateRingColor(w *sim.World, st sim.ProximityState) lipgloss.Color {
 	switch {
 	case w.ProximityDockGateReady(st):
-		color = render.ColorTarget
-	case rawGatesOK:
-		// Inside both raw gates but not ready — held off by the #343
+		return render.ColorTarget
+	case sim.PortGateTermsHold(st):
+		// The whole gate holds yet it is not ready: held off by the #343
 		// re-arm latch (the only way ProximityDockGateReady can say false
 		// here; see its own doc comment).
-		color = render.ColorWarning
+		return render.ColorWarning
 	case proximityOverSpeed(st):
-		// Inside the distance gate, but rel speed alone already meets or
-		// exceeds DockingVMS — the exact predicate checkDocking's
-		// auto-fuse refuses on, given a place on the ring (#421).
-		color = render.ColorAlert
+		// Inside 50 m, but rel speed alone already meets or exceeds
+		// DockingVMS: the gate's speed term is failing (#421).
+		return render.ColorAlert
 	}
-	pts := proximityRingPoints(st.TargetWorld, st.Frame.AlongTrack, st.Frame.RadialOut, gateRadius)
-	v.canvas.PlotPolylineClass(pts, color, widgets.ClassScenery)
+	return render.ColorDim
 }
 
 // proximityVelocityStubPx is the v_rel vector stub's length in canvas
@@ -674,14 +642,14 @@ func proximityTargetHullInputs(w *sim.World) ([]spacecraft.Stage, orbital.Vec3) 
 // whenever there's nothing to compose or it doesn't clear the
 // hysteresis band, so the caller's existing glyph fallback runs
 // unchanged.
-func (v *OrbitView) drawProximityHull(shown *bool, stages []spacecraft.Stage, attitudeDir orbital.Vec3, anchorWorld orbital.Vec3, frame orbital.LVLHFrame) bool {
+func (v *OrbitView) drawProximityHull(shown *bool, stages []spacecraft.Stage, attitudeDir orbital.Vec3, anchorWorld orbital.Vec3, frame orbital.LVLHFrame, seams ...int) bool {
 	heightCells := proximitySpriteHeightCells(stages, v.canvas.Scale())
 	*shown = proximitySpriteVisible(*shown, heightCells)
 	if !*shown {
 		return false
 	}
 	basis := widgets.Basis{X: frame.AlongTrack, Y: frame.RadialOut}
-	sprite := ComposeLaunchSprite(stages, attitudeDir, basis, vesselSubPixelM)
+	sprite := ComposeLaunchSprite(stages, attitudeDir, basis, vesselSubPixelM, seams...)
 	if sprite == nil {
 		// Defensive: composedStackRows and ComposeLaunchSprite agree on
 		// what counts as "no sprite" (taperRowBetween is their shared
@@ -727,7 +695,11 @@ func (v *OrbitView) drawProximityVessels(w *sim.World, st sim.ProximityState) {
 	v.drawProximityPortLine(w, st)
 
 	targetStages, targetAttitude := proximityTargetHullInputs(w)
-	if !v.drawProximityHull(&v.proxTargetSpriteShown, targetStages, targetAttitude, st.TargetWorld, st.Frame) {
+	var targetSeams []int
+	if tc, _, ok := w.ResolveTargetCraft(); ok {
+		targetSeams = sim.DockSeams(tc)
+	}
+	if !v.drawProximityHull(&v.proxTargetSpriteShown, targetStages, targetAttitude, st.TargetWorld, st.Frame, targetSeams...) {
 		v.canvas.FillColoredDiskTagged(st.TargetWorld, 1,
 			widgets.CellTag{Color: render.ColorTarget, IsVessel: true})
 		v.canvas.SetCellOverlayColored(st.TargetWorld, '◆', render.ColorTarget)
@@ -753,7 +725,7 @@ func (v *OrbitView) drawProximityVessels(w *sim.World, st sim.ProximityState) {
 			ownStages = active.Stages
 			ownAttitude = active.CurrentAttitudeDir
 		}
-		if !v.drawProximityHull(&v.proxOwnSpriteShown, ownStages, ownAttitude, st.CraftWorld, st.Frame) {
+		if !v.drawProximityHull(&v.proxOwnSpriteShown, ownStages, ownAttitude, st.CraftWorld, st.Frame, sim.DockSeams(active)...) {
 			v.canvas.FillColoredDiskTagged(st.CraftWorld, 1,
 				widgets.CellTag{Color: activeColor, IsVessel: true})
 			v.canvas.SetCellOverlayColored(st.CraftWorld, glyph, activeColor)
@@ -857,7 +829,7 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 	rows := []string{
 		v.proximityChipHeader(st),
 		chipRow("range:", readout.Distance(st.RangeM)),
-		v.proximityPortRow(st),
+		v.proximityPortRow(st, w.Target.Kind == sim.TargetCraft && w.DockCapturing(w.Target.CraftID)),
 	}
 	if st.HasPort {
 		rows = append(rows, proximityAlignRow(st))
@@ -958,8 +930,9 @@ func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
 	}
 	// ADR 0053 decision 6: port: and align: survive the shrink, but only
 	// inside 50 m and out of gate; off-axis: is dropped in Compact Form.
-	if proximityInsideRing(st) && proximityPortOutOfGate(st) {
-		lines = append(lines, v.proximityPortRow(st))
+	capturing := w.Target.Kind == sim.TargetCraft && w.DockCapturing(w.Target.CraftID)
+	if proximityInsideRing(st) && (proximityPortOutOfGate(st) || capturing) {
+		lines = append(lines, v.proximityPortRow(st, capturing))
 		if st.HasPort {
 			lines = append(lines, proximityAlignRow(st))
 		}

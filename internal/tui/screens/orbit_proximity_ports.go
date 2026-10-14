@@ -69,7 +69,12 @@ func proximityAlignNeedSuffix(st sim.ProximityState) string {
 
 // proximityPortRow is the `port:` row: port-to-port range with the gate
 // reminder, or why there is no port to measure.
-func (v *OrbitView) proximityPortRow(st sim.ProximityState) string {
+func (v *OrbitView) proximityPortRow(st sim.ProximityState, capturing bool) string {
+	if st.HasPort && capturing {
+		// The magnet has the vessel: no reminder to act on, the pull is
+		// closing the last half metre itself (ADR 0053 decision 5).
+		return chipRow("port:", readout.PortDistance(st.PortRangeM)+"  capturing")
+	}
 	if st.HasPort {
 		return chipRow("port:", readout.PortDistance(st.PortRangeM)+proximityPortNeedSuffix(st, v.canvas.Scale()))
 	}
@@ -95,15 +100,10 @@ func proximityOffAxisRow(st sim.ProximityState) string {
 }
 
 // proximityPortOutOfGate is the Compact Form's "out of gate" for the port
-// rows: any of the three gate terms failing. A reading of the numbers, not
-// the gate itself (slice B owns that predicate).
+// rows: the port gate not holding, read from the sim's own predicate so the
+// chip, the ring and the dock cannot disagree.
 func proximityPortOutOfGate(st sim.ProximityState) bool {
-	if !st.HasPort {
-		return true
-	}
-	return st.PortRangeM > proximityPortNeedM ||
-		st.VRelMS >= sim.DockingVMS ||
-		st.AlignDeg > proximityPortNeedDeg
+	return !sim.PortGateTermsHold(st)
 }
 
 // proximityChipHeader is "PROXIMITY  <target>  port: <top>" (or "no port"),
@@ -165,8 +165,8 @@ func proximityPortWorld(anchor, attitude orbital.Vec3, basis widgets.Basis, offs
 // before the hulls so hull pixels win any overlap, and labels it with the
 // port-to-port range at its midpoint. Only while both hulls are drawn as
 // sprites (the marks exist only then), and only when both carry a port.
-// Dashed Planned-class in TARGET green; the solid-green capture state is
-// slice B's, with the gate it reads.
+// TARGET green, dashed (Planned-class) until sim.ProximityDockGateReady
+// holds, then solid (Real-class) for the capture.
 func (v *OrbitView) drawProximityPortLine(w *sim.World, st sim.ProximityState) {
 	if !st.HasPort {
 		return
@@ -184,7 +184,9 @@ func (v *OrbitView) drawProximityPortLine(w *sim.World, st sim.ProximityState) {
 	basis := widgets.Basis{X: st.Frame.AlongTrack, Y: st.Frame.RadialOut}
 	a := proximityPortWorld(st.CraftWorld, active.CurrentAttitudeDir, basis, st.Own.Ports[0].OffsetM)
 	b := proximityPortWorld(st.TargetWorld, tgt.CurrentAttitudeDir, basis, st.Target.Ports[0].OffsetM)
-	v.canvas.PlotPolylineClass([]orbital.Vec3{a, b}, render.ColorTarget, widgets.ClassPlanned)
+	// Dashed while the gate is open; solid green the tick it holds (and
+	// through the magnet's pull): the same predicate the dock reads.
+	v.canvas.PlotPolylineClass([]orbital.Vec3{a, b}, render.ColorTarget, proximityPortLineClass(w, st))
 	mid := a.Add(b).Scale(0.5)
 	col, row, onCanvas := v.canvasCell(mid)
 	if !onCanvas {
@@ -211,6 +213,16 @@ func (v *OrbitView) drawProximityPortLine(w *sim.World, st sim.ProximityState) {
 		}
 	}
 	v.canvas.SetCellLabelColored(left, at, label, v.theme.Dim.GetForeground())
+}
+
+// proximityPortLineClass is the port line's stroke: dashed while the gate is
+// open, solid the tick sim.ProximityDockGateReady holds and through the
+// magnet's pull. The same predicate the dock reads.
+func proximityPortLineClass(w *sim.World, st sim.ProximityState) widgets.LineClass {
+	if w.ProximityDockGateReady(st) {
+		return widgets.ClassReal
+	}
+	return widgets.ClassPlanned
 }
 
 // drawProximityPortMark stamps the `○` on one hull's drawn port, in that

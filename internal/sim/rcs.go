@@ -64,6 +64,10 @@ func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
 	if w.ActiveCraft() == nil || w.ActiveCraft().EngineMode != spacecraft.EngineRCS {
 		return false
 	}
+	// ADR 0053 decision 5: the docking magnet has the vessel's hands.
+	if w.dockMagnetPulls(w.ActiveCraft()) {
+		return false
+	}
 	if !w.canCommand(w.ActiveCraft()) { // ADR 0027: an RCS pulse delivers Δv — a command
 		return false
 	}
@@ -74,11 +78,13 @@ func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
 	// v0.9.3+: resolve target snapshot for the four target-relative
 	// modes; non-target modes ignore the snapshot.
 	rT, vT, _ := w.TargetStateRelativeToActivePrimary()
-	dir := w.ActiveCraft().BurnDirectionWithTarget(mode, rT, vT)
+	// ADR 0053 slice C: the PORT-frame pulses also need the target's nose.
+	aT, _ := w.TargetPortAxis()
+	dir := w.ActiveCraft().BurnDirectionWithTargetAtt(mode, rT, vT, aT)
 	if dir.Norm() == 0 {
 		return false
 	}
-	if !w.ActiveCraft().ApplyRCSPulseWithTarget(mode, rT, vT) {
+	if !w.ActiveCraft().ApplyRCSPulseWithTargetAtt(mode, rT, vT, aT) {
 		return false
 	}
 	// #298: a pulse is Δv the same as a main-engine burn — the pilot

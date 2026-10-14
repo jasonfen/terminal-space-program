@@ -10,89 +10,42 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// TestDockingFusesCloseSlowCraft: two craft within DockingDistM
-// and below DockingVMS in the same primary frame must fuse on the
-// next checkDocking pass. Composite ends up at the mass-weighted
-// centroid with momentum-conserving velocity.
+// TestDockingFusesCloseSlowCraft: a ported pair that holds the port gate
+// (ADR 0053) is captured and fuses into one composite once the magnet
+// completes. The composite keeps the lead's identity and position, and has
+// the summed mass (its position is pinned by TestDockCompositeKeepsLeadPosition).
 func TestDockingFusesCloseSlowCraft(t *testing.T) {
-	w, _ := NewWorld()
-	earth := w.Systems[0].FindBody("Earth")
-
-	// Craft A: at +X, moving +Y at orbital speed.
-	a := w.Crafts[0]
-	a.State.R = orbital.Vec3{X: earth.RadiusMeters() + 500e3}
-	v := math.Sqrt(earth.GravitationalParameter() / a.State.R.Norm())
-	a.State.V = orbital.Vec3{Y: v}
-
-	// Craft B: 10 m further out, also +Y at the same orbital
-	// speed (matching velocity).
-	b := spacecraft.NewFromLoadout(spacecraft.LoadoutICPSID)
-	b.Primary = *earth
-	b.State = physics.StateVector{
-		R: a.State.R.Add(orbital.Vec3{X: 10}),
-		V: a.State.V,
-		M: b.TotalMass(),
-	}
-	w.Crafts = append(w.Crafts, b)
-
-	idxA, idxB, ok := w.checkDocking()
-	if !ok {
-		t.Fatalf("expected docking match, got none")
-	}
-	if idxA != 0 || idxB != 1 {
-		t.Errorf("unexpected pair indices: %d, %d", idxA, idxB)
-	}
+	p := newPortPair(t, "rcs-tug", "ntr-tug", 0.4, 0.05, 2)
+	w, a, b := p.w, p.a, p.b
+	wantMass := a.TotalMass() + b.TotalMass()
+	tickFor(w, 6)
 	if len(w.Crafts) != 1 {
-		t.Errorf("expected 1 composite craft, got %d", len(w.Crafts))
+		t.Fatalf("expected 1 composite craft, got %d", len(w.Crafts))
 	}
 	composite := w.Crafts[0]
-	if composite.Name != a.Name {
-		t.Errorf("composite name = %q, want active partner's name %q", composite.Name, a.Name)
+	if composite.Name != "Alpha" {
+		t.Errorf("composite name = %q, want the active partner's name Alpha", composite.Name)
 	}
-	// Composite mass = sum of both.
-	wantMass := a.DryMass + b.DryMass + a.Fuel + b.Fuel + a.Monoprop + b.Monoprop
 	if math.Abs(composite.TotalMass()-wantMass) > 1e-3 {
 		t.Errorf("composite mass = %v, want %v", composite.TotalMass(), wantMass)
 	}
 }
 
-// TestDockingAutoFuseStampsPartnerNameAndComponentCount (#421): a
-// proximity auto-fuse must record the folded-in partner's name and the
-// resulting composite's total Docked Component count on LastDockEvent —
-// app.go's flash reads both to announce the fusion in the same voice
-// Undock already uses ("docked with <partner> — now 1 vessel, N
-// components"). Captured inside DockCrafts (before the drop slot is
-// gone), not reconstructed by the caller afterward.
+// TestDockingAutoFuseStampsPartnerNameAndComponentCount (#421): the dock must
+// record the folded-in partner's name and the resulting composite's total
+// Docked Component count on LastDockEvent. app.go's flash reads both to
+// announce the fusion in the same voice Undock already uses. Captured inside
+// DockCrafts (before the drop slot is gone), not reconstructed by the caller.
 func TestDockingAutoFuseStampsPartnerNameAndComponentCount(t *testing.T) {
-	w, _ := NewWorld()
-	earth := w.Systems[0].FindBody("Earth")
-
-	a := w.Crafts[0]
-	a.State.R = orbital.Vec3{X: earth.RadiusMeters() + 500e3}
-	v := math.Sqrt(earth.GravitationalParameter() / a.State.R.Norm())
-	a.State.V = orbital.Vec3{Y: v}
-
-	// Named distinctly from the default active craft (w.Crafts[0] is
-	// itself named "S-IVB-1" by its default loadout) so PartnerName
-	// below can't pass by coincidentally matching the WRONG craft.
-	b := spacecraft.NewFromLoadout(spacecraft.LoadoutICPSID)
-	b.Name = "Tug-1"
-	b.Primary = *earth
-	b.State = physics.StateVector{
-		R: a.State.R.Add(orbital.Vec3{X: 10}),
-		V: a.State.V,
-		M: b.TotalMass(),
-	}
-	w.Crafts = append(w.Crafts, b)
-
+	p := newPortPair(t, "rcs-tug", "rcs-tug", 0.4, 0.05, 2)
+	w := p.w
+	p.b.Name = "Tug-1"
 	if w.LastDockEvent != nil {
 		t.Fatal("precondition: LastDockEvent already set before any dock")
 	}
-	if _, _, ok := w.checkDocking(); !ok {
-		t.Fatal("expected docking match, got none")
-	}
+	tickFor(w, 6)
 	if w.LastDockEvent == nil {
-		t.Fatal("checkDocking fused the pair but did not stamp LastDockEvent")
+		t.Fatal("the pair docked but nothing stamped LastDockEvent")
 	}
 	if w.LastDockEvent.PartnerName != "Tug-1" {
 		t.Errorf("LastDockEvent.PartnerName = %q, want %q", w.LastDockEvent.PartnerName, "Tug-1")
@@ -145,53 +98,31 @@ func TestDockingSkipsFastClose(t *testing.T) {
 	}
 }
 
-// TestDockingSkipsLandedCraft — v0.12 Slice 2 / ADR 0007 (broadened
-// post-playtest). A co-located, matched-velocity pair (well inside
-// both gates) must NOT auto-fuse while EITHER craft is Landed. This
-// covers both the static surface-staged pair (both Landed) and the
-// liftoff moment (ascent clears Landed while still co-located with the
-// parked descent stage). Only once NEITHER is Landed — an ordinary
-// orbital rendezvous — does the pair fuse.
+// TestDockingSkipsLandedCraft: v0.12 Slice 2 / ADR 0007 (broadened
+// post-playtest). A pair sitting in the port gate must NOT start a capture
+// while EITHER craft is Landed. This covers both the static surface-staged pair
+// (both Landed) and the liftoff moment (ascent clears Landed while still
+// co-located with the parked descent stage). Only once NEITHER is Landed does
+// the pair begin to capture; that last step is also the positive control that
+// shows the instrument can say yes.
 func TestDockingSkipsLandedCraft(t *testing.T) {
-	w, _ := NewWorld()
-	earth := w.Systems[0].FindBody("Earth")
+	p := newPortPair(t, "rcs-tug", "rcs-tug", 0.3, 0, 0)
+	w, a, b := p.w, p.a, p.b
 
-	a := w.Crafts[0]
-	a.Primary = *earth
-	a.State.R = orbital.Vec3{X: earth.RadiusMeters()}
-	a.State.V = orbital.Vec3{} // co-rotation velocity stand-in (matched)
-
-	b := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
-	b.Primary = *earth
-	b.State = physics.StateVector{R: a.State.R, V: a.State.V, M: b.TotalMass()}
-	w.Crafts = append(w.Crafts, b)
-
-	// Both Landed: skip.
 	a.Landed, b.Landed = true, true
-	if _, _, ok := w.checkDocking(); ok {
-		t.Error("both-Landed co-located pair fused — guard missing")
+	if startsMagnet(w) {
+		t.Error("both-Landed pair began a capture, guard missing")
 	}
-	if len(w.Crafts) != 2 {
-		t.Fatalf("slate count = %d, want 2 (no fuse, both Landed)", len(w.Crafts))
+	b.Landed = false // a stays Landed: the liftoff case
+	if startsMagnet(w) {
+		t.Error("one-Landed pair began a capture, either-Landed guard failed (liftoff re-fuse)")
 	}
-
-	// Only one Landed (the liftoff case: ascent ignited, descent still
-	// parked): still must NOT fuse.
-	b.Landed = false // a stays Landed
-	if _, _, ok := w.checkDocking(); ok {
-		t.Error("one-Landed co-located pair fused — either-Landed guard failed (liftoff re-fuse)")
-	}
-	if len(w.Crafts) != 2 {
-		t.Fatalf("slate count = %d, want 2 (no fuse, one Landed)", len(w.Crafts))
-	}
-
-	// Neither Landed — an ordinary orbital rendezvous — fuses.
 	a.Landed = false
-	if _, _, ok := w.checkDocking(); !ok {
-		t.Error("neither-Landed co-located pair did not fuse — guard over-broad")
+	if !startsMagnet(w) {
+		t.Error("neither-Landed pair in the gate did not begin a capture, guard over-broad")
 	}
-	if len(w.Crafts) != 1 {
-		t.Errorf("slate count = %d, want 1 (fused, neither Landed)", len(w.Crafts))
+	if len(w.Crafts) != 2 {
+		t.Errorf("slate count = %d, want 2 (a capture is under way, nothing fused yet)", len(w.Crafts))
 	}
 }
 
@@ -215,11 +146,12 @@ func TestDockingPreservesMomentum(t *testing.T) {
 	}
 	w.Crafts = append(w.Crafts, b)
 
-	// |v_rel| = 0.10, right at the gate edge. Bump down slightly
-	// so the gate fires.
+	// |v_rel| = 0.09. The dock is a fixture here: this test is about the
+	// fuse's momentum arithmetic, not the capture that precedes it.
 	b.State.V.Z = -0.04
-	if _, _, ok := w.checkDocking(); !ok {
-		t.Fatalf("expected docking at borderline velocity")
+	w.DockCrafts(0, 1)
+	if len(w.Crafts) != 1 {
+		t.Fatalf("expected one composite")
 	}
 	composite := w.Crafts[0]
 	// Equal masses, +0.05 and -0.04 → average = +0.005.
@@ -252,9 +184,7 @@ func TestUndockRestoresComponents(t *testing.T) {
 	}
 	w.Crafts = append(w.Crafts, b)
 
-	if _, _, ok := w.checkDocking(); !ok {
-		t.Fatalf("expected dock to fire")
-	}
+	w.DockCrafts(0, 1) // fixture dock; the capture is covered in docking_port_test.go
 	if len(w.Crafts) != 1 {
 		t.Fatalf("expected 1 composite after dock, got %d", len(w.Crafts))
 	}
@@ -281,11 +211,14 @@ func TestUndockRestoresComponents(t *testing.T) {
 	if !hasApollo || !hasLM {
 		t.Errorf("undocked names = %v, want [Apollo, LM]", names)
 	}
-	// Components shouldn't immediately re-dock — separation must
-	// be > DockingDistM.
-	dr := w.Crafts[0].State.R.Sub(w.Crafts[1].State.R).Norm()
-	if dr <= DockingDistM {
-		t.Errorf("post-undock separation = %.1f m, want > %.1f m", dr, DockingDistM)
+	// Components part along the seam at the spring release, and neither
+	// sits inside the docking gate straight away.
+	dv := w.Crafts[0].State.V.Sub(w.Crafts[1].State.V).Norm()
+	if math.Abs(dv-UndockSpringMS) > 1e-9 {
+		t.Errorf("post-undock relative speed = %.4f m/s, want the %.2f m/s spring release", dv, UndockSpringMS)
+	}
+	if dockPairGateHolds(w.Crafts[0], w.Crafts[1]) {
+		t.Error("the restored pair sits inside the docking gate straight after undock")
 	}
 }
 
@@ -381,8 +314,9 @@ func TestDockingActivePartnerKeepsName(t *testing.T) {
 	w.Crafts = append(w.Crafts, b)
 	w.ActiveCraftIdx = 1 // player flying the LM
 
-	if _, _, ok := w.checkDocking(); !ok {
-		t.Fatalf("expected docking")
+	w.DockCrafts(0, 1) // fixture dock
+	if len(w.Crafts) != 1 {
+		t.Fatalf("expected one composite")
 	}
 	composite := w.Crafts[w.ActiveCraftIdx]
 	if composite.Name != "LM" {
@@ -443,8 +377,9 @@ func TestUndockRefusalIsExhaustiveAndSpeaks(t *testing.T) {
 		M: lm.TotalMass(),
 	}
 	w2.Crafts = append(w2.Crafts, lm)
-	if _, _, ok := w2.checkDocking(); !ok {
-		t.Fatal("expected dock to fire")
+	w2.DockCrafts(0, 1) // fixture dock
+	if len(w2.Crafts) != 1 {
+		t.Fatal("fixture dock failed")
 	}
 	if got := w2.UndockRefusal(0); got != "" {
 		t.Errorf("UndockRefusal on a splittable composite = %q, want none", got)

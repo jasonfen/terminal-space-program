@@ -216,8 +216,9 @@ func TestParachuteCapabilitySurvivesUndock(t *testing.T) {
 	}
 	w.Crafts = append(w.Crafts, b)
 
-	if _, _, ok := w.checkDocking(); !ok {
-		t.Fatalf("expected dock to fire")
+	w.DockCrafts(0, 1) // fixture dock; the capture is covered in docking_port_test.go
+	if len(w.Crafts) != 1 {
+		t.Fatalf("fixture dock failed")
 	}
 	if !w.Undock(0) {
 		t.Fatal("Undock returned false on a composite")

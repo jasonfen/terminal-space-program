@@ -44,22 +44,16 @@ type BumpEvent struct {
 }
 
 // bumpPairInGate reports whether the pair is in a state where the dock
-// takes the touch instead of a bump: the gate holds, or a magnet is pulling.
-//
-// THE PLUG-IN POINT FOR SLICE B. Today the dock is still the click
-// checkDocking does (centres within DockingDistM, relative speed within
-// DockingVMS, no re-arm latch), so that is what this mirrors. B replaces
-// the body with its port gate (0.5 m / 0.1 m/s / 4 degrees on the two
-// ports) OR "a magnet pull is running on this pair". Nothing else in this
-// file needs to change.
+// takes the touch instead of a bump: the port gate holds (docking_magnet.go,
+// the same predicate the fuse and the Proximity ring read) and the pair is
+// not re-arm latched, or a magnet pull is running on this pair.
 func bumpPairInGate(w *World, a, b *spacecraft.Spacecraft) bool {
-	if a.State.R.Sub(b.State.R).Norm() > DockingDistM {
-		return false
+	if m := w.dockMagnet; m != nil {
+		if (m.pullerID == a.ID && m.otherID == b.ID) || (m.pullerID == b.ID && m.otherID == a.ID) {
+			return true
+		}
 	}
-	if a.State.V.Sub(b.State.V).Norm() > DockingVMS {
-		return false
-	}
-	return !w.isLocalReArmed(a.ID, b.ID)
+	return dockPairGateHolds(a, b) && !w.isLocalReArmed(a.ID, b.ID)
 }
 
 func bumpKey(a, b *spacecraft.Spacecraft) [2]uint64 {

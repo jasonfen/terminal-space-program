@@ -90,6 +90,13 @@ func (w *World) NavSpeed() (float64, NavMode) {
 		}
 		nav = NavOrbit
 	}
+	if nav == NavPort {
+		// PORT reads the speed relative to the target, as TGT does.
+		if _, vT, ok := w.TargetStateRelativeToActivePrimary(); ok && w.TargetHasPort() {
+			return c.State.V.Sub(vT).Norm(), NavPort
+		}
+		nav = NavOrbit
+	}
 	if nav == NavSurface {
 		om := render.BodySpinOmegaWorld(c.Primary)
 		omega := orbital.Vec3{X: om.X, Y: om.Y, Z: om.Z}
@@ -101,6 +108,11 @@ func (w *World) NavSpeed() (float64, NavMode) {
 // updateAutoNavMode steps the edge detectors once per Tick, after
 // integration, on final positions.
 func (w *World) updateAutoNavMode() {
+	// ADR 0053: a target that sheds its port (or a persisted PORT frame
+	// with no port to aim at) drops the frame to Orbit. This is the only
+	// place the tick touches NavPort, and it only ever removes it: the
+	// self-switch below writes Surface or Orbit, never Port.
+	w.reconcileNavMode()
 	c := w.ActiveCraft()
 	if c == nil {
 		w.navAuto = navAutoState{}

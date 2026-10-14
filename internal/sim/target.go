@@ -532,6 +532,35 @@ func (w *World) TargetStateRelativeToActivePrimary() (rT, vT orbital.Vec3, ok bo
 	return targetInertialR.Sub(activePrimaryR), targetInertialV.Sub(activePrimaryV), true
 }
 
+// TargetPortAxis is the aimed docking port's axis: the target vessel's
+// nose direction (its CurrentAttitudeDir, unit), which the PORT frame
+// (ADR 0053 decision 7) resolves in/out/up/down/left/right against. ok is
+// false when the target is not a local vessel (a body, a site, or a
+// cross-player ghost: slice E puts the reported attitude on the wire; in
+// this slice a ghost has no port shape), when the vessel carries no free
+// port, or when its attitude is not yet initialised.
+func (w *World) TargetPortAxis() (axis orbital.Vec3, ok bool) {
+	if w.Target.Kind != TargetCraft {
+		return orbital.Vec3{}, false
+	}
+	t, _, found := w.craftByID(w.Target.CraftID)
+	if !found {
+		return orbital.Vec3{}, false
+	}
+	g := VesselPortGeometry(t)
+	if !g.Known || !g.HasPort() {
+		return orbital.Vec3{}, false
+	}
+	return g.Axis, true
+}
+
+// TargetHasPort reports whether the PORT frame is available: the target
+// is a local vessel with a free docking port.
+func (w *World) TargetHasPort() bool {
+	_, ok := w.TargetPortAxis()
+	return ok
+}
+
 // TargetLeadAngleDeg answers the phase-order question a rendezvous
 // planning step needs first (#287): is the active craft ahead of or
 // behind its craft/ghost target along the shared orbit? Returns the

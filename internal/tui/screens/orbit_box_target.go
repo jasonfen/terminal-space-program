@@ -246,7 +246,10 @@ func (v *OrbitView) targetCraftCells(w *sim.World, c *spacecraft.Spacecraft) (st
 		case craftHasOrbit(tc):
 			cells.tcaV, cells.approachV = v.closestApproachCells(w, c)
 		}
-		if rangeM < 50 && vRel < 0.1 {
+		// ADR 0053: DOCK READY is the port gate holding (0.5 m / 0.1 m/s /
+		// 4 degrees at the ports), the predicate the Proximity ring and the
+		// dock itself read, not the old 50 m / 0.1 m/s pair.
+		if st, ok := w.ProximityState(); ok && w.ProximityDockGateReady(st) {
 			badge = "  " + lipgloss.NewStyle().Foreground(lipgloss.Color("#3DDC84")).Bold(true).Render("DOCK READY")
 		}
 	}

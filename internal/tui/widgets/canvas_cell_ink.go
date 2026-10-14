@@ -72,17 +72,19 @@ type inkScratch struct {
 	sgr       map[sgrKey]sgrWrap // styledRun's per-colour escape cache
 }
 
-// sgrKey identifies one rendered foreground: the colour and the colour
-// profile it was rendered under (a profile change, as tests make, must not
-// serve stale escapes).
+// sgrKey identifies one rendered style: the foreground, the background and
+// the colour profile it was rendered under (a profile change, as tests make,
+// must not serve stale escapes). bg is "" for the foreground-only styles
+// every canvas without a backdrop layer uses.
 type sgrKey struct {
 	color   lipgloss.Color
+	bg      lipgloss.Color
 	profile int
 }
 
 // sgrWrap is what lipgloss puts before and after a run of text for one
-// foreground. ok false means the colour does not wrap text in a simple
-// prefix and suffix (never seen; the caller then renders through lipgloss).
+// style. ok false means the style does not wrap text in a simple prefix and
+// suffix (never seen; the caller then renders through lipgloss).
 type sgrWrap struct {
 	prefix, suffix string
 	ok             bool
@@ -97,15 +99,36 @@ type sgrWrap struct {
 // (TestStyledRunMatchesLipgloss). Only plain lipgloss.Color goes through the
 // cache; anything adaptive renders the long way.
 func (s *inkScratch) styledRun(fg lipgloss.TerminalColor, text string) string {
-	col, isPlain := fg.(lipgloss.Color)
-	if !isPlain {
-		return lipgloss.NewStyle().Foreground(fg).Render(text)
+	return s.styledRunBG(fg, "", text)
+}
+
+// styledRunBG is styledRun with a background colour (#639): the style is
+// keyed on (fg, bg) together, so a run is a stretch of cells that share BOTH.
+// fg nil means no foreground (a blank cell that only carries a tint); bg ""
+// means no background, which is exactly styledRun.
+func (s *inkScratch) styledRunBG(fg lipgloss.TerminalColor, bg lipgloss.Color, text string) string {
+	style := func() lipgloss.Style {
+		st := lipgloss.NewStyle()
+		if fg != nil {
+			st = st.Foreground(fg)
+		}
+		if bg != "" {
+			st = st.Background(bg)
+		}
+		return st
 	}
-	key := sgrKey{col, int(lipgloss.ColorProfile())}
+	var col lipgloss.Color
+	if fg != nil {
+		var isPlain bool
+		if col, isPlain = fg.(lipgloss.Color); !isPlain {
+			return style().Render(text)
+		}
+	}
+	key := sgrKey{col, bg, int(lipgloss.ColorProfile())}
 	w, seen := s.sgr[key]
 	if !seen {
 		const sentinel = "x"
-		out := lipgloss.NewStyle().Foreground(col).Render(sentinel)
+		out := style().Render(sentinel)
 		if i := strings.Index(out, sentinel); i >= 0 && strings.Count(out, sentinel) == 1 {
 			w = sgrWrap{prefix: out[:i], suffix: out[i+len(sentinel):], ok: true}
 		}
@@ -115,7 +138,7 @@ func (s *inkScratch) styledRun(fg lipgloss.TerminalColor, text string) string {
 		s.sgr[key] = w
 	}
 	if !w.ok {
-		return lipgloss.NewStyle().Foreground(col).Render(text)
+		return style().Render(text)
 	}
 	return w.prefix + text + w.suffix
 }

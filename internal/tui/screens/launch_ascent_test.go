@@ -25,7 +25,7 @@ import (
 // good enough for render smoke tests; the exact coincide/diverge
 // geometry is already pinned at the sim layer
 // (internal/sim/ascent_test.go).
-func ascendingCraftWorld(t *testing.T, bodyID string, altM, climbMps float64, nose orbital.Vec3) *sim.World {
+func ascendingCraftWorld(t testing.TB, bodyID string, altM, climbMps float64, nose orbital.Vec3) *sim.World {
 	t.Helper()
 	w, err := sim.NewWorld()
 	if err != nil {

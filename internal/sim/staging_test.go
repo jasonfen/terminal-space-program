@@ -553,24 +553,19 @@ func TestJettisonedStagesDoNotRedock(t *testing.T) {
 
 // TestJettisonedStageCanStillDockWithFlownVessel: only debris-debris is
 // excluded from docking; a shed stage next to a vessel someone flies still
-// fuses (a deliberate rendezvous with a spent stage stays possible).
+// captures (a deliberate rendezvous with a spent stage stays possible). The
+// pair here is ported on both sides, one marked as shed debris, sitting in
+// the gate; the debris-debris control beside it proves the exclusion is the
+// only thing in the way.
 func TestJettisonedStageCanStillDockWithFlownVessel(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
+	p := newPortPair(t, "rcs-tug", "rcs-tug", 0.3, 0, 0)
+	p.b.Role = spacecraft.RoleJettisonedStage
+	if !startsMagnet(p.w) {
+		t.Fatalf("shed stage in the gate with the flown vessel did not begin a capture")
 	}
-	saturn := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
-	saturn.Primary = w.Crafts[0].Primary
-	saturn.State = w.Crafts[0].State
-	w.Crafts[0] = saturn
-	w.ActiveCraftIdx = 0
-	crewTendActive(w)
-	if _, jIdx, err := w.StageActive(0); err != nil {
-		t.Fatalf("StageActive: %v", err)
-	} else {
-		w.Crafts[jIdx].State = w.Crafts[0].State // co-located, zero relative velocity
-	}
-	if _, _, docked := w.checkDocking(); !docked {
-		t.Fatalf("shed stage co-located with the flown vessel did not dock")
+	q := newPortPair(t, "rcs-tug", "rcs-tug", 0.3, 0, 0)
+	q.a.Role, q.b.Role = spacecraft.RoleJettisonedStage, spacecraft.RoleJettisonedStage
+	if startsMagnet(q.w) {
+		t.Fatalf("two shed stages in the gate began a capture: debris must never dock debris")
 	}
 }

@@ -144,19 +144,64 @@ func TestBumpIsEdgeTriggeredWhileOverlapping(t *testing.T) {
 // A pair that would pass the dock gate is left to checkBumps' gate hook:
 // today the 50 m / 0.1 m/s click, so a 0.05 m/s touch does not bump.
 func TestBumpSkipsPairInDockingGate(t *testing.T) {
-	w, a, b := bumpWorld(t, 4, -0.05)
-	if bumpPairInGate(w, a, b) != true {
-		t.Fatal("fixture: 0.05 m/s at 4 m must be inside today's gate")
+	// Two RCS tugs, noses pointed at each other along X, the noses
+	// overlapping by 0.2 m (hulls touching), closing at 0.05 m/s: port
+	// range 0.2 m, aligned, slow, so the port gate holds and the dock
+	// takes the touch.
+	w, a, _ := bumpWorld(t, 30, 0)
+	w.Crafts = w.Crafts[:1]
+	mk := func(id uint64, r orbital.Vec3, att orbital.Vec3, v orbital.Vec3) *spacecraft.Spacecraft {
+		c := spacecraft.NewFromLoadout("RCS-tug")
+		c.Primary = a.Primary
+		c.SystemIdx = a.SystemIdx
+		c.ID = id
+		c.CurrentAttitudeDir = att
+		c.State = physics.StateVector{R: r, V: v, M: c.TotalMass()}
+		return c
+	}
+	base := a.State.R.Add(orbital.Vec3{Y: 1000})
+	ta := mk(a.ID+200, base, orbital.Vec3{X: 1}, a.State.V)
+	ga := VesselPortGeometry(ta)
+	tipA := ga.PortPoint(ta.State.R, 0)
+	tb := mk(a.ID+201, orbital.Vec3{}, orbital.Vec3{X: -1}, a.State.V.Add(orbital.Vec3{X: -0.05}))
+	gb := VesselPortGeometry(tb)
+	// Place B so its port sits 0.2 m short of A's port along +X (overlap).
+	offB := gb.PortPoint(orbital.Vec3{}, 0) // B's port relative to its R
+	tb.State.R = tipA.Add(orbital.Vec3{X: -0.2}).Sub(offB)
+	w.Crafts = append(w.Crafts, ta, tb)
+
+	if _, rng, _, _ := dockPairGate(ta, tb); rng > DockPortRangeM {
+		t.Fatalf("fixture: port range %.2f m, want <= %.2f", rng, DockPortRangeM)
+	}
+	if !bumpPairInGate(w, ta, tb) {
+		t.Fatal("fixture: the aligned, slow, 0.2 m pair must be inside the port gate")
 	}
 	w.checkBumps()
 	if w.LastBumpEvent != nil {
-		t.Error("a pair inside the docking gate bumped")
+		t.Error("a pair inside the port gate bumped")
 	}
 	// The same touch with a re-arm latch up IS a bump: the gate refuses it.
-	w.localReArms = append(w.localReArms, localReArm{idA: a.ID, idB: b.ID})
+	w.localReArms = append(w.localReArms, localReArm{idA: ta.ID, idB: tb.ID})
 	w.checkBumps()
 	if w.LastBumpEvent == nil {
 		t.Error("a latched (gate-refused) pair should bump on contact")
+	}
+}
+
+// A magnet pull on the pair also takes the touch, even when the gate's
+// terms have lapsed mid-pull (the magnet decides whether to let go).
+func TestBumpSkipsPairWhileMagnetPulls(t *testing.T) {
+	w, a, b := bumpWorld(t, 4, -0.05) // port-less S-IVBs: the gate never holds
+	if bumpPairInGate(w, a, b) {
+		t.Fatal("fixture: port-less pair must be outside the gate")
+	}
+	w.dockMagnet = &dockMagnet{pullerID: b.ID, otherID: a.ID}
+	if !bumpPairInGate(w, a, b) {
+		t.Error("a pair under a magnet pull must count as in the gate")
+	}
+	w.dockMagnet = &dockMagnet{pullerID: b.ID, otherID: a.ID + 999}
+	if bumpPairInGate(w, a, b) {
+		t.Error("a magnet on a different pair must not cover this one")
 	}
 }
 
@@ -444,5 +489,22 @@ func TestBumpNoseToNoseFeelAtTenTimesStaysShallow(t *testing.T) {
 		if bumps != 1 || deepest > 1.0 {
 			t.Errorf("step %.2f: bumps=%d deepest=%.2f m, want 1 bump and < 1 m", step, bumps, deepest)
 		}
+	}
+}
+
+// A slow touch outside the port gate is a bump: under the old 50 m /
+// 0.1 m/s click any slow pair within 50 m counted as docking, so two
+// port-less stages drifting into each other at 0.05 m/s passed through.
+func TestBumpSlowTouchOutsidePortGateBumps(t *testing.T) {
+	w, a, b := bumpWorld(t, 4, -0.05) // port-less S-IVBs side by side, 4 m apart, closing
+	if bumpPairInGate(w, a, b) {
+		t.Fatal("fixture: a port-less pair must be outside the gate")
+	}
+	w.checkBumps()
+	if w.LastBumpEvent == nil {
+		t.Fatal("a slow touch between port-less hulls must bump")
+	}
+	if got := opening(a, b); got < 0.05-1e-9 {
+		t.Errorf("opening after a 0.05 m/s touch = %.3f m/s, want the 0.05 m/s floor", got)
 	}
 }
