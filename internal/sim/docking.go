@@ -39,10 +39,11 @@ type localReArm struct {
 // removing the composite from the slate and inserting one craft
 // per component. Each restored craft inherits a share of the
 // composite's current Fuel + Monoprop pools, prorated by its
-// pre-dock capacity. Restored craft sit near the composite's
-// current position, separated by a small offset so they don't
-// immediately re-dock; their velocities pick up a tiny relative
-// push (a "spring release") so they drift apart. v0.8.3+.
+// pre-dock capacity. The lead stays exactly where it is; each component
+// above it appears where its hull was drawn (nose to the seam, pointing
+// back along -a_hat) and drifts off along the seam at UndockSpringMS (the
+// "spring release"), no teleport (ADR 0053 "Settled here" item 4). A
+// re-arm latch keeps the pair from re-capturing at once. v0.8.3+.
 //
 // No-op when the craft has no DockedComponents (i.e. wasn't a
 // composite). Active idx tracks to the first restored component
@@ -634,11 +635,12 @@ func (w *World) ReArmDocking() (partners []string, ok bool) {
 	return partners, len(partners) > 0
 }
 
-// checkDocking scans every craft pair in the same primary frame
-// for a docking-eligible encounter (proximity + relative velocity
-// below the gate). On a match, calls DockCrafts and returns —
-// the slate has changed; subsequent pair checks deferred to next
-// tick. v0.8.3+.
+// checkDocking is the dock scan, run once per tick after integration. It
+// owns the capture (ADR 0053 decision 5, docking_magnet.go): a running magnet
+// pull is stepped (let go, keep pulling, or dock on completion); otherwise
+// the first eligible pair that holds the port gate starts one. It no longer
+// docks anything by itself, and the 50 m / 0.1 m/s click is gone. Returns
+// the slate pair only on the tick a pull completes in a dock. v0.8.3+.
 func (w *World) checkDocking() (int, int, bool) {
 	if len(w.Crafts) < 2 {
 		w.dockMagnet = nil
@@ -682,7 +684,8 @@ func (w *World) checkDocking() (int, int, bool) {
 }
 
 // DockCrafts fuses two craft (by slate index) into a single
-// composite. Mass-weighted centroid for position; momentum-
+// composite. The lead's position (its hull does not move; ADR 0053
+// "Settled here" item 1); momentum-
 // conserving combination for velocity; summed pools for fuel,
 // monoprop, and capacities; concatenated roles. The active
 // partner's name, glyph, color, nodes, and engine state survive
