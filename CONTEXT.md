@@ -1595,7 +1595,9 @@ spawn-form position-mode after orbital and **Launchpad**) places a new
 Vessel 25 m port to port ahead of the active Vessel's nose, pointing back
 at it: a straight, slow approach away from a dock, never inside the gate.
 Same-SOI is a hard prerequisite: two Vessels whose Primary IDs differ do
-not dock even if their inertial positions coincide.
+not dock even if their inertial positions coincide. Against a friend's
+Vessel the gate is the same, measured from the approacher's side against the
+**Ghost**'s last reported hull and port.
 _Avoid_: Docking window (collides with launch / transfer windows, which are
 time intervals), Docking envelope, Docking threshold.
 
@@ -1628,8 +1630,11 @@ lighter) is pulled the last half metre onto the port axis at 1x warp with
 its hands off (RCS pulses and attitude keys ignored, its slew suspended,
 `port: ... capturing` on the chip); the other Vessel is not moved. If the
 other Vessel leaves the gate during the pull the Magnet lets go and nothing
-fuses. Completing the pull is the Docking. Cross-player, the approacher is
-the one pulled, in their own World.
+fuses. Completing the pull is the Docking. Cross-player, the approacher
+flies it: the same gate and Magnet run against a **Ghost**'s reported port in
+the approacher's own World, the Magnet moves only the approacher (the friend
+is not asked and nothing of theirs moves), and the ledger Claim is filed when
+the pull completes, not when the gate first holds.
 _Avoid_: Soft capture, Auto-dock, Snap.
 
 **Bump**:
@@ -1642,7 +1647,8 @@ only when the ends actually meet. It needs a closing speed (hulls already
 parting do not bump), happens once per contact, and never involves a
 Landed Vessel or two debris stages. No damage. Inside 50 m of another
 non-debris hull warp is capped at 10x, like a burn, so hulls cannot alias
-through each other. Cross-player, only the bumper moves.
+through each other. Cross-player, only the bumper moves: against a **Ghost** the friend's hull
+is immovable and the friend is not told.
 _Avoid_: Collision, Crash (reserved for ground impact), Bounce.
 
 **Re-arm Latch**:
@@ -2044,7 +2050,11 @@ _Avoid_: Latest subspace, head.
 The render-only appearance of a vessel from another Subspace: its
 last-reported orbit evaluated at the viewer's sim-time. Honest but
 stale — correct while the owner coasts, corrected on their next report.
-Never physically interactive.
+It carries the reported attitude, hull length and width, and ports, so the
+Proximity View can draw the friend's hull and port and the approacher can
+dock to it (see **Magnet**); a Ghost with none of these (an older report)
+draws as a diamond with `port: unknown` and cannot be captured. Otherwise
+never physically interactive: a bump off a Ghost moves only the bumper.
 _Avoid_: Shadow, phantom, remote vessel (a Ghost is a projection, not
 the vessel).
 

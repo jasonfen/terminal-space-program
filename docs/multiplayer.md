@@ -99,6 +99,25 @@ player you're synced with, closing slower than 100 m/s, and your time-warp
 `TIME LOCK` line says who and at what rate. The session roster's `RANGE`
 column shows how close you already are.
 
+## Docking to a friend
+
+Docking to a friend's vessel is flown exactly like a local dock (see
+[Docking](controls.md#docking)): you are the approacher, their hull and port
+are drawn from what they last reported, and the same three numbers decide
+(ports within 0.5 m, under 0.1 m/s, noses within 4°). Then the five-second
+magnet closes the last half metre.
+
+- Your friend is not asked. They see your hull and port on their own
+  Proximity view and keep their hold; only your vessel moves.
+- Both seats run at 1× while you are in the pull, since co-warp takes the
+  slower of the two.
+- If their report carries no hull (an older client), their vessel draws as a
+  diamond, reads `port: unknown` and cannot be captured.
+- A bump off a friend's hull pushes only you; they feel nothing and are not
+  told.
+- The dock itself is filed with the host when the pull completes, not when the
+  gate first holds.
+
 ## Docking across players
 
 Dock your vessel to theirs and you fly one shared stack.
@@ -111,8 +130,8 @@ Dock your vessel to theirs and you fly one shared stack.
   they've disconnected, and it's waiting for them, safed, when they come back.
   If the pilot is the one who's gone, the guest riding their stack can press
   `J` to take the stick themselves. An empty seat needs nobody's permission.
-- After an undock, the pair is held apart even once you settle back inside
-  docking range, so a stray touch doesn't silently re-fuse two vessels you
+- After an undock, the pair is held apart even once you settle back into the
+  docking gate, so a stray touch doesn't silently re-fuse two vessels you
   meant to keep apart. The dock-gate ring in Proximity View (`o`) shows amber
   while it's held. Clearing 100 m, or waiting it out, releases the hold;
   pressing `c` re-arms right where you are.

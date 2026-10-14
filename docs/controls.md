@@ -211,7 +211,7 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 | `alt` | The Alt key on Windows and Linux (WezTerm and most terminals send it as-is); Option on a Mac, see the next row |
 | `alt` on a Mac | Ghostty sends Option as alt as-is. Terminal.app and iTerm2 need Option sent as Meta: Terminal.app, Profiles > Keyboard > "Use Option as Meta key"; iTerm2, Profiles > Keys > Left Option key = Esc+ |
 | `\|` | Clear the manual tip and the commanded heading (both trims back to 0) |
-| `;` | Autopilot reference: Surface → Orbit → Target → Port (Target needs a targeted vessel; Port needs that vessel to have a docking port). It also switches itself: Surface → Orbit climbing through the upper atmosphere (Earth 51 km), Orbit → Surface coming back down. Press `;` to override; it is kept until the next crossing. Target and Port are only ever chosen by hand: they never switch themselves, even right beside a target vessel |
+| `;` | Autopilot reference: Surface → Orbit → Target → Port (Target needs a targeted vessel; Port needs that vessel, yours or a friend's, to have a docking port). It also switches itself: Surface → Orbit climbing through the upper atmosphere (Earth 51 km), Orbit → Surface coming back down. Press `;` to override; it is kept until the next crossing. Target and Port are only ever chosen by hand: they never switch themselves, even right beside a target vessel |
 | `k` | Steering style: smooth turning (default) or instant snap |
 | `r` | Switch between the main engine and RCS thrusters |
 | `p` | RCS pulse step: cycle the per-press Δv (0.1 → 0.01 → 0.001 m/s) |
@@ -326,8 +326,10 @@ slowly and straight, and the last half metre closes by itself.
   vessel 25 m port to port ahead of your nose, pointing back at you, at your
   velocity: a straight, slow approach, outside the gate, with no bump.
 - **Across players.** Docking to a friend's vessel is the same skill: the
-  approacher flies it, and their hull and port are drawn from what they last
-  reported. See [multiplayer.md](multiplayer.md#docking-across-players).
+  approacher flies it, their hull and port are drawn from what they last
+  reported, and `;` reaches `[PORT]` against their vessel too. A friend whose
+  report carries no hull reads `port: unknown` and cannot be captured. See
+  [multiplayer.md](multiplayer.md#docking-to-a-friend).
 
 ### Multiplayer
 
