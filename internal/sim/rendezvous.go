@@ -26,7 +26,7 @@ var (
 	// Rendezvous Planner's structural refusal — names the fix for free.
 	ErrRendezvousNoTarget           = transferError("no vessel target — [t] to target it")
 	ErrRendezvousDifferentPrimaries = transferError("target around a different primary")
-	ErrRendezvousAlreadyDocked      = transferError("already in DOCK READY range")
+	ErrRendezvousAlreadyDocked      = transferError("docking gate holds, let the magnet close it")
 	ErrRendezvousNoImprovement      = transferError("no useful nudge in range")
 	ErrRendezvousNoCraft            = transferError("no active vessel")
 
@@ -637,14 +637,19 @@ func (w *World) computeRendezvousAdvisory(active *spacecraft.Spacecraft, targetP
 		return planner.RendezvousAdvisory{}, false
 	}
 
-	// Docked gate: < 50 m + |v_rel| < 0.1 m/s ⇒ no recommendation.
-	separation := stateB.R.Sub(stateA.R).Norm()
-	vRel := stateB.V.Sub(stateA.V).Norm()
-	if separation < 50 && vRel < 0.1 {
-		return planner.RendezvousAdvisory{
-			Ok:     false,
-			Reason: "docked",
-		}, true
+	// Docked gate (ADR 0053): the pair already holds the port gate (ports
+	// within 0.5 m, |v_rel| < 0.1 m/s, noses within 4 degrees of facing,
+	// both carrying a port), the very predicate checkDocking fuses on, so
+	// there is nothing to nudge. The old 50 m / 0.1 m/s click is gone: inside
+	// 50 m the pilot still flies the approach and K still has an answer. A
+	// ghost target's shape is not known here, so it never reads as docked.
+	if w.Target.Kind == TargetCraft {
+		if t, _, ok := w.craftByID(w.Target.CraftID); ok && dockPairGateHolds(active, t) {
+			return planner.RendezvousAdvisory{
+				Ok:     false,
+				Reason: "docked",
+			}, true
+		}
 	}
 
 	// Horizon: the same 4 h window every other rendezvous surface

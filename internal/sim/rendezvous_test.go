@@ -3,6 +3,7 @@ package sim
 import (
 	"errors"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -299,29 +300,56 @@ func TestPlanRendezvousNudge_DifferentPrimaries(t *testing.T) {
 	}
 }
 
-// TestPlanRendezvousNudge_DockedCraft — when the active and target
-// craft are already within DOCK READY range (< 50 m, |v_rel| < 0.1 m/s),
-// PlanRendezvousNudge must return the specific ErrRendezvousAlreadyDocked
-// (not the generic ErrRendezvousNoImprovement) and plant no node. The
-// docked gate in computeRendezvousAdvisory used to return ok=false,
-// which tripped the outer `if !ok` gate and made the docked branch
-// unreachable; it now returns ok=true with advisory.Reason="docked",
-// consistent with the no-improvement path. (#91)
+// TestPlanRendezvousNudge_DockedCraft: when the pair holds the port gate
+// (ADR 0053: ports within 0.5 m, |v_rel| < 0.1 m/s, noses within 4 degrees
+// of facing), PlanRendezvousNudge must return the specific
+// ErrRendezvousAlreadyDocked (not the generic ErrRendezvousNoImprovement)
+// and plant no node. The docked gate in computeRendezvousAdvisory used to
+// return ok=false, which tripped the outer `if !ok` gate and made the
+// docked branch unreachable; it now returns ok=true with
+// advisory.Reason="docked", consistent with the no-improvement path. (#91)
 func TestPlanRendezvousNudge_DockedCraft(t *testing.T) {
-	w := rendezvousTwoCraftWorld(t)
-	active := w.Crafts[0]
-	target := w.Crafts[1]
-	// Park the target right alongside the active craft: 10 m away with a
-	// 0.01 m/s relative drift — inside the docked gate.
-	target.State.R = active.State.R.Add(orbital.Vec3{X: 10})
-	target.State.V = active.State.V.Add(orbital.Vec3{X: 0.01})
+	p := newPortPair(t, "rcs-tug", "rcs-tug", 0.3, 0.02, 1)
+	p.w.SetTargetCraft(1)
 
-	_, err := w.PlanRendezvousNudge()
+	_, err := p.w.PlanRendezvousNudge()
 	if !errors.Is(err, ErrRendezvousAlreadyDocked) {
 		t.Errorf("err = %v, want ErrRendezvousAlreadyDocked", err)
 	}
-	if got := len(active.Nodes); got != 0 {
+	if got := len(p.a.Nodes); got != 0 {
 		t.Errorf("docked craft should plant no node; got %d", got)
+	}
+}
+
+// The refusal is the port gate, not the old 50 m / 0.1 m/s click: a pair
+// 10 m apart at 0.01 m/s (inside the click, outside the 0.5 m port range),
+// or at the ports but 20 degrees crooked, is NOT "already docked", and K
+// must say something else (it can still be flown in).
+func TestPlanRendezvousNudge_ClickGeometryIsNotDocked(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		gap, rel, tilt float64
+	}{
+		{"ten metres, slow", 10, 0.01, 0},
+		{"at the port, 20 degrees crooked", 0.3, 0.01, 20},
+		{"at the port, aligned, too fast", 0.3, 0.3, 0},
+	} {
+		p := newPortPair(t, "rcs-tug", "rcs-tug", tc.gap, tc.rel, tc.tilt)
+		p.w.SetTargetCraft(1)
+		if _, err := p.w.PlanRendezvousNudge(); errors.Is(err, ErrRendezvousAlreadyDocked) {
+			t.Errorf("%s: K refused as already docked, but the port gate does not hold", tc.name)
+		}
+	}
+}
+
+// The sentinel's text names the gate it tests, not the old 50 m click.
+func TestRendezvousAlreadyDockedTextNamesTheGate(t *testing.T) {
+	msg := ErrRendezvousAlreadyDocked.Error()
+	if strings.Contains(msg, "DOCK READY range") {
+		t.Errorf("refusal %q still describes the old range test", msg)
+	}
+	if !strings.Contains(msg, "gate") {
+		t.Errorf("refusal %q does not name the docking gate", msg)
 	}
 }
 

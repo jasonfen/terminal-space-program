@@ -22,7 +22,7 @@ type StartScenario struct {
 	// via System.FindBody). Empty → the system's home planet (Earth in Sol,
 	// else the first planet).
 	BodyID string
-	// Loadout is the craft loadout ID (e.g. "Saturn-V"). Empty → S-IVB-1.
+	// Loadout is the craft loadout ID (e.g. "Saturn-V"). Empty → Apollo-TLI.
 	Loadout string
 
 	// Surface selects a launchpad spawn (LatDeg/LonDeg) over an orbital one
@@ -54,7 +54,7 @@ func (w *World) ApplyStartScenario(s StartScenario) error {
 	}
 
 	// 3. Validate the loadout up front (SpawnCraft would silently fall back
-	//    to S-IVB-1 on an unknown ID — surface it as an error instead).
+	//    to Apollo-TLI on an unknown ID — surface it as an error instead).
 	if s.Loadout != "" && !validLoadoutID(s.Loadout) {
 		return fmt.Errorf("unknown loadout %q (have: %s)", s.Loadout, strings.Join(spacecraft.LoadoutOrder, ", "))
 	}

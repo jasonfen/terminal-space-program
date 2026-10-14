@@ -657,7 +657,7 @@ func (w *World) nextLoadoutID() string {
 		}
 		id := c.LoadoutID
 		if id == "" {
-			id = spacecraft.LoadoutSIVB1ID
+			id = spacecraft.LoadoutDefaultID
 		}
 		used[id]++
 	}

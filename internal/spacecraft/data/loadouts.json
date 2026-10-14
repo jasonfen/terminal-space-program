@@ -1,6 +1,35 @@
 {
   "loadouts": [
     {
+      "id": "Apollo-TLI",
+      "name": "Apollo TLI",
+      "role": "mission-stack",
+      "category": "mission-stacks",
+      "glyph": "➤",
+      "color": "#FFD93D",
+      "parts": [
+        {
+          "part_id": "s-ivb-1"
+        },
+        {
+          "part_id": "apollo-descent"
+        },
+        {
+          "part_id": "apollo-ascent"
+        },
+        {
+          "part_id": "apollo-sm"
+        },
+        {
+          "part_id": "command-module"
+        }
+      ],
+      "decouple_plan": [
+        1,
+        2
+      ]
+    },
+    {
       "id": "S-IVB-1",
       "name": "S-IVB",
       "role": "transfer-stage",

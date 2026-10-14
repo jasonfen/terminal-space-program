@@ -55,7 +55,7 @@ func main() {
 	flag.StringVar(&raw.launchSite, "launch-site", "", "named launch site (KSC, Baikonur, Plesetsk, Equator, North-Pole)")
 	flag.Float64Var(&raw.lat, "lat", 0, "launchpad latitude in degrees north (implies --launchpad)")
 	flag.Float64Var(&raw.lon, "lon", 0, "launchpad longitude in degrees east (implies --launchpad)")
-	flag.StringVar(&raw.loadout, "loadout", "", "vessel loadout, e.g. Saturn-V or Kern-Stack (default S-IVB-1)")
+	flag.StringVar(&raw.loadout, "loadout", "", "vessel loadout, e.g. Saturn-V or Kern-Stack (default Apollo-TLI)")
 	flag.BoolVar(&listSystems, "list-systems", false, "list available star systems and exit")
 	flag.BoolVar(&listBodies, "list-bodies", false, "list bodies (honours --system) and exit")
 	flag.BoolVar(&listLoadout, "list-loadouts", false, "list vessel loadouts and exit")
