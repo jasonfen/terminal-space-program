@@ -271,7 +271,7 @@ func ghostHullHeightCells(g sim.Ghost, scale float64) float64 {
 
 // proximityGhostMaxScanlines bounds the rectangle fill at deep zoom: a
 // 6 m hull at 100 px/m would otherwise be 600 lines a frame.
-const proximityGhostMaxScanlines = 400
+const proximityGhostMaxScanlines = 800
 
 // drawProximityGhostHull draws a friend's reported hull as one filled
 // rectangle, nose_m long and width_m wide, in the ghost's colour (ColorDim,
@@ -299,7 +299,9 @@ func (v *OrbitView) drawProximityGhostHull(shown *bool, g sim.Ghost, anchor orbi
 	across := basis.X.Scale(-sy).Add(basis.Y.Scale(sx))
 	tail := -sim.DockPortTipInsetM()
 	head := pg.NoseM + tail
-	lines := int(pg.WidthM*scale) + 1
+	// Two scanlines per pixel across: neighbours closer than a pixel, so
+	// rounding can never leave a gap row.
+	lines := int(pg.WidthM*scale*2) + 2
 	if lines > proximityGhostMaxScanlines {
 		lines = proximityGhostMaxScanlines
 	}
