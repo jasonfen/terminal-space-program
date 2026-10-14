@@ -331,9 +331,15 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 	c.SyncFields()
 	// v0.8.2+: pre-v0.8.2 saves carry no Glyph/Color; backfill from the
 	// loadout catalog so older saves get the visual differentiation without
-	// manual edits. LoadoutID empty resolves to the S-IVB-1 default.
+	// manual edits. LoadoutID empty is the bare S-IVB-1 (the only loadout
+	// there was before v0.8.2), NOT today's default start vessel
+	// (LoadoutDefaultID, the Apollo-TLI mission stack, ADR 0053 §4).
 	if c.Glyph == "" || c.Color == "" {
-		l := spacecraft.LookupLoadout(c.LoadoutID)
+		lookup := c.LoadoutID
+		if lookup == "" {
+			lookup = spacecraft.LoadoutSIVB1ID
+		}
+		l := spacecraft.LookupLoadout(lookup)
 		if c.LoadoutID == "" {
 			c.LoadoutID = l.ID
 		}
