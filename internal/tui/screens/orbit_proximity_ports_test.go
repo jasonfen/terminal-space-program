@@ -345,3 +345,55 @@ func TestProximityCompactFormPortRows(t *testing.T) {
 		}
 	}
 }
+
+// Both marks and the line's length label survive on the canvas together
+// even when the gap is only a few cells: the label must not sit on a mark.
+func TestProximityPortLabelAndMarksCoexist(t *testing.T) {
+	w := portedPairWorld(t, []string{"rcs-tug"}, []string{"nudge-tug"}, orbital.Vec3{X: 2, Y: 0.6, Z: 0.2}, 6)
+	v := newProximityTestView(t, DesignWidth, DesignHeight)
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	st, _ := w.ProximityState()
+	v.userZoom = 3
+	v.panOffset = st.Frame.AlongTrack.Scale(6)
+	out := ansi.Strip(v.Render(w, 0, DesignWidth, DesignHeight))
+	if !v.proxOwnSpriteShown || !v.proxTargetSpriteShown {
+		t.Fatal("setup: both hulls must be drawn as sprites")
+	}
+	if got := strings.Count(out, "○"); got != 2 {
+		t.Errorf("port marks on screen = %d, want 2 (one per hull)", got)
+	}
+	// Once in the chip's port: row, once as the line's label.
+	if got := strings.Count(out, "2.10 m"); got != 2 {
+		t.Errorf("\"2.10 m\" appears %d times, want 2 (chip row + the port line's label):\n%s", got, out)
+	}
+}
+
+// A ghost has no known shape yet (slice E): the chip says so rather than
+// guess, draws no align/off-axis rows, and the hull stays a glyph.
+func TestProximityGhostTargetPortUnknown(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.SpawnCraft(sim.SpawnSpec{AltitudeM: 400e3}); err != nil {
+		t.Fatal(err)
+	}
+	w.ActiveCraftIdx = 0
+	a := w.ActiveCraft()
+	w.Ghosts = []sim.Ghost{{Owner: "SHA256:g", CraftID: 9, Handle: "pal", Name: "Tug", PrimaryID: a.Primary.ID,
+		Pos: w.BodyPosition(a.Primary).Add(a.State.R).Add(orbital.Vec3{X: 40}), Vel: a.State.V}}
+	w.SetTargetGhost("SHA256:g", 9)
+	w.ViewMode = sim.ViewProximity
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(DesignWidth, DesignHeight)
+	chip := v.buildProximityChip(w)
+	if h := ansi.Strip(chip[0]); !strings.HasSuffix(h, "port: unknown") {
+		t.Errorf("ghost header = %q, want it to end in port: unknown", h)
+	}
+	if got := chipLine(chip, "port:"); !strings.Contains(got, "unknown") {
+		t.Errorf("ghost port row = %q", got)
+	}
+	if chipLine(chip, "align:") != "" || chipLine(chip, "off-axis:") != "" {
+		t.Error("a ghost with no known shape must not draw align/off-axis")
+	}
+}

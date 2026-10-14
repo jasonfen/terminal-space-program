@@ -186,10 +186,31 @@ func (v *OrbitView) drawProximityPortLine(w *sim.World, st sim.ProximityState) {
 	b := proximityPortWorld(st.TargetWorld, tgt.CurrentAttitudeDir, basis, st.Target.Ports[0].OffsetM)
 	v.canvas.PlotPolylineClass([]orbital.Vec3{a, b}, render.ColorTarget, widgets.ClassPlanned)
 	mid := a.Add(b).Scale(0.5)
-	if col, row, onCanvas := v.canvasCell(mid); onCanvas {
-		label := readout.PortDistance(st.PortRangeM)
-		v.canvas.SetCellLabelColored(col-lipgloss.Width(label)/2, row, label, v.theme.Dim.GetForeground())
+	col, row, onCanvas := v.canvasCell(mid)
+	if !onCanvas {
+		return
 	}
+	// The label sits above the line, below it if that is taken, on it as a
+	// last resort: on the line itself it lands on the +V axis row, where the
+	// range-ring labels live, and over the two marks when the gap is only a
+	// few cells.
+	label := readout.PortDistance(st.PortRangeM)
+	left := col - lipgloss.Width(label)/2
+	at := row
+	for _, dr := range []int{-1, 1} {
+		free := true
+		for x := left; x < left+lipgloss.Width(label); x++ {
+			if v.canvas.CellOccupied(x, row+dr) {
+				free = false
+				break
+			}
+		}
+		if free {
+			at = row + dr
+			break
+		}
+	}
+	v.canvas.SetCellLabelColored(left, at, label, v.theme.Dim.GetForeground())
 }
 
 // drawProximityPortMark stamps the `○` on one hull's drawn port, in that
