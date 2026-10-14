@@ -71,6 +71,16 @@ func (w *World) NavballBasis() (NavballBasis, bool) {
 	if nav == NavTarget && !w.HasRelativeTarget() {
 		nav = NavOrbit
 	}
+	// NavPort (ADR 0053): the ball is framed on the target's relative
+	// velocity exactly as in NavTarget, so the sphere does not lurch when
+	// the pilot steps from TGT to PORT; a vanished port degrades to orbit.
+	if nav == NavPort {
+		if w.TargetHasPort() {
+			nav = NavTarget
+		} else {
+			nav = NavOrbit
+		}
+	}
 
 	// NavSurface: local-horizon sphere — pole = local up (r̂),
 	// lon-0 = local north. Velocity-independent so it is valid on
@@ -214,7 +224,8 @@ func (w *World) NavballSubObserver() (latDeg, lonDeg float64, ok bool) {
 		dir = active.CurrentAttitudeDir
 	} else {
 		rT, vT, _ := w.TargetStateRelativeToActivePrimary()
-		dir = active.BurnDirectionWithTarget(active.AttitudeMode, rT, vT)
+		aT, _ := w.TargetPortAxis()
+		dir = active.BurnDirectionWithTargetAtt(active.AttitudeMode, rT, vT, aT)
 	}
 	if dir.Norm() == 0 {
 		return 0, 0, false
@@ -326,6 +337,14 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 	// a reconnect, or one with nobody live to re-latch it, is bound but
 	// unresolved. targetOK is the resolve itself.
 	targetRelevant := w.NavMode == NavTarget && w.HasRelativeTarget()
+	// ADR 0053 decision 7: in PORT the radial pair is the in/out pair, so
+	// it wears the Target glyphs (q = toward the port, e = away), and the
+	// other four keys point across the port face, where the prograde /
+	// normal glyphs would lie about what they mark: they are not drawn.
+	portRelevant := w.NavMode == NavPort && w.TargetHasPort()
+	if portRelevant {
+		targetRelevant = true
+	}
 	radialOutGlyph := NavballGlyphRadialOut
 	radialInGlyph := NavballGlyphRadialIn
 	radialColor := render.ColorNavballMarkerRadial
@@ -353,6 +372,9 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 		// vector pointing at the primary's centre, so the toward-target
 		// glyph would draw confidently there while SAS actually holds
 		// prograde.
+		if portRelevant && e.intent != IntentRadialOut && e.intent != IntentRadialIn {
+			continue
+		}
 		if targetRelevant && !targetOK &&
 			(e.intent == IntentPrograde || e.intent == IntentRetrograde ||
 				e.intent == IntentRadialOut || e.intent == IntentRadialIn) {
@@ -363,7 +385,8 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 		// before the player's pitch/heading trim. The nose (disk centre)
 		// carries the trim, so the gap between the nose and a glyph reads
 		// the trim against the pitch rungs.
-		dir := active.BurnDirectionUntrimmedWithTarget(mode, rT, vT)
+		aT, _ := w.TargetPortAxis()
+		dir := active.BurnDirectionUntrimmedWithTargetAtt(mode, rT, vT, aT)
 		if dir.Norm() == 0 {
 			continue
 		}
@@ -477,7 +500,8 @@ func (w *World) NavballNoseReading() (pitchDeg, headingDeg float64, ok bool) {
 		dir = active.CurrentAttitudeDir
 	} else {
 		rT, vT, _ := w.TargetStateRelativeToActivePrimary()
-		dir = active.BurnDirectionWithTarget(active.AttitudeMode, rT, vT)
+		aT, _ := w.TargetPortAxis()
+		dir = active.BurnDirectionWithTargetAtt(active.AttitudeMode, rT, vT, aT)
 	}
 	if n := dir.Norm(); n == 0 {
 		return 0, 0, false

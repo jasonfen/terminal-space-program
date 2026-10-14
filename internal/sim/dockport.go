@@ -156,42 +156,13 @@ func VesselPortGeometry(c *spacecraft.Spacecraft) PortGeometry {
 	return PortGeometryOf(c.Stages, c.CurrentAttitudeDir)
 }
 
-// dockRadialAxisDeg is how close to radial a port axis may point before
-// "up across the port face" switches from RadialOut to AlongTrack (ADR
-// 0053 decision 7): RadialOut projected off an axis it nearly coincides
-// with is numerical noise.
-const dockRadialAxisDeg = 10.0
-
-// PortFaceBasis is the pair of directions across a port's face, in world
-// axes: up/down and left/right as a pilot looking at the port sees them.
-// axis is the unit vector the port faces out along (the target's nose
-// direction for its port); f is the target's LVLH frame.
-//
-//	up    = RadialOut with its axis component removed, normalised
-//	        (AlongTrack instead when the axis is within 10 degrees of radial)
-//	right = perpendicular to both axis and up, signed to agree with
-//	        CrossTrack
-//
-// ADR 0053 words "right" as CrossTrack with the axis component removed.
-// That agrees with this whenever the axis lies in the radial/along-track
-// plane, and this stays orthogonal to up when it does not, which matters
-// because the off-axis readout splits one offset onto the two directions.
-// ok is false only for a zero axis.
+// PortFaceBasis is orbital.PortFaceBasis: the pair of directions across a
+// port's face (up/down, left/right). The function lives in orbital so the
+// spacecraft layer (the PORT-frame burn modes, ADR 0053 slice C) and this
+// package (the off-axis readout) share ONE definition of "up" and "right"
+// and the readout can never disagree with the keys.
 func PortFaceBasis(axis orbital.Vec3, f orbital.LVLHFrame) (up, right orbital.Vec3, ok bool) {
-	a := axis.Unit()
-	if a.Norm() == 0 {
-		return orbital.Vec3{}, orbital.Vec3{}, false
-	}
-	seed := f.RadialOut
-	if math.Abs(a.Dot(f.RadialOut)) > math.Cos(dockRadialAxisDeg*math.Pi/180) {
-		seed = f.AlongTrack
-	}
-	up = seed.Sub(a.Scale(seed.Dot(a))).Unit()
-	right = up.Cross(a).Unit()
-	if right.Dot(f.CrossTrack) < 0 {
-		right = right.Scale(-1)
-	}
-	return up, right, true
+	return orbital.PortFaceBasis(axis, f)
 }
 
 // PortAlignmentDeg is the angle between two noses facing each other: 0 when

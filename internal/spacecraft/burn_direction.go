@@ -50,7 +50,14 @@ func (s *Spacecraft) BurnDirection(mode BurnMode) orbital.Vec3 {
 //
 // v0.9.3+.
 func (s *Spacecraft) BurnDirectionWithTarget(mode BurnMode, rT, vT orbital.Vec3) orbital.Vec3 {
-	dir := s.BurnDirectionUntrimmedWithTarget(mode, rT, vT)
+	return s.BurnDirectionWithTargetAtt(mode, rT, vT, orbital.Vec3{})
+}
+
+// BurnDirectionWithTargetAtt is BurnDirectionWithTarget with the target's
+// attitude (its nose direction) for the six PORT-frame modes (ADR 0053
+// decision 7). aT is ignored by every other mode.
+func (s *Spacecraft) BurnDirectionWithTargetAtt(mode BurnMode, rT, vT, aT orbital.Vec3) orbital.Vec3 {
+	dir := s.BurnDirectionUntrimmedWithTargetAtt(mode, rT, vT, aT)
 	if dir.Norm() == 0 {
 		return dir
 	}
@@ -64,6 +71,12 @@ func (s *Spacecraft) BurnDirectionWithTarget(mode BurnMode, rT, vT orbital.Vec3)
 // and a glyph reads the trim against the pitch rungs. Zero vector when the
 // mode has no defined direction (e.g. surface-prograde on the pad).
 func (s *Spacecraft) BurnDirectionUntrimmedWithTarget(mode BurnMode, rT, vT orbital.Vec3) orbital.Vec3 {
+	return s.BurnDirectionUntrimmedWithTargetAtt(mode, rT, vT, orbital.Vec3{})
+}
+
+// BurnDirectionUntrimmedWithTargetAtt is BurnDirectionUntrimmedWithTarget
+// with the target's attitude for the PORT-frame modes.
+func (s *Spacecraft) BurnDirectionUntrimmedWithTargetAtt(mode BurnMode, rT, vT, aT orbital.Vec3) orbital.Vec3 {
 	// Body's tilted spin axis — shared with the launchpad spawn
 	// frame, the landed integrator, and physics.AtmosphereOmega
 	// (v0.11.2+ unification, ADR 0003). One ω across the codebase.
@@ -82,8 +95,9 @@ func (s *Spacecraft) BurnDirectionUntrimmedWithTarget(mode BurnMode, rT, vT orbi
 		if mode == BurnSurfaceRetrograde {
 			dir = dir.Scale(-1)
 		}
-	case BurnTargetPrograde, BurnTargetRetrograde, BurnTarget, BurnAntiTarget:
-		dir = DirectionUnitTarget(mode, s.State.R, s.State.V, rT, vT)
+	case BurnTargetPrograde, BurnTargetRetrograde, BurnTarget, BurnAntiTarget,
+		BurnPortIn, BurnPortOut, BurnPortUp, BurnPortDown, BurnPortLeft, BurnPortRight:
+		dir = DirectionUnitTargetAtt(mode, s.State.R, s.State.V, rT, vT, aT)
 	default:
 		dir = DirectionUnit(mode, s.State.R, s.State.V)
 	}
@@ -139,10 +153,16 @@ func ApplyTrims(dir, r, spinAxis orbital.Vec3, pitchRad, headingOffsetRad float6
 //
 // v0.10.4+.
 func (s *Spacecraft) BurnDirectionPlaneAware(mode BurnMode, rT, vT orbital.Vec3, planeRad float64) orbital.Vec3 {
+	return s.BurnDirectionPlaneAwareAtt(mode, rT, vT, orbital.Vec3{}, planeRad)
+}
+
+// BurnDirectionPlaneAwareAtt is BurnDirectionPlaneAware with the target's
+// attitude for the PORT-frame modes.
+func (s *Spacecraft) BurnDirectionPlaneAwareAtt(mode BurnMode, rT, vT, aT orbital.Vec3, planeRad float64) orbital.Vec3 {
 	if mode == BurnPlaneChange {
 		return planeChangeDirection(s.State.R, s.State.V, planeRad)
 	}
-	return s.BurnDirectionWithTarget(mode, rT, vT)
+	return s.BurnDirectionWithTargetAtt(mode, rT, vT, aT)
 }
 
 // BurnDirectionForBurn resolves a planted / in-flight burn's unit thrust
@@ -155,10 +175,16 @@ func (s *Spacecraft) BurnDirectionPlaneAware(mode BurnMode, rT, vT orbital.Vec3,
 //
 // v0.12.x+.
 func (s *Spacecraft) BurnDirectionForBurn(mode BurnMode, rT, vT orbital.Vec3, planeRad float64, burnDir orbital.Vec3) orbital.Vec3 {
+	return s.BurnDirectionForBurnAtt(mode, rT, vT, orbital.Vec3{}, planeRad, burnDir)
+}
+
+// BurnDirectionForBurnAtt is BurnDirectionForBurn with the target's
+// attitude for the PORT-frame modes (the live SAS hold path).
+func (s *Spacecraft) BurnDirectionForBurnAtt(mode BurnMode, rT, vT, aT orbital.Vec3, planeRad float64, burnDir orbital.Vec3) orbital.Vec3 {
 	if mode == BurnVector {
 		return burnDir.Unit()
 	}
-	return s.BurnDirectionPlaneAware(mode, rT, vT, planeRad)
+	return s.BurnDirectionPlaneAwareAtt(mode, rT, vT, aT, planeRad)
 }
 
 // localHorizonFrame builds the (east, up, north) local frame at

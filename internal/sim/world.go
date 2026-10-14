@@ -2083,7 +2083,7 @@ func (w *World) ToggleInstantSAS() { w.InstantSAS = !w.InstantSAS }
 //     (survives a mid-burn target switch); otherwise the live
 //     World.Target snapshot so a manual hold can retarget. Non-target
 //     modes ignore it. v0.9.3+ logic, unchanged — just relocated.
-func (w *World) attitudeContext(c *spacecraft.Spacecraft) (mode spacecraft.BurnMode, rT, vT orbital.Vec3, planeRad float64, burnDir orbital.Vec3) {
+func (w *World) attitudeContext(c *spacecraft.Spacecraft) (mode spacecraft.BurnMode, rT, vT, aT orbital.Vec3, planeRad float64, burnDir orbital.Vec3) {
 	mode = c.AttitudeMode
 	if c.ActiveBurn != nil {
 		mode = c.ActiveBurn.Mode
@@ -2098,6 +2098,17 @@ func (w *World) attitudeContext(c *spacecraft.Spacecraft) (mode spacecraft.BurnM
 	} else {
 		rT, vT, ok = w.TargetStateRelativeToActivePrimary()
 	}
+	// ADR 0053 slice C: the PORT-frame modes also need the target's nose
+	// direction. A target without a port (or a ghost, which has no known
+	// shape in this slice) yields no axis, and the hold falls back below
+	// exactly as an unresolved target does.
+	if spacecraft.IsPortMode(mode) {
+		if axis, hasPort := w.TargetPortAxis(); hasPort {
+			aT = axis
+		} else {
+			ok = false
+		}
+	}
 	// #294 review finding 4: a target-relative mode whose target doesn't
 	// resolve (most visibly: a TargetGhost ref persisted across a save/
 	// load with no live serve session to re-latch it, or one still
@@ -2109,10 +2120,10 @@ func (w *World) attitudeContext(c *spacecraft.Spacecraft) (mode spacecraft.BurnM
 	// hold (BurnPrograde) instead of silently aiming at (or away from)
 	// the planet. Non-target modes ignore (rT, vT) entirely, so this
 	// only changes behavior when the mode actually consumes them.
-	if !ok && spacecraft.IsTargetRelativeMode(mode) {
+	if !ok && (spacecraft.IsTargetRelativeMode(mode) || spacecraft.IsPortMode(mode)) {
 		mode = spacecraft.BurnPrograde
 	}
-	return mode, rT, vT, planeRad, burnDir
+	return mode, rT, vT, aT, planeRad, burnDir
 }
 
 // TrimNoseDownDeg is c's pitch trim as degrees the nose sits below its
@@ -2120,8 +2131,8 @@ func (w *World) attitudeContext(c *spacecraft.Spacecraft) (mode spacecraft.BurnM
 // trim: rows read (Jason 2026-10-09). The hold is the one attitudeContext
 // resolves this tick, so a retrograde hold, which → raises, reads "up".
 func (w *World) TrimNoseDownDeg(c *spacecraft.Spacecraft) float64 {
-	mode, rT, vT, _, _ := w.attitudeContext(c)
-	hold := c.BurnDirectionUntrimmedWithTarget(mode, rT, vT)
+	mode, rT, vT, aT, _, _ := w.attitudeContext(c)
+	hold := c.BurnDirectionUntrimmedWithTargetAtt(mode, rT, vT, aT)
 	axisR := render.BodyRotationAxisWorld(c.Primary)
 	spinAxis := orbital.Vec3{X: axisR.X, Y: axisR.Y, Z: axisR.Z}
 	return c.PitchTrim * 180 / math.Pi * spacecraft.PitchTrimNoseDownSign(hold, c.State.R, spinAxis, c.HeadingTrim)
@@ -2132,8 +2143,8 @@ func (w *World) TrimNoseDownDeg(c *spacecraft.Spacecraft) float64 {
 // live state). The slew integrator chases it; with InstantSAS the
 // craft is pinned to it. v0.10.0+.
 func (w *World) commandedDirFor(c *spacecraft.Spacecraft) orbital.Vec3 {
-	mode, rT, vT, planeRad, burnDir := w.attitudeContext(c)
-	return c.BurnDirectionForBurn(mode, rT, vT, planeRad, burnDir)
+	mode, rT, vT, aT, planeRad, burnDir := w.attitudeContext(c)
+	return c.BurnDirectionForBurnAtt(mode, rT, vT, aT, planeRad, burnDir)
 }
 
 // slewTargetFor is the direction the slew integrator chases this tick.
@@ -2160,7 +2171,7 @@ func (w *World) slewTargetFor(c *spacecraft.Spacecraft) orbital.Vec3 {
 }
 
 func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
-	mode, rT, vT, planeRad, burnDir := w.attitudeContext(c)
+	mode, rT, vT, aT, planeRad, burnDir := w.attitudeContext(c)
 	throttle := c.EffectiveThrottle()
 	if c.ActiveBurn != nil {
 		throttle = c.ActiveBurn.Throttle
@@ -2185,9 +2196,9 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 		// them. Under InstantSAS thrust along the resolved commanded
 		// direction (recomputed per tick — ample for a short burn).
 		thrustFn = c.ThrustAccelFnFixedDir(
-			c.BurnDirectionForBurn(mode, rT, vT, planeRad, burnDir), mu, throttle)
+			c.BurnDirectionForBurnAtt(mode, rT, vT, aT, planeRad, burnDir), mu, throttle)
 	case w.InstantSAS:
-		thrustFn = c.ThrustAccelFnAtWithTarget(mode, mu, throttle, rT, vT)
+		thrustFn = c.ThrustAccelFnAtWithTargetAtt(mode, mu, throttle, rT, vT, aT)
 	default:
 		thrustFn = c.ThrustAccelFnFixedDir(c.CurrentAttitudeDir, mu, throttle)
 	}
