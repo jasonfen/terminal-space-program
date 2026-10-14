@@ -173,3 +173,27 @@ func TestProximityPortRowCapturingWhileTheMagnetPulls(t *testing.T) {
 		t.Errorf("port row still says capturing after the target left the gate: %q", row)
 	}
 }
+
+// The TARGET box's DOCK READY badge is the same gate the ring and the dock
+// read, not the old "under 50 m and 0.1 m/s": a port-less pair at rest 30 m
+// apart, a lateral pass and a 20 deg miss all used to light it.
+func TestTargetBoxDockReadyFollowsThePortGate(t *testing.T) {
+	for _, sc := range gateScenes() {
+		w := sc.world(t)
+		w.ViewMode = sim.ViewTilted
+		v := NewOrbitView(chipTestTheme())
+		v.Resize(DesignWidth, DesignHeight)
+		got := strings.Contains(strings.Join(v.buildTargetBox(w), "\n"), "DOCK READY")
+		if want := sc.want == render.ColorTarget; got != want {
+			t.Errorf("%s: TARGET badge DOCK READY = %v, want %v", sc.name, got, want)
+		}
+	}
+	// A port-less pair 30 m apart at rest: the old badge's own case.
+	w := portedPairWorld(t, []string{"rcs-tug"}, []string{"s-ivb-1"}, orbital.Vec3{X: 30}, 0)
+	w.ViewMode = sim.ViewTilted
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(DesignWidth, DesignHeight)
+	if strings.Contains(strings.Join(v.buildTargetBox(w), "\n"), "DOCK READY") {
+		t.Error("a port-less pair 30 m apart reads DOCK READY")
+	}
+}
