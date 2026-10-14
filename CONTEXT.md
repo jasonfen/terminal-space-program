@@ -1689,7 +1689,8 @@ _Avoid_: Docking notification, Fuse record, Dock notice.
 **Spring Release**:
 The 0.15 m/s push along the **Dock Seam** between each adjacent pair of
 restored Vessels on **Undocking**, applied where the hulls stood: the pieces
-come back port to port 1.5 m apart, nothing is teleported. Enough to open a
+come back port to port a row or two apart (1.5 m, or 3 m between two tall
+stages, where the sprite adds a taper row), nothing is teleported. Enough to open a
 gap the pilot can see within seconds, small enough that each restored orbit
 is essentially unchanged. The **Re-arm Latch**, not the push, is what
 prevents an immediate re-dock.

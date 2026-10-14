@@ -67,3 +67,28 @@ func TestUndockedVesselsRegainTheirPorts(t *testing.T) {
 		}
 	}
 }
+
+// The docs say pieces come back "1.5 to 3 m apart" (review finding 5): one
+// separator row, or two where both stages at the seam are tall enough for the
+// sprite's taper row. Measured port to port right after the undock.
+func TestUndockPortGapIsOneAndAHalfOrThreeMetres(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want float64
+	}{
+		{"rcs-tug", "nudge-tug", 1.5},
+		{"ntr-tug", "ntr-tug", 3.0},
+	} {
+		p := newPortPair(t, c.a, c.b, 0.3, 0, 0)
+		p.w.DockCrafts(0, 1)
+		if !p.w.Undock(0) || len(p.w.Crafts) != 2 {
+			t.Fatalf("%s+%s: undock failed", c.a, c.b)
+		}
+		lo, hi := p.w.Crafts[0], p.w.Crafts[1]
+		gl, gh := VesselPortGeometry(lo), VesselPortGeometry(hi)
+		got := gh.PortPoint(hi.State.R, 0).Sub(gl.PortPoint(lo.State.R, 0)).Norm()
+		if !near(got, c.want, 0.01) {
+			t.Errorf("%s+%s: ports %.3f m apart after undock, want %.1f", c.a, c.b, got, c.want)
+		}
+	}
+}
