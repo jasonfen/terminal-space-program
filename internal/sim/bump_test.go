@@ -189,7 +189,7 @@ func TestBumpIgnoresOpeningDebrisAndLanded(t *testing.T) {
 
 // Nose-on-nose contact is still a bump today (no gate holds at 1 m/s), and
 // the segment test sees hull LENGTH: a hull end-on at 10 m centre-to-centre
-// touches because the S-IVB is 18 m long (centres 24 m apart).
+// touches because the S-IVB is 18 m long (centres 18 m apart).
 func TestBumpContactUsesHullLengthNotCentres(t *testing.T) {
 	w, a, b := bumpWorld(t, 40, 0)
 	// B ahead of A along +Y (A's nose axis), 25 m up, closing 1 m/s: centres
@@ -202,11 +202,11 @@ func TestBumpContactUsesHullLengthNotCentres(t *testing.T) {
 	if w.LastBumpEvent == nil {
 		t.Fatal("end-on hulls never bumped")
 	}
-	// A's nose is 17.25 m up, B's tail 0.75 m under its R, and the hulls are
-	// 6 m wide: contact at a centre distance of 17.25 + 0.75 + 6 = 24 m. A
-	// test from the centres alone would say 6 m.
-	if d := b.State.R.Sub(a.State.R).Norm(); d < 23 || d > 24.2 {
-		t.Errorf("end-on contact at centre distance %.2f m, want about 24 m", d)
+	// A's nose is 17.25 m up and B's tail 0.75 m under its R, flat ends: they
+	// touch when the nose meets the tail, at a centre distance of 18 m (a
+	// capsule would say 24 m, a test from the centres alone 6 m).
+	if d := b.State.R.Sub(a.State.R).Norm(); d < 17.8 || d > 18.2 {
+		t.Errorf("end-on contact at centre distance %.2f m, want about 18 m", d)
 	}
 }
 
@@ -310,6 +310,139 @@ func TestBumpFeelAtTenTimesStaysShallow(t *testing.T) {
 		// into the 6 m contact radius under a metre, gone within 3 ticks.
 		if bumps != 1 || deepest > 1.0 || overlapTicks > 3 {
 			t.Errorf("warp %vx: bumps=%d deepest=%.2f m overlapTicks=%d, want 1 bump, <1 m, <=3 ticks", w.Clock.Warp(), bumps, deepest, overlapTicks)
+		}
+	}
+}
+
+// ---- flat-ended hull contact (PR #643 fix) --------------------------------
+
+// Hulls are flat-ended cylinders, not capsules: radius W/2 applies alongside
+// a hull, and two noses touch only when they actually meet axially. S-IVB
+// hulls here: 17.25 m + 0.75 m tail, 6 m wide.
+func hullPair(t *testing.T, offX, noseGap float64) (a0, a1, b0, b1 orbital.Vec3, wa, wb float64) {
+	t.Helper()
+	sa := spacecraft.NewFromLoadout("S-IVB-1")
+	sa.CurrentAttitudeDir = orbital.Vec3{Y: 1}
+	sa.State.R = orbital.Vec3{}
+	a0, a1, wa, _ = hullSegment(sa)
+	sb := spacecraft.NewFromLoadout("S-IVB-1")
+	sb.CurrentAttitudeDir = orbital.Vec3{Y: -1}
+	// B hangs above A, nose down: its nose sits noseGap above A's nose.
+	sb.State.R = orbital.Vec3{X: offX, Y: a1.Y + noseGap + 17.25}
+	b0, b1, wb, _ = hullSegment(sb)
+	return
+}
+
+func TestHullsCoaxialNosesDoNotTouchAtAnyPositiveGap(t *testing.T) {
+	for _, gap := range []float64{5, 2, 1, 0.5, 0.25, 0.1, 0.05} {
+		a0, a1, b0, b1, wa, wb := hullPair(t, 0, gap)
+		if touch, _ := hullsTouch(a0, a1, wa, b0, b1, wb); touch {
+			t.Errorf("coaxial noses %.2f m apart read as touching", gap)
+		}
+	}
+}
+
+func TestHullsPassingNosePastNoseOnlyTouchWithAxialOverlap(t *testing.T) {
+	rsum := 6.0
+	// Noses level (gap 0) and offset sideways beyond the radii: miss.
+	a0, a1, b0, b1, wa, wb := hullPair(t, rsum+0.5, -1) // 1 m axial overlap
+	if touch, _ := hullsTouch(a0, a1, wa, b0, b1, wb); touch {
+		t.Error("hulls offset 6.5 m sideways touched")
+	}
+	// Offset inside the radii, with axial overlap: touch.
+	a0, a1, b0, b1, wa, wb = hullPair(t, rsum-1, -1)
+	if touch, _ := hullsTouch(a0, a1, wa, b0, b1, wb); !touch {
+		t.Error("hulls 5 m apart sideways with 1 m axial overlap did not touch")
+	}
+	// Offset inside the radii but a positive nose gap: noses have not met.
+	a0, a1, b0, b1, wa, wb = hullPair(t, rsum-1, 1)
+	if touch, _ := hullsTouch(a0, a1, wa, b0, b1, wb); touch {
+		t.Error("offset noses 1 m apart axially touched")
+	}
+}
+
+func TestHullsSideOnHitStillTouchesAtTheSurface(t *testing.T) {
+	// A is a vertical hull on the origin; B lies horizontal, its nose pointing
+	// into A's flank, 8 m up the hull.
+	sa := spacecraft.NewFromLoadout("S-IVB-1")
+	sa.CurrentAttitudeDir = orbital.Vec3{Y: 1}
+	a0, a1, wa, _ := hullSegment(sa)
+	for _, c := range []struct {
+		x     float64
+		touch bool
+	}{{6.5, false}, {5.5, true}} {
+		sb := spacecraft.NewFromLoadout("S-IVB-1")
+		sb.CurrentAttitudeDir = orbital.Vec3{X: -1}
+		// B's nose is 17.25 m from its R along -X.
+		sb.State.R = orbital.Vec3{X: c.x + 17.25, Y: 8}
+		b0, b1, wb, _ := hullSegment(sb)
+		if touch, _ := hullsTouch(a0, a1, wa, b0, b1, wb); touch != c.touch {
+			t.Errorf("flank hit with nose %.1f m from the axis: touch = %v, want %v", c.x, touch, c.touch)
+		}
+	}
+}
+
+// Nose to nose at 1 m/s, outside any gate (the latch stands in for B's
+// gate): the noses meet and the pair bounces, opening at 0.5 m/s.
+func TestBumpNoseToNoseHeadOnOpensAtHalf(t *testing.T) {
+	w, a, b := bumpWorld(t, 0, 0)
+	b.State.R = a.State.R.Add(orbital.Vec3{Y: 60})
+	b.CurrentAttitudeDir = orbital.Vec3{Y: -1}
+	b.State.V = a.State.V.Add(orbital.Vec3{Y: -1})
+	w.localReArms = append(w.localReArms, localReArm{idA: a.ID, idB: b.ID})
+	var gapAtBump float64
+	// Stepped by hand: World.Tick would re-point both hulls prograde (their
+	// attitude mode), which is a different fixture. Positions move at the
+	// relative velocity, 50 ms a step, and the contact test runs each step.
+	for i := 0; i < 3000 && w.LastBumpEvent == nil; i++ {
+		a.State.R = a.State.R.Add(a.State.V.Scale(0.05))
+		b.State.R = b.State.R.Add(b.State.V.Scale(0.05))
+		w.checkBumps()
+	}
+	if w.LastBumpEvent == nil {
+		t.Fatal("nose-to-nose hulls passed through each other")
+	}
+	// A's nose is at R+17.25; B's nose is at B.R-17.25 (it points down).
+	gapAtBump = (b.State.R.Y - 17.25) - (a.State.R.Y + 17.25)
+	if gapAtBump > 0.1 || gapAtBump < -0.3 {
+		t.Errorf("bumped with the noses %.2f m apart (negative = interpenetrating), want the moment they meet", gapAtBump)
+	}
+	if got := b.State.V.Sub(a.State.V).Y; math.Abs(got-0.5) > 0.03 {
+		t.Errorf("opening after the nose-to-nose bump = %.3f m/s, want 0.5", got)
+	}
+}
+
+// Feel of the nose-to-nose bump (flat ends): the noses meet and interpenetrate
+// by at most one step of travel (1 m/s x 0.05 s at 1x, x10 at 10x) before the
+// bump opens the pair. Stepped by hand as in the head-on test above.
+func TestBumpNoseToNoseFeelAtTenTimesStaysShallow(t *testing.T) {
+	for _, step := range []float64{0.05, 0.5} {
+		w, a, b := bumpWorld(t, 0, 0)
+		b.State.R = a.State.R.Add(orbital.Vec3{Y: 60.23})
+		b.CurrentAttitudeDir = orbital.Vec3{Y: -1}
+		b.State.V = a.State.V.Add(orbital.Vec3{Y: -1})
+		w.localReArms = append(w.localReArms, localReArm{idA: a.ID, idB: b.ID})
+		bumps, ticksIn, deepest := 0, 0, 0.0
+		for i := 0; i < 3000; i++ {
+			a.State.R = a.State.R.Add(a.State.V.Scale(step))
+			b.State.R = b.State.R.Add(b.State.V.Scale(step))
+			w.LastBumpEvent = nil
+			w.checkBumps()
+			if w.LastBumpEvent != nil {
+				bumps++
+			}
+			gap := (b.State.R.Y - 17.25) - (a.State.R.Y + 17.25)
+			if bumps > 0 && gap < 0 {
+				ticksIn++
+				deepest = math.Max(deepest, -gap)
+			}
+			if bumps > 0 && gap > 2 {
+				break
+			}
+		}
+		t.Logf("step %.2f s (%vx): bumps=%d steps interpenetrating=%d deepest=%.2f m opening=%.3f m/s", step, step/0.05, bumps, ticksIn, deepest, b.State.V.Sub(a.State.V).Y)
+		if bumps != 1 || deepest > 1.0 {
+			t.Errorf("step %.2f: bumps=%d deepest=%.2f m, want 1 bump and < 1 m", step, bumps, deepest)
 		}
 	}
 }

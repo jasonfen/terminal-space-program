@@ -25,6 +25,10 @@ const (
 	// bumpFloorMS keeps two hulls from resting inside each other: the pair
 	// always opens at least this fast.
 	bumpFloorMS = 0.05
+
+	// bumpMinNormalM is the closest-point distance under which the contact
+	// normal is taken from the line between the two positions instead.
+	bumpMinNormalM = 0.05
 )
 
 // BumpEvent records the latest hull contact outside the docking gate for
@@ -112,6 +116,53 @@ func segmentClosest(p0, p1, q0, q1 orbital.Vec3) (cp, cq orbital.Vec3) {
 	return p0.Add(d1.Scale(s)), q0.Add(d2.Scale(t))
 }
 
+// hullsTouch is the contact test between two hulls given as axis segments
+// with widths. Each hull is a FLAT-ENDED cylinder, not a capsule: radius
+// W/2 applies alongside a hull, and there is no rounded cap beyond the nose
+// or below the base. So when the closest points of the two axes are both
+// segment ENDS (nose against nose, nose against tail), the hulls touch only
+// if they actually overlap axially, not merely because the ends are within
+// the radii of each other. Without that, two coaxial noses would "touch"
+// metres apart and a straight, slow, aligned approach could never reach a
+// 0.5 m port gate. (ADR 0053 decision 8 says "closer than (W_A+W_B)/2" on
+// the segments, which is the capsule; that formula is wrong at the ends.)
+// n is the closest-point vector pa - pb (B to A); it is zero for coaxial
+// overlap, where the caller falls back to the line between positions.
+func hullsTouch(a0, a1 orbital.Vec3, wa float64, b0, b1 orbital.Vec3, wb float64) (bool, orbital.Vec3) {
+	pa, pb := segmentClosest(a0, a1, b0, b1)
+	n := pa.Sub(pb)
+	if n.Norm() >= (wa+wb)/2 {
+		return false, n
+	}
+	const eps = 1e-9
+	endA, noseA := segmentEnd(pa, a0, a1)
+	endB, noseB := segmentEnd(pb, b0, b1)
+	if endA && endB {
+		// Nose of A: B's point must not lie beyond it. Tail: not behind it.
+		ua, ub := a1.Sub(a0).Unit(), b1.Sub(b0).Unit()
+		if along := pb.Sub(pa).Dot(ua); (noseA && along > eps) || (!noseA && along < -eps) {
+			return false, n
+		}
+		if along := pa.Sub(pb).Dot(ub); (noseB && along > eps) || (!noseB && along < -eps) {
+			return false, n
+		}
+	}
+	return true, n
+}
+
+// segmentEnd reports whether p sits on an end of segment p0-p1, and if so
+// whether it is the p1 (nose) end.
+func segmentEnd(p, p0, p1 orbital.Vec3) (isEnd, isP1 bool) {
+	const tol = 1e-9
+	if p.Sub(p1).Norm() <= tol {
+		return true, true
+	}
+	if p.Sub(p0).Norm() <= tol {
+		return true, false
+	}
+	return false, false
+}
+
 // checkBumps runs the contact test over every pair of flying vessels inside
 // DockingDistM (centre to centre) and bumps the ones whose hulls touch
 // outside the gate. Edge-triggered through World.bumpOverlap: a pair bumps
@@ -149,18 +200,20 @@ func (w *World) checkBumps() {
 			if !okA || !okB {
 				continue
 			}
-			pa, pb := segmentClosest(a0, a1, b0, b1)
-			n := pa.Sub(pb)
-			if n.Norm() >= (wa+wb)/2 {
+			touch, n := hullsTouch(a0, a1, wa, b0, b1, wb)
+			if !touch {
 				delete(w.bumpOverlap, key)
 				continue
 			}
 			if w.bumpOverlap[key] || bumpPairInGate(w, a, b) {
 				continue
 			}
-			// Crossing or collinear segments have no closest-point line;
-			// fall back to the line between the positions.
-			if n.Norm() < 1e-6 {
+			// Crossing or collinear axes have no usable closest-point line
+			// (a coaxial head-on pair carries only integrator-noise
+			// lateral offset, ~1e-4 m, which would read as a sideways
+			// normal and a zero closing speed); fall back to the line
+			// between the positions.
+			if n.Norm() < bumpMinNormalM {
 				n = dr
 			}
 			if n.Norm() < 1e-9 {
