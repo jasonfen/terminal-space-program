@@ -38,6 +38,19 @@ const (
 	AntennaRelay  = "relay"  // can use AND forward (a comm-sat / ground-station relay)
 )
 
+// Ports lists the docking ports this stage's part carries (ADR 0053 §3),
+// today none or one nose port. Derived on every call from the catalog by
+// the stage's (LoadoutID, Name) pair, falling back to a name match across
+// the parts catalog, because the flag is deliberately not stored on the
+// Stage or in a save. A stage the catalog does not know (a custom VAB stage
+// with its own name) has no ports.
+func (s Stage) Ports() []PartPort {
+	return portIdx.lookup(s.LoadoutID, s.Name)
+}
+
+// HasPort reports whether the stage carries at least one docking port.
+func (s Stage) HasPort() bool { return len(s.Ports()) > 0 }
+
 // Stage describes one decouplable propulsion module on a spacecraft.
 // v0.9.1+. The Stages slice on Spacecraft is the source of truth for
 // dry mass / fuel / engine numbers; the historical flat fields
