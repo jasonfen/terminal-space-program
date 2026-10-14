@@ -1646,7 +1646,8 @@ partner and the speed (`bumped <name> at <speed>; re-approach under
 only when the ends actually meet. It needs a closing speed (hulls already
 parting do not bump), happens once per contact, and never involves a
 Landed Vessel or two debris stages. No damage. Inside 50 m of another
-non-debris hull warp is capped at 10x, like a burn, so hulls cannot alias
+non-debris hull (the gap between the hulls, not between the two stack
+bottoms, so the far end of a 55 m stack counts) warp is capped at 10x, like a burn, so hulls cannot alias
 through each other. Cross-player, only the bumper moves: against a **Ghost** the friend's hull
 is immovable and the friend is not told.
 _Avoid_: Collision, Crash (reserved for ground impact), Bounce.
