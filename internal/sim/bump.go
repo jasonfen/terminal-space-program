@@ -68,13 +68,44 @@ func bumpKey(a, b *spacecraft.Spacecraft) [2]uint64 {
 // the stack (dockport.go), and a hull spans -half a row to L - half a row
 // along the axis.
 func hullSegment(c *spacecraft.Spacecraft) (p0, p1 orbital.Vec3, width float64, ok bool) {
-	g := VesselPortGeometry(c)
+	return hullSegmentOf(c.State.R, VesselPortGeometry(c))
+}
+
+// hullSegmentOf is hullSegment for a hull given as a position (the stack
+// bottom) and its derived geometry, so a ghost's reported hull and the
+// Proximity scene read the same segment.
+func hullSegmentOf(r orbital.Vec3, g PortGeometry) (p0, p1 orbital.Vec3, width float64, ok bool) {
 	if !g.Known || g.NoseM <= 0 {
 		return orbital.Vec3{}, orbital.Vec3{}, 0, false
 	}
-	p0 = c.State.R.Sub(g.Axis.Scale(dockPortTipInsetM))
-	p1 = c.State.R.Add(g.Axis.Scale(g.NoseM - dockPortTipInsetM))
+	p0 = r.Sub(g.Axis.Scale(dockPortTipInsetM))
+	p1 = r.Add(g.Axis.Scale(g.NoseM - dockPortTipInsetM))
 	return p0, p1, g.WidthM, true
+}
+
+// HullDistanceM is the distance between two hulls' axis segments: how far
+// apart the vessels ARE, as opposed to how far apart their anchors are
+// (State.R is the BOTTOM of a stack, so a 55 m stack's nose is 55 m from
+// its anchor; ADR 0053 decision 8's "inside 50 m" is a statement about the
+// hulls, review finding 4). It is the one measure behind every "near another
+// hull" rule: the warp cap, the bump scan, the Proximity ring, the need
+// reminders and the chip's range: row. A hull whose shape is unknown (attitude
+// uninitialised) falls back to the anchor distance, the best that can be said.
+// Radii are not subtracted: it is at most one hull width conservative, and it
+// is exact for the nose-to-nose approach the zone exists for.
+func HullDistanceM(aR orbital.Vec3, ga PortGeometry, bR orbital.Vec3, gb PortGeometry) float64 {
+	a0, a1, _, okA := hullSegmentOf(aR, ga)
+	b0, b1, _, okB := hullSegmentOf(bR, gb)
+	if !okA || !okB {
+		return aR.Sub(bR).Norm()
+	}
+	pa, pb := segmentClosest(a0, a1, b0, b1)
+	return pa.Sub(pb).Norm()
+}
+
+// craftHullDistanceM is HullDistanceM for two live vessels.
+func craftHullDistanceM(a, b *spacecraft.Spacecraft) float64 {
+	return HullDistanceM(a.State.R, VesselPortGeometry(a), b.State.R, VesselPortGeometry(b))
 }
 
 // segmentClosest returns the closest points between segments p0-p1 and
@@ -224,7 +255,7 @@ func segmentEnd(p, p0, p1 orbital.Vec3) (isEnd, isP1 bool) {
 }
 
 // checkBumps runs the contact test over every pair of flying vessels inside
-// DockingDistM (centre to centre) and bumps the ones whose hulls touch
+// DockingDistM (hull to hull, HullDistanceM) and bumps the ones whose hulls touch
 // outside the gate. Edge-triggered through World.bumpOverlap: a pair bumps
 // once per contact, not once per tick it stays overlapped.
 func (w *World) checkBumps() {
@@ -251,7 +282,7 @@ func (w *World) checkBumps() {
 			}
 			key := bumpKey(a, b)
 			dr := a.State.R.Sub(b.State.R)
-			if dr.Norm() > DockingDistM {
+			if craftHullDistanceM(a, b) > DockingDistM {
 				delete(w.bumpOverlap, key)
 				continue
 			}
@@ -307,7 +338,7 @@ func (w *World) checkBumps() {
 }
 
 // activeNearOtherHull reports whether the active vessel is inside
-// DockingDistM of another non-debris hull in the same frame: the zone where
+// DockingDistM (hull to hull) of another non-debris hull in the same frame: the zone where
 // warp is capped at burnWarpCap so two hulls cannot skip through each other
 // between ticks (ADR 0053 decision 8). Landed vessels are exempt, as they
 // are from docking and bumping.
@@ -323,7 +354,7 @@ func (w *World) activeNearOtherHull() bool {
 		if a.SystemIdx != b.SystemIdx || a.Primary.ID != b.Primary.ID {
 			continue
 		}
-		if a.State.R.Sub(b.State.R).Norm() <= DockingDistM {
+		if craftHullDistanceM(a, b) <= DockingDistM {
 			return true
 		}
 	}

@@ -34,10 +34,11 @@ const (
 // proximityPortMarkGlyph is the port mark on a hull.
 const proximityPortMarkGlyph = '○'
 
-// proximityInsideRing reports whether the pair is inside the 50 m ring the
-// "(need < ...)" reminders key on, the same test the rel speed suffix uses.
+// proximityInsideRing reports whether the pair is inside the 50 m zone the
+// "(need < ...)" reminders key on, the same test the rel speed suffix and the
+// warp cap use: hull to hull (st.HullGapM), not stack bottom to stack bottom.
 func proximityInsideRing(st sim.ProximityState) bool {
-	return st.RangeM < sim.DockingDistM
+	return st.HullGapM < sim.DockingDistM
 }
 
 // proximityPortNeedSuffix is "  (need < 0.50)" exactly when the pair is
