@@ -10,39 +10,36 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// buildStack docks n craft into a single composite at w.Crafts[0] and
-// returns it. Craft start close enough together (within DockingDistM,
-// matched velocity) that repeated checkDocking passes fuse them one pair at
-// a time, exactly the way a player accretes a multi-component stack in play
-// (dock #1, then dock #2 onto the resulting composite, ...).
+// buildStack docks n ported RCS Tugs into a single composite at w.Crafts[0]
+// and returns it, nose set along the core's velocity so every Undock has an
+// axis. The docks themselves are fixtures (DockCrafts); the capture that
+// normally precedes them is covered in docking_port_test.go.
 func buildStack(t *testing.T, w *World, n int) *spacecraft.Spacecraft {
 	t.Helper()
 	if n < 2 {
 		t.Fatalf("buildStack: n must be >= 2, got %d", n)
 	}
 	earth := w.Systems[0].FindBody("Earth")
-	a := w.Crafts[0]
+	r := orbital.Vec3{X: earth.RadiusMeters() + 500e3}
+	v := orbital.Vec3{Y: math.Sqrt(earth.GravitationalParameter() / r.Norm())}
+	a := spacecraft.NewFromLoadout("RCS-tug")
 	a.Name = "Core"
 	a.Primary = *earth
-	a.State.R = orbital.Vec3{X: earth.RadiusMeters() + 500e3}
-	v := math.Sqrt(earth.GravitationalParameter() / a.State.R.Norm())
-	a.State.V = orbital.Vec3{Y: v}
+	a.State = physics.StateVector{R: r, V: v, M: a.TotalMass()}
+	a.CurrentAttitudeDir = v.Unit()
+	w.Crafts = []*spacecraft.Spacecraft{a}
+	w.ActiveCraftIdx = 0
+	w.stampCraftID(a)
 
 	for i := 1; i < n; i++ {
-		b := spacecraft.NewFromLoadout(spacecraft.LoadoutSIVB1ID)
+		b := spacecraft.NewFromLoadout("RCS-tug")
 		b.Name = "Comp"
 		b.Primary = *earth
-		// Within DockingDistM (50 m) and matched velocity — fuses on the
-		// next checkDocking pass regardless of which craft it lands next to.
-		b.State = physics.StateVector{
-			R: w.Crafts[0].State.R.Add(orbital.Vec3{X: 5}),
-			V: w.Crafts[0].State.V,
-			M: b.TotalMass(),
-		}
+		b.State = physics.StateVector{R: r, V: v, M: b.TotalMass()}
+		w.stampCraftID(b)
 		w.Crafts = append(w.Crafts, b)
-		if _, _, ok := w.checkDocking(); !ok {
-			t.Fatalf("buildStack: dock #%d failed to fuse", i)
-		}
+		placePortToPort(w.Crafts[0], b, 0.3)
+		w.DockCrafts(0, len(w.Crafts)-1)
 	}
 	if len(w.Crafts) != 1 {
 		t.Fatalf("buildStack: expected 1 composite after %d docks, got %d craft", n, len(w.Crafts))
@@ -53,16 +50,24 @@ func buildStack(t *testing.T, w *World, n int) *spacecraft.Spacecraft {
 	return w.Crafts[0]
 }
 
-// TestUndockSeparationClearsDockingGates is the #342 regression test:
-// undocking a stack of n components must not immediately re-fuse, at every n
-// from a plain two-component split up through the five-component case a
-// loaded carrier (itself already a 3+ stack) can produce. Pre-fix, the local
-// split spread the restored components across a FIXED TOTAL SPAN (±35 m)
-// rather than a fixed adjacent gap, so the gap between neighbours shrank to
-// 70/(n-1) m as n grew — 35 m at n=3, 17.5 m at n=5 — both inside
-// DockingDistM (50 m) and DockingVMS (0.1 m/s), so checkDocking re-fused the
-// composite on the very next tick for n >= 3.
+// TestUndockSeparationClearsDockingGates is the #342 regression test, restated
+// for the port gate (ADR 0053): undocking a stack of n components must leave
+// no pair inside the docking gate, at every n from a plain two-component split
+// up to five. The hulls now part from contact rather than 75 m apart, so what
+// keeps them from re-capturing is the springs (0.15 m/s relative, over the
+// gate's 0.1) and the hull/port geometry, not distance; and that must hold
+// WITHOUT the re-arm latch, which is only the backstop.
 func TestUndockSeparationClearsDockingGates(t *testing.T) {
+	// Instrument check: the same predicate does return true for a pair that
+	// sits in the gate, so a "false" below means something.
+	ctrlA := spacecraft.NewFromLoadout("RCS-tug")
+	ctrlB := spacecraft.NewFromLoadout("RCS-tug")
+	ctrlA.CurrentAttitudeDir = orbital.Vec3{Y: 1}
+	placePortToPort(ctrlA, ctrlB, 0.3)
+	if !dockPairGateHolds(ctrlA, ctrlB) {
+		t.Fatal("control pair at 0.3 m port to port reads out of the gate: the predicate cannot return true")
+	}
+
 	for n := 2; n <= 5; n++ {
 		n := n
 		t.Run(fmt.Sprintf("n=%d", n), func(t *testing.T) {
@@ -75,35 +80,19 @@ func TestUndockSeparationClearsDockingGates(t *testing.T) {
 			if len(w.Crafts) != n {
 				t.Fatalf("expected %d craft after undock, got %d", n, len(w.Crafts))
 			}
-
-			// Measure BEFORE the regression check below — checkDocking
-			// mutates the slate on a match, so logging after it would
-			// describe the post-refuse state, not what Undock actually
-			// produced.
-			minSep, minRel := math.Inf(1), math.Inf(1)
+			w.localReArms = nil // the latch is the backstop, not the protection
 			for i := 0; i < len(w.Crafts); i++ {
 				for j := i + 1; j < len(w.Crafts); j++ {
-					sep := w.Crafts[i].State.R.Sub(w.Crafts[j].State.R).Norm()
-					rel := w.Crafts[i].State.V.Sub(w.Crafts[j].State.V).Norm()
-					if sep < minSep {
-						minSep = sep
-					}
-					if rel < minRel {
-						minRel = rel
+					if dockPairGateHolds(w.Crafts[i], w.Crafts[j]) {
+						t.Errorf("n=%d: components %d and %d are inside the docking gate straight after undock", n, i, j)
 					}
 				}
 			}
-			t.Logf("n=%d: min pairwise separation=%.2fm (gate %.0fm), min pairwise rel speed=%.4fm/s (gate %.2fm/s)",
-				n, minSep, DockingDistM, minRel, DockingVMS)
-
-			// The regression check: checkDocking must NOT find an
-			// eligible pair. A pre-fix n>=3 split re-fuses here, collapsing
-			// the slate back toward 1 craft.
-			if _, _, ok := w.checkDocking(); ok {
-				t.Errorf("n=%d: checkDocking re-fused the just-undocked stack (slate now %d craft) — adjacent-gap separation was not wide enough", n, len(w.Crafts))
+			if startsMagnet(w) {
+				t.Errorf("n=%d: checkDocking began re-capturing the just-undocked stack", n)
 			}
 			if len(w.Crafts) != n {
-				t.Errorf("n=%d: slate count = %d after the post-undock checkDocking pass, want %d (unchanged)", n, len(w.Crafts), n)
+				t.Errorf("n=%d: slate count = %d after the post-undock scan, want %d (unchanged)", n, len(w.Crafts), n)
 			}
 		})
 	}

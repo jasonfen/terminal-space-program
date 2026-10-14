@@ -220,20 +220,39 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		if active == nil {
 			return nil, errNoActiveCraftToCopy
 		}
-		// v0.8.3+: place the new craft inside the docking gate of
-		// the active craft, matching its velocity. The 25 m offset
-		// is half the docking distance — close enough that one or
-		// two RCS taps null residuals to dock, far enough that the
-		// craft don't immediately auto-fuse before the player can
-		// see the spawn.
-		const offsetM = 25.0
+		// ADR 0053 "Settled here" item 5: the partner spawns port to port,
+		// alongsidePortGapM ahead of the active vessel's nose and facing it,
+		// velocity copied: a straight, slow approach away from a dock. It used
+		// to sit +25 m along world X, which was inside the old 50 m click (it
+		// fused 0.6 s after `enter`) and, with hulls drawn at scale, could put
+		// a tug inside the active vessel's own hull.
+		const alongsidePortGapM = 25.0
 		c.Primary = active.Primary
 		// v0.16 / ADR 0015: an Alongside spawn clones the active Vessel's
 		// state, so it inherits the *active* Vessel's System (not the
 		// viewed one); view-follows-active then keeps them co-framed.
 		c.SystemIdx = active.SystemIdx
+		w.initCraftAttitude(active)
+		axis := active.CurrentAttitudeDir.Unit()
+		if axis.Norm() == 0 {
+			axis = progradeUnit(active)
+		}
+		// Port offsets from each vessel's position, along its own nose. A
+		// port-less hull spawns the same way: the nose edge is where a port
+		// would be, and it is still just a straight approach.
+		noseEdge := func(st []spacecraft.Stage) float64 {
+			return float64(StackRows(st))*DockStrideM - dockPortTipInsetM
+		}
+		c.CurrentAttitudeDir = axis.Scale(-1)
+		// Hold that pointing: a SAS slew back to the default prograde would
+		// swing the nose off the partner within seconds. Only when the active
+		// vessel itself rides prograde (the usual orbital default); otherwise
+		// the new vessel keeps whatever its own default is.
+		if active.State.V.Norm() > 0 && axis.Dot(active.State.V.Unit()) > 0.996 {
+			c.AttitudeMode = spacecraft.BurnRetrograde
+		}
 		c.State = physics.StateVector{
-			R: active.State.R.Add(orbital.Vec3{X: offsetM}),
+			R: active.State.R.Add(axis.Scale(noseEdge(active.Stages) + alongsidePortGapM + noseEdge(c.Stages))),
 			V: active.State.V,
 			M: c.TotalMass(),
 		}

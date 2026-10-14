@@ -297,7 +297,14 @@ func ComposeEngineBell(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis w
 // Each "pixel" is one braille sub-cell dot (`scaleMPerPx` metres
 // across); the canvas's PlotColored accumulates dots per cell and
 // renders the resulting braille char.
-func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx float64) []SpritePixel {
+//
+// seams (ADR 0053 "Settled here" item 1) are the stage indices where a docked
+// component begins, ascending (sim.DockSeams of a composite; none for a lone
+// vessel). Each docked component above a seam is drawn NOSE TO THE SEAM,
+// flipped: its stages run in reverse order up the stack, so the joined picture
+// is the two hulls as they sat the tick before the dock. The total height is
+// unchanged, so the nose, and the port on it, stay where StackRows says.
+func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx float64, seams ...int) []SpritePixel {
 	pxSize := scaleMPerPx // one braille sub-pixel = scaleMPerPx world metres
 	stackX, stackY := stackDirScreen(cmdWorld, basis)
 	// Width axis: perpendicular to stack in screen, rotated −90° so
@@ -306,7 +313,7 @@ func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis
 	widthX, widthY := stackY, -stackX
 
 	var pixels []SpritePixel
-	for _, r := range launchStackLayout(stages) {
+	for _, r := range flipDockedBlocks(launchStackLayout(stages), seams) {
 		for row := 0; row < r.rows; row++ {
 			rowAbove := float64(row + r.rowBase)
 			for col := 0; col < r.width; col++ {
@@ -325,6 +332,59 @@ func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis
 		return nil
 	}
 	return pixels
+}
+
+// flipDockedBlocks reflects every docked block of a composed stack nose to
+// the seam below it. A block is the run of rects whose stage index falls in
+// [seams[k], seams[k+1]) (the last one runs to the top), minus the trailing
+// taper/separator rects of its last stage, which are the gap to the NEXT
+// block and stay put. Rows within a block mirror: a rect at rowBase rb, n
+// rows tall, in a block spanning [lo, hi) lands at lo + (hi - rb - n):
+// its distance from the block's top becomes its distance from the block's
+// bottom. The rects are returned as a copy; seams out of range or
+// non-ascending are ignored.
+func flipDockedBlocks(rects []stackRect, seams []int) []stackRect {
+	if len(seams) == 0 {
+		return rects
+	}
+	out := append([]stackRect(nil), rects...)
+	for k, start := range seams {
+		end := math.MaxInt
+		if k+1 < len(seams) {
+			end = seams[k+1]
+		}
+		if start <= 0 || end <= start {
+			continue
+		}
+		inBlock := func(r stackRect) bool {
+			if r.stage < start || r.stage >= end {
+				return false
+			}
+			// The gap above the block's last stage (taper/separator to the
+			// next block) belongs to the seam, not the block.
+			return !(k+1 < len(seams) && r.stage == end-1 && r.kind != rectBody)
+		}
+		lo, hi := math.MaxInt, 0
+		for _, r := range out {
+			if inBlock(r) {
+				if r.rowBase < lo {
+					lo = r.rowBase
+				}
+				if top := r.rowBase + r.rows; top > hi {
+					hi = top
+				}
+			}
+		}
+		if hi <= lo {
+			continue
+		}
+		for i, r := range out {
+			if inBlock(r) {
+				out[i].rowBase = lo + (hi - r.rowBase - r.rows)
+			}
+		}
+	}
+	return out
 }
 
 // stackRectKind says what a stackRect is: a stage body, the inter-stage

@@ -138,7 +138,7 @@
         },
         {
           "name": "Close in and dock",
-          "description": "Match up and dock the two vessels.",
+          "description": "Fly nose to nose: port within half a metre, under 0.1 m/s, within 4 degrees. The magnet closes the last half metre.",
           "kind": "dock",
           "params": {}
         }
@@ -228,7 +228,7 @@
         },
         {
           "name": "Dock the two vessels",
-          "description": "Target the other vessel ([t]), close in ([K] plants a rendezvous nudge), and dock.",
+          "description": "Target the other vessel ([t]), close in ([K] plants a rendezvous nudge), then fly port to port ([;] reaches the PORT frame): within half a metre, under 0.1 m/s, noses within 4 degrees. The magnet docks you.",
           "kind": "dock",
           "params": {}
         }

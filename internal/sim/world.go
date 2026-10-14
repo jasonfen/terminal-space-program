@@ -72,6 +72,11 @@ type World struct {
 	// push (#343) makes an acceptable trade against a save-schema bump.
 	localReArms []localReArm
 
+	// dockMagnet is the port capture in progress (ADR 0053 decision 5,
+	// docking_magnet.go): the five-second pull between the gate first
+	// holding and the dock. Transient, never persisted.
+	dockMagnet *dockMagnet
+
 	// LastLocalReArmRefusal records the most recent same-World dock refused
 	// by a live localReArm latch, for HUD-side messaging (#372) — the local
 	// mirror of relay/dock.go's reArmNoticed/reArmNoticeTo. checkDocking
@@ -1579,6 +1584,12 @@ func (w *World) clampedWarp() float64 {
 	if w.AnyCraftThrusting() && selected > burnWarpCap {
 		selected = burnWarpCap
 	}
+	// ADR 0053 decision 5: the docking magnet's five-second pull runs at 1x
+	// so it is five real seconds (co-warp min-wins carries that to a
+	// partner). One hook; the rest of the magnet lives in docking_magnet.go.
+	if w.dockMagnet != nil && selected > 1 {
+		selected = 1
+	}
 	// v0.8.6.x+: throttle-change clamp. A throttle adjust at high
 	// warp ramps thrust faster than the integrator's per-tick step
 	// can resolve, the same aliasing path that motivates the burn-
@@ -1819,7 +1830,9 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	// Landed craft are already out (they co-rotate; nose is cosmetic).
 	// InstantSAS opts back into the legacy snap (the consumers in
 	// stepThrust / the navball read commanded directly in that mode).
-	if !w.InstantSAS {
+	// ADR 0053 decision 5: the docking magnet owns the nose of the vessel
+	// it is pulling, so the slew is suspended for it.
+	if !w.InstantSAS && !w.dockMagnetPulls(c) {
 		c.SlewToward(w.slewTargetFor(c), secs)
 	}
 
