@@ -43,6 +43,18 @@ func (m *reportingModel) reconcileDocking(w *sim.World, coupled map[string]bool,
 			}
 		}
 		w.SetGhostDockBlocks(blocked)
+		// The approacher rule: publish this seat's intent, install the gate.
+		me := relay.SeatCraft{Owner: m.owner, CraftID: active.ID}
+		var target relay.SeatCraft
+		if w.Target.Kind == sim.TargetGhost {
+			target = relay.SeatCraft{Owner: w.Target.GhostOwner, CraftID: w.Target.CraftID}
+		}
+		initiatorToward := ""
+		if arm := w.RendezvousArm; arm != nil && arm.Initiator {
+			initiatorToward = arm.TargetOwner
+		}
+		m.srv.dock.Approach.Publish(me, target, initiatorToward)
+		w.SetGhostPullGate(m.srv.dock.Approach.Gate(me))
 		if ghostOwner, ghostCraftID, ok := relay.DetectGuestContact(w, coupled); ok {
 			ownHandle := handles[m.owner]
 			if _, claimed := m.srv.dock.Claim(m.owner, ownHandle, active.ID, ghostOwner, handles[ghostOwner], ghostCraftID); claimed {
@@ -57,6 +69,7 @@ func (m *reportingModel) reconcileDocking(w *sim.World, coupled map[string]bool,
 		w.CheckGhostBumps()
 	} else {
 		w.ReleaseGhostCapture()
+		m.srv.dock.Approach.Clear(m.owner)
 	}
 
 	// Advance every dock touching this session against its World.

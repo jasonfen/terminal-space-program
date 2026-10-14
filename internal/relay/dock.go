@@ -148,6 +148,10 @@ type DockChip struct {
 // Every mutation takes the lock; a v2 wire keeps the same call surface with
 // the store behind it.
 type DockLedger struct {
+	// Approach is the cross-player approacher rule's shared intent and pull
+	// registry (dock_approach.go).
+	Approach ApproachBoard
+
 	mu      sync.Mutex
 	records map[uint64]*DockRecord
 	nextID  uint64

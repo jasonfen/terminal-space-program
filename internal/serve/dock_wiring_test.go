@@ -102,6 +102,8 @@ func TestCrossPlayerDockThroughReportingModels(t *testing.T) {
 	// the coupled guest ghost and claims, making the host the docker.
 	guest = tick(guest)
 	host = tick(host)
+	guest = tick(guest)
+	aimAtGhost(t, hw) // the host flies the approach, so it docks and owns
 
 	for i := 0; i < 400 && !hostStackHasGuest(hw); i++ {
 		// Keep the two in the same subspace and, while the guest still holds

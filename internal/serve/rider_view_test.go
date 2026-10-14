@@ -45,6 +45,8 @@ func TestDockGuestFollowsStackCamera(t *testing.T) {
 
 	guest = tick(guest)
 	host = tick(host)
+	guest = tick(guest)
+	aimAtGhost(t, hw) // the host flies the approach, so it docks and owns
 
 	for i := 0; i < 400 && !hostStackHasGuest(hw); i++ {
 		gw.Clock.SimTime = hw.Clock.SimTime

@@ -41,6 +41,7 @@ func seats(t *testing.T, gapM float64) (srv *Server, host, guest tea.Model, hw, 
 // seats' Worlds agree: one stack on the host, the guest riding.
 func TestCrossPlayerDockClaimWaitsForTheMagnet(t *testing.T) {
 	srv, host, guest, hw, gw := seats(t, 0.4)
+	aimAtGhost(t, hw) // the host flies the approach, so it docks and owns
 	start := hw.Clock.SimTime
 	var claimedAt time.Duration
 	sawPull := false
