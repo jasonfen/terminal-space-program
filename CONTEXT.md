@@ -1646,7 +1646,8 @@ partner and the speed (`bumped <name> at <speed>; re-approach under
 only when the ends actually meet. It needs a closing speed (hulls already
 parting do not bump), happens once per contact, and never involves a
 Landed Vessel or two debris stages. No damage. Inside 50 m of another
-non-debris hull warp is capped at 10x, like a burn, so hulls cannot alias
+non-debris hull (the gap between the hulls, not between the two stack
+bottoms, so the far end of a 55 m stack counts) warp is capped at 10x, like a burn, so hulls cannot alias
 through each other. Cross-player, only the bumper moves: against a **Ghost** the friend's hull
 is immovable and the friend is not told.
 _Avoid_: Collision, Crash (reserved for ground impact), Bounce.
@@ -1689,7 +1690,8 @@ _Avoid_: Docking notification, Fuse record, Dock notice.
 **Spring Release**:
 The 0.15 m/s push along the **Dock Seam** between each adjacent pair of
 restored Vessels on **Undocking**, applied where the hulls stood: the pieces
-come back port to port 1.5 m apart, nothing is teleported. Enough to open a
+come back port to port a row or two apart (1.5 m, or 3 m between two tall
+stages, where the sprite adds a taper row), nothing is teleported. Enough to open a
 gap the pilot can see within seconds, small enough that each restored orbit
 is essentially unchanged. The **Re-arm Latch**, not the push, is what
 prevents an immediate re-dock.

@@ -49,8 +49,14 @@ type ProximityState struct {
 	// positive while the gap is shrinking — the same sign convention the
 	// TARGET box's "close:" row (PROXIMITY's own row keeps the "closing:"
 	// spelling, #478 A4 only shortened TARGET's) has always used.
-	RangeM    float64
-	VRelMS    float64
+	RangeM float64
+	VRelMS float64
+	// HullGapM is the distance between the two HULLS (HullDistanceM), the
+	// measure of every "inside 50 m" rule and of the chip's range: row.
+	// RangeM above stays anchor to anchor (stack bottom to stack bottom) for
+	// closing, the camera fit and the map TARGET box; HullGapM equals it
+	// when either shape is unknown.
+	HullGapM  float64
 	ClosingMS float64
 
 	// TargetName is the label to put on the centred vessel — a local
@@ -132,6 +138,10 @@ func (w *World) ProximityState() (ProximityState, bool) {
 		TargetName:  w.TargetName(),
 	}
 	w.resolveProximityPorts(&st, c, rT)
+	st.HullGapM = rangeM
+	if st.Own.Known && st.Target.Known {
+		st.HullGapM = HullDistanceM(c.State.R, st.Own, rT, st.Target)
+	}
 	return st, true
 }
 
@@ -197,6 +207,9 @@ func (w *World) resolveProximityPorts(st *ProximityState, own *spacecraft.Spacec
 // its top component's and a loaded carrier has none until the last payload
 // is deployed.
 func portlessReason(g PortGeometry) string {
+	if g.PortsInUse {
+		return "its port is in use"
+	}
 	if g.Stacked {
 		return "top is " + g.TopName
 	}

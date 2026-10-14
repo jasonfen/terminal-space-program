@@ -68,13 +68,63 @@ func bumpKey(a, b *spacecraft.Spacecraft) [2]uint64 {
 // the stack (dockport.go), and a hull spans -half a row to L - half a row
 // along the axis.
 func hullSegment(c *spacecraft.Spacecraft) (p0, p1 orbital.Vec3, width float64, ok bool) {
-	g := VesselPortGeometry(c)
+	return hullSegmentOf(c.State.R, VesselPortGeometry(c))
+}
+
+// hullSegmentOf is hullSegment for a hull given as a position (the stack
+// bottom) and its derived geometry, so a ghost's reported hull and the
+// Proximity scene read the same segment.
+func hullSegmentOf(r orbital.Vec3, g PortGeometry) (p0, p1 orbital.Vec3, width float64, ok bool) {
 	if !g.Known || g.NoseM <= 0 {
 		return orbital.Vec3{}, orbital.Vec3{}, 0, false
 	}
-	p0 = c.State.R.Sub(g.Axis.Scale(dockPortTipInsetM))
-	p1 = c.State.R.Add(g.Axis.Scale(g.NoseM - dockPortTipInsetM))
+	p0 = r.Sub(g.Axis.Scale(dockPortTipInsetM))
+	p1 = r.Add(g.Axis.Scale(g.NoseM - dockPortTipInsetM))
 	return p0, p1, g.WidthM, true
+}
+
+// HullDistanceM is the gap between two hulls' SURFACES: how far apart the
+// vessels ARE, as opposed to how far apart their anchors are (State.R is the
+// BOTTOM of a stack, so a 55 m stack's nose is 55 m from its anchor; ADR 0053
+// decision 8's "inside 50 m" is a statement about the hulls, review finding
+// 4). It is the one measure behind every "near another hull" rule: the warp
+// cap, the bump scan, the Proximity ring, the need reminders and the chip's
+// range: row, and it reads 0 when the hulls touch. Hulls within 45 degrees of
+// parallel are flat-ended cylinders: the gap is the axial gap between their
+// spans combined with the lateral gap between their sides (axis distance less
+// the radii). Steeper pairs use the axis-segment distance less the radii. A
+// hull whose shape is unknown (attitude uninitialised) falls back to the
+// anchor distance, the best that can be said.
+func HullDistanceM(aR orbital.Vec3, ga PortGeometry, bR orbital.Vec3, gb PortGeometry) float64 {
+	a0, a1, wa, okA := hullSegmentOf(aR, ga)
+	b0, b1, wb, okB := hullSegmentOf(bR, gb)
+	if !okA || !okB {
+		return aR.Sub(bR).Norm()
+	}
+	pa, pb := segmentClosest(a0, a1, b0, b1)
+	n := pa.Sub(pb)
+	rsum := (wa + wb) / 2
+	ua, ub := a1.Sub(a0).Unit(), b1.Sub(b0).Unit()
+	cos := ua.Dot(ub)
+	if math.Abs(cos) < hullNearParallelCos {
+		return math.Max(0, n.Norm()-rsum)
+	}
+	if cos < 0 {
+		ub = ub.Scale(-1)
+	}
+	u := ua.Add(ub).Unit()
+	ta0, ta1 := a0.Sub(b0).Dot(u), a1.Sub(b0).Dot(u)
+	tb1 := b1.Sub(b0).Dot(u)
+	loA, hiA := math.Min(ta0, ta1), math.Max(ta0, ta1)
+	loB, hiB := math.Min(0, tb1), math.Max(0, tb1)
+	axial := math.Max(0, math.Max(loA, loB)-math.Min(hiA, hiB))
+	lateral := math.Max(0, n.Sub(u.Scale(n.Dot(u))).Norm()-rsum)
+	return math.Hypot(axial, lateral)
+}
+
+// craftHullDistanceM is HullDistanceM for two live vessels.
+func craftHullDistanceM(a, b *spacecraft.Spacecraft) float64 {
+	return HullDistanceM(a.State.R, VesselPortGeometry(a), b.State.R, VesselPortGeometry(b))
 }
 
 // segmentClosest returns the closest points between segments p0-p1 and
@@ -144,6 +194,72 @@ func hullsTouch(a0, a1 orbital.Vec3, wa float64, b0, b1 orbital.Vec3, wb float64
 	return true, n
 }
 
+// hullNearParallelCos is the |cos| of the axis angle above which two hulls are
+// treated as lying (anti)parallel for the contact test: within 45 degrees.
+const hullNearParallelCos = 0.7071
+
+// hullContact is the contact test AND the contact normal for two hulls
+// (flat-ended cylinders as axis segments with widths). It returns whether they
+// touch and, when they do, the unit normal pointing from B to A (the
+// direction A is pushed), or the zero vector when no usable normal exists and
+// the caller should fall back to the line between the positions. A
+// cross-player bump against a ghost's reported hull calls this same helper.
+//
+// For hulls lying within 45 degrees of parallel the contact is decided by
+// LEAST PENETRATION, not by the closest-point line between the axes: with the
+// noses laterally off the same line by more than a few cm (a crooked or
+// off-centre nose-first hit) that line is the mostly LATERAL nose-to-nose
+// offset, while the real contact is the end FACE, so the closing speed along
+// it read ~0 and the hulls passed through (review finding 1). Here the axial
+// overlap (how far the entering end has crossed the other's face plane) is
+// compared with the lateral depth ((wa+wb)/2 - axis distance); the smaller
+// one is the face the hulls are really touching, so a nose-first approach
+// bounces along the axis, and a side hit, whose axial overlap is long, keeps
+// the lateral normal. Touch needs axial overlap, which keeps the flat-ended
+// rule (two noses never touch with a positive gap between them). Hulls at a
+// steeper angle (a nose into a flank) use hullsTouch and its closest-point
+// normal unchanged.
+func hullContact(a0, a1 orbital.Vec3, wa float64, b0, b1 orbital.Vec3, wb float64) (bool, orbital.Vec3) {
+	ua, ub := a1.Sub(a0).Unit(), b1.Sub(b0).Unit()
+	cos := ua.Dot(ub)
+	if math.Abs(cos) < hullNearParallelCos || ua.Norm() == 0 || ub.Norm() == 0 {
+		touch, n := hullsTouch(a0, a1, wa, b0, b1, wb)
+		if !touch || n.Norm() < bumpMinNormalM {
+			return touch, orbital.Vec3{}
+		}
+		return true, n.Unit()
+	}
+	pa, pb := segmentClosest(a0, a1, b0, b1)
+	n := pa.Sub(pb)
+	rsum := (wa + wb) / 2
+	if n.Norm() >= rsum {
+		return false, orbital.Vec3{}
+	}
+	if cos < 0 {
+		ub = ub.Scale(-1)
+	}
+	u := ua.Add(ub).Unit()
+	// Axial intervals along u, relative to b0 to keep the numbers small.
+	ta0, ta1 := a0.Sub(b0).Dot(u), a1.Sub(b0).Dot(u)
+	tb0, tb1 := 0.0, b1.Sub(b0).Dot(u)
+	loA, hiA := math.Min(ta0, ta1), math.Max(ta0, ta1)
+	loB, hiB := math.Min(tb0, tb1), math.Max(tb0, tb1)
+	overlap := math.Min(hiA, hiB) - math.Max(loA, loB)
+	if overlap <= 1e-9 {
+		return false, orbital.Vec3{}
+	}
+	if overlap <= rsum-n.Norm() {
+		if (loA+hiA)/2 >= (loB+hiB)/2 {
+			return true, u
+		}
+		return true, u.Scale(-1)
+	}
+	if n.Norm() < bumpMinNormalM {
+		return true, orbital.Vec3{}
+	}
+	return true, n.Unit()
+}
+
 // segmentEnd reports whether p sits on an end of segment p0-p1, and if so
 // whether it is the p1 (nose) end.
 func segmentEnd(p, p0, p1 orbital.Vec3) (isEnd, isP1 bool) {
@@ -158,7 +274,7 @@ func segmentEnd(p, p0, p1 orbital.Vec3) (isEnd, isP1 bool) {
 }
 
 // checkBumps runs the contact test over every pair of flying vessels inside
-// DockingDistM (centre to centre) and bumps the ones whose hulls touch
+// DockingDistM (hull to hull, HullDistanceM) and bumps the ones whose hulls touch
 // outside the gate. Edge-triggered through World.bumpOverlap: a pair bumps
 // once per contact, not once per tick it stays overlapped.
 func (w *World) checkBumps() {
@@ -185,7 +301,7 @@ func (w *World) checkBumps() {
 			}
 			key := bumpKey(a, b)
 			dr := a.State.R.Sub(b.State.R)
-			if dr.Norm() > DockingDistM {
+			if craftHullDistanceM(a, b) > DockingDistM {
 				delete(w.bumpOverlap, key)
 				continue
 			}
@@ -194,7 +310,7 @@ func (w *World) checkBumps() {
 			if !okA || !okB {
 				continue
 			}
-			touch, n := hullsTouch(a0, a1, wa, b0, b1, wb)
+			touch, nh := hullContact(a0, a1, wa, b0, b1, wb)
 			if !touch {
 				delete(w.bumpOverlap, key)
 				continue
@@ -202,18 +318,15 @@ func (w *World) checkBumps() {
 			if w.bumpOverlap[key] || bumpPairInGate(w, a, b) {
 				continue
 			}
-			// Crossing or collinear axes have no usable closest-point line
-			// (a coaxial head-on pair carries only integrator-noise
-			// lateral offset, ~1e-4 m, which would read as a sideways
-			// normal and a zero closing speed); fall back to the line
+			// No usable contact normal (collinear axes carrying only
+			// integrator-noise lateral offset): fall back to the line
 			// between the positions.
-			if n.Norm() < bumpMinNormalM {
-				n = dr
+			if nh.Norm() == 0 {
+				if dr.Norm() < 1e-9 {
+					continue
+				}
+				nh = dr.Unit()
 			}
-			if n.Norm() < 1e-9 {
-				continue
-			}
-			nh := n.Unit()
 			s := -a.State.V.Sub(b.State.V).Dot(nh)
 			if s <= 0 {
 				continue // already parting: nothing to bounce
@@ -244,7 +357,7 @@ func (w *World) checkBumps() {
 }
 
 // activeNearOtherHull reports whether the active vessel is inside
-// DockingDistM of another non-debris hull in the same frame: the zone where
+// DockingDistM (hull to hull) of another non-debris hull in the same frame: the zone where
 // warp is capped at burnWarpCap so two hulls cannot skip through each other
 // between ticks (ADR 0053 decision 8). Landed vessels are exempt, as they
 // are from docking and bumping.
@@ -260,7 +373,7 @@ func (w *World) activeNearOtherHull() bool {
 		if a.SystemIdx != b.SystemIdx || a.Primary.ID != b.Primary.ID {
 			continue
 		}
-		if a.State.R.Sub(b.State.R).Norm() <= DockingDistM {
+		if craftHullDistanceM(a, b) <= DockingDistM {
 			return true
 		}
 	}

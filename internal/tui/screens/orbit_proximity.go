@@ -393,6 +393,12 @@ func proximityRingPoints(center, e1, e2 orbital.Vec3, radiusM float64) []orbital
 // rect iff the rect's NEAREST point to the centre is inside-or-on the
 // circle and its FARTHEST point (always a corner) is outside-or-on it.
 func (v *OrbitView) proximityRingVisible(st sim.ProximityState, radiusM float64) bool {
+	return v.proximityRingVisibleAt(st.TargetWorld, radiusM)
+}
+
+// proximityRingVisibleAt is proximityRingVisible for a ring centred on
+// center (the 50 m ring is centred on the target's port, not its base).
+func (v *OrbitView) proximityRingVisibleAt(center orbital.Vec3, radiusM float64) bool {
 	scale := v.canvas.Scale()
 	if scale <= 0 {
 		return false
@@ -401,7 +407,7 @@ func (v *OrbitView) proximityRingVisible(st sim.ProximityState, radiusM float64)
 	if pxR < proximityRingMinPixels {
 		return false
 	}
-	cx, cy, _ := v.canvas.Project(st.TargetWorld)
+	cx, cy, _ := v.canvas.Project(center)
 	fcx, fcy := float64(cx), float64(cy)
 	pxW, pxH := float64(v.canvas.Cols()*2), float64(v.canvas.Rows()*4)
 
@@ -460,11 +466,29 @@ func (v *OrbitView) drawProximityRangeRings(w *sim.World, st sim.ProximityState)
 //     side, or a ghost whose shape is unknown, never goes green.
 func (v *OrbitView) drawProximityDockGate(w *sim.World, st sim.ProximityState) {
 	const gateRadius = sim.DockingDistM
-	if !v.proximityRingVisible(st, gateRadius) {
+	centre := proximityGateRingCentre(st)
+	if !v.proximityRingVisibleAt(centre, gateRadius) {
 		return
 	}
-	pts := proximityRingPoints(st.TargetWorld, st.Frame.AlongTrack, st.Frame.RadialOut, gateRadius)
+	pts := proximityRingPoints(centre, st.Frame.AlongTrack, st.Frame.RadialOut, gateRadius)
 	v.canvas.PlotPolylineClass(pts, proximityGateRingColor(w, st), widgets.ClassScenery)
+}
+
+// proximityGateRingCentre is where the 50 m ring is drawn: on the target's
+// docking port when it has one (the thing the approach is flown to), else on
+// the middle of its hull, else on its anchor. It used to sit on the target's
+// BASE, which for a 55 m stack is a circle around the engine bell with the
+// port outside it (review finding 4); the zone itself is hull to hull
+// (sim.HullDistanceM).
+func proximityGateRingCentre(st sim.ProximityState) orbital.Vec3 {
+	g := st.Target
+	switch {
+	case g.Known && g.HasPort():
+		return st.TargetWorld.Add(g.Axis.Scale(g.Ports[0].OffsetM))
+	case g.Known && g.NoseM > 0:
+		return st.TargetWorld.Add(g.Axis.Scale(g.NoseM/2 - sim.DockStrideM/2))
+	}
+	return st.TargetWorld
 }
 
 // proximityGateRingColor is the ring's colour for a scene. Pure, so a test
@@ -791,7 +815,7 @@ func clampInt(x, lo, hi int) int {
 // never disagree with the game's actual refusal, for any approach
 // geometry.
 func proximityOverSpeed(st sim.ProximityState) bool {
-	return st.RangeM < sim.DockingDistM && st.VRelMS >= sim.DockingVMS
+	return st.HullGapM < sim.DockingDistM && st.VRelMS >= sim.DockingVMS
 }
 
 // proximityOverSpeedSuffix returns the "(need < 0.10)" reminder for the
@@ -843,7 +867,7 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 	// can hit with no other on-screen explanation.
 	rows := []string{
 		v.proximityChipHeader(st),
-		chipRow("range:", readout.Distance(st.RangeM)),
+		chipRow("range:", readout.Distance(st.HullGapM)),
 		v.proximityPortRow(st, proximityCapturing(w)),
 	}
 	if st.HasPort {
@@ -941,7 +965,7 @@ func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
 	}
 	lines := []string{
 		v.proximityChipHeader(st),
-		chipRow("range:", readout.Distance(st.RangeM)),
+		chipRow("range:", readout.Distance(st.HullGapM)),
 	}
 	// ADR 0053 decision 6: port: and align: survive the shrink, but only
 	// inside 50 m and out of gate; off-axis: is dropped in Compact Form.
