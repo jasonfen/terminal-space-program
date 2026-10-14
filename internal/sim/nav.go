@@ -17,12 +17,18 @@ import "github.com/jasonfen/terminal-space-program/internal/spacecraft"
 //	             flip; radial± rebinds to BurnTarget / BurnAntiTarget
 //	             (toward / away from target). Only valid when
 //	             World.Target.Kind == TargetCraft. v0.9.3+.
+//	NavPort    — the TARGET's docking-port frame (ADR 0053 decision 7):
+//	             q/e push in/out along the port's axis, w/s up/down and
+//	             a/d left/right across its face. Offered by `;` only when
+//	             the target has a port; the self-switch never enters it.
+//	             Appended last: the numbers are persisted (`nav_mode`).
 type NavMode int
 
 const (
 	NavOrbit NavMode = iota
 	NavSurface
 	NavTarget
+	NavPort
 )
 
 // String returns a short HUD label. #478 A2 (one spelling of a frame
@@ -36,6 +42,8 @@ func (n NavMode) String() string {
 		return "SURF"
 	case NavTarget:
 		return "TGT"
+	case NavPort:
+		return "PORT"
 	}
 	return "ORBIT"
 }
@@ -65,7 +73,28 @@ func (w *World) ResolveAttitudeIntent(intent AttitudeIntent) spacecraft.BurnMode
 	if nav == NavTarget && !w.HasRelativeTarget() {
 		nav = NavOrbit
 	}
+	if nav == NavPort && !w.TargetHasPort() {
+		nav = NavOrbit
+	}
 	switch nav {
+	case NavPort:
+		// ADR 0053 decision 7: the six keys become the six port
+		// directions. q pushes IN toward their port (your nose on this
+		// is the docking attitude), e out, w/s up/down, a/d left/right.
+		switch intent {
+		case IntentRadialOut:
+			return spacecraft.BurnPortIn
+		case IntentRadialIn:
+			return spacecraft.BurnPortOut
+		case IntentPrograde:
+			return spacecraft.BurnPortUp
+		case IntentRetrograde:
+			return spacecraft.BurnPortDown
+		case IntentNormalPlus:
+			return spacecraft.BurnPortLeft
+		case IntentNormalMinus:
+			return spacecraft.BurnPortRight
+		}
 	case NavTarget:
 		switch intent {
 		case IntentPrograde:
@@ -101,43 +130,58 @@ func (w *World) ResolveAttitudeIntent(intent AttitudeIntent) spacecraft.BurnMode
 }
 
 // CycleNavMode advances World.NavMode through Surface → Orbit → Target
-// → Surface (Jason, 2026-10-08; it was Orbit → Surface → Target).
-// NavTarget is skipped when no craft target is bound so the player never
-// lands on a mode that silently degrades back to orbit. The order lives in
-// navModeNext rather than in the enum, because the enum's numbers are
-// persisted (save `nav_mode`). Returns the new mode for the caller's HUD
-// flash.
+// → Port → Surface (Jason, 2026-10-08 for the first three; ADR 0053
+// decision 7 appends Port). NavTarget is skipped when no craft target is
+// bound, and NavPort unless the target has a docking port, so the player
+// never lands on a mode that silently degrades back to orbit. The order
+// lives in navModeNext rather than in the enum, because the enum's
+// numbers are persisted (save `nav_mode`). Returns the new mode for the
+// caller's HUD flash.
 func (w *World) CycleNavMode() NavMode {
 	// Not comms-gated (ADR 0027): NavMode is the navball reference frame —
 	// a display / SAS-reference toggle (like the camera), not a new command
 	// to the vessel. The gated attitude command is SetAttitudeMode.
 	hasCraftTarget := w.HasRelativeTarget()
-	for i := 0; i < 3; i++ {
+	hasPort := w.TargetHasPort()
+	for i := 0; i < 4; i++ {
 		w.NavMode = navModeNext(w.NavMode)
-		if w.NavMode != NavTarget || hasCraftTarget {
-			return w.NavMode
+		if w.NavMode == NavTarget && !hasCraftTarget {
+			continue
 		}
+		if w.NavMode == NavPort && !hasPort {
+			continue
+		}
+		return w.NavMode
 	}
 	return w.NavMode
 }
 
-// navModeNext is the `;` cycle order: Surface → Orbit → Target → Surface.
+// navModeNext is the `;` cycle order: Surface → Orbit → Target → Port →
+// Surface.
 func navModeNext(m NavMode) NavMode {
 	switch m {
 	case NavSurface:
 		return NavOrbit
 	case NavOrbit:
 		return NavTarget
+	case NavTarget:
+		return NavPort
 	default:
 		return NavSurface
 	}
 }
 
 // reconcileNavMode forces NavTarget back to NavOrbit when the player
-// drops or swaps off a craft target. Called from every Target mutator
-// so NavMode stays self-consistent with what the HUD displays. v0.9.3+.
+// drops or swaps off a craft target, and NavPort back to NavOrbit when
+// the target changes to one without a port or loses its port. Called from
+// every Target mutator (and once a tick, for a target that sheds its
+// port) so NavMode stays self-consistent with what the HUD displays.
+// v0.9.3+; Port ADR 0053.
 func (w *World) reconcileNavMode() {
 	if w.NavMode == NavTarget && !w.HasRelativeTarget() {
+		w.NavMode = NavOrbit
+	}
+	if w.NavMode == NavPort && !w.TargetHasPort() {
 		w.NavMode = NavOrbit
 	}
 }

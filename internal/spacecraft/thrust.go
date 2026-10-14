@@ -78,13 +78,19 @@ func (s *Spacecraft) ApplyRCSPulse(mode BurnMode) bool {
 // target-relative modes use the snapshot to compute direction; other
 // modes ignore it. v0.9.3+.
 func (s *Spacecraft) ApplyRCSPulseWithTarget(mode BurnMode, rT, vT orbital.Vec3) bool {
+	return s.ApplyRCSPulseWithTargetAtt(mode, rT, vT, orbital.Vec3{})
+}
+
+// ApplyRCSPulseWithTargetAtt is ApplyRCSPulseWithTarget with the target's
+// attitude for the PORT-frame modes (ADR 0053 decision 7).
+func (s *Spacecraft) ApplyRCSPulseWithTargetAtt(mode BurnMode, rT, vT, aT orbital.Vec3) bool {
 	if s.RCSIsp <= 0 || s.RCSThrust <= 0 || s.Monoprop <= 0 {
 		return false
 	}
 	// v0.9.2+: route through BurnDirection so surface modes + pitch
 	// trim feed through. Non-surface modes degenerate to the same
 	// result as DirectionUnit + zero trim.
-	dir := s.BurnDirectionWithTarget(mode, rT, vT)
+	dir := s.BurnDirectionWithTargetAtt(mode, rT, vT, aT)
 	if dir.Norm() == 0 {
 		return false
 	}
@@ -189,7 +195,37 @@ const (
 	// the player reaches it only through the fused [H] auto-plant.
 	// Appended last so persisted node-mode ints keep their meaning.
 	BurnVector
+
+	// Port-frame modes (ADR 0053 decision 7, slice C). The six directions
+	// of the PORT navball frame, frame-locked to the TARGET's docking
+	// port: its axis p-hat is the target's nose direction (its attitude),
+	// and
+	//
+	//   BurnPortIn    = -p-hat   (toward the port, along its axis; your
+	//                             nose on this is the docking attitude)
+	//   BurnPortOut   = +p-hat
+	//   BurnPortUp    = the port face's up    (orbital.PortFaceBasis)
+	//   BurnPortDown  = -up
+	//   BurnPortRight = the port face's right (orbital.PortFaceBasis)
+	//   BurnPortLeft  = -right
+	//
+	// Live modes only (RCS pulse, SAS hold): a planted node cannot predict
+	// the target's turning, so they are not in AllBurnModes. They resolve
+	// from the target snapshot PLUS its attitude (DirectionUnitTargetAtt);
+	// without an attitude (zero) they have no direction. Appended last so
+	// persisted mode ints keep their meaning.
+	BurnPortIn
+	BurnPortOut
+	BurnPortUp
+	BurnPortDown
+	BurnPortLeft
+	BurnPortRight
 )
+
+// IsPortMode reports whether m is one of the six PORT-frame modes.
+func IsPortMode(m BurnMode) bool {
+	return m >= BurnPortIn && m <= BurnPortRight
+}
 
 // String is the label shown in the maneuver planner / HUD.
 func (m BurnMode) String() string {
@@ -222,6 +258,18 @@ func (m BurnMode) String() string {
 		return "Plane Change"
 	case BurnVector:
 		return "Vector"
+	case BurnPortIn:
+		return "Port+"
+	case BurnPortOut:
+		return "Port\u2212"
+	case BurnPortUp:
+		return "Port up"
+	case BurnPortDown:
+		return "Port down"
+	case BurnPortLeft:
+		return "Port left"
+	case BurnPortRight:
+		return "Port right"
 	}
 	return "?"
 }
@@ -369,8 +417,23 @@ func NodeBurnDirection(n ManeuverNode, r, v orbital.Vec3) orbital.Vec3 {
 // target-retrograde = unit(v_target − v_active). Burn target-RETROGRADE
 // to null v_rel during a rendezvous approach.
 func DirectionUnitTarget(mode BurnMode, rA, vA, rT, vT orbital.Vec3) orbital.Vec3 {
+	return DirectionUnitTargetAtt(mode, rA, vA, rT, vT, orbital.Vec3{})
+}
+
+// DirectionUnitTargetAtt is DirectionUnitTarget with the target's
+// attitude (its CurrentAttitudeDir: where its nose, and so its docking
+// port, points), which the six PORT-frame modes need (ADR 0053 decision
+// 7). The target's LVLH frame comes from (rT, vT), the same primary-
+// relative snapshot the other target modes use. A zero attitude, or a
+// degenerate LVLH frame, gives the zero vector for a port mode (no
+// direction defined: callers treat it as a no-op); every other mode
+// ignores aT.
+func DirectionUnitTargetAtt(mode BurnMode, rA, vA, rT, vT, aT orbital.Vec3) orbital.Vec3 {
 	var d orbital.Vec3
 	switch mode {
+	case BurnPortIn, BurnPortOut, BurnPortUp, BurnPortDown, BurnPortLeft, BurnPortRight:
+		return portDirection(mode, rT, vT, aT)
+
 	case BurnTargetPrograde:
 		// KSP convention: target-prograde = direction of v_active
 		// relative to target = unit(v_active − v_target). Burning
@@ -394,6 +457,41 @@ func DirectionUnitTarget(mode BurnMode, rA, vA, rT, vT orbital.Vec3) orbital.Vec
 		return orbital.Vec3{}
 	}
 	return d.Scale(1 / n)
+}
+
+// portDirection resolves a PORT-frame mode against the target's snapshot
+// and attitude. in = -p-hat; up / right come from orbital.PortFaceBasis,
+// the one definition the Proximity off-axis readout also reads.
+func portDirection(mode BurnMode, rT, vT, aT orbital.Vec3) orbital.Vec3 {
+	axis := aT.Unit()
+	if axis.Norm() == 0 {
+		return orbital.Vec3{}
+	}
+	switch mode {
+	case BurnPortOut:
+		return axis
+	case BurnPortIn:
+		return axis.Scale(-1)
+	}
+	frame, ok := orbital.LVLHBasis(rT, vT)
+	if !ok {
+		return orbital.Vec3{}
+	}
+	up, right, ok := orbital.PortFaceBasis(axis, frame)
+	if !ok {
+		return orbital.Vec3{}
+	}
+	switch mode {
+	case BurnPortUp:
+		return up
+	case BurnPortDown:
+		return up.Scale(-1)
+	case BurnPortRight:
+		return right
+	case BurnPortLeft:
+		return right.Scale(-1)
+	}
+	return orbital.Vec3{}
 }
 
 // ApplyImpulsive adds a delta-v of magnitude dv m/s in the given direction
@@ -614,6 +712,13 @@ func (s *Spacecraft) ThrustAccelFnAt(mode BurnMode, mu, throttle float64) func(r
 //
 // v0.9.3+.
 func (s *Spacecraft) ThrustAccelFnAtWithTarget(mode BurnMode, mu, throttle float64, rT, vT orbital.Vec3) func(r, v orbital.Vec3, t float64) orbital.Vec3 {
+	return s.ThrustAccelFnAtWithTargetAtt(mode, mu, throttle, rT, vT, orbital.Vec3{})
+}
+
+// ThrustAccelFnAtWithTargetAtt is ThrustAccelFnAtWithTarget with the
+// target's attitude for the PORT-frame modes (captured once per closure
+// like the rest of the target snapshot).
+func (s *Spacecraft) ThrustAccelFnAtWithTargetAtt(mode BurnMode, mu, throttle float64, rT, vT, aT orbital.Vec3) func(r, v orbital.Vec3, t float64) orbital.Vec3 {
 	mass := s.TotalMass()
 	if throttle < 0 {
 		throttle = 0
@@ -661,8 +766,9 @@ func (s *Spacecraft) ThrustAccelFnAtWithTarget(mode BurnMode, mu, throttle float
 			if mode == BurnSurfaceRetrograde {
 				dir = dir.Scale(-1)
 			}
-		case BurnTargetPrograde, BurnTargetRetrograde, BurnTarget, BurnAntiTarget:
-			dir = DirectionUnitTarget(mode, r, v, rT, vT)
+		case BurnTargetPrograde, BurnTargetRetrograde, BurnTarget, BurnAntiTarget,
+			BurnPortIn, BurnPortOut, BurnPortUp, BurnPortDown, BurnPortLeft, BurnPortRight:
+			dir = DirectionUnitTargetAtt(mode, r, v, rT, vT, aT)
 		default:
 			dir = DirectionUnit(mode, r, v)
 		}
