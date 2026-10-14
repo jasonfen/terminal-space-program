@@ -109,6 +109,12 @@ magnet closes the last half metre.
 
 - Your friend is not asked. They see your hull and port on their own
   Proximity view and keep their hold; only your vessel moves.
+- Exactly one of you is the approacher, and the host decides it the same way
+  for both seats: whoever is the rendezvous initiator, else whoever has the
+  other's vessel targeted (`t`), else the lower fingerprint. Only the
+  approacher's chip reads `capturing`; the other vessel is never moved or
+  turned, and ends up riding in the approacher's stack. Target your friend
+  before you close in, so the pull is yours.
 - Both seats run at 1× while you are in the pull, since co-warp takes the
   slower of the two.
 - If their report carries no hull (an older client), their vessel draws as a
