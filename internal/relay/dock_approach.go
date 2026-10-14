@@ -209,3 +209,14 @@ func (g approachGate) EndPull(r sim.GhostRef)        { g.b.EndPull(g.me, other(r
 func (g approachGate) PullingToward(r sim.GhostRef) bool {
 	return g.b.pullingToward(g.me, other(r))
 }
+
+// PullerOf names the live registered puller for the pair, if any.
+func (b *ApproachBoard) PullerOf(x, y SeatCraft) (SeatCraft, bool) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	p, ok := b.pulls[keyOf(x, y)]
+	if !ok || b.clock().Sub(p.at) > approachStale {
+		return SeatCraft{}, false
+	}
+	return p.puller, true
+}
