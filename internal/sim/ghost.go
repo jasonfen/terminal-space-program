@@ -18,4 +18,21 @@ type Ghost struct {
 	Pos       orbital.Vec3 // world-frame position at this world's sim-time
 	RelPos    orbital.Vec3 // primary-relative position at this world's sim-time
 	Vel       orbital.Vec3 // primary-relative velocity at this world's sim-time
+
+	// The reported hull (ADR 0053 decision 9, slice E). Attitude is the unit
+	// nose direction as of the report (a turn after it is not seen; Kepler
+	// moves the position, not the pointing). A zero Attitude means no shape
+	// is known: an older report, or a craft that never reported one. NoseM /
+	// WidthM are the hull length and width, Ports the free ports (a list).
+	Attitude orbital.Vec3
+	NoseM    float64
+	WidthM   float64
+	Ports    []GhostPort
+}
+
+// GhostPort is one reported docking port: its offset from the ghost's
+// position along its attitude, and the component it is on.
+type GhostPort struct {
+	OffsetM float64
+	Name    string
 }

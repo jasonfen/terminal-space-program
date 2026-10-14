@@ -27,16 +27,36 @@ import (
 func (m *reportingModel) reconcileDocking(w *sim.World, coupled map[string]bool, reports map[string]relay.CraftReport, handles map[string]string, now time.Time) {
 	changed := false
 
-	// Detect a fresh contact: the active craft has closed on a co-warp-coupled
-	// ghost within the docking gates. Claim it (docker owns) — the guest's next
-	// tick hands the craft over. Idempotent via the ledger's engaged-craft guard.
-	if ghostOwner, ghostCraftID, ok := relay.DetectGuestContact(w, coupled); ok {
-		if active := w.ActiveCraft(); active != nil {
+	// Cross-player capture (ADR 0053 decision 9): the active craft's port
+	// against a co-warp-coupled ghost's reported port, the same gate and
+	// five-second magnet a local dock uses. The Claim (docker owns) is filed
+	// when the pull COMPLETES, not when the gate first holds; the guest's next
+	// tick hands the craft over. Idempotent via the ledger's engaged-craft
+	// guard.
+	if active := w.ActiveCraft(); active != nil {
+		// Tell the World which ghosts the ledger would refuse, so a latched
+		// pair never reads green and never starts a pull that ends refused.
+		var blocked []sim.GhostRef
+		for _, g := range w.Ghosts {
+			if m.srv.dock.ClaimRefused(m.owner, active.ID, g.Owner, g.CraftID) {
+				blocked = append(blocked, sim.GhostRef{Owner: g.Owner, CraftID: g.CraftID})
+			}
+		}
+		w.SetGhostDockBlocks(blocked)
+		if ghostOwner, ghostCraftID, ok := relay.DetectGuestContact(w, coupled); ok {
 			ownHandle := handles[m.owner]
 			if _, claimed := m.srv.dock.Claim(m.owner, ownHandle, active.ID, ghostOwner, handles[ghostOwner], ghostCraftID); claimed {
 				changed = true
 			}
 		}
+		// A blocked ghost that held the gate: file the Claim anyway, so the
+		// ledger's refusal arms its once-per-latch notice (#326 defect 4).
+		for _, r := range w.GhostGateRefusals() {
+			m.srv.dock.Claim(m.owner, handles[m.owner], active.ID, r.Owner, handles[r.Owner], r.CraftID)
+		}
+		w.CheckGhostBumps()
+	} else {
+		w.ReleaseGhostCapture()
 	}
 
 	// Advance every dock touching this session against its World.

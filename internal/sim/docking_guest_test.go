@@ -417,3 +417,30 @@ func TestRetagStackForTransfer(t *testing.T) {
 		t.Error("post-transfer stack lost its cross-player provenance")
 	}
 }
+
+// ADR 0053 "Settled here" item 1, cross-player: the docker (the approacher,
+// pulled onto the friend's port) is the fusion lead and its hull does not move.
+// The composite sits at the docker's position, not at a mass centroid up to a
+// stack length away, so the guest component drawn above the seam is where the
+// two hulls were the tick before.
+func TestDockGuestCraftKeepsTheDockersPosition(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+	docker := w.Crafts[0]
+	docker.State.R = orbital.Vec3{X: earth.RadiusMeters() + 500e3}
+	docker.State.V = orbital.Vec3{Y: math.Sqrt(earth.GravitationalParameter() / docker.State.R.Norm())}
+	before := docker.State.R
+
+	guest := spacecraft.NewFromLoadout(spacecraft.LoadoutICPSID)
+	guest.Primary = *earth
+	guest.ID = 4243
+	guest.State = physics.StateVector{R: before.Add(orbital.Vec3{X: 18}), V: docker.State.V, M: guest.TotalMass()}
+
+	comp, _, ok := w.DockGuestCraft(0, guest, guestFP)
+	if !ok {
+		t.Fatal("DockGuestCraft failed")
+	}
+	if d := comp.State.R.Sub(before).Norm(); d > 1e-9 {
+		t.Errorf("composite moved %.3f m from the docker's position (mass-centroid jump)", d)
+	}
+}

@@ -87,6 +87,10 @@ type World struct {
 	// holding and the dock. Transient, never persisted.
 	dockMagnet *dockMagnet
 
+	// ghostDock is the cross-player capture, bump latches and ledger
+	// refusals (ADR 0053 slice E, docking_ghost.go). Transient, never saved.
+	ghostDock ghostDock
+
 	// LastLocalReArmRefusal records the most recent same-World dock refused
 	// by a live localReArm latch, for HUD-side messaging (#372) — the local
 	// mirror of relay/dock.go's reArmNoticed/reArmNoticeTo. checkDocking
@@ -1599,13 +1603,13 @@ func (w *World) clampedWarp() float64 {
 	// ADR 0053 decision 8: the same cap inside DockingDistM of another
 	// non-debris hull, so two hulls cannot alias through each other
 	// between ticks (bump.go).
-	if selected > burnWarpCap && w.activeNearOtherHull() {
+	if selected > burnWarpCap && (w.activeNearOtherHull() || w.activeNearGhostHull()) {
 		selected = burnWarpCap
 	}
 	// ADR 0053 decision 5: the docking magnet's five-second pull runs at 1x
 	// so it is five real seconds (co-warp min-wins carries that to a
 	// partner). One hook; the rest of the magnet lives in docking_magnet.go.
-	if w.dockMagnet != nil && selected > 1 {
+	if (w.dockMagnet != nil || w.ghostDock.magnet != nil) && selected > 1 {
 		selected = 1
 	}
 	// v0.8.6.x+: throttle-change clamp. A throttle adjust at high
@@ -1850,7 +1854,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	// stepThrust / the navball read commanded directly in that mode).
 	// ADR 0053 decision 5: the docking magnet owns the nose of the vessel
 	// it is pulling, so the slew is suspended for it.
-	if !w.InstantSAS && !w.dockMagnetPulls(c) {
+	if !w.InstantSAS && !w.dockMagnetPulls(c) && !w.ghostMagnetPulls(c) {
 		c.SlewToward(w.slewTargetFor(c), secs)
 	}
 

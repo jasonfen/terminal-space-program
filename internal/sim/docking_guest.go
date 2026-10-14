@@ -47,7 +47,10 @@ func (w *World) DockGuestCraft(dockerIdx int, guest *spacecraft.Spacecraft, gues
 	}
 	w.Crafts = append(w.Crafts, guest)
 	guestIdx := len(w.Crafts) - 1
-	comp, idx, ok := w.fuseCompositeAt(dockerIdx, guestIdx, true)
+	// ADR 0053 "Settled here" item 1: the docker, pulled onto the guest's
+	// port by the magnet, is the lead and its hull does not move; the guest
+	// stacks above the seam. No mass-centroid jump.
+	comp, idx, ok := w.fuseCompositeAt(dockerIdx, guestIdx, false)
 	if !ok {
 		return nil, -1, false
 	}

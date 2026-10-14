@@ -144,14 +144,25 @@ func (w *World) resolveProximityPorts(st *ProximityState, own *spacecraft.Spacec
 	st.OwnHasPort = st.Own.HasPort()
 
 	tc, _, isCraft := w.ResolveTargetCraft()
-	if !isCraft {
-		// A ghost reports a name, a glyph and a Kepler state, no stack:
-		// no shape is known (slice E puts one on the wire).
+	switch {
+	case isCraft:
+		st.Target = VesselPortGeometry(tc)
+	case w.Target.Kind == TargetGhost:
+		// A ghost's hull is what its owner last reported (ADR 0053
+		// decision 9). A report without one, or a ghost that no longer
+		// resolves, leaves the shape unknown: no axis, no port, no capture.
+		g, _, ok := w.ResolveTargetGhost()
+		if !ok {
+			st.PortUnknown = true
+			st.PortNote = "unknown"
+			return
+		}
+		st.Target = GhostPortGeometry(g)
+	default:
 		st.PortUnknown = true
 		st.PortNote = "unknown"
 		return
 	}
-	st.Target = VesselPortGeometry(tc)
 	st.TargetHasPort = st.Target.HasPort()
 	if st.TargetHasPort {
 		st.PortName = st.Target.Ports[0].Name
@@ -346,6 +357,11 @@ func (w *World) ProximityDockGateReady(st ProximityState) bool {
 		if w.isLocalReArmed(c.ID, w.Target.CraftID) {
 			return false
 		}
+	}
+	// The cross-player mirror: a ghost the ledger would refuse a Claim on
+	// (its re-arm latch, an end already engaged) is never ready (#372).
+	if w.Target.Kind == TargetGhost && w.ghostBlocked(GhostRef{w.Target.GhostOwner, w.Target.CraftID}) {
+		return false
 	}
 	return true
 }

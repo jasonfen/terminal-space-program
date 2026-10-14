@@ -955,31 +955,50 @@ func (l *DockLedger) setDockGuest(w *sim.World, r *DockRecord, reports map[strin
 	}
 }
 
-// DetectGuestContact returns a guest ghost the viewer's active craft has
-// closed to within the docking gates, among owners the viewer is co-warp
-// coupled to (coupled) — the cross-player analogue of checkDocking, which can't
-// fire because a ghost isn't in the local slate. The viewer must not already
-// be flying a cross-player stack or riding as a guest. ok is false when there's
-// no contact. The serve layer turns a hit into a ledger Claim.
+// DetectGuestContact is the cross-player capture, the analogue of
+// checkDocking + the magnet (ADR 0053 decision 9), which can't run because a
+// ghost isn't in the local slate. Each call advances the viewer's capture one
+// step against the fresh ghost slate: the active vessel's port against a
+// co-warp-coupled ghost's REPORTED port, through the same gate (0.5 m,
+// under 0.1 m/s, within 4 degrees) the local dock uses. The tick the gate
+// first holds a five-second pull starts, moving only the viewer's vessel;
+// ok is true on the tick that pull completes, and only then does the serve
+// layer file the ledger Claim. A ghost whose report carries no shape, or no
+// port, never captures.
+//
+// The viewer must not already be flying a cross-player stack or riding as a
+// guest; if it is, any pull in flight is dropped.
 func DetectGuestContact(w *sim.World, coupled map[string]bool) (ghostOwner string, ghostCraftID uint64, ok bool) {
 	active := w.ActiveCraft()
-	if active == nil || active.Landed || active.Crashed || w.DockGuest != nil {
+	if active == nil || active.Landed || active.Crashed || w.DockGuest != nil || sim.StackHasGuest(active) {
+		w.ReleaseGhostCapture()
 		return "", 0, false
 	}
-	if sim.StackHasGuest(active) {
-		return "", 0, false // already a cross-player stack
+	ref, done := w.StepGhostCapture(func(r sim.GhostRef) bool { return coupled[r.Owner] })
+	if !done {
+		return "", 0, false
 	}
-	for _, g := range w.Ghosts {
-		if !coupled[g.Owner] || g.PrimaryID != active.Primary.ID {
+	return ref.Owner, ref.CraftID, true
+}
+
+// ClaimRefused reports whether Claim would turn this pair down right now: the
+// pair is in its re-arm cooldown, or one end is already engaged in another
+// dock. It changes nothing (Claim's refusal also arms the cooldown notice;
+// this does not), so the viewer's World can keep a latched pair from showing
+// a green ring or starting a pull that would end in a refused Claim.
+func (l *DockLedger) ClaimRefused(owner string, dockerCraftID uint64, guestOwner string, guestCraftID uint64) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, r := range l.records {
+		if r.Phase == DockCooldown {
+			if r.isPair(owner, dockerCraftID, guestOwner, guestCraftID) {
+				return true
+			}
 			continue
 		}
-		if active.State.R.Sub(g.RelPos).Norm() > sim.DockingDistM {
-			continue
+		if r.involvesCraft(owner, dockerCraftID) || r.involvesCraft(guestOwner, guestCraftID) {
+			return true
 		}
-		if active.State.V.Sub(g.Vel).Norm() > sim.DockingVMS {
-			continue
-		}
-		return g.Owner, g.CraftID, true
 	}
-	return "", 0, false
+	return false
 }

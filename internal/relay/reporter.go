@@ -74,6 +74,10 @@ type craftKey struct {
 	primary string
 	landed  bool
 	el      orbital.Elements
+	// attitude is the reported nose direction (ADR 0053 slice E): a turn
+	// moves no orbit, but the partner's port gate reads the pointing, so a
+	// turn past attitudeTolDeg must reach them before the heartbeat.
+	attitude orbital.Vec3
 }
 
 func NewReporter(store *Store, owner string) *Reporter {
@@ -123,6 +127,13 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 		r.lastRzTarget != rzTarget || !r.lastRzTau.Equal(rzTau) || r.lastPaused != paused ||
 		r.lastActiveID != activeID ||
 		r.lastRzRate != rzRate || r.lastRzSeat != rzSeat || r.lastRzOrbit != rzOrbit
+	// A nose that has turned past attitudeTolDeg since the last report moves
+	// no orbit, but the partner's port gate reads the pointing (ADR 0053
+	// slice E). Rate-limited: a vessel slewing at 15 deg/s would otherwise
+	// report fifteen times a second.
+	if !due && now.Sub(r.lastWall) >= attitudeMinInterval && !attitudesClose(r.lastKeys, keys) {
+		due = true
+	}
 	if !due && keysEqual(r.lastKeys, keys) && !effWarpChanged(r.lastEffWarp, effWarp) {
 		return
 	}
@@ -193,7 +204,7 @@ func snapshotWorld(w *sim.World) ([]craftKey, []CraftState) {
 			landed:  c.Landed,
 			el:      el,
 		})
-		states = append(states, CraftState{
+		cs := CraftState{
 			ID:      c.ID,
 			Name:    c.Name,
 			Glyph:   c.Glyph,
@@ -202,7 +213,19 @@ func snapshotWorld(w *sim.World) ([]craftKey, []CraftState) {
 			R:       c.State.R,
 			V:       c.State.V,
 			Landed:  c.Landed,
-		})
+		}
+		// The hull, as the vessel derives it for itself (sim.PortGeometry),
+		// so a ghost's port is the one its owner would measure. A landed
+		// craft, or one whose attitude is uninitialised, sends none: "no
+		// shape known" (ADR 0053 decision 9).
+		if g := sim.VesselPortGeometry(c); !c.Landed && g.Known {
+			cs.Attitude, cs.NoseM, cs.WidthM = g.Axis, g.NoseM, g.WidthM
+			for _, p := range g.Ports {
+				cs.Ports = append(cs.Ports, PortState{OffsetM: p.OffsetM, Name: p.Name})
+			}
+			keys[len(keys)-1].attitude = g.Axis
+		}
+		states = append(states, cs)
 	}
 	return keys, states
 }
@@ -221,6 +244,41 @@ func keysEqual(a, b []craftKey) bool {
 		}
 	}
 	return true
+}
+
+// attitudeTolDeg is how far a reported nose may turn before the change forces
+// a report. The docking gate's alignment term is 4 degrees, so one degree
+// keeps a ghost's reported pointing well inside it; a SAS-holding vessel
+// turns at its orbit rate (about 0.065 deg/s in LEO), a report every ~15 s.
+const attitudeTolDeg = 1.0
+
+// attitudeMinInterval is the shortest wall-clock gap between two reports
+// triggered by a turning nose alone.
+const attitudeMinInterval = time.Second
+
+// attitudesClose reports whether every craft's nose still points where the
+// last report said it did (a craft that appeared or vanished is the element
+// detector's business, not this one's).
+func attitudesClose(prev, cur []craftKey) bool {
+	for _, c := range cur {
+		for _, p := range prev {
+			if p.id == c.id && !attitudeClose(p.attitude, c.attitude) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// attitudeClose reports whether two reported noses point the same way within
+// attitudeTolDeg. A vessel gaining or losing a known attitude is a change.
+func attitudeClose(x, y orbital.Vec3) bool {
+	nx, ny := x.Norm(), y.Norm()
+	if nx == 0 || ny == 0 {
+		return nx == ny
+	}
+	c := x.Dot(y) / (nx * ny)
+	return c >= math.Cos(attitudeTolDeg*math.Pi/180)
 }
 
 func elementsClose(x, y orbital.Elements) bool {

@@ -173,17 +173,32 @@ func (v *OrbitView) drawProximityPortLine(w *sim.World, st sim.ProximityState) {
 	}
 	scale := v.canvas.Scale()
 	active := w.ActiveCraft()
-	tgt, _, ok := w.ResolveTargetCraft()
-	if active == nil || !ok || scale <= 0 {
+	if active == nil || scale <= 0 {
 		return
 	}
-	if !proximitySpriteVisible(v.proxOwnSpriteShown, proximitySpriteHeightCells(active.Stages, scale)) ||
-		!proximitySpriteVisible(v.proxTargetSpriteShown, proximitySpriteHeightCells(tgt.Stages, scale)) {
+	// The target's drawn hull: a local vessel's stack, or a ghost's reported
+	// rectangle (ADR 0053 decision 9). Either way the mark and the line need
+	// the hull shown as a sprite, and the attitude the sprite points along.
+	var tgtAttitude orbital.Vec3
+	if tgt, _, ok := w.ResolveTargetCraft(); ok {
+		if !proximitySpriteVisible(v.proxTargetSpriteShown, proximitySpriteHeightCells(tgt.Stages, scale)) {
+			return
+		}
+		tgtAttitude = tgt.CurrentAttitudeDir
+	} else if g, _, ok := w.ResolveTargetGhost(); ok {
+		if !proximitySpriteVisible(v.proxTargetSpriteShown, ghostHullHeightCells(g, scale)) {
+			return
+		}
+		tgtAttitude = g.Attitude
+	} else {
+		return
+	}
+	if !proximitySpriteVisible(v.proxOwnSpriteShown, proximitySpriteHeightCells(active.Stages, scale)) {
 		return
 	}
 	basis := widgets.Basis{X: st.Frame.AlongTrack, Y: st.Frame.RadialOut}
 	a := proximityPortWorld(st.CraftWorld, active.CurrentAttitudeDir, basis, st.Own.Ports[0].OffsetM)
-	b := proximityPortWorld(st.TargetWorld, tgt.CurrentAttitudeDir, basis, st.Target.Ports[0].OffsetM)
+	b := proximityPortWorld(st.TargetWorld, tgtAttitude, basis, st.Target.Ports[0].OffsetM)
 	// Dashed while the gate is open; solid green the tick it holds (and
 	// through the magnet's pull): the same predicate the dock reads.
 	v.canvas.PlotPolylineClass([]orbital.Vec3{a, b}, render.ColorTarget, proximityPortLineClass(w, st))
@@ -230,4 +245,74 @@ func proximityPortLineClass(w *sim.World, st sim.ProximityState) widgets.LineCla
 func (v *OrbitView) drawProximityPortMark(anchor, attitude orbital.Vec3, frame orbital.LVLHFrame, offsetM float64, color lipgloss.TerminalColor) {
 	basis := widgets.Basis{X: frame.AlongTrack, Y: frame.RadialOut}
 	v.canvas.SetCellOverlayColored(proximityPortWorld(anchor, attitude, basis, offsetM), proximityPortMarkGlyph, color)
+}
+
+// proximityCapturing reports whether the magnet is pulling the active vessel
+// onto the target's port, local or cross-player: the chip's "capturing".
+func proximityCapturing(w *sim.World) bool {
+	switch w.Target.Kind {
+	case sim.TargetCraft:
+		return w.DockCapturing(w.Target.CraftID)
+	case sim.TargetGhost:
+		return w.GhostCapturing(w.Target.GhostOwner, w.Target.CraftID)
+	}
+	return false
+}
+
+// ghostHullHeightCells is a ghost rectangle's on-screen length in terminal
+// cells at the canvas scale (pixels per metre): the hysteresis input
+// proximitySpriteVisible reads for a hull that has no stage list.
+func ghostHullHeightCells(g sim.Ghost, scale float64) float64 {
+	if scale <= 0 || g.NoseM <= 0 {
+		return 0
+	}
+	return g.NoseM * scale / canvasCellPxH
+}
+
+// proximityGhostMaxScanlines bounds the rectangle fill at deep zoom: a
+// 6 m hull at 100 px/m would otherwise be 600 lines a frame.
+const proximityGhostMaxScanlines = 800
+
+// drawProximityGhostHull draws a friend's reported hull as one filled
+// rectangle, nose_m long and width_m wide, in the ghost's colour (ColorDim,
+// the colour every ghost draws in, ADR 0041 section 3), anchored at the
+// ghost's position (the bottom of its stack) and pointing along its reported
+// attitude as the flat canvas projects it. The stage list is not on the wire,
+// so there is no silhouette (ADR 0053 "Settled here" item 8). shown is the
+// caller's hysteresis latch. Returns false, latch cleared, when the report
+// carries no shape or the hull is under the 3-cell sprite switch, so the
+// caller draws the diamond.
+func (v *OrbitView) drawProximityGhostHull(shown *bool, g sim.Ghost, anchor orbital.Vec3, frame orbital.LVLHFrame) bool {
+	pg := sim.GhostPortGeometry(g)
+	scale := v.canvas.Scale()
+	if !pg.Known || scale <= 0 {
+		*shown = false
+		return false
+	}
+	*shown = proximitySpriteVisible(*shown, ghostHullHeightCells(g, scale))
+	if !*shown {
+		return false
+	}
+	basis := widgets.Basis{X: frame.AlongTrack, Y: frame.RadialOut}
+	sx, sy := stackDirScreen(g.Attitude, basis)
+	along := basis.X.Scale(sx).Add(basis.Y.Scale(sy)) // screen-plane unit along the hull
+	across := basis.X.Scale(-sy).Add(basis.Y.Scale(sx))
+	tail := -sim.DockPortTipInsetM()
+	head := pg.NoseM + tail
+	// Two scanlines per pixel across: neighbours closer than a pixel, so
+	// rounding can never leave a gap row.
+	lines := int(pg.WidthM*scale*2) + 2
+	if lines > proximityGhostMaxScanlines {
+		lines = proximityGhostMaxScanlines
+	}
+	if lines < 2 {
+		lines = 2
+	}
+	for i := 0; i < lines; i++ {
+		u := (float64(i)/float64(lines-1) - 0.5) * pg.WidthM
+		a := anchor.Add(along.Scale(tail)).Add(across.Scale(u))
+		b := anchor.Add(along.Scale(head)).Add(across.Scale(u))
+		v.canvas.PlotDenseLineColored(a, b, render.ColorDim, 1)
+	}
+	return true
 }

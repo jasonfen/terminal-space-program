@@ -123,6 +123,9 @@ func dockPairEligible(a, b *spacecraft.Spacecraft) bool {
 // is the vessel being flown: the active vessel if it is one of the pair,
 // else the lighter one.
 func (w *World) startDockMagnet(i, j int) {
+	if w.ghostDock.magnet != nil {
+		return // a cross-player pull already has the vessel (docking_ghost.go)
+	}
 	a, b := w.Crafts[i], w.Crafts[j]
 	puller, other := a, b
 	switch {
