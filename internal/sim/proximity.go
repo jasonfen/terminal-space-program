@@ -339,7 +339,7 @@ func (w *World) ProximityHintActive() bool {
 // isLocalReArmed check here is what makes a just-undocked pair read "not
 // ready" while checkDocking refuses to fuse it.
 func (w *World) ProximityDockGateReady(st ProximityState) bool {
-	if !dockGateHolds(st.HasPort, st.PortRangeM, st.VRelMS, st.AlignDeg) {
+	if !PortGateTermsHold(st) {
 		return false
 	}
 	if c := w.ActiveCraft(); c != nil && w.Target.Kind == TargetCraft {

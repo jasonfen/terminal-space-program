@@ -38,6 +38,13 @@ func dockGateHolds(hasPort bool, portRangeM, relSpeedMS, alignDeg float64) bool 
 		alignDeg <= DockAlignDeg
 }
 
+// PortGateTermsHold is the gate for a Proximity scene, without the re-arm
+// latch: the Proximity ring is amber when this holds and
+// ProximityDockGateReady (the same plus "not latched") does not.
+func PortGateTermsHold(st ProximityState) bool {
+	return dockGateHolds(st.HasPort, st.PortRangeM, st.VRelMS, st.AlignDeg)
+}
+
 // dockPairGate is the gate's three readings for two vessels, from their
 // stacks and attitudes. hasPort is false when either vessel is port-less or
 // either attitude is uninitialised (no shape is known).
@@ -125,6 +132,10 @@ func (w *World) startDockMagnet(i, j int) {
 	case b.TotalMass() < a.TotalMass():
 		puller, other = b, a
 	}
+	// The pull tracks its pair by stable ID; a vessel built outside the
+	// spawn paths may not have one yet.
+	w.stampCraftID(puller)
+	w.stampCraftID(other)
 	now := w.Clock.SimTime
 	w.dockMagnet = &dockMagnet{
 		pullerID: puller.ID, otherID: other.ID,

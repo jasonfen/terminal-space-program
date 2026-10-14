@@ -717,7 +717,7 @@ func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorl
 	if vesselSpriteBelowCellFloor(craft.Stages, scaleMPerPx) {
 		return false
 	}
-	sprite := ComposeLaunchSprite(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM)
+	sprite := ComposeLaunchSprite(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM, sim.DockSeams(craft)...)
 	if sprite == nil {
 		return false
 	}

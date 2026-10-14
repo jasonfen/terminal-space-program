@@ -436,6 +436,35 @@ const (
 	DockingVMS   = 0.1  // m/s, the gate's relative-speed term.
 )
 
+// DockSeams are the stage indices where each docked component above the lead
+// begins, ascending: [] for a lone vessel. They come from the composite's
+// DockedComponents stage counts, the same tiling Undock relies on, and are
+// nil when that record does not tile the live stack (an old save): the sprite
+// then draws the plain linear stack. ComposeLaunchSprite flips every block
+// above a seam nose to the seam (ADR 0053 "Settled here" item 1).
+func DockSeams(c *spacecraft.Spacecraft) []int {
+	if c == nil || len(c.DockedComponents) < 2 {
+		return nil
+	}
+	total := 0
+	for _, comp := range c.DockedComponents {
+		if len(comp.Stages) == 0 {
+			return nil
+		}
+		total += len(comp.Stages)
+	}
+	if total != len(c.Stages) {
+		return nil
+	}
+	seams := make([]int, 0, len(c.DockedComponents)-1)
+	at := len(c.DockedComponents[0].Stages)
+	for _, comp := range c.DockedComponents[1:] {
+		seams = append(seams, at)
+		at += len(comp.Stages)
+	}
+	return seams
+}
+
 // UndockSpringMS is the Spring Release: how fast each component above the
 // seam is pushed along +a_hat, relative to the one below it, on Undock (ADR
 // 0053 "Settled here" item 4).
