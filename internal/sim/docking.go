@@ -759,8 +759,9 @@ func (w *World) fuseComposite(lead, drop int) (*spacecraft.Spacecraft, int, bool
 // fuseCompositeAt is fuseComposite with the composite's position chosen:
 // atCentroid=false keeps the LEAD's State.R (ADR 0053 "Settled here" item 1:
 // the hulls stay where they were, no jump to a mass centroid a stack length
-// away); true is the legacy mass-weighted centroid, which the cross-player
-// guest dock (DockGuestCraft) keeps until slice E reworks that path.
+// away), the rule both the local dock and the cross-player guest dock
+// (DockGuestCraft) follow; true is the legacy mass-weighted centroid, kept
+// only for callers that want it.
 func (w *World) fuseCompositeAt(lead, drop int, atCentroid bool) (*spacecraft.Spacecraft, int, bool) {
 	if lead == drop || lead < 0 || drop < 0 || lead >= len(w.Crafts) || drop >= len(w.Crafts) {
 		return nil, -1, false
