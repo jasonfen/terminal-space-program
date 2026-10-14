@@ -310,7 +310,9 @@ func (w *World) CheckGhostBumps() {
 		r := GhostRef{g.Owner, g.CraftID}
 		key := ghostBumpKey{a.ID, r}
 		dr := a.State.R.Sub(g.RelPos)
-		if dr.Norm() > DockingDistM {
+		// The 50 m zone is hull to hull (review finding 4), not anchor to
+		// anchor: a friend's long stack's nose can be inside it from far off.
+		if HullDistanceM(a.State.R, VesselPortGeometry(a), g.RelPos, GhostPortGeometry(g)) > DockingDistM {
 			delete(w.ghostDock.bump, key)
 			continue
 		}
@@ -319,7 +321,7 @@ func (w *World) CheckGhostBumps() {
 		if !okA || !okG {
 			continue
 		}
-		touch, n := hullsTouch(a0, a1, wa, g0, g1, wg)
+		touch, nh := hullContact(a0, a1, wa, g0, g1, wg)
 		if !touch {
 			delete(w.ghostDock.bump, key)
 			continue
@@ -327,13 +329,19 @@ func (w *World) CheckGhostBumps() {
 		if w.ghostDock.bump[key] || w.ghostBumpInGate(a, g, r) {
 			continue
 		}
-		if n.Norm() < bumpMinNormalM {
-			n = dr
-		}
-		if n.Norm() < 1e-9 {
+		// A bump pushes only the bumper, and the bumper is the approacher:
+		// the other seat's World sees the same overlap against the
+		// approacher's ghost and must not kick itself as well.
+		if w.ghostDock.gate != nil && !w.ghostDock.gate.Approacher(r) {
 			continue
 		}
-		nh := n.Unit()
+		// No usable contact normal: fall back to the line between positions.
+		if nh.Norm() == 0 {
+			if dr.Norm() < 1e-9 {
+				continue
+			}
+			nh = dr.Unit()
+		}
 		s := -a.State.V.Sub(g.Vel).Dot(nh)
 		if s <= 0 {
 			continue
@@ -375,7 +383,8 @@ func (w *World) activeNearGhostHull() bool {
 		return false
 	}
 	for _, g := range w.Ghosts {
-		if g.PrimaryID == a.Primary.ID && a.State.R.Sub(g.RelPos).Norm() <= DockingDistM {
+		if g.PrimaryID == a.Primary.ID &&
+			HullDistanceM(a.State.R, VesselPortGeometry(a), g.RelPos, GhostPortGeometry(g)) <= DockingDistM {
 			return true
 		}
 	}
