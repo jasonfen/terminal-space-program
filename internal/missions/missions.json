@@ -120,7 +120,7 @@
       "objectives": [
         {
           "name": "Spawn a partner in orbit",
-          "description": "Press [n] to spawn a second vessel in orbit to rendezvous with.",
+          "description": "Press [n] to spawn a second vessel in orbit with a docking port (Capsule, RCS Tug).",
           "kind": "event",
           "params": { "action": "spawn_craft", "require_spawn_location": "orbit" }
         },
@@ -222,7 +222,7 @@
       "objectives": [
         {
           "name": "Spawn a partner",
-          "description": "Press [n] to spawn a second vessel to rendezvous with.",
+          "description": "Press [n] to spawn a second vessel with a docking port (Capsule, RCS Tug) to rendezvous with.",
           "kind": "event",
           "params": { "action": "spawn_craft" }
         },
