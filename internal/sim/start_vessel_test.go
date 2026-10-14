@@ -3,6 +3,8 @@ package sim
 import (
 	"reflect"
 	"testing"
+
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // ADR 0053 §4 (slice F): a new game starts in Apollo TLI-1, the S-IVB with
@@ -52,4 +54,25 @@ func TestApolloTLITransposesAfterOneSpace(t *testing.T) {
 	if err := w.Transpose(w.ActiveCraftIdx); err != nil {
 		t.Fatalf("D after one space: %v", err)
 	}
+}
+
+// useBareStage swaps the fresh world's start vessel (Apollo TLI-1 since ADR
+// 0053 §4) for the bare S-IVB-1 at the same orbit, name-compatible with the
+// fixtures written when that was the default: tests of burn arithmetic, hull
+// geometry (an 18 m stage) or a Moon transfer one stage can afford keep their
+// numbers. Returns the new active vessel; it must run before the test takes
+// a pointer to w.Crafts[0].
+func useBareStage(w *World) *spacecraft.Spacecraft {
+	old := w.Crafts[0]
+	c := spacecraft.NewFromLoadout(spacecraft.LoadoutSIVB1ID)
+	c.Name = "S-IVB-1"
+	c.Primary = old.Primary
+	c.SystemIdx = old.SystemIdx
+	c.CurrentAttitudeDir = old.CurrentAttitudeDir
+	c.State = old.State
+	c.State.M = c.TotalMass()
+	c.ID = old.ID
+	crewTend(c)
+	w.Crafts[0] = c
+	return c
 }

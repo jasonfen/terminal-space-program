@@ -27,6 +27,11 @@ type seedLunarRun struct {
 func runSeedLunarTransfer(t *testing.T, equatorial bool) seedLunarRun {
 	t.Helper()
 	w := mustWorld(t)
+	// Bare S-IVB-1: the Apollo TLI start vessel (ADR 0053 §4) cannot afford
+	// this transfer on its S-IVB stage alone (3062 m/s asked of 2358), which
+	// is the finding recorded on the slice F PR, not something this guard
+	// should paper over by itself.
+	useBareStage(w)
 	if equatorial {
 		makeActiveEquatorial(w)
 	}
@@ -133,6 +138,7 @@ func TestSeedLunarTransferFitsAndFlies(t *testing.T) {
 func TestSeedMarsPlanBudgetProbe(t *testing.T) {
 	for _, equatorial := range []bool{true, false} {
 		w := mustWorld(t)
+		useBareStage(w) // see runSeedLunarTransfer: Apollo TLI's S-IVB stage cannot afford this either
 		if equatorial {
 			makeActiveEquatorial(w)
 		}

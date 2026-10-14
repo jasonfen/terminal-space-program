@@ -90,16 +90,18 @@ func TestStageActiveOnSaturnVPopsBottomStage(t *testing.T) {
 	}
 }
 
-// TestStageActiveSingleStageRefuses — single-stage craft (default
-// S-IVB-1 LEO spawn) has no lower stage to drop. StageActive must
-// return ErrStageOnlyOne and leave the slate unchanged.
+// TestStageActiveSingleStageRefuses — single-stage craft (the bare S-IVB-1;
+// the default start vessel has been the five-stage Apollo TLI since ADR 0053)
+// has no lower stage to drop. StageActive must return ErrStageOnlyOne and
+// leave the slate unchanged.
 func TestStageActiveSingleStageRefuses(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
+	useBareStage(w)
 	if len(w.Crafts[0].Stages) != 1 {
-		t.Fatalf("default craft should be single-stage, got %d stages",
+		t.Fatalf("bare S-IVB-1 should be single-stage, got %d stages",
 			len(w.Crafts[0].Stages))
 	}
 	beforeSlate := len(w.Crafts)
