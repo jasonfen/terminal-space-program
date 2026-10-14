@@ -410,6 +410,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.flash(fmt.Sprintf("docked with %s, now 1 vessel, %d components", e.PartnerName, e.ComponentCount))
 			a.world.LastDockEvent = nil
 		}
+		// ADR 0053 decision 8 (slice D): two hulls touched outside the
+		// docking gate and bounced. One-shot, same surface as the dock flash.
+		a.flashBump()
 		// v0.11.0+: ViewLaunch release toast, names only the view returned to (#468; ADR 0021 D
 		// retired the apoapsis-floor auto-release). Same flash
 		// surface as docking; cleared after one fire.
@@ -3396,6 +3399,20 @@ const flashLifetime = 3 * time.Second
 func (a *App) flash(text string) {
 	a.statusMsg = text
 	a.statusExpires = time.Now().Add(flashLifetime)
+}
+
+// flashBump is the bottom-edge consumer of World.LastBumpEvent (ADR 0053
+// decision 8, ADR 0048 Event Flash): what bumped, how hard, and what the
+// docking gate asks for, e.g. "bumped S-IVB-1 at 0.40 m/s; re-approach under
+// 0.10 m/s". Reads and clears the event so a contact flashes once.
+func (a *App) flashBump() {
+	e := a.world.LastBumpEvent
+	if e == nil {
+		return
+	}
+	a.flash(fmt.Sprintf("bumped %s at %s; re-approach under %s",
+		e.PartnerName, readout.Speed(e.SpeedMS), readout.Speed(sim.DockingVMS)))
+	a.world.LastBumpEvent = nil
 }
 
 // refuse writes a one-phrase "<label>: <reason>" refusal to the HUD

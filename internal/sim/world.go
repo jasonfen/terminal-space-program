@@ -62,6 +62,16 @@ type World struct {
 	// v0.8.3+.
 	LastDockEvent *DockEvent
 
+	// LastBumpEvent records the latest hull contact outside the docking
+	// gate (ADR 0053 decision 8, bump.go) for the bottom-edge caption.
+	// App reads and clears it, same pattern as LastDockEvent. Transient.
+	LastBumpEvent *BumpEvent
+
+	// bumpOverlap is the edge-trigger latch of bump.go: the pairs whose
+	// hulls are overlapping right now, so a pair bumps once per contact.
+	// Transient, never persisted.
+	bumpOverlap map[[2]uint64]bool
+
 	// localReArms holds the same-World re-arm-by-leaving latches (#343)
 	// armed by Undock for every pair of components it just split apart —
 	// checkDocking refuses to re-fuse a latched pair until they clear
@@ -931,7 +941,9 @@ func (w *World) Tick() {
 		// reconstructing it here, since by this point the slate has
 		// already changed shape and the dropped partner's identity is
 		// gone.
-		w.checkDocking()
+		if _, _, docked := w.checkDocking(); !docked {
+			w.checkBumps() // ADR 0053 decision 8: hulls that touch outside the gate bounce
+		}
 	}
 	// Mission eval runs every tick — even with an empty slate — so the event
 	// sink is drained each tick regardless of crafts (ADR 0025 §6). It
@@ -1577,6 +1589,12 @@ func (w *World) clampedWarp() float64 {
 	// (not just the active one) catches a planted burn firing on a
 	// non-active craft while the player is flying another.
 	if w.AnyCraftThrusting() && selected > burnWarpCap {
+		selected = burnWarpCap
+	}
+	// ADR 0053 decision 8: the same cap inside DockingDistM of another
+	// non-debris hull, so two hulls cannot alias through each other
+	// between ticks (bump.go).
+	if selected > burnWarpCap && w.activeNearOtherHull() {
 		selected = burnWarpCap
 	}
 	// v0.8.6.x+: throttle-change clamp. A throttle adjust at high
