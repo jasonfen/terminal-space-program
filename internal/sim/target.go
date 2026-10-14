@@ -535,19 +535,29 @@ func (w *World) TargetStateRelativeToActivePrimary() (rT, vT orbital.Vec3, ok bo
 // TargetPortAxis is the aimed docking port's axis: the target vessel's
 // nose direction (its CurrentAttitudeDir, unit), which the PORT frame
 // (ADR 0053 decision 7) resolves in/out/up/down/left/right against. ok is
-// false when the target is not a local vessel (a body, a site, or a
-// cross-player ghost: slice E puts the reported attitude on the wire; in
-// this slice a ghost has no port shape), when the vessel carries no free
-// port, or when its attitude is not yet initialised.
+// false when the target is neither a local vessel nor a cross-player ghost
+// (a body, a site), when it carries no free port (a ghost: no reported
+// port), or when its attitude is not known (an older report).
 func (w *World) TargetPortAxis() (axis orbital.Vec3, ok bool) {
-	if w.Target.Kind != TargetCraft {
+	var g PortGeometry
+	switch w.Target.Kind {
+	case TargetCraft:
+		t, _, found := w.craftByID(w.Target.CraftID)
+		if !found {
+			return orbital.Vec3{}, false
+		}
+		g = VesselPortGeometry(t)
+	case TargetGhost:
+		// A friend's reported nose (ADR 0053 decision 9): a report without
+		// one is a ghost with no known port, so no PORT frame.
+		gh, _, found := w.ResolveTargetGhost()
+		if !found {
+			return orbital.Vec3{}, false
+		}
+		g = GhostPortGeometry(gh)
+	default:
 		return orbital.Vec3{}, false
 	}
-	t, _, found := w.craftByID(w.Target.CraftID)
-	if !found {
-		return orbital.Vec3{}, false
-	}
-	g := VesselPortGeometry(t)
 	if !g.Known || !g.HasPort() {
 		return orbital.Vec3{}, false
 	}
@@ -555,7 +565,8 @@ func (w *World) TargetPortAxis() (axis orbital.Vec3, ok bool) {
 }
 
 // TargetHasPort reports whether the PORT frame is available: the target
-// is a local vessel with a free docking port.
+// is a local vessel, or a ghost whose report carries one, with a free
+// docking port.
 func (w *World) TargetHasPort() bool {
 	_, ok := w.TargetPortAxis()
 	return ok

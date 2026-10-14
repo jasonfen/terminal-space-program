@@ -52,6 +52,11 @@ func GhostsFor(w *sim.World, reports []CraftReport, handles map[string]string) [
 				// pipeline. Pos stays the world-frame marker position.
 				RelPos: st.R,
 				Vel:    st.V,
+
+				Attitude: cs.Attitude,
+				NoseM:    cs.NoseM,
+				WidthM:   cs.WidthM,
+				Ports:    ghostPortsOf(cs.Ports),
 			})
 		}
 	}
@@ -65,4 +70,15 @@ func bodyByID(sys bodies.System, id string) (bodies.CelestialBody, bool) {
 		}
 	}
 	return bodies.CelestialBody{}, false
+}
+
+func ghostPortsOf(ps []PortState) []sim.GhostPort {
+	if len(ps) == 0 {
+		return nil
+	}
+	out := make([]sim.GhostPort, len(ps))
+	for i, p := range ps {
+		out[i] = sim.GhostPort{OffsetM: p.OffsetM, Name: p.Name}
+	}
+	return out
 }

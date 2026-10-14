@@ -65,7 +65,7 @@ func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
 		return false
 	}
 	// ADR 0053 decision 5: the docking magnet has the vessel's hands.
-	if w.dockMagnetPulls(w.ActiveCraft()) {
+	if w.dockMagnetPulls(w.ActiveCraft()) || w.ghostMagnetPulls(w.ActiveCraft()) {
 		return false
 	}
 	if !w.canCommand(w.ActiveCraft()) { // ADR 0027: an RCS pulse delivers Δv — a command

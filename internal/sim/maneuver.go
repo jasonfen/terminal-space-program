@@ -193,7 +193,7 @@ func (w *World) SetAttitudeMode(mode spacecraft.BurnMode) {
 	if !w.canCommand(c) { // ADR 0027: attitude is a command, gated without a connection
 		return
 	}
-	if w.dockMagnetPulls(c) { // ADR 0053 decision 5: the magnet owns the nose
+	if w.dockMagnetPulls(c) || w.ghostMagnetPulls(c) { // ADR 0053 decision 5: the magnet owns the nose
 		return
 	}
 	c.AttitudeMode = mode

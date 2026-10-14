@@ -32,6 +32,28 @@ type CraftState struct {
 	R       orbital.Vec3 `json:"r"`
 	V       orbital.Vec3 `json:"v"`
 	Landed  bool         `json:"landed,omitempty"`
+
+	// The hull, for docking against a ghost (ADR 0053 decision 9, slice E).
+	// All additive and optional: a report from a build that predates them,
+	// or a landed craft, decodes to the zero value, which every reader takes
+	// as "no shape known" (the Proximity diamond, "port: unknown", never
+	// capturable). Attitude is the unit nose direction in the same
+	// primary-relative axes as R and V; NoseM is the hull length (stack
+	// bottom to nose, the sim.PortGeometry the vessel derives for itself) and
+	// WidthM its width. Ports is a LIST (decision 2): today zero or one entry.
+	Attitude orbital.Vec3 `json:"attitude,omitzero"`
+	NoseM    float64      `json:"nose_m,omitempty"`
+	WidthM   float64      `json:"width_m,omitempty"`
+	Ports    []PortState  `json:"ports,omitempty"`
+}
+
+// PortState is one docking port on the wire: where it sits along the stack
+// (metres from the vessel position along Attitude, the same offset
+// sim.DockPort.OffsetM derives) and the component it is on, for the chip's
+// "port: CM".
+type PortState struct {
+	OffsetM float64 `json:"offset_m"`
+	Name    string  `json:"name,omitempty"`
 }
 
 // CraftReport is one player's full craft set at a moment of their

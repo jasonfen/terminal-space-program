@@ -36,8 +36,9 @@ func TestDockGuestFollowsStackCamera(t *testing.T) {
 
 	hw, gw := hostApp.World(), guestApp.World()
 	gw.Clock.SimTime = hw.Clock.SimTime
-	gw.ActiveCraft().ID = 778
-	gw.ActiveCraft().State = hw.ActiveCraft().State
+	// ADR 0053: a cross-player dock is the port gate and the magnet, so the
+	// two vessels are ported tugs set port to port inside the gate.
+	arrangePortContact(t, hw, gw, 778)
 	// The guest was flying normally before the dock (FocusCraft) — the
 	// baseline #301 regressed from.
 	gw.Focus = sim.Focus{Kind: sim.FocusCraft}
@@ -45,11 +46,8 @@ func TestDockGuestFollowsStackCamera(t *testing.T) {
 	guest = tick(guest)
 	host = tick(host)
 
-	for i := 0; i < 6 && !hostStackHasGuest(hw); i++ {
+	for i := 0; i < 400 && !hostStackHasGuest(hw); i++ {
 		gw.Clock.SimTime = hw.Clock.SimTime
-		if gc, hc := gw.ActiveCraft(), hw.ActiveCraft(); gc != nil && hc != nil && !hostStackHasGuest(hw) {
-			gc.State = hc.State
-		}
 		host, _ = host.Update(sim.TickMsg(time.Now()))
 		guest, _ = guest.Update(sim.TickMsg(time.Now()))
 	}

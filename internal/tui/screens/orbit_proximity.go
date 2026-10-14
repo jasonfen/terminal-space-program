@@ -694,17 +694,32 @@ func (v *OrbitView) drawProximityVessels(w *sim.World, st sim.ProximityState) {
 	// pixel they share with it (ADR 0053 decision 6).
 	v.drawProximityPortLine(w, st)
 
-	targetStages, targetAttitude := proximityTargetHullInputs(w)
-	var targetSeams []int
-	if tc, _, ok := w.ResolveTargetCraft(); ok {
-		targetSeams = sim.DockSeams(tc)
-	}
-	if !v.drawProximityHull(&v.proxTargetSpriteShown, targetStages, targetAttitude, st.TargetWorld, st.Frame, targetSeams...) {
-		v.canvas.FillColoredDiskTagged(st.TargetWorld, 1,
-			widgets.CellTag{Color: render.ColorTarget, IsVessel: true})
-		v.canvas.SetCellOverlayColored(st.TargetWorld, '◆', render.ColorTarget)
-	} else if st.Target.HasPort() {
-		v.drawProximityPortMark(st.TargetWorld, targetAttitude, st.Frame, st.Target.Ports[0].OffsetM, render.ColorTarget)
+	if g, _, isGhost := w.ResolveTargetGhost(); isGhost {
+		// A friend's vessel: one rectangle of the reported nose_m x width_m
+		// (ADR 0053 decision 9), or the diamond when the report carries no
+		// shape.
+		if v.drawProximityGhostHull(&v.proxTargetSpriteShown, g, st.TargetWorld, st.Frame) {
+			if st.Target.HasPort() {
+				v.drawProximityPortMark(st.TargetWorld, g.Attitude, st.Frame, st.Target.Ports[0].OffsetM, render.ColorTarget)
+			}
+		} else {
+			v.canvas.FillColoredDiskTagged(st.TargetWorld, 1,
+				widgets.CellTag{Color: render.ColorTarget, IsVessel: true})
+			v.canvas.SetCellOverlayColored(st.TargetWorld, '◆', render.ColorTarget)
+		}
+	} else {
+		targetStages, targetAttitude := proximityTargetHullInputs(w)
+		var targetSeams []int
+		if tc, _, ok := w.ResolveTargetCraft(); ok {
+			targetSeams = sim.DockSeams(tc)
+		}
+		if !v.drawProximityHull(&v.proxTargetSpriteShown, targetStages, targetAttitude, st.TargetWorld, st.Frame, targetSeams...) {
+			v.canvas.FillColoredDiskTagged(st.TargetWorld, 1,
+				widgets.CellTag{Color: render.ColorTarget, IsVessel: true})
+			v.canvas.SetCellOverlayColored(st.TargetWorld, '◆', render.ColorTarget)
+		} else if st.Target.HasPort() {
+			v.drawProximityPortMark(st.TargetWorld, targetAttitude, st.Frame, st.Target.Ports[0].OffsetM, render.ColorTarget)
+		}
 	}
 
 	activeColor := render.ColorCraftMarker
@@ -829,7 +844,7 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 	rows := []string{
 		v.proximityChipHeader(st),
 		chipRow("range:", readout.Distance(st.RangeM)),
-		v.proximityPortRow(st, w.Target.Kind == sim.TargetCraft && w.DockCapturing(w.Target.CraftID)),
+		v.proximityPortRow(st, proximityCapturing(w)),
 	}
 	if st.HasPort {
 		rows = append(rows, proximityAlignRow(st))
@@ -930,7 +945,7 @@ func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
 	}
 	// ADR 0053 decision 6: port: and align: survive the shrink, but only
 	// inside 50 m and out of gate; off-axis: is dropped in Compact Form.
-	capturing := w.Target.Kind == sim.TargetCraft && w.DockCapturing(w.Target.CraftID)
+	capturing := proximityCapturing(w)
 	if proximityInsideRing(st) && (proximityPortOutOfGate(st) || capturing) {
 		lines = append(lines, v.proximityPortRow(st, capturing))
 		if st.HasPort {

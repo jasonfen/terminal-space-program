@@ -93,8 +93,9 @@ func TestCrossPlayerDockThroughReportingModels(t *testing.T) {
 
 	hw, gw := hostApp.World(), guestApp.World()
 	gw.Clock.SimTime = hw.Clock.SimTime
-	gw.ActiveCraft().ID = 777
-	gw.ActiveCraft().State = hw.ActiveCraft().State
+	// ADR 0053: a cross-player dock is the port gate and the magnet, so the
+	// two vessels are ported tugs set port to port inside the gate.
+	arrangePortContact(t, hw, gw, 777)
 
 	// Prime the guest first (no host report in the store yet → no couple, no
 	// claim), then the host — so the host's priming tick is the one that sees
@@ -102,7 +103,7 @@ func TestCrossPlayerDockThroughReportingModels(t *testing.T) {
 	guest = tick(guest)
 	host = tick(host)
 
-	for i := 0; i < 6 && !hostStackHasGuest(hw); i++ {
+	for i := 0; i < 400 && !hostStackHasGuest(hw); i++ {
 		// Keep the two in the same subspace and, while the guest still holds
 		// its craft, co-located so co-warp couples and contact is detected.
 		// The host ticks first each round, so the host is the one that detects
@@ -110,9 +111,6 @@ func TestCrossPlayerDockThroughReportingModels(t *testing.T) {
 		// otherwise race; the ledger's engaged-craft guard keeps it to one
 		// record, but tick order decides the docker).
 		gw.Clock.SimTime = hw.Clock.SimTime
-		if gc, hc := gw.ActiveCraft(), hw.ActiveCraft(); gc != nil && hc != nil && !hostStackHasGuest(hw) {
-			gc.State = hc.State
-		}
 		host, _ = host.Update(sim.TickMsg(time.Now()))
 		guest, _ = guest.Update(sim.TickMsg(time.Now()))
 	}
