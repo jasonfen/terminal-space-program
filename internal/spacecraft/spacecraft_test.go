@@ -13,11 +13,22 @@ func TestNewInLEO(t *testing.T) {
 	earth := systems[0].FindBody("Earth")
 	sc := NewInLEO(*earth)
 
-	// v0.5.13+ default: S-IVB-like 11 000 kg dry + 40 000 kg fuel.
-	// v0.8.0+: + 720 kg monoprop tank (per DefaultRCSLoadout sizing,
-	// targeting ~30 m/s of RCS Δv budget on the wet craft).
-	const wantMass = 51720.0
-	if sc.TotalMass() != wantMass {
+	// ADR 0053 §4: the start vessel is Apollo TLI-1, the S-IVB with the
+	// LM and CSM still on top (was the bare 51 720 kg S-IVB-1 before).
+	if sc.Name != "Apollo TLI-1" || sc.LoadoutID != "Apollo-TLI" {
+		t.Errorf("start vessel = %q / %q, want Apollo TLI-1 / Apollo-TLI", sc.Name, sc.LoadoutID)
+	}
+	if len(sc.Stages) != 5 {
+		t.Errorf("start vessel has %d stages, want 5 (S-IVB, Descent, Ascent, SM, CM)", len(sc.Stages))
+	}
+	wantMass := 0.0
+	for _, st := range sc.Stages {
+		wantMass += st.DryMass + st.FuelMass + st.MonopropMass
+	}
+	if wantMass < 90000 || wantMass > 94000 {
+		t.Errorf("summed stage mass = %v, want about 91.9 t", wantMass)
+	}
+	if math.Abs(sc.TotalMass()-wantMass) > 1e-6 {
 		t.Errorf("total mass = %v, want %v", sc.TotalMass(), wantMass)
 	}
 	// Altitude should be ~500 km (v0.6.1+ default — was 200 km).

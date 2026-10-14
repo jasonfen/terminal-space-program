@@ -1445,10 +1445,9 @@ func (s *SpawnCraft) positionBoxes(rw int) []string {
 	}
 	width := rw
 	// Field 1: position mode, a tri-state cycle. orbit (uses PARENT
-	// + ALTITUDE + DIRECTION below); alongside (drops 25 m port to
-	// port ahead of the active vessel's nose, outside the docking gate; all
-	// three ignored); launchpad (surface, parent + LATITUDE only, direction
-	// ignored).
+	// + ALTITUDE + DIRECTION below); alongside (25 m port to port ahead
+	// of the active nose, outside the gate; all three ignored);
+	// launchpad (surface, parent + LATITUDE only, direction ignored).
 	var posLabel string
 	switch s.posMode {
 	case posAlongside:

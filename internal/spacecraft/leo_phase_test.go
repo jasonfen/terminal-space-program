@@ -14,8 +14,8 @@ func TestNewInLEOAtPhaseZeroMatchesNewInLEO(t *testing.T) {
 		t.Errorf("phase 0 state diverges from NewInLEO: R %v vs %v, V %v vs %v",
 			a.State.R, b.State.R, a.State.V, b.State.V)
 	}
-	if b.LoadoutID != LoadoutSIVB1ID {
-		t.Errorf("LoadoutID = %q, want %q", b.LoadoutID, LoadoutSIVB1ID)
+	if b.LoadoutID != LoadoutDefaultID {
+		t.Errorf("LoadoutID = %q, want %q", b.LoadoutID, LoadoutDefaultID)
 	}
 }
 

@@ -56,12 +56,13 @@ func TestPartsJSONPortsReachStageLookup(t *testing.T) {
 	}
 }
 
-// ADR 0053 decision 3: of the 35 shipped loadouts, 16 spawn with a ported
-// top stage, 19 do not. Names the 16 so adding a loadout later (the ADR's
-// Apollo-TLI) fails here loudly instead of shifting a count.
+// ADR 0053 decision 3: of the 36 shipped loadouts (the 35 plus the Apollo-TLI
+// default, decision 4), 17 spawn with a ported top stage, 19 do not. Names
+// the 17 so adding a loadout later fails here loudly instead of shifting a
+// count.
 func TestLoadoutTopStagePortsMatchADR(t *testing.T) {
 	ported := []string{
-		"Lander", "Apollo-Stack", "Capsule", "Kern-Stack",
+		"Lander", "Apollo-Stack", "Apollo-TLI", "Capsule", "Kern-Stack",
 		"RCS-tug", "Relay-Tug", "Station-Keeper", "Deep-Space-Relay",
 		"Thread-Relay", "Heartbeat-Keeper", "Uplink-Relay", "Nudge-Tug",
 		"Endpoint-Station", "Socket-Lander", "Token-Pod", "Probe-Sat",

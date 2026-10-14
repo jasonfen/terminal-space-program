@@ -2,6 +2,22 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### Unreleased
+
+Docking is flown, port to port, and you start in the Apollo TLI stack (ADR 0053; PRs `#640`, `#642`, `#643`, `#644`, and the default-spawn and docs slice; issue `#604`).
+
+- **You start in `Apollo TLI-1`.** A new game, `--loadout` with no value and the `--reset-fleet` vessel are the S-IVB with the Lunar Module and the CSM still on top, the way it sits after trans-lunar injection. Its port is the Command Module's nose. `space` drops the S-IVB, `D` then does the Apollo transposition. The bare `S-IVB-1` stays in the spawn form and on `--loadout`. The start vessel is heavier (91.9 t, 2358 m/s in the S-IVB stage), so the first Moon burn is more than that stage can deliver alone and shows the over-budget warning until you stage.
+- **Nothing docks by itself any more.** The 50 m / 0.1 m/s click is gone. A dock needs your port within 0.5 m of theirs, under 0.1 m/s relative, and the two noses within 4° of facing. Then a five-second magnet pulls you the last half metre at 1× warp (your RCS and attitude keys are ignored; it lets go if the other vessel leaves the gate). The composite stays where the lead vessel's hull was, with the partner drawn nose to the seam.
+- **Ports.** Crewed modules and capsules, ascent stages, tugs, keepers, relays, stations and the Probe Sat carry one, on the nose; launch vehicles, bare upper stages, comsats, relay nodes and science probes do not and cannot dock.
+- **The Proximity view shows them.** A `○` on each hull, a dashed port line that goes solid green when the gate holds, and `port:`, `align:` and `off-axis:` rows with `(need < ...)` reminders. A port-less target reads `no port`.
+- **`;` reaches `[PORT]`** when the target has a port: `q` / `e` push in / out along its axis, `w` / `s` up / down and `a` / `d` left / right across its face (RCS armed); the main-engine `q` hold, `Port+`, puts your nose on the port axis. `speed:` reads `(port)` there.
+- **A bad approach bumps.** Hulls that touch outside the gate bounce apart at half the closing speed with `bumped <vessel> at <speed>; re-approach under 0.10 m/s` on the bottom edge. Within 50 m of another vessel warp is held to 10×.
+- **`U` parts a dock along its seam:** pieces come back where their hulls were, port to port 1.5 m apart, opening at 0.15 m/s (was 75 m apart). The re-arm hold still keeps them from re-docking until 100 m or ten minutes, or `c`.
+- **Alongside spawns 25 m port to port** ahead of your nose, outside the gate, instead of fusing 0.6 s after Enter. The spawn form row says `alongside (25 m port to port)`.
+- **`K` refuses on the port gate.** It said `already in DOCK READY range` inside 50 m at under 0.1 m/s; it now refuses only when the dock gate itself holds (`docking gate holds, let the magnet close it`) and otherwise still answers inside 50 m.
+- **F1 and the controls guide:** a new DOCKING page (who has a port, the gate, the magnet, the bump, the PORT frame, `p`, `U`, `c`), the warp caps, the `o`, `U` and `c` rows, `(ORBIT/SURF/TGT)` and `speed` naming PORT.
+- Docking to a friend's vessel (the approacher flies it; their hull and port drawn from their report): _slice E, to be filled in when it lands._
+
 ### v0.55.0
 
 The VAB draws your rocket, and tidier readouts (PRs `#638`, `#636`; review in the planning vault, 1 medium and 2 low findings fixed before merge; tag `v0.55.0`).

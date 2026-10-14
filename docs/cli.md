@@ -51,7 +51,7 @@ terminal-space-program --list-launch-sites
 |---|---|---|
 | `--system NAME` | `Sol` | Star system, by name (`Sol`, `Lumen`, …). Case-insensitive. |
 | `--orbit BODY` | `earth` (or the system's first planet) | Body to orbit or launch from, by **ID** or English name (see `--list-bodies`). `--parent` and `--body` are accepted as synonyms. |
-| `--loadout NAME` | `S-IVB-1` | Vessel loadout ID (`Saturn-V`, `Apollo-Stack`, `Kern-Stack`, …; see `--list-loadouts`). |
+| `--loadout NAME` | `Apollo-TLI` | Vessel loadout ID (`Saturn-V`, `Apollo-Stack`, `Kern-Stack`, …; see `--list-loadouts`). |
 
 A vessel is bound for its lifetime to the system it spawns in, and the camera
 follows it, so `--system Lumen` drops you straight into Lumen with the flight
