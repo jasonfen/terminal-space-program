@@ -945,63 +945,60 @@ func (v *LaunchView) chaseHAxis(c *spacecraft.Spacecraft, body bodies.CelestialB
 // drift still steers the camera.
 const chaseHorizSpeedFloorMps = 0.1
 
-// Horizon-band geometry (issue #424 / ADR 0048 §4). In sub-pixel rows
-// (canvasCellPxH = 4 rows/cell): groundApronRows is a thin, brightened
-// strip right at the horizon (structure/lit ground); groundDimRows is
-// a couple of dimmed rows beneath it. Everything past that stays
-// terminal background — the fix for "ten unbroken rows of green" was
-// to draw LESS, not a different flat colour.
+// Launch-view backdrop (issue #639, reversing #424's "draw less"). The sky
+// and the ground are a TINT, a per-cell background colour on the canvas that
+// fills the whole view (Canvas.FillHorizonBackdrop); every dot (rocket,
+// tower, dashed climb and descent paths, orbit lines, markers) draws on top
+// unchanged. Only the lit apron line stays as dots, exactly at the horizon,
+// so the horizon reads crisply: groundApronRows sub-pixel rows (half a cell).
+// #424's finding was a flat green wall with no horizon; the apron line and
+// the sky gradient carry the horizon now.
 const (
 	groundApronRows = canvasCellPxH / 2 // half a cell: a thin lit line at the horizon
-	groundDimRows   = canvasCellPxH * 2 // two full cells: "a couple of dim rows"
 )
 
-// Sky-band geometry. Two steps, both shrinking to zero as the vessel
-// climbs past the body's atmosphere (drawHorizonAndFill scales these
-// by altitude/CutoffAltitude) — "thins with altitude" per the ADR.
-// skyGlowRows is the haze-tinted band right at the horizon;
-// skyDeepRows is a darker band further up before space goes to pure
-// black.
-const (
-	skyGlowRows = canvasCellPxH     // one cell of haze tint at the horizon
-	skyDeepRows = canvasCellPxH * 2 // two cells fading toward space
-)
-
-// groundApronLightenFrac / groundDimDarkenFrac / skyDeepDarkenFrac
-// (0..1) are how far each band's colour blends toward white/black
-// from the body's single authored SurfaceColor / atmosphere haze
-// colour — deriving a small gradient from one hex per body rather
-// than hand-authoring a band palette for every body in the catalog.
+// groundApronLightenFrac / groundTintDarkenFrac / skyTopDarkenFrac (0..1) are
+// how far each colour blends toward white/black from the body's single
+// authored SurfaceColor / atmosphere haze colour: the apron line lightens the
+// surface colour, the ground tint darkens it, the sky fades from the haze at
+// the horizon to a darkened haze overhead. One hex per body, no hand-authored
+// palette for every body in the catalog.
 const (
 	groundApronLightenFrac = 0.35
-	groundDimDarkenFrac    = 0.45
-	skyDeepDarkenFrac      = 0.55
+	groundTintDarkenFrac   = 0.45
+	skyTopDarkenFrac       = 0.75
 )
 
-// drawHorizonAndFill paints a horizon band (ground below, sky above)
-// instead of the old unbroken SurfaceColor disk fill. In the chase-cam
-// basis (h_axis, local_up) the body sphere projects orthographically
-// to a circle of radius bodyRadius centred at the body's projected
-// position — its upper edge IS the horizon (naturally flat at low
-// altitude, naturally curved at altitude, because the canvas window
-// slices a chord of a large circle). Canvas.FillHorizonBands walks
-// that same edge but only paints a bounded run of rows outward from
-// it on each side, so work stays bounded by canvas size (not sphere
-// size) exactly like the FillProjectedSphere precedent it replaces.
+// skyGradientExp shapes the sky's rise from haze to deep blue: the height
+// fraction (0 at the horizon, 1 at the top of the canvas) raised to this, so
+// the colour leaves the haze quickly and settles into the deep tone overhead.
+// skyRampSteps is how many colours the gradient is quantised to; a canvas
+// has far fewer cell rows than that, so no band is visible.
+const (
+	skyGradientExp = 0.7
+	skyRampSteps   = 64
+)
+
+// drawHorizonAndFill paints the launch view's backdrop: ground below the
+// horizon, sky above it. In the chase-cam basis (h_axis, local_up) the body
+// sphere projects orthographically to a circle of radius bodyRadius centred
+// at the body's projected position; its upper edge IS the horizon (naturally
+// flat at low altitude, naturally curved at altitude, because the canvas
+// window slices a chord of a large circle). FillHorizonBackdrop tints every
+// cell by which side of that edge it sits on; FillHorizonBands then draws the
+// lit apron line as dots right on the edge.
 //
-// Ground is always drawn (every body has a SurfaceColor). Sky only
-// draws for bodies with an Atmosphere — an airless body (the Moon)
-// stays pure black above the horizon at any altitude, which is
-// physically correct and needs no special case. altitudeM scales the
-// sky bands down to nothing by the atmosphere's CutoffAltitude.
+// Ground is always drawn (every body has a SurfaceColor). Sky only draws for
+// bodies with an Atmosphere: an airless body (the Moon) keeps a black sky at
+// any altitude, which is physically correct and needs no special case.
+// altitudeM fades the whole sky to black by the atmosphere's CutoffAltitude.
 func (v *LaunchView) drawHorizonAndFill(body bodies.CelestialBody, bodyPos orbital.Vec3, altitudeM float64) {
 	surface := body.SurfaceColorHex()
-	ground := []widgets.HorizonBand{
+	apron := []widgets.HorizonBand{
 		{Color: lightenHex(surface, groundApronLightenFrac), Rows: groundApronRows},
-		{Color: darkenHex(surface, groundDimDarkenFrac), Rows: groundDimRows},
 	}
 
-	var sky []widgets.HorizonBand
+	var ramp []lipgloss.Color
 	if atmo := body.Atmosphere; atmo != nil {
 		frac := 1.0
 		if atmo.CutoffAltitude > 0 {
@@ -1015,18 +1012,37 @@ func (v *LaunchView) drawHorizonAndFill(body bodies.CelestialBody, bodyPos orbit
 			if haze == "" {
 				haze = body.Color
 			}
-			glowRows := int(math.Round(float64(skyGlowRows) * frac))
-			deepRows := int(math.Round(float64(skyDeepRows) * frac))
-			if glowRows > 0 {
-				sky = append(sky, widgets.HorizonBand{Color: lipgloss.Color(haze), Rows: glowRows})
-			}
-			if deepRows > 0 {
-				sky = append(sky, widgets.HorizonBand{Color: darkenHex(haze, skyDeepDarkenFrac), Rows: deepRows})
-			}
+			ramp = skyRamp(haze, frac)
 		}
 	}
 
-	v.canvas.FillHorizonBands(bodyPos, body.RadiusMeters(), ground, sky)
+	v.canvas.FillHorizonBackdrop(bodyPos, body.RadiusMeters(), darkenHex(surface, groundTintDarkenFrac), ramp)
+	v.canvas.FillHorizonBands(bodyPos, body.RadiusMeters(), apron, nil)
+}
+
+// skyRamp is the sky's colours from the horizon (index 0) to the top of the
+// canvas (last): haze lerped to a darkened haze along the height fraction
+// raised to skyGradientExp, the whole thing blended toward black by
+// (1 - fade). fade is 1 on the ground and falls to 0 at the atmosphere's
+// cutoff altitude. Malformed haze hex falls back to the unblended input
+// through blendHex, so the ramp is never empty.
+func skyRamp(haze string, fade float64) []lipgloss.Color {
+	ramp := make([]lipgloss.Color, skyRampSteps)
+	r, g, b, ok := parseHexColor(haze)
+	if !ok {
+		for i := range ramp {
+			ramp[i] = lipgloss.Color(haze)
+		}
+		return ramp
+	}
+	top := 1 - skyTopDarkenFrac
+	for i := range ramp {
+		up := math.Pow(float64(i)/float64(skyRampSteps-1), skyGradientExp)
+		k := (1 + (top-1)*up) * fade // haze -> darkened haze, then toward black
+		ramp[i] = lipgloss.Color(fmt.Sprintf("#%02X%02X%02X",
+			int(math.Round(float64(r)*k)), int(math.Round(float64(g)*k)), int(math.Round(float64(b)*k))))
+	}
+	return ramp
 }
 
 // lightenHex / darkenHex blend a "#RRGGBB" colour toward white / black

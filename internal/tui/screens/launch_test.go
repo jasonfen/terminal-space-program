@@ -35,7 +35,7 @@ func launchThemeForTest() Theme {
 // spawnSaturnVOnPad spawns a Saturn V at KSC LC-39A on Earth's
 // launchpad and returns the world + the spawned craft (now active).
 // Mirrors landed_test.go's pad-spawn pattern.
-func spawnSaturnVOnPad(t *testing.T) (*sim.World, *spacecraft.Spacecraft) {
+func spawnSaturnVOnPad(t testing.TB) (*sim.World, *spacecraft.Spacecraft) {
 	t.Helper()
 	w, err := sim.NewWorld()
 	if err != nil {

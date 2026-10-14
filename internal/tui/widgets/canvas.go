@@ -194,6 +194,15 @@ type Canvas struct {
 	// the pixelTag-derived color (terminal default when untagged).
 	cellOverlayColors map[[2]int]lipgloss.TerminalColor
 
+	// cellBG is the per-cell background layer (#639): a tint behind
+	// whatever the cell draws, row-major cols*rows, "" = none. It is paint,
+	// not ink. It is not a pixel tag, so it never votes in resolveCellInk,
+	// never answers HitAt and never moves CountColor. Allocated on first
+	// use; hasBG says whether this frame set any (an untouched canvas keeps
+	// the uncoloured fast path and today's exact bytes).
+	cellBG []lipgloss.Color
+	hasBG  bool
+
 	// curveCache memoizes a drawn orbit LINE's flattened+projected pixel
 	// list (#367), the same predict-on-change discipline diskRasterCache
 	// applies to a body's textured-disk pixels — see
@@ -280,6 +289,9 @@ func (c *Canvas) Resize(cols, rows int) {
 	// change, which is safe here — see its doc comment — because every
 	// screen's Render calls Clear() before drawing again after a resize.
 	c.pixelTags.ensureSize(c.pxW, c.pxH)
+	if len(c.cellBG) != c.cols*c.rows {
+		c.cellBG, c.hasBG = nil, false
+	}
 }
 
 // Clear wipes the drawille buffer, per-pixel color tags, and cell
@@ -289,6 +301,34 @@ func (c *Canvas) Clear() {
 	c.pixelTags.clear()
 	c.cellOverlays = nil
 	c.cellOverlayColors = nil
+	if c.hasBG {
+		clear(c.cellBG)
+		c.hasBG = false
+	}
+}
+
+// SetCellBackground tints the terminal cell (col, row) with a background
+// colour behind its dots, overlay glyph or blank. Out-of-range cells are
+// ignored. Reset by Clear. The layer is paint only (see cellBG).
+func (c *Canvas) SetCellBackground(col, row int, color lipgloss.Color) {
+	if col < 0 || row < 0 || col >= c.cols || row >= c.rows {
+		return
+	}
+	if len(c.cellBG) != c.cols*c.rows {
+		c.cellBG = make([]lipgloss.Color, c.cols*c.rows)
+	}
+	c.cellBG[row*c.cols+col] = color
+	if color != "" {
+		c.hasBG = true
+	}
+}
+
+// CellBackground is the background colour set on (col, row), "" when none.
+func (c *Canvas) CellBackground(col, row int) lipgloss.Color {
+	if !c.hasBG || col < 0 || row < 0 || col >= c.cols || row >= c.rows {
+		return ""
+	}
+	return c.cellBG[row*c.cols+col]
 }
 
 // SetCellOverlay places a Unicode glyph at the cell containing the
@@ -823,6 +863,63 @@ func (c *Canvas) FillHorizonBands(center orbital.Vec3, radius float64, ground, s
 				c.dc.Set(px, py)
 				c.pixelTags.set(px, py, tag)
 			}
+		}
+	}
+}
+
+// FillHorizonBackdrop tints the whole canvas as a background layer: ground
+// from the sphere's horizon down to the bottom of the canvas (and only
+// inside its projected disk), sky from the horizon up to the TOP of the
+// canvas (#639, replacing the bounded FillHorizonBands strips, which left
+// black beyond three cells of sky and two and a half of ground).
+//
+// The horizon is the sphere's upper edge in each column, exactly the edge
+// FillHorizonBands walks, so it is flat for a low camera and curves for a
+// high one. A cell takes the ground colour when its pixel-centre row sits at
+// or below that edge, otherwise the sky. skyRamp runs from the horizon
+// colour (index 0) to the colour at the top of the canvas (last index); the
+// sky colour of a cell is the ramp entry at its height fraction above that
+// column's horizon. A nil or empty ramp leaves the sky untinted (an airless
+// body, or a vessel past the atmosphere).
+//
+// Columns the sphere never reaches (a high camera over a small disk) have no
+// horizon: they are sky from top to bottom, graded against the disk's
+// equator row.
+func (c *Canvas) FillHorizonBackdrop(center orbital.Vec3, radius float64, ground lipgloss.Color, skyRamp []lipgloss.Color) {
+	if radius <= 0 {
+		return
+	}
+	cx, cy, _ := c.Project(center)
+	pxR := radius * c.scale
+	pxR2 := pxR * pxR
+	last := len(skyRamp) - 1
+	for col := 0; col < c.cols; col++ {
+		dx := float64(2*col) + 0.5 - float64(cx)
+		onSphere := dx*dx <= pxR2
+		ref := float64(cy) // equator row: the horizon of a column the disk never reaches
+		edgeRow := 0
+		if onSphere {
+			ref = float64(cy) - math.Sqrt(pxR2-dx*dx)
+			edgeRow = int(math.Round(ref))
+		}
+		for row := 0; row < c.rows; row++ {
+			mid := row*4 + 2
+			if onSphere && mid >= edgeRow {
+				if dy := float64(mid - cy); dy*dy <= pxR2 {
+					c.SetCellBackground(col, row, ground)
+				}
+				continue
+			}
+			if last < 0 || ref <= 0 {
+				continue
+			}
+			up := (ref - float64(mid)) / ref
+			if up < 0 {
+				up = 0
+			} else if up > 1 {
+				up = 1
+			}
+			c.SetCellBackground(col, row, skyRamp[int(math.Round(up*float64(last)))])
 		}
 	}
 }
@@ -1859,7 +1956,7 @@ func (c *Canvas) DrawEllipseOffsetDottedColored(el orbital.Elements, offset orbi
 // content (orbit lines, craft glyph) with the body's color.
 func (c *Canvas) String() string {
 	rows := c.dc.Rows(0, 0, c.pxW, c.pxH)
-	if c.pixelTags.count() == 0 && len(c.cellOverlays) == 0 {
+	if c.pixelTags.count() == 0 && len(c.cellOverlays) == 0 && !c.hasBG {
 		return c.joinRows(rows)
 	}
 	// Aggregate tags per cell: for each tagged pixel, accumulate a
@@ -1886,13 +1983,14 @@ func (c *Canvas) String() string {
 	// identically-styled cells now — same bytes out, far fewer calls.
 	var runBuf []rune
 	var runFg lipgloss.TerminalColor
+	var runBg lipgloss.Color
 	var runStyled bool
 	flushRun := func() {
 		if len(runBuf) == 0 {
 			return
 		}
 		if runStyled {
-			b.WriteString(ink.styledRun(runFg, string(runBuf)))
+			b.WriteString(ink.styledRunBG(runFg, runBg, string(runBuf)))
 		} else {
 			for _, r := range runBuf {
 				b.WriteRune(r)
@@ -1929,10 +2027,22 @@ func (c *Canvas) String() string {
 			if oc, ok := c.cellOverlayColors[[2]int{x, i}]; ok {
 				fg, hasColor = oc, true
 			}
-			styled := hasColor && ch != ' '
-			if styled != runStyled || (styled && fg != runFg) {
+			// A blank cell carries no foreground, but a backdrop tint
+			// (#639) still styles it: the run key is (fg, bg) together.
+			var bg lipgloss.Color
+			if c.hasBG {
+				bg = c.cellBG[cellIdx]
+				if bg != "" && ch == 0x2800 {
+					ch = ' ' // an empty braille cell under a tint is a plain space
+				}
+			}
+			if !hasColor || ch == ' ' {
+				fg = nil
+			}
+			styled := fg != nil || bg != ""
+			if styled != runStyled || (styled && (fg != runFg || bg != runBg)) {
 				flushRun()
-				runStyled, runFg = styled, fg
+				runStyled, runFg, runBg = styled, fg, bg
 			}
 			runBuf = append(runBuf, ch)
 		}

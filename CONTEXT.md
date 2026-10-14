@@ -531,7 +531,7 @@ identity. The active Vessel's Real orbit is its own yellow (the Vessel
 marker's colour) and the Target's is TARGET green (2026-10-10; the active
 orbit was pale slate, which read as Earth's atmosphere edge at a low
 orbit). Solid ink (Real orbits, Vessels, markers) wins any cell it shares
-with a body's disk, its atmosphere halo, the launch view's ground and sky,
+with a body's disk, its atmosphere halo, the launch view's lit horizon line,
 or Scenery, so a line crossing a planet stays a line in its own colour: the
 cell shows only the line's dots, and the planet keeps every cell and dot the
 line does not touch (no dark border; Jason 2026-10-10, GM Q5). Dotted and
@@ -540,6 +540,11 @@ did: its gaps turned the cells it crossed into a wavy zig-zag. Scenery
 yields like the body it circles. A marker that would land on a body drawn 3
 dots or smaller steps one cell off its edge (the body keeps its cell, the
 marker its colour).
+The launch view's ground and sky are not ink at all (#639): they are a tint,
+a background colour on every cell of the canvas (haze at the horizon fading
+to deep blue overhead, black past the atmosphere's Cutoff Altitude, none over
+an airless Body), so every dot of every class draws over them unchanged and a
+dashed climb path keeps its cells.
 _Avoid_: Line type, Stroke.
 
 **Pan** (ADR 0042):
