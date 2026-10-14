@@ -6,6 +6,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // Proximity View (ADR 0043) — the sim half. This file owns three things:
@@ -55,6 +56,38 @@ type ProximityState struct {
 	// TargetName is the label to put on the centred vessel — a local
 	// vessel's name or a remote player's ghost label.
 	TargetName string
+
+	// Docking ports (ADR 0053 slice A). Derived from the two stacks on
+	// every call, never stored. The numbers below are meaningful only when
+	// HasPort is true (both vessels carry a port and both attitudes are
+	// known) and are zero otherwise.
+	//
+	// PortRangeM is port to port, not hull to hull (RangeM is stack bottom
+	// to stack bottom). AlignDeg is angle(a_own, -a_target): 0 when the
+	// noses point straight at each other. OffAxisUpM / OffAxisRightM are
+	// the TARGET's port relative to yours, split across the target's port
+	// face (PortFaceBasis): positive up / right means push that way to
+	// centre on it, negative down / left.
+	PortRangeM    float64
+	AlignDeg      float64
+	OffAxisUpM    float64
+	OffAxisRightM float64
+	HasPort       bool
+
+	// PortName is the target's top component ("CM"), empty when the target
+	// has no port. TargetHasPort / OwnHasPort say which side lacks one;
+	// PortUnknown is a ghost, or a vessel whose attitude is uninitialised,
+	// whose shape is not known. PortNote is the chip's port: row text when
+	// HasPort is false ("none (S-IVB has no port)").
+	PortName      string
+	TargetHasPort bool
+	OwnHasPort    bool
+	PortUnknown   bool
+	PortNote      string
+
+	// Own / Target are the two hulls' derived geometry, for the screen to
+	// draw ports on.
+	Own, Target PortGeometry
 }
 
 // ProximityState resolves the close-range scene against the current
@@ -87,7 +120,7 @@ func (w *World) ProximityState() (ProximityState, bool) {
 		// -d|rel|/dt: positive while the gap shrinks.
 		closing = -rel.Dot(relV) / rangeM
 	}
-	return ProximityState{
+	st := ProximityState{
 		Frame:       frame,
 		TargetWorld: primaryPos.Add(rT),
 		CraftWorld:  primaryPos.Add(c.State.R),
@@ -97,7 +130,66 @@ func (w *World) ProximityState() (ProximityState, bool) {
 		VRelMS:      relV.Norm(),
 		ClosingMS:   closing,
 		TargetName:  w.TargetName(),
-	}, true
+	}
+	w.resolveProximityPorts(&st, c, rT)
+	return st, true
+}
+
+// resolveProximityPorts fills the docking-port half of the scene (ADR 0053
+// decisions 2, 3 and 6). The aimed port is the target's first free port; a
+// vessel's own is its first. Both are ports, not "the nose": a later
+// multi-port vessel changes which entry is chosen, not these formulas.
+func (w *World) resolveProximityPorts(st *ProximityState, own *spacecraft.Spacecraft, rT orbital.Vec3) {
+	st.Own = VesselPortGeometry(own)
+	st.OwnHasPort = st.Own.HasPort()
+
+	tc, _, isCraft := w.ResolveTargetCraft()
+	if !isCraft {
+		// A ghost reports a name, a glyph and a Kepler state, no stack:
+		// no shape is known (slice E puts one on the wire).
+		st.PortUnknown = true
+		st.PortNote = "unknown"
+		return
+	}
+	st.Target = VesselPortGeometry(tc)
+	st.TargetHasPort = st.Target.HasPort()
+	if st.TargetHasPort {
+		st.PortName = st.Target.Ports[0].Name
+	}
+	if !st.Own.Known || !st.Target.Known {
+		st.PortUnknown = true
+		st.PortNote = "unknown"
+		return
+	}
+	switch {
+	case !st.TargetHasPort:
+		st.PortNote = "none (" + portlessReason(st.Target) + ")"
+		return
+	case !st.OwnHasPort:
+		st.PortNote = "none (yours: " + portlessReason(st.Own) + ")"
+		return
+	}
+	st.HasPort = true
+	pa := st.Own.PortPoint(own.State.R, 0)
+	pb := st.Target.PortPoint(rT, 0)
+	delta := pb.Sub(pa)
+	st.PortRangeM = delta.Norm()
+	st.AlignDeg = PortAlignmentDeg(st.Own.Axis, st.Target.Axis)
+	if up, right, ok := PortFaceBasis(st.Target.Axis, st.Frame); ok {
+		st.OffAxisUpM = delta.Dot(up)
+		st.OffAxisRightM = delta.Dot(right)
+	}
+}
+
+// portlessReason is the parenthesis of a "none (...)" port row: a lone
+// stage names itself, a stack names its top, because a stack's port is
+// its top component's and a loaded carrier has none until the last payload
+// is deployed.
+func portlessReason(g PortGeometry) string {
+	if g.Stacked {
+		return "top is " + g.TopName
+	}
+	return g.TopName + " has no port"
 }
 
 // ProximityAvailable reports whether Proximity View has a scene to draw.
