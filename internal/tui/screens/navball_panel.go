@@ -30,7 +30,7 @@ type NavballControlID int
 
 const (
 	navballControlNone NavballControlID = iota
-	NavballControlMode                  // cycle NavMode (orbit / surface / target)
+	NavballControlMode                  // cycle NavMode (surface / orbit / target / port)
 	NavballControlSAS                   // toggle InstantSAS (MANUAL slew <-> AUTO instant)
 	NavballControlPrograde
 	NavballControlRetrograde
@@ -199,6 +199,8 @@ func navModeLabel(m sim.NavMode) string {
 		return "SURF"
 	case sim.NavTarget:
 		return "TGT"
+	case sim.NavPort:
+		return "PORT"
 	}
 	return "ORBIT"
 }

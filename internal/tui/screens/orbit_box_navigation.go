@@ -140,6 +140,8 @@ func navSpeedCell(w *sim.World, withFrame bool) string {
 		word = "surface"
 	case sim.NavTarget:
 		word = "target"
+	case sim.NavPort:
+		word = "port"
 	}
 	if !withFrame {
 		return readout.Speed(v)

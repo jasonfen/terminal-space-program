@@ -1184,6 +1184,12 @@ func attitudeHoldParts(w *sim.World, mode spacecraft.BurnMode) (string, sim.NavM
 		frame = sim.NavSurface
 	case spacecraft.BurnTarget, spacecraft.BurnAntiTarget, spacecraft.BurnTargetPrograde, spacecraft.BurnTargetRetrograde:
 		frame = sim.NavTarget
+	case spacecraft.BurnPortIn, spacecraft.BurnPortOut, spacecraft.BurnPortUp,
+		spacecraft.BurnPortDown, spacecraft.BurnPortLeft, spacecraft.BurnPortRight:
+		// ADR 0053 decision 7: the six PORT modes are frame-locked to the
+		// target's port, so they tag their OWN frame, never the live
+		// NavMode (a hold of Port+ stays "Port+ (PORT)" after ; moves on).
+		frame = sim.NavPort
 	}
 	// #478 A2: the bracket tag already names the frame, so a surface-
 	// framed mode drops its own redundant "Surface " word ("Surface

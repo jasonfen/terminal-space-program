@@ -208,11 +208,15 @@ type Keymap struct {
 	ClearTarget key.Binding
 
 	// CycleNavMode (v0.9.3+): rotate the SAS reference frame through
-	// Surface → Orbit → Target → Surface (KSP nav-ball mode cycle, Surface first since 2026-10-08).
-	// Skips Target when no craft target is bound. The same w/s/a/d/q/e
+	// Surface → Orbit → Target → Port → Surface (KSP nav-ball mode cycle, Surface first since 2026-10-08).
+	// Skips Target when no craft target is bound, and Port unless the
+	// target has a docking port (ADR 0053). The same w/s/a/d/q/e
 	// axis keys reinterpret accordingly: in NavTarget, w/s become
 	// target-relative prograde/retrograde and q/e become Target/Anti-
-	// Target (toward / away). Bound to `;`. Existing `W` / `S` direct-
+	// Target (toward / away); in NavPort, q/e push in/out along the
+	// target's port axis, w/s up/down and a/d left/right across its
+	// face (and with the main engine, q/e hold the nose on / off the
+	// port axis). Bound to `;`. Existing `W` / `S` direct-
 	// surface shortcuts stay as nav-mode-bypass.
 	CycleNavMode key.Binding
 
