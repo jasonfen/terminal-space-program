@@ -157,6 +157,24 @@ func (w *World) SegmentDrawPoints(seg SOISegment, homeID string) []orbital.Vec3 
 	return pts
 }
 
+// PlannedSegmentDrawPoints returns the canvas plot positions for one segment
+// of a planted-node leg. Every segment draws Local-to-Body (ADR 0021 B),
+// INCLUDING the craft's own home-SOI segment: its body-relative samples are
+// anchored at the home body's CURRENT position, so a leg that coasts for many
+// revolutions draws as the closed post-burn ellipse around the planet.
+//
+// Drawing the home segment at its inertial sample positions (what
+// SegmentDrawPoints does for homeID == seg.PrimaryID) is the homeID trap
+// (#157) again: each sample carries the home body's own heliocentric motion
+// since the plan was made (Earth moves ~160 Mm per LEO revolution), so the
+// ellipse is stretched into a helix running off along the body's orbit, which
+// edge-on reads as a wave "emanating outward" from the planet. Anchoring
+// against the system root skips the short-circuit; a heliocentric segment
+// (PrimaryID == root) still draws at its inertial samples.
+func (w *World) PlannedSegmentDrawPoints(seg SOISegment) []orbital.Vec3 {
+	return w.SegmentDrawPoints(seg, w.System().Bodies[0].ID)
+}
+
 // predictTuning selects fidelity variants of the SOI-aware propagation
 // loops (predictedSegmentsFromTuned and propagateStateWithPrimaryTuned).
 // The zero value reproduces the PRE-v0.17.2 ("legacy") behavior exactly;
