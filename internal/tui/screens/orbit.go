@@ -2382,7 +2382,6 @@ func (v *OrbitView) plotPredictedLegs(w *sim.World, legs []predictLegDraw) {
 	if w.ActiveCraft() == nil {
 		return
 	}
-	homeID := w.ActiveCraft().Primary.ID
 	scale := v.canvas.Scale()
 	for _, leg := range legs {
 		// Skip legs whose orbit projects too small to convey shape
@@ -2406,7 +2405,7 @@ func (v *OrbitView) plotPredictedLegs(w *sim.World, legs []predictLegDraw) {
 			// by making the leg unreadable when zoomed in. Fill stays
 			// within a segment, so an SOI transition is still never
 			// bridged.
-			v.canvas.PlotPolylineClass(w.SegmentDrawPoints(seg, homeID), leg.color, widgets.ClassPlanned)
+			v.canvas.PlotPolylineClass(w.PlannedSegmentDrawPoints(seg), leg.color, widgets.ClassPlanned)
 		}
 	}
 }
