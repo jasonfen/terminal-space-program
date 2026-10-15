@@ -2,6 +2,12 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.56.1
+
+A planned burn's path stays around its planet (PR `#654`; issue `#653`; tag `v0.56.1`).
+
+- **No more wavy line trailing off the orbit map.** A planted burn's path was drawn with the planet's own motion around the Sun mixed in, about 160 Mm per low-orbit lap, so a multi-lap plan (a rendezvous phasing coast, for one) smeared into a helix that read as a dotted wave running off to one side. Every planned leg inside the planet's sphere of influence is now drawn relative to the planet, like the SOI pass arc already was. The burn itself and its numbers were never affected (`#653`).
+
 ### v0.56.0
 
 Docking is flown, port to port, you start in the Apollo TLI stack, and the launch sky fills the screen (ADR 0053; PRs `#640`, `#641`, `#642`, `#643`, `#644`, `#646`, `#647`, `#649`, `#650`; issues `#604`, `#639`; cycle review in the planning vault, 2 blocking, 2 should-fix and 2 low findings fixed before release; tag `v0.56.0`).
