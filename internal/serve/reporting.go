@@ -30,6 +30,11 @@ type reportingModel struct {
 	srv   *Server
 	owner string
 
+	// ls is this session's registry entry, nil for the host (ADR 0054). The
+	// tick reads its dropped record and quits when the host has ended the
+	// session.
+	ls *liveSession
+
 	// port is the listener port a lazy [h] start binds (v0.28 S3).
 	// When srv is nil the wrapper is inert — solo play — until the
 	// Session screen's [h] starts hosting; srv/rep/owner come alive
@@ -148,7 +153,7 @@ const metaRefresh = 5 * time.Second
 // handle-collision auto-rename produces one, surfaced as a toast on
 // the owner's own screen the moment their session comes up, then
 // cleared so it fires exactly once.
-func (s *Server) withReporting(app *tui.App, owner string) tea.Model {
+func (s *Server) withReporting(app *tui.App, owner string, ls ...*liveSession) tea.Model {
 	if note, err := s.store.ConsumePendingNote(owner); err == nil && note != "" {
 		app.Toast(note)
 	}
@@ -156,6 +161,9 @@ func (s *Server) withReporting(app *tui.App, owner string) tea.Model {
 		inner: app, app: app,
 		rep: relay.NewReporter(s.relay, owner),
 		srv: s, owner: owner,
+	}
+	if len(ls) > 0 {
+		m.ls = ls[0]
 	}
 	// #294 review finding 1: prime w.Session here, before this model ever
 	// sees a tick — mirrors startHosting's own priming call below. Without
@@ -284,15 +292,14 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case screens.SessionCmdRevoke:
 			_ = m.srv.store.RevokeInvite(admin.Cmd.Code)
+		case screens.SessionCmdDisconnect:
+			m.disconnectPlayer(admin.Cmd.Fingerprint)
+		case screens.SessionCmdKick:
+			m.kickPlayer(admin.Cmd.Fingerprint, admin.Cmd.Purge)
 		case screens.SessionCmdRemove:
-			// Target-aware guardrail (v0.30 S3): an admin may remove guests
-			// but not the host, another admin, or themselves. MayAdminister
-			// passed above; MayRemove adds the actor×target rules.
-			if !m.srv.store.MayRemove(m.owner, admin.Cmd.Fingerprint) {
-				m.app.Toast("you can't remove that player")
-				return m, nil
-			}
-			_ = m.srv.store.RemovePlayer(admin.Cmd.Fingerprint)
+			// The pre-ADR-0054 name for a plain kick; the roster no longer
+			// emits it, but a command already in flight still means a kick.
+			m.kickPlayer(admin.Cmd.Fingerprint, false)
 		case screens.SessionCmdPromote, screens.SessionCmdDemote:
 			// Delegation is host-only — an admin can neither create nor
 			// remove another admin (single-rooted, v0.30 S2). MayAdminister
@@ -314,10 +321,21 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	inner, cmd := m.inner.Update(msg)
 	m.inner = inner
+	// The host ended this session (ADR 0054 decision 4): the tick passes
+	// through, then the program quits on its own goroutine, restores the
+	// terminal, and persistMiddleware leaves the line and saves the world.
+	if _, ok := msg.(sim.TickMsg); ok && m.ls != nil && m.ls.dropped.Load() != nil {
+		return m, tea.Quit
+	}
 	// Solo (no listener): pure pass-through — no store, no reports.
 	if _, ok := msg.(sim.TickMsg); ok && m.srv != nil {
 		now := time.Now()
 		w := m.app.World()
+		// Stamp the roster handle on the report so the ghost keeps its name
+		// after a kick removes the row (ADR 0054 decision 5).
+		if h, ok := m.handleOf(m.owner); ok {
+			m.rep.Handle = h
+		}
 		m.rep.Tick(w, now)
 		// Sync arrival (S7): chip on both sides — broadcast "X synced
 		// to you" through the presence ring, keep "synced to X" local.

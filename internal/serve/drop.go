@@ -126,3 +126,56 @@ func (s *Server) dropAll(rec *dropRecord) {
 		}
 	}
 }
+
+// actorHandle is the roster handle of whoever pressed the key.
+func (m *reportingModel) actorHandle() string {
+	if h, ok := m.handleOf(m.owner); ok {
+		return h
+	}
+	return m.srv.handleOf(m.owner)
+}
+
+// disconnectPlayer ends fp's live session; their key stays valid and they
+// may reconnect at once. Authorization (host and admins) was checked by the
+// caller; the actor-by-target rules are MayRemove's, the same ones a kick
+// answers to.
+func (m *reportingModel) disconnectPlayer(fp string) {
+	if !m.srv.store.MayRemove(m.owner, fp) {
+		m.app.Toast("you can't disconnect that player")
+		return
+	}
+	target := m.srv.handleOf(fp)
+	if !m.srv.dropPlayer(fp, &dropRecord{kind: dropDisconnect, actor: m.actorHandle(), target: target}) {
+		m.app.Toast(target + " is not connected")
+	}
+}
+
+// kickPlayer drops fp's live session and removes their roster row, so only
+// a freshly minted invite lets them back. The drop is flagged first (call 3:
+// the purge flag must be on the session before the roster edit). Their
+// vessels stay saved.
+func (m *reportingModel) kickPlayer(fp string, purge bool) {
+	// Target-aware guardrail (v0.30 S3): an admin may kick guests but not the
+	// host, another admin, or themselves. MayAdminister passed in the caller;
+	// MayRemove adds the actor-by-target rules.
+	if !m.srv.store.MayRemove(m.owner, fp) {
+		m.app.Toast("you can't kick that player")
+		return
+	}
+	if purge {
+		m.purgeKickedPlayer(fp)
+		return
+	}
+	target := m.srv.handleOf(fp)
+	m.srv.dropPlayer(fp, &dropRecord{kind: dropKick, actor: m.actorHandle(), target: target})
+	_ = m.srv.store.RemovePlayer(fp)
+}
+
+// purgeKickedPlayer is the seam for slice E (kick and delete vessels): the
+// backup, the payload delete, the dock-record cleanup and the relay
+// Forget(owner). The teardown half (a purging drop writes no final payload)
+// is already in place via dropRecord.purge. Until E lands the request is
+// refused whole, so nobody is dropped and nothing is half-purged.
+func (m *reportingModel) purgeKickedPlayer(fp string) {
+	m.app.Toast("kick and delete vessels needs the server update")
+}

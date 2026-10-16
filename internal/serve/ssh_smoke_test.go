@@ -140,6 +140,17 @@ type gameSession struct {
 
 	mu  sync.Mutex
 	buf strings.Builder
+
+	// errBuf is the session's stderr (ADR 0054: the dropped friend's one
+	// line); exited closes when the remote session has ended.
+	errBuf strings.Builder
+	exited chan struct{}
+}
+
+func (g *gameSession) stderr() string {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.errBuf.String()
 }
 
 func (g *gameSession) output() string {
@@ -187,7 +198,25 @@ func dialGameSession(t *testing.T, addr string, signer cssh.Signer) *gameSession
 	if err != nil {
 		t.Fatalf("new session: %v", err)
 	}
-	g := &gameSession{client: client, sess: sess}
+	g := &gameSession{client: client, sess: sess, exited: make(chan struct{})}
+	stderrPipe, err := sess.StderrPipe()
+	if err != nil {
+		t.Fatalf("stderr pipe: %v", err)
+	}
+	go func() {
+		chunk := make([]byte, 1024)
+		for {
+			n, err := stderrPipe.Read(chunk)
+			if n > 0 {
+				g.mu.Lock()
+				g.errBuf.Write(chunk[:n])
+				g.mu.Unlock()
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
 	stdin, err := sess.StdinPipe()
 	if err != nil {
 		t.Fatalf("stdin pipe: %v", err)
@@ -217,6 +246,10 @@ func dialGameSession(t *testing.T, addr string, signer cssh.Signer) *gameSession
 	if err := sess.Shell(); err != nil {
 		t.Fatalf("shell: %v", err)
 	}
+	go func() {
+		_ = sess.Wait()
+		close(g.exited)
+	}()
 	return g
 }
 

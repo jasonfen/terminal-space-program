@@ -161,3 +161,11 @@ func (s *Server) extendReprieves(now time.Time) {
 		_ = sess.conn.SetDeadline(deadline)
 	}
 }
+
+// droppedRecord is dropped.Load tolerant of a nil session.
+func (l *liveSession) droppedRecord() *dropRecord {
+	if l == nil {
+		return nil
+	}
+	return l.dropped.Load()
+}
