@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -444,8 +445,8 @@ func TestCardTitleIsCutToFit(t *testing.T) {
 			t.Errorf("row %d is %d cells, want %d: %q", i, w, cardW, ln)
 		}
 	}
-	if !strings.Contains(card, "…") {
-		t.Errorf("a long name was not cut with an ellipsis:\n%s", card)
+	if !regexp.MustCompile(`…\?\s*│`).MatchString(card) {
+		t.Errorf("a long name was not cut with an ellipsis ahead of the title's ?:\n%s", card)
 	}
 }
 

@@ -1,6 +1,10 @@
 package screens
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+)
 
 // The card (ADR 0054, #633). Every question the game asks is a card centred
 // over the dimmed screen: the question as the title, the choices as short
@@ -195,7 +199,7 @@ func (c *Card) HitRow(col, row int) (int, bool) {
 // an optional dim note, the choices with their keys in a column, and the
 // legend.
 func (c *Card) Render() string {
-	title := "  " + c.theme.Title.Render(truncWidth(c.title, cardTitleW-2))
+	title := "  " + c.theme.Title.Render(cardTitle(c.title))
 	var lines []string
 	if ns := c.noteLines(); len(ns) > 0 {
 		for _, n := range ns {
@@ -217,4 +221,17 @@ func (c *Card) Render() string {
 	}
 	lines = append(lines, "", "  "+c.theme.Footer.Render("[↑/↓] pick  [enter] choose"))
 	return strings.Join(formBox(c.theme, title, lines, CardW), "\n")
+}
+
+// cardTitle cuts a question to the room the title row has (36 cells), keeping
+// the "?" it ends in: handles and vessel names have no length limit.
+func cardTitle(t string) string {
+	room := cardTitleW - 2
+	if lipgloss.Width(t) <= room {
+		return t
+	}
+	if stem, ok := strings.CutSuffix(t, "?"); ok {
+		return truncWidth(stem, room-1) + "?"
+	}
+	return truncWidth(t, room)
 }
