@@ -185,29 +185,45 @@ func TestEngineBoxNodeRowOverflowCount(t *testing.T) {
 	}
 }
 
-// TestEngineBoxTWRWillNotLiftJudgesMax: decision 13b, the verdict judges
-// the MAXIMUM-throttle figure, not the current one. A craft idling at 0%
-// throttle with a max TWR comfortably above 1 must NOT read "will not
-// lift", even though its CURRENT TWR is exactly zero.
-func TestEngineBoxTWRWillNotLiftJudgesMax(t *testing.T) {
+// TestEngineBoxTWRShowsCurrentAtIdle: decision 13b, the row leads with the
+// CURRENT-throttle figure. A craft idling at 0% throttle reads 0.00, with
+// its maximum alongside.
+func TestEngineBoxTWRShowsCurrentAtIdle(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	c := w.ActiveCraft()
-	// The Apollo TLI start stack is 127 t on 1023 kN (max TWR 0.82 at the
-	// surface): fly the bare stage, whose max TWR clears 1.0, for this verdict.
+	// Fly the bare S-IVB so the max figure differs from the start stack's.
 	c.Stages = c.Stages[:1]
 	c.DecouplePlan = nil
 	c.SyncFields()
 	c.Throttle = 0
 	lines := v.buildEngineBox(w)
-	if strings.Contains(lines[2], "will not lift") {
-		t.Errorf("TWR row = %q, current throttle is 0%% but max TWR clears 1.0 — must not read will-not-lift", lines[2])
-	}
 	if !strings.Contains(lines[2], "0.00") {
 		t.Errorf("TWR row = %q, want the current (zero) TWR figure shown", lines[2])
+	}
+}
+
+// TestEngineBoxTWRBelowOneHasNoVerdict: #648, the TWR figures are the tell.
+// The Apollo TLI start (127 t on 1023 kN, max TWR 0.82 at Earth's surface)
+// sits in orbit where nothing needs to lift, so the row shows the number and
+// nothing else: no "will not lift" verdict.
+func TestEngineBoxTWRBelowOneHasNoVerdict(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.Throttle = 1
+	lines := v.buildEngineBox(w)
+	if !strings.Contains(lines[2], "0.82") {
+		t.Fatalf("TWR row = %q, want the start stack's 0.82 (positive control: this is the max < 1 case)", lines[2])
+	}
+	if strings.Contains(lines[2], "lift") {
+		t.Errorf("TWR row = %q, want the TWR figure only, no lift verdict (#648)", lines[2])
 	}
 }
 
