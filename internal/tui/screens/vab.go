@@ -28,8 +28,13 @@ type VAB struct {
 	// at Reset so the model is testable without touching package globals.
 	comps map[string]spacecraft.Component
 
+	// palette is the list the player sees and the cursor walks: paletteAll
+	// narrowed by find (ADR 0056 §2). paletteIdx indexes it.
 	palette    []vabPaletteItem
+	paletteAll []vabPaletteItem
 	paletteIdx int
+	// find is the palette's name filter, typed after `/`; empty == none.
+	find string
 
 	stages   []vabStage
 	stageIdx int
@@ -92,11 +97,15 @@ const (
 	vabModeNaming         // typing a name to save
 	vabModeLoad           // picking a saved design to load / delete
 	vabModeTarget         // typing a Σ Δv target (ADR 0032 §8)
+	vabModeFind           // typing a palette find (ADR 0056 §2)
 )
 
 // CapturingText reports whether a free-text box (the design name, the Σ Δv
-// target) is open, so `?` types and only F1 opens help (GK Q3, #589).
-func (v *VAB) CapturingText() bool { return v.mode == vabModeNaming || v.mode == vabModeTarget }
+// target, the palette find) is open, so `?` types and only F1 opens help (GK
+// Q3, #589).
+func (v *VAB) CapturingText() bool {
+	return v.mode == vabModeNaming || v.mode == vabModeTarget || v.mode == vabModeFind
+}
 
 // vabStage is one stage under assembly: either a composition of component
 // IDs (the fine-parts path) or a reference to an existing atomic catalog
@@ -138,6 +147,7 @@ func (v *VAB) Reset(comps map[string]spacecraft.Component) {
 	v.stageIdx = 0
 	v.stackCursor = 0
 	v.paletteIdx = 0
+	v.find = ""
 	v.focus = focusStack // vehicle-primary: common edits happen in the vehicle column (ADR 0032 §2)
 	v.mode = vabModeBuild
 	v.name = ""
@@ -155,12 +165,21 @@ func (v *VAB) Reset(comps map[string]spacecraft.Component) {
 	v.flash = ""
 }
 
-// buildPalette assembles the flat palette: components grouped by kind (in
-// vabKindOrder, then by ID), followed by single-stage atomic catalog parts
-// (reusable opaque blocks; multi-stage modules are spawn-form conveniences,
-// not VAB parts — ADR 0029 §7).
+// vabPartTiers is the palette order of the catalog-part sections (ADR 0056 §1).
+var vabPartTiers = []string{"booster", "sustainer", "transfer", "payload", "tug"}
+
+// vabSkippedParts are the spawn form's two multi-stage picks: BuildModule
+// expands them, and a one-stage block of either does not do what its name
+// says (ADR 0056 §1; both reach the VAB as subassemblies).
+var vabSkippedParts = map[string]bool{"lander": true, "csm-lm": true}
+
+// buildPalette assembles the full palette: components grouped by kind (in
+// vabKindOrder, then by ID), then every catalog part grouped by tier (in
+// vabPartTiers, then by name), then narrows it by the find text. Walking
+// StageCatalog means a part added to the catalog or a user overlay is here
+// the next time the VAB opens.
 func (v *VAB) buildPalette() {
-	v.palette = nil
+	v.paletteAll = nil
 	byKind := map[string][]string{}
 	for id, c := range v.comps {
 		byKind[c.Kind] = append(byKind[c.Kind], id)
@@ -169,16 +188,82 @@ func (v *VAB) buildPalette() {
 		ids := byKind[k]
 		sort.Strings(ids)
 		for _, id := range ids {
-			v.palette = append(v.palette, vabPaletteItem{isComponent: true, id: id})
+			v.paletteAll = append(v.paletteAll, vabPaletteItem{isComponent: true, id: id})
 		}
 	}
-	for _, id := range spacecraft.StageCatalogOrder {
-		if stages, ok := spacecraft.BuildModule(id); ok && len(stages) == 1 {
-			v.palette = append(v.palette, vabPaletteItem{isComponent: false, id: id})
+	byTier := map[string][]string{}
+	for id, m := range spacecraft.StageCatalog {
+		if vabSkippedParts[id] {
+			continue
+		}
+		byTier[m.Tier] = append(byTier[m.Tier], id)
+	}
+	tiers := append([]string(nil), vabPartTiers...)
+	var extra []string // a tier outside the five (an overlay's own word) sorts after them
+	for t := range byTier {
+		known := false
+		for _, k := range vabPartTiers {
+			known = known || k == t
+		}
+		if !known {
+			extra = append(extra, t)
 		}
 	}
-	if v.paletteIdx >= len(v.palette) {
-		v.paletteIdx = 0
+	sort.Strings(extra)
+	for _, t := range append(tiers, extra...) {
+		ids := byTier[t]
+		sort.Slice(ids, func(i, j int) bool {
+			ni, nj := spacecraft.StageCatalog[ids[i]].Name, spacecraft.StageCatalog[ids[j]].Name
+			if ni != nj {
+				return ni < nj
+			}
+			return ids[i] < ids[j]
+		})
+		for _, id := range ids {
+			v.paletteAll = append(v.paletteAll, vabPaletteItem{isComponent: false, id: id})
+		}
+	}
+	v.applyFind()
+}
+
+// matchesFind reports whether a palette item's display name or ID contains
+// the find text, case-insensitively.
+func (v *VAB) matchesFind(it vabPaletteItem) bool {
+	if v.find == "" {
+		return true
+	}
+	_, label := v.paletteItemLabel(it)
+	if !it.isComponent {
+		if m, ok := spacecraft.StageCatalog[it.id]; ok {
+			label = m.Name
+		}
+	}
+	return strings.Contains(strings.ToLower(label+" "+it.id), strings.ToLower(v.find))
+}
+
+// applyFind rebuilds the visible palette from paletteAll and re-clamps the
+// cursor: it stays on the item it was on when that still matches, else it
+// moves to the first match.
+func (v *VAB) applyFind() {
+	var prev *vabPaletteItem
+	if v.paletteIdx >= 0 && v.paletteIdx < len(v.palette) {
+		it := v.palette[v.paletteIdx]
+		prev = &it
+	}
+	v.palette = v.palette[:0:0]
+	for _, it := range v.paletteAll {
+		if v.matchesFind(it) {
+			v.palette = append(v.palette, it)
+		}
+	}
+	v.paletteIdx = 0
+	if prev != nil {
+		for i, it := range v.palette {
+			if it == *prev {
+				v.paletteIdx = i
+				break
+			}
+		}
 	}
 }
 

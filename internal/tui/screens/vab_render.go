@@ -21,6 +21,8 @@ func (v *VAB) HandleKey(key string) VABAction {
 		return v.handleLoadKey(key)
 	case vabModeTarget:
 		return v.handleTargetKey(key)
+	case vabModeFind:
+		return v.handleFindKey(key)
 	default:
 		return v.handleBuildKey(key)
 	}
@@ -80,6 +82,44 @@ func (v *VAB) handleBuildKey(key string) VABAction {
 		v.mode = vabModeNaming
 	case "o":
 		v.enterLoadMode()
+	case "/":
+		v.flash = ""
+		v.focus = focusPalette
+		v.mode = vabModeFind
+	}
+	return VABActionNone
+}
+
+// handleFindKey drives the palette find row (ADR 0056 §2): printable keys
+// type, backspace deletes, up/down and PgUp/PgDn move the cursor over the
+// narrowed list, enter closes the row keeping the filter, esc clears it and
+// puts the whole list back. Nothing else reaches the VAB commands.
+func (v *VAB) handleFindKey(key string) VABAction {
+	switch key {
+	case "esc":
+		v.find = ""
+		v.mode = vabModeBuild
+		v.applyFind()
+	case "enter":
+		v.mode = vabModeBuild
+	case "backspace":
+		if r := []rune(v.find); len(r) > 0 {
+			v.find = string(r[:len(r)-1])
+			v.applyFind()
+		}
+	case "up":
+		v.moveCursor(-1)
+	case "down":
+		v.moveCursor(+1)
+	case "pgup":
+		v.jumpKind(-1)
+	case "pgdown":
+		v.jumpKind(+1)
+	default:
+		if r := []rune(key); len(r) == 1 && r[0] >= ' ' && r[0] != 0x7f {
+			v.find += key
+			v.applyFind()
+		}
 	}
 	return VABActionNone
 }
@@ -314,7 +354,7 @@ func (v *VAB) Render(width, height int) string {
 const (
 	vabHints1 = "[tab] other column  [↑/↓] move  [←/→] change part  [PgUp/Dn] jump section  [a] add above cursor  [n] new stage  [x] remove"
 	vabHints2 = "[+/-] count  [ [ / ] ] move stage down / up  [y] copy stage  [enter] open part into pieces  [d] payload from here up"
-	vabHints3 = "[c] drops with stage below  [t] Δv goal  [s] save  [o] open"
+	vabHints3 = "[c] drops with stage below  [t] Δv goal  [s] save  [o] open  [/] find part"
 )
 
 // renderBuild lays out the VAB as three titled boxes in the frame (B11 / G9
@@ -380,7 +420,19 @@ func (v *VAB) renderBuild(width, height int) string {
 	}
 	vehLines := append([]string{designLine}, v.renderVehicleColumn(vehW-2, vehRows-1)...)
 
-	left := formBox(v.theme, v.focusTitle("PALETTE  components · parts", focusPalette), v.renderPalette(palW-2), palW)
+	// The palette box takes every row above the INSPECT box, whose body is at
+	// most five lines (ADR 0056 §2); the KEYS box is never shortened.
+	palRows := vabPaletteFloor
+	if avail > 0 {
+		palRows = maxInt(vabPaletteFloor, avail-vabInspectRows-3)
+	}
+	palTitle := "PALETTE  components · parts"
+	if v.mode == vabModeFind {
+		palTitle += "  find: " + v.find + "▏"
+	} else if v.find != "" {
+		palTitle += "  find: " + v.find
+	}
+	left := formBox(v.theme, v.focusTitle(truncWidth(palTitle, palW-2), focusPalette), v.renderPalette(palW-2, palRows), palW)
 	left = append(left, v.renderInspector(palW)...)
 	right := formBox(v.theme, v.focusTitle("VEHICLE  top → bottom", focusStack), vehLines, vehW)
 	if picRows > 0 {
@@ -401,33 +453,64 @@ func (v *VAB) focusTitle(label string, col vabFocus) string {
 	return label
 }
 
-// renderPalette windows the palette around the cursor with kind-section
-// headers; the glyph is colored by kind (the shared legend, ADR 0030 §6) and
+// vabPaletteFloor is the fewest rows the palette box shows, the Compact Form
+// size; vabInspectRows is the INSPECT box at its tallest (five body lines plus
+// its three edge and title rows).
+const (
+	vabPaletteFloor = 9
+	vabInspectRows  = 8
+)
+
+// renderPalette windows the palette around the cursor into rows lines (never
+// fewer than vabPaletteFloor), headers counted, with kind-section headers; the glyph is colored by kind (the shared legend, ADR 0030 §6) and
 // the label is the name plus, for fuelled parts, the chemistry in text (#597);
 // full stats live in the inspector.
-func (v *VAB) renderPalette(w int) []string {
+func (v *VAB) renderPalette(w, rows int) []string {
 	if len(v.palette) == 0 {
+		if v.find != "" {
+			return []string{v.theme.Dim.Render(truncWidth(fmt.Sprintf("  (no part matches %q)", v.find), w))}
+		}
 		return []string{v.theme.Dim.Render("  (catalog parts only)")}
 	}
-	const window = 9
-	start := v.paletteIdx - window/2
+	if rows < vabPaletteFloor {
+		rows = vabPaletteFloor
+	}
+	// Flatten to display rows (a header row where the kind changes, then the
+	// item), so the window counts headers like the box does.
+	type prow struct {
+		header string
+		item   int // palette index, -1 for a header
+	}
+	var flat []prow
+	cursorRow := 0
+	lastKind := "\x00"
+	for i, it := range v.palette {
+		if kind, _ := v.paletteItemLabel(it); kind != lastKind {
+			flat = append(flat, prow{header: kind, item: -1})
+			lastKind = kind
+		}
+		if i == v.paletteIdx {
+			cursorRow = len(flat)
+		}
+		flat = append(flat, prow{item: i})
+	}
+	start := cursorRow - rows/2
+	if start+rows > len(flat) {
+		start = len(flat) - rows
+	}
 	if start < 0 {
 		start = 0
 	}
-	end := start + window
-	if end > len(v.palette) {
-		end = len(v.palette)
-		start = maxInt(0, end-window)
-	}
+	end := minInt(len(flat), start+rows)
 	var lines []string
-	lastKind := "\x00"
-	for i := start; i < end; i++ {
-		it := v.palette[i]
-		kind, label := v.paletteItemLabel(it)
-		if kind != lastKind {
-			lines = append(lines, v.theme.Dim.Render("· "+kind+" ·"))
-			lastKind = kind
+	for _, r := range flat[start:end] {
+		if r.item < 0 {
+			lines = append(lines, v.theme.Dim.Render("· "+r.header+" ·"))
+			continue
 		}
+		i := r.item
+		it := v.palette[i]
+		_, label := v.paletteItemLabel(it)
 		glyph := "  "
 		if it.isComponent {
 			glyph = v.componentStyle(it.id).Render(v.componentGlyph(it.id)) + " "
@@ -482,8 +565,12 @@ func (v *VAB) renderInspector(w int) []string {
 			add(v.inspectAddLine(inner))
 		} else if m, ok := spacecraft.StageCatalog[it.id]; ok {
 			add(v.theme.Primary.Render(truncWidth(m.Name, inner)))
-			addText("catalog part · " + m.Tier)
-			addText("adds as a new opaque stage")
+			tier := "catalog part · " + m.Tier
+			if f := spacecraft.PartFleet(it.id); f != "" {
+				tier += " · " + f + " fleet"
+			}
+			addText(tier)
+			addText("adds as a new opaque stage above the cursor")
 		} else {
 			add(v.theme.Primary.Render(truncWidth(it.id, inner)))
 		}
@@ -579,7 +666,7 @@ func (v *VAB) paletteItemLabel(it vabPaletteItem) (kind, label string) {
 		if !ok {
 			return "catalog part", it.id
 		}
-		return "catalog part", fmt.Sprintf("%s [%s]", m.Name, m.Tier)
+		return m.Tier, fmt.Sprintf("%s [%s]", m.Name, m.Tier)
 	}
 	c := v.comps[it.id]
 	return c.Kind, v.compName(c)
