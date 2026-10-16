@@ -56,7 +56,7 @@ func TestVABUnselectedPartsNotDisabledGrey(t *testing.T) {
 	v.addComponentToCurrent("tank")
 	v.focus = focusPalette
 	v.paletteIdx = 0
-	pal := strings.Join(v.renderPalette(40), "\n")
+	pal := strings.Join(v.renderPalette(40, 20), "\n")
 	for _, it := range v.palette[1:4] {
 		_, label := v.paletteItemLabel(it)
 		if strings.Contains(pal, th.Dim.Render(label)) {

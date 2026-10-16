@@ -594,7 +594,8 @@ for a tank, `+` / `-` for the count, done.
 |---|---|
 | `Tab` | Other column (palette ↔ vehicle) |
 | `↑` / `↓` | Move the cursor in the active column |
-| `PgUp` / `PgDn` | Jump section: previous / next kind section in the palette, or previous / next stage in the vehicle column |
+| `PgUp` / `PgDn` | Jump section: previous / next tier or kind section in the palette, or previous / next stage in the vehicle column |
+| `/` | Find: type part of a name (or an ID) and the palette narrows as you type; `Esc` clears it and puts the whole list back, `Enter` closes the find row and keeps the filter. While it is open every key types, so `?` and the global keys do not fire |
 | `←` / `→` | Change part: swap the selected row's part within its kind (engines on an engine row, tanks on a tank row). On an empty stage the placeholder rows cycle from nothing through the catalog. No-op on a stage header or in the palette |
 | `a` | Add the selected part or component: a catalog part becomes a new whole stage directly above the cursor's stage and the cursor moves onto it; a component joins the current stage |
 | `n` | Start a new empty stage on top |
