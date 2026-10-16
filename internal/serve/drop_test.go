@@ -250,9 +250,7 @@ func TestKickKeepsTheFinalSaveAndTheBurnOverSSH(t *testing.T) {
 	_ = save.SchemaVersion
 }
 
-// The purge flag is the hook slice E builds on (call 3): a purging drop
-// writes no final payload. The kick handler does not yet accept the flag
-// (the purge is slice E), so the hook is driven at dropPlayer.
+// The purge flag (call 3): a purging drop writes no final payload.
 func TestPurgingDropWritesNoFinalPayload(t *testing.T) {
 	f := startDropFixture(t)
 	if err := os.Remove(f.payloadFile()); err != nil && !os.IsNotExist(err) {
@@ -268,21 +266,6 @@ func TestPurgingDropWritesNoFinalPayload(t *testing.T) {
 	want := "terminal-space-program: kicked from this session by jason — ask them for a new invite"
 	if got := f.guest.stderr(); !strings.Contains(got, want) || strings.Contains(got, "your vessels are saved") {
 		t.Errorf("guest stderr = %q, want the purge wording %q", got, want)
-	}
-}
-
-// Until slice E lands, a purge request through the handler drops nobody
-// and removes nobody: it says so.
-func TestKickWithPurgeIsRefusedUntilSliceE(t *testing.T) {
-	f := startDropFixture(t)
-	f.admin(screens.SessionCommand{Kind: screens.SessionCmdKick, Fingerprint: f.gfp, Handle: "pilot2", Purge: true})
-	select {
-	case <-f.guest.exited:
-		t.Fatal("a purge kick dropped the guest although the purge is not built")
-	case <-time.After(300 * time.Millisecond):
-	}
-	if _, err := f.srv.store.FindPlayer(f.gfp); err != nil {
-		t.Errorf("a purge kick removed the roster row: %v", err)
 	}
 }
 

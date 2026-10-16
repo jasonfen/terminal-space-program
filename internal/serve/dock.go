@@ -270,6 +270,7 @@ func dockLinksToSnapshots(links []sessiondir.DockLink) []relay.DockSnapshot {
 			Parcel: l.Parcel, ParcelAtNano: l.ParcelAtNano,
 			ReclaimNotice: l.ReclaimNotice, ReclaimAtNano: l.ReclaimAtNano,
 			DockNotice: l.DockNotice, ReturnAtNano: l.ReturnAtNano,
+			End: l.End, EndHandle: l.EndHandle,
 		})
 	}
 	return out
@@ -293,6 +294,7 @@ func snapshotsToDockLinks(snaps []relay.DockSnapshot) []sessiondir.DockLink {
 			Parcel: r.Parcel, ParcelAtNano: r.ParcelAtNano,
 			ReclaimNotice: r.ReclaimNotice, ReclaimAtNano: r.ReclaimAtNano,
 			DockNotice: r.DockNotice, ReturnAtNano: r.ReturnAtNano,
+			End: r.End, EndHandle: r.EndHandle,
 		})
 	}
 	return out

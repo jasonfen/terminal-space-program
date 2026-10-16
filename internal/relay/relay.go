@@ -200,6 +200,17 @@ func (s *Store) Report(r CraftReport) {
 	}
 }
 
+// Forget removes an owner's report, so no ghost of theirs is built from it
+// again (ADR 0054 slice E, kick and delete vessels). Report never evicts on
+// disconnect on purpose (a kicked friend's ghost keeps its name); a purge is
+// the one case that does. Subscribers are not told: they hold reports, not a
+// roster, and every ghost slate is rebuilt from Snapshot each tick.
+func (s *Store) Forget(owner string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.reports, owner)
+}
+
 // Snapshot returns the latest report per owner, excluding one (a
 // viewer never ghosts itself). Reports are copied; callers may hold
 // them across frames.

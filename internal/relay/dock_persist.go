@@ -64,6 +64,12 @@ type DockSnapshot struct {
 	// subspace-gap placement reads at delivery, generalising ParcelAtNano to
 	// every return, not just Parcels.
 	ReturnAtNano int64
+	// End / EndHandle (ADR 0054 slice E) mark a record the purge of its other
+	// party is ending: "transfer" or "handback", and the purged player's
+	// display handle for the survivor's chip. Both empty on every ordinary
+	// record.
+	End       string
+	EndHandle string
 }
 
 // FullRecords snapshots every live dock in full, converting the parked craft
@@ -95,6 +101,8 @@ func (l *DockLedger) FullRecords() []DockSnapshot {
 			ReclaimAtNano:   r.reclaimAtNano,
 			DockNotice:      r.dockNotice,
 			ReturnAtNano:    r.returnAtNano,
+			End:             r.end,
+			EndHandle:       r.endHandle,
 		})
 	}
 	return out
@@ -130,6 +138,8 @@ func (l *DockLedger) SeedFull(snaps []DockSnapshot, systems []bodies.System) {
 			reclaimAtNano:   s.ReclaimAtNano,
 			dockNotice:      s.DockNotice,
 			returnAtNano:    s.ReturnAtNano,
+			end:             s.End,
+			endHandle:       s.EndHandle,
 		}
 		l.records[rec.ID] = rec
 		if rec.ID >= l.nextID {
