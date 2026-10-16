@@ -15,8 +15,11 @@
 // A vessel on its pad has a site; a vessel that launched kept the pad's
 // coordinates, which are non-zero for any real pad; an orbit spawn has
 // 0/0 and no site. The one case this cannot recover is a pad at exactly
-// latitude 0 and longitude 0 whose vessel has since lifted off: it reads as
-// no site (its downrange is not shown).
+// latitude 0 and longitude 0 (the Equator preset, which is Lumen's Kern
+// Space Center) whose vessel has since lifted off: in an old save it is
+// indistinguishable from an orbit spawn, so it reads as no site and its
+// downrange is not shown. A vessel still on that pad keeps its site (OnPad),
+// and new launches set the flag when they spawn.
 
 package save
 
