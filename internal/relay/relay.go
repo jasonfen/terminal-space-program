@@ -62,7 +62,15 @@ type PortState struct {
 // fingerprint; handles live in the session roster (sessiondir) and
 // are joined by the UI, not duplicated onto the wire.
 type CraftReport struct {
-	Owner        string       `json:"owner"`
+	Owner string `json:"owner"`
+
+	// Handle is the reporter's display name as the reporter last knew it
+	// (ADR 0054 decision 5). A ghost is normally named from the live roster;
+	// this is the fallback for an owner whose roster row is gone (a kicked
+	// player), so their ghost keeps its name. Additive: absent on reports
+	// from older builds, which then draw unnamed as before.
+	Handle string `json:"handle,omitempty"`
+
 	SubspaceTime time.Time    `json:"subspace_time"`
 	Crafts       []CraftState `json:"crafts"`
 
