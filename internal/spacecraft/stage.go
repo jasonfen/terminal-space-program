@@ -60,8 +60,11 @@ func (s Stage) HasPort() bool { return len(s.Ports()) > 0 }
 // flat fields; write sites must mutate the relevant stage entry and
 // call SyncFields to keep the mirror coherent.
 //
-// Convention: Stages[0] is the BOTTOM stage — the currently-firing
-// engine and the next to be jettisoned by World.StageActive.
+// Convention: Stages[0] is the BOTTOM stage — the next to be
+// jettisoned by World.StageActive, and the stage the chute, legs and
+// drag are read from. The engine, tank and thrusters belong to the lit
+// stage (LitStageIdx), which is Stages[0] unless an inert stage sits
+// under a powered one.
 // Stages[len-1] is the TOP stage (the player's "core" — the only
 // one left after every lower stage has been decoupled).
 //
@@ -301,11 +304,38 @@ func SumMonopropCap(stages []Stage) float64 {
 	return s
 }
 
+// LitStageIdx returns the index of the lit stage: the lowest stage with an
+// engine (Thrust > 0), or 0 when no stage has one. The lit stage is what the
+// pilot flies with (engine, tank, thrusters); the bottom stage (Stages[0])
+// stays what staging drops and what the chute, legs and drag read from. The
+// two differ only when an inert stage sits under a powered one (ADR 0057).
+func LitStageIdx(stages []Stage) int {
+	for i := range stages {
+		if stages[i].Thrust > 0 {
+			return i
+		}
+	}
+	return 0
+}
+
+// LitStageOf returns a copy of the lit stage of stages, or the zero Stage
+// for an empty slice.
+func LitStageOf(stages []Stage) Stage {
+	if len(stages) == 0 {
+		return Stage{}
+	}
+	return stages[LitStageIdx(stages)]
+}
+
+// LitStage returns the lit stage's index on s (see LitStageIdx).
+func (s *Spacecraft) LitStage() int { return LitStageIdx(s.Stages) }
+
 // SyncFields refreshes the historical flat fields on s from the
 // current Stages slice. Mass + propellant fields sum across all
 // stages (the player's HUD wants total propellant); engine
-// fields (Thrust, Isp, RCSThrust, RCSIsp) read from Stages[0]
-// (the bottom = currently-firing). No-op when Stages is empty —
+// fields (Thrust, Isp, RCSThrust, RCSIsp) read from the lit stage
+// (LitStageIdx: the lowest stage with an engine; Stages[0] on every
+// vessel whose bottom stage is powered). No-op when Stages is empty —
 // callers that build Spacecraft without Stages (legacy test
 // fixtures with literal Spacecraft{}) keep their flat-field
 // values intact.
@@ -322,11 +352,12 @@ func (s *Spacecraft) SyncFields() {
 	s.Fuel = SumFuelMass(s.Stages)
 	s.Monoprop = SumMonopropMass(s.Stages)
 	s.MonopropCapacity = SumMonopropCap(s.Stages)
+	lit := s.Stages[LitStageIdx(s.Stages)]
+	s.Thrust = lit.Thrust
+	s.Isp = lit.Isp
+	s.RCSThrust = lit.RCSThrust
+	s.RCSIsp = lit.RCSIsp
 	bottom := s.Stages[0]
-	s.Thrust = bottom.Thrust
-	s.Isp = bottom.Isp
-	s.RCSThrust = bottom.RCSThrust
-	s.RCSIsp = bottom.RCSIsp
 	// v0.11.4-followup: bottom-stage authoritative for soft-land
 	// capability. Matches the F9 model (S1 has landing gear, S2
 	// doesn't) and the Apollo Stack model (Lander stage decouples
@@ -359,8 +390,8 @@ func (s *Spacecraft) SyncFields() {
 	}
 }
 
-// ActiveStageFuel returns the bottom (currently-firing) stage's
-// main-engine propellant in kg. Used by the engine-cutoff path to
+// ActiveStageFuel returns the lit stage's (Stages[0] unless an inert
+// stage sits under the engine) main-engine propellant in kg. Used by the engine-cutoff path to
 // decide whether the active engine still has fuel.
 //
 // v0.9.4+: replaces direct checks against s.Fuel (which is the
@@ -376,37 +407,39 @@ func (s *Spacecraft) ActiveStageFuel() float64 {
 	if len(s.Stages) == 0 {
 		return s.Fuel
 	}
-	return s.Stages[0].FuelMass
+	return s.Stages[s.LitStage()].FuelMass
 }
 
-// BurnFuel decrements the bottom-stage main-engine fuel by amount
-// (kg), clamped to [0, Stages[0].FuelMass]. Refreshes the flat
+// BurnFuel decrements the lit stage's main-engine fuel by amount
+// (kg), clamped to [0, lit.FuelMass]. Refreshes the flat
 // shadow fields. v0.9.1+ replacement for the pre-staging pattern
 // `c.Fuel -= amount`. Returns the amount actually burned (clamped).
 func (s *Spacecraft) BurnFuel(amount float64) float64 {
 	if len(s.Stages) == 0 || amount <= 0 {
 		return 0
 	}
-	if amount > s.Stages[0].FuelMass {
-		amount = s.Stages[0].FuelMass
+	lit := s.LitStage()
+	if amount > s.Stages[lit].FuelMass {
+		amount = s.Stages[lit].FuelMass
 	}
-	s.Stages[0].FuelMass -= amount
+	s.Stages[lit].FuelMass -= amount
 	s.SyncFields()
 	return amount
 }
 
-// BurnMonoprop decrements the bottom-stage RCS propellant by amount
-// (kg), clamped to [0, Stages[0].MonopropMass]. Refreshes the flat
+// BurnMonoprop decrements the lit stage's RCS propellant by amount
+// (kg), clamped to [0, lit.MonopropMass]. Refreshes the flat
 // shadow fields. v0.9.1+ replacement for `s.Monoprop -= amount`.
 // Returns the amount actually burned (clamped).
 func (s *Spacecraft) BurnMonoprop(amount float64) float64 {
 	if len(s.Stages) == 0 || amount <= 0 {
 		return 0
 	}
-	if amount > s.Stages[0].MonopropMass {
-		amount = s.Stages[0].MonopropMass
+	lit := s.LitStage()
+	if amount > s.Stages[lit].MonopropMass {
+		amount = s.Stages[lit].MonopropMass
 	}
-	s.Stages[0].MonopropMass -= amount
+	s.Stages[lit].MonopropMass -= amount
 	s.SyncFields()
 	return amount
 }

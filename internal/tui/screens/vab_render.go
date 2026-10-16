@@ -165,24 +165,7 @@ func (v *VAB) handleNamingKey(key string) VABAction {
 
 func (v *VAB) handleLoadKey(key string) VABAction {
 	if v.confirmDelete {
-		// GK Q2 + Q7 (#589): x asks first; only y says yes, n / esc says no,
-		// and Enter does nothing (the question stays).
-		switch key {
-		case "y", "Y":
-			v.confirmDelete = false
-			if v.loadIdx >= 0 && v.loadIdx < len(v.designs) {
-				id := v.designs[v.loadIdx].ID()
-				if err := spacecraft.DeleteDesign(id); err == nil {
-					v.refreshDesigns()
-					v.flash = fmt.Sprintf("deleted %q", id)
-				} else {
-					v.flash = "delete failed: " + err.Error()
-				}
-			}
-		case "n", "N", "esc":
-			v.confirmDelete = false
-		}
-		return VABActionNone
+		return v.cardKey(key)
 	}
 	switch key {
 	case "esc":
@@ -202,7 +185,76 @@ func (v *VAB) handleLoadKey(key string) VABAction {
 		}
 	case "x":
 		if v.loadIdx >= 0 && v.loadIdx < len(v.designs) {
-			v.confirmDelete = true
+			v.raiseDelete()
+		}
+	}
+	return VABActionNone
+}
+
+const (
+	rowDesignDelete = "delete"
+	rowDesignOut    = "out"
+)
+
+// raiseDelete opens the delete-design card on the highlighted design (ADR 0054
+// inventory row 5). The verb destroys data, so it opens on the way out.
+func (v *VAB) raiseDelete() {
+	v.confirmDelete = true
+	v.card = NewCard(v.theme, "Delete design '"+v.designs[v.loadIdx].Name()+"'?", "This cannot be undone.", []CardRow{
+		{ID: rowDesignDelete, Label: "delete", Key: "y", Letters: []string{"y", "Y"}},
+		{ID: rowDesignOut, Label: "keep it", Key: "n  esc", Letters: []string{"n", "N", "esc"}, Out: true},
+	}, 1)
+}
+
+// ActiveCard is the ask on screen, or nil. The App composites it over the
+// dimmed screen and routes clicks to it.
+func (v *VAB) ActiveCard() *Card {
+	if v.mode == vabModeLoad && v.confirmDelete {
+		return v.card
+	}
+	return nil
+}
+
+// cardKey answers the delete card: up/down move the ▸, enter picks the
+// highlighted row, y / n / esc pick directly, every other key is swallowed.
+// Delete asks once more on the same card before it acts (call 1).
+func (v *VAB) cardKey(key string) VABAction {
+	if v.card == nil {
+		v.confirmDelete = false
+		return VABActionNone
+	}
+	var row int
+	var done bool
+	switch key {
+	case "up", "k":
+		v.card.Up()
+		return VABActionNone
+	case "down", "j":
+		v.card.Down()
+		return VABActionNone
+	case "enter":
+		row, done = v.card.Enter()
+	default:
+		var ok bool
+		if row, done, ok = v.card.Letter(key); !ok {
+			return VABActionNone
+		}
+	}
+	if !done {
+		return VABActionNone
+	}
+	id := v.card.RowID(row)
+	v.confirmDelete, v.card = false, nil
+	if id != rowDesignDelete {
+		return VABActionNone
+	}
+	if v.loadIdx >= 0 && v.loadIdx < len(v.designs) {
+		did := v.designs[v.loadIdx].ID()
+		if err := spacecraft.DeleteDesign(did); err == nil {
+			v.refreshDesigns()
+			v.flash = fmt.Sprintf("deleted %q", did)
+		} else {
+			v.flash = "delete failed: " + err.Error()
 		}
 	}
 	return VABActionNone
@@ -211,7 +263,7 @@ func (v *VAB) handleLoadKey(key string) VABAction {
 func (v *VAB) enterLoadMode() {
 	v.refreshDesigns()
 	v.loadIdx = 0
-	v.confirmDelete = false
+	v.confirmDelete, v.card = false, nil
 	v.mode = vabModeLoad
 	v.flash = ""
 }
@@ -871,11 +923,6 @@ func (v *VAB) renderLoad(width, height int) string {
 			}
 			lines = append(lines, "  "+marker+row)
 		}
-	}
-	if v.confirmDelete && v.loadIdx >= 0 && v.loadIdx < len(v.designs) {
-		lines = append(lines, "", "  "+v.theme.Alert.Render(
-			fmt.Sprintf("delete design '%s'? This cannot be undone. [y/n]", v.designs[v.loadIdx].Name())))
-		return v.vabModalBox("LOAD DESIGN", lines, width, height, "[y] delete it · [n] / [esc] keep it")
 	}
 	if v.flash != "" {
 		lines = append(lines, "", "  "+v.theme.Warning.Render(v.flash))

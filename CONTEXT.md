@@ -29,13 +29,25 @@ a Design.)
 
 **Stage**:
 One decoupleable propulsion module on a Vessel. Convention: `Stages[0]` is
-the *bottom* stage (the currently-firing engine, the next to be jettisoned)
-and `Stages[len-1]` is the *top* stage (the player's "core" — the only one
+the *bottom* stage (the next to be jettisoned, and what the chute, legs and
+drag are read from; its engine is the one flown unless an inert stage sits
+under a powered one, see **Lit Stage**) and `Stages[len-1]` is the *top* stage (the player's "core" — the only one
 left after every lower stage has been decoupled). Carries dry mass, fuel
 mass/capacity, thrust, Isp, and ballistic coefficient. **Staging** is the
 act of jettisoning `Stages[0]`; the popped stage spawns as its own passive
 Vessel. Single-stage Vessels can't be staged (no-op + status flash).
 _Avoid_: Booster (one kind of stage, not all stages), Tank, Section.
+
+**Lit Stage**:
+The stage a Vessel is flying with: the lowest **Stage** with an engine, or
+the bottom Stage when none has one. The engine, its tank and its thrusters
+are the lit stage's; the bottom Stage (`Stages[0]`) is what `space` drops
+and what the chute, legs and drag are read from. The two are the same on
+every catalog vessel, and differ on any VAB stack with an inert stage
+under a powered one. On screen: the `◉` pip in STAGES; the `▸` name is
+still the bottom stage.
+_Avoid_: Active stage (ambiguous with the active Vessel), Firing stage
+(the old name for the bottom stage), Engine stage.
 
 **Surface Staging**:
 A **Staging** event performed while the Vessel is **Landed** — the

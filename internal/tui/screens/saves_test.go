@@ -181,9 +181,10 @@ func TestSavesOverwriteTargetsSelectedFile(t *testing.T) {
 	if cmd := sc.HandleKey(keyEnter); cmd.Kind != SavesActionNone {
 		t.Fatalf("enter on named row returned %v, want None (confirm gate)", cmd.Kind)
 	}
-	if out := sc.Render(110, 40); !strings.Contains(out, "Overwrite") {
-		t.Fatalf("no overwrite confirm prompt rendered\n%s", out)
+	if sc.ActiveCard() == nil || !strings.Contains(sc.ActiveCard().Render(), "Overwrite") {
+		t.Fatalf("no overwrite card raised")
 	}
+	sc.HandleKey(keyRunes("y"))
 	cmd := sc.HandleKey(keyRunes("y"))
 	if cmd.Kind != SavesActionOverwrite || cmd.ID != "save-1.json" {
 		t.Fatalf("confirm = %+v, want Overwrite of save-1.json (the selected file)", cmd)
@@ -249,13 +250,14 @@ func TestSavesLoadConfirmGate(t *testing.T) {
 	if cmd := sc.HandleKey(keyEnter); cmd.Kind != SavesActionNone {
 		t.Fatalf("enter returned %v before the confirm gate", cmd.Kind)
 	}
-	if out := sc.Render(110, 40); !strings.Contains(out, "Load and discard current state?") {
-		t.Fatalf("missing the §H load confirm prompt\n%s", out)
+	if sc.ActiveCard() == nil || !strings.Contains(sc.ActiveCard().Render(), "discards the current state") {
+		t.Fatalf("missing the load card")
 	}
 	if cmd := sc.HandleKey(keyRunes("n")); cmd.Kind != SavesActionNone {
 		t.Fatalf("n returned %v, want None (back to browse)", cmd.Kind)
 	}
 	sc.HandleKey(keyEnter)
+	sc.HandleKey(keyRunes("y"))
 	cmd := sc.HandleKey(keyRunes("y"))
 	if cmd.Kind != SavesActionLoad || cmd.ID != "save-100.json" {
 		t.Fatalf("confirm = %+v, want Load save-100.json", cmd)
@@ -272,9 +274,10 @@ func TestSavesDeleteConfirm(t *testing.T) {
 	if cmd := sc.HandleKey(keyRunes("d")); cmd.Kind != SavesActionNone {
 		t.Fatalf("d returned %v, want None (confirm gate)", cmd.Kind)
 	}
-	if out := sc.Render(110, 40); !strings.Contains(out, "Delete") {
-		t.Fatalf("missing the delete confirm prompt\n%s", out)
+	if sc.ActiveCard() == nil || !strings.Contains(sc.ActiveCard().Render(), "Delete") {
+		t.Fatalf("missing the delete card")
 	}
+	sc.HandleKey(keyRunes("y"))
 	cmd := sc.HandleKey(keyRunes("y"))
 	if cmd.Kind != SavesActionDelete || cmd.ID != "autosave-1.json" {
 		t.Fatalf("confirm = %+v, want Delete autosave-1.json", cmd)
@@ -304,7 +307,7 @@ func TestSavesUnreadableRowNotLoadable(t *testing.T) {
 	if cmd := sc.HandleKey(keyEnter); cmd.Kind != SavesActionNone {
 		t.Fatalf("enter on unreadable row returned %v, want None", cmd.Kind)
 	}
-	if strings.Contains(sc.Render(110, 40), "Load and discard") {
+	if sc.ActiveCard() != nil {
 		t.Errorf("unreadable row opened a load confirm")
 	}
 	// Rename disabled.
@@ -313,6 +316,7 @@ func TestSavesUnreadableRowNotLoadable(t *testing.T) {
 	}
 	// Delete still works — the player can clear the bad file.
 	sc.HandleKey(keyRunes("d"))
+	sc.HandleKey(keyRunes("y"))
 	cmd := sc.HandleKey(keyRunes("y"))
 	if cmd.Kind != SavesActionDelete || cmd.ID != "save-newer.json" {
 		t.Fatalf("delete of unreadable = %+v, want Delete save-newer.json", cmd)
@@ -355,8 +359,8 @@ func TestSavesEscCancels(t *testing.T) {
 }
 
 // TestSavesClickTargets — mouse path: clicking a row moves the cursor;
-// clicking the selected row activates it (same as Enter); the confirm
-// [Yes]/[No] buttons and the title-row [Back] hit-test like the menu's.
+// clicking the selected row activates it (same as Enter). A click on a
+// confirm card's rows is the App's (TestSavesCardClickAnswers).
 func TestSavesClickTargets(t *testing.T) {
 	sc := NewSavesScreen(savesTheme())
 	sc.Open(SavesModeLoad, savesFixture(), "default")
@@ -371,20 +375,13 @@ func TestSavesClickTargets(t *testing.T) {
 	if sc.cursor != 1 {
 		t.Fatalf("cursor = %d after row click, want 1", sc.cursor)
 	}
-	// Click it again: activates (load confirm opens).
+	// Click it again: activates (the load card opens).
 	_ = sc.Render(110, 40)
 	if cmd := sc.HandleClick(col+frameInset, btn.row+frameInset); cmd.Kind != SavesActionNone {
 		t.Fatalf("second row click returned %v, want None (confirm gate)", cmd.Kind)
 	}
 	if sc.state != savesStateConfirmLoad {
 		t.Fatalf("state = %v after activating row click, want confirm-load", sc.state)
-	}
-	// [Yes] click commits the load of the clicked row.
-	_ = sc.Render(110, 40)
-	yes := sc.yesBtn
-	cmd := sc.HandleClick((yes.colStart+yes.colEnd)/2+frameInset, yes.row+frameInset)
-	if cmd.Kind != SavesActionLoad || cmd.ID != "autosave-1.json" {
-		t.Fatalf("[Yes] click = %+v, want Load autosave-1.json", cmd)
 	}
 	// [Back] is the App's Title Row button now (B11), covered by
 	// TestFormScreensWearTheSharedTitleRow in package tui.

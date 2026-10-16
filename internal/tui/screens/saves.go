@@ -42,11 +42,14 @@ type SavesScreen struct {
 	// same bubbles/textinput the maneuver form uses.
 	input textinput.Model
 
+	// card is the ask on screen while state is one of the three confirm
+	// gates (ADR 0054, #633): the App draws it over the dimmed list and
+	// routes a click on one of its rows to HandleKey as enter.
+	card *Card
+
 	// Click-target ranges, recomputed each Render (menu buttonRange
 	// pattern). rowBtns aligns 1:1 with the visible rows.
 	rowBtns []buttonRange
-	yesBtn  buttonRange
-	noBtn   buttonRange
 }
 
 // SavesMode is the entry-point flag: which pause-menu item opened the
@@ -114,6 +117,7 @@ func (sc *SavesScreen) Open(mode SavesMode, entries []save.SaveInfo, defaultName
 	sc.cursor = 0
 	sc.state = savesStateBrowse
 	sc.pendingID, sc.pendingName = "", ""
+	sc.card = nil
 }
 
 // SetEntries refreshes the listing in place (after a delete / rename /
@@ -207,15 +211,7 @@ func (sc *SavesScreen) HandleKey(msg tea.KeyMsg) SavesCommand {
 		}
 
 	case savesStateConfirmLoad, savesStateConfirmDelete, savesStateConfirmOverwrite:
-		switch key {
-		case "y", "Y":
-			// GK Q7 (#589): Enter is not yes. It does nothing here and the
-			// question stays up; only y confirms.
-			return sc.commitConfirm()
-		case "n", "N", "esc":
-			sc.state = savesStateBrowse
-		}
-		return SavesCommand{}
+		return sc.cardKey(key)
 	}
 
 	// Browse state.
@@ -237,7 +233,7 @@ func (sc *SavesScreen) HandleKey(msg tea.KeyMsg) SavesCommand {
 		// deletable (§F); the confirm gate covers the destructiveness.
 		if info, ok := sc.entryAt(sc.cursor); ok {
 			sc.pendingID, sc.pendingName = info.ID, sc.displayName(info)
-			sc.state = savesStateConfirmDelete
+			sc.raise(savesStateConfirmDelete)
 		}
 	case "r", "R":
 		// Rename is a benign Meta edit (no confirm, §H) but is
@@ -253,8 +249,9 @@ func (sc *SavesScreen) HandleKey(msg tea.KeyMsg) SavesCommand {
 
 // HandleClick maps a (col, row) click to the same intents as the
 // keyboard: a list-row click selects, and a click on
-// the already-selected row activates it (Enter-equivalent); the
-// confirm [Yes]/[No] buttons commit / back out.
+// the already-selected row activates it (Enter-equivalent). A click on a
+// confirm card's row never reaches here: the App points the card at the row
+// and sends enter to HandleKey.
 func (sc *SavesScreen) HandleClick(col, row int) SavesCommand {
 	col, row = col-frameInset, row-frameInset // frame-relative -> body
 	switch sc.state {
@@ -267,13 +264,6 @@ func (sc *SavesScreen) HandleClick(col, row int) SavesCommand {
 				sc.cursor = i
 				return SavesCommand{}
 			}
-		}
-	case savesStateConfirmLoad, savesStateConfirmDelete, savesStateConfirmOverwrite:
-		switch {
-		case sc.yesBtn.Hit(col, row):
-			return sc.commitConfirm()
-		case sc.noBtn.Hit(col, row):
-			sc.state = savesStateBrowse
 		}
 	}
 	return SavesCommand{}
@@ -302,24 +292,92 @@ func (sc *SavesScreen) activateCursor() SavesCommand {
 		if info.Lane != save.LaneNamed {
 			return SavesCommand{} // reserved lanes: loadable + deletable only (§F)
 		}
-		sc.state = savesStateConfirmOverwrite
+		sc.raise(savesStateConfirmOverwrite)
 		return SavesCommand{}
 	}
-	sc.state = savesStateConfirmLoad
+	sc.raise(savesStateConfirmLoad)
 	return SavesCommand{}
 }
 
-// commitConfirm resolves the active confirm gate into its finalised
-// command (shared by the keyboard y path and the [Yes] click).
-func (sc *SavesScreen) commitConfirm() SavesCommand {
-	st := sc.state
-	sc.state = savesStateBrowse
+// The saves cards' row IDs, what the screen answers on.
+const (
+	rowSaveLoad      = "load"
+	rowSaveDelete    = "delete"
+	rowSaveOverwrite = "overwrite"
+	rowSaveOut       = "out"
+)
+
+// raise opens the card for one of the three confirm gates on the pending row
+// (ADR 0054 inventory rows 6-8). Every verb here destroys or discards data, so
+// each card opens on its way-out row: enter on a fresh card never destroys.
+func (sc *SavesScreen) raise(st savesState) {
+	sc.state = st
+	yes := func(id, label string) CardRow {
+		return CardRow{ID: id, Label: label, Key: "y", Letters: []string{"y", "Y"}}
+	}
+	out := func(label string) CardRow {
+		return CardRow{ID: rowSaveOut, Label: label, Key: "n  esc", Letters: []string{"n", "N", "esc"}, Out: true}
+	}
 	switch st {
 	case savesStateConfirmLoad:
-		return SavesCommand{Kind: SavesActionLoad, ID: sc.pendingID, Name: sc.pendingName}
+		sc.card = NewCard(sc.theme, "Load "+sc.pendingName+"?", "discards the current state",
+			[]CardRow{yes(rowSaveLoad, "load"), out("cancel")}, 1)
 	case savesStateConfirmDelete:
-		return SavesCommand{Kind: SavesActionDelete, ID: sc.pendingID, Name: sc.pendingName}
+		sc.card = NewCard(sc.theme, "Delete "+sc.pendingName+"?", "This cannot be undone.",
+			[]CardRow{yes(rowSaveDelete, "delete"), out("keep it")}, 1)
 	case savesStateConfirmOverwrite:
+		sc.card = NewCard(sc.theme, "Overwrite '"+sc.pendingName+"'?", "",
+			[]CardRow{yes(rowSaveOverwrite, "overwrite"), out("cancel")}, 1)
+	}
+}
+
+// ActiveCard is the ask on screen, or nil. The App composites it over the
+// dimmed screen and routes clicks to it.
+func (sc *SavesScreen) ActiveCard() *Card {
+	switch sc.state {
+	case savesStateConfirmLoad, savesStateConfirmDelete, savesStateConfirmOverwrite:
+		return sc.card
+	}
+	return nil
+}
+
+// cardKey answers the card that is up: up/down move the ▸, enter picks the
+// highlighted row, a row's own letters pick it, every other key is swallowed.
+// An action row asks once more on the same card before it acts (call 1).
+func (sc *SavesScreen) cardKey(key string) SavesCommand {
+	if sc.card == nil {
+		sc.state = savesStateBrowse
+		return SavesCommand{}
+	}
+	switch key {
+	case "up", "k":
+		sc.card.Up()
+	case "down", "j":
+		sc.card.Down()
+	case "enter":
+		return sc.cardPicked(sc.card.Enter())
+	default:
+		if row, done, ok := sc.card.Letter(key); ok {
+			return sc.cardPicked(row, done)
+		}
+	}
+	return SavesCommand{}
+}
+
+// cardPicked runs a pick: nothing yet when the card only moved to its second
+// step; otherwise the card closes and the answer is returned.
+func (sc *SavesScreen) cardPicked(row int, done bool) SavesCommand {
+	if !done {
+		return SavesCommand{}
+	}
+	id := sc.card.RowID(row)
+	sc.card, sc.state = nil, savesStateBrowse
+	switch id {
+	case rowSaveLoad:
+		return SavesCommand{Kind: SavesActionLoad, ID: sc.pendingID, Name: sc.pendingName}
+	case rowSaveDelete:
+		return SavesCommand{Kind: SavesActionDelete, ID: sc.pendingID, Name: sc.pendingName}
+	case rowSaveOverwrite:
 		return SavesCommand{Kind: SavesActionOverwrite, ID: sc.pendingID, Name: sc.pendingName}
 	}
 	return SavesCommand{}
@@ -512,15 +570,8 @@ func (sc *SavesScreen) Render(width, height int) string {
 
 	// State-specific tail: confirm prompt / name input. The key legend is
 	// the frame's bottom edge.
-	sc.yesBtn.set, sc.noBtn.set = false, false
 	var legend string
 	switch sc.state {
-	case savesStateConfirmLoad:
-		lines, legend = sc.appendConfirm(lines, "Load and discard current state?", boxTop)
-	case savesStateConfirmDelete:
-		lines, legend = sc.appendConfirm(lines, fmt.Sprintf("Delete %s? This cannot be undone.", sc.pendingName), boxTop)
-	case savesStateConfirmOverwrite:
-		lines, legend = sc.appendConfirm(lines, fmt.Sprintf("Overwrite '%s'?", sc.pendingName), boxTop)
 	case savesStateNameNew, savesStateRename:
 		prompt := "name the new save:"
 		if sc.state == savesStateRename {
@@ -528,7 +579,7 @@ func (sc *SavesScreen) Render(width, height int) string {
 		}
 		lines = append(lines, "  "+prompt+" "+sc.input.View())
 		legend = "[enter] confirm · [esc] cancel"
-	default:
+	default: // browse, and under a confirm card (the App draws it over this)
 		legend = "[enter] load · [d] delete · [r] rename · [↑/↓] move · [esc] back"
 		if sc.mode == SavesModeSave {
 			legend = "[enter] new save / overwrite · [d] delete · [r] rename · [↑/↓] move · [esc] back"
@@ -540,27 +591,6 @@ func (sc *SavesScreen) Render(width, height int) string {
 		title = "SAVE YOUR GAME"
 	}
 	return formFrame(sc.theme, formBox(sc.theme, title, lines, boxW), width, height, sc.theme.Footer.Render(legend))
-}
-
-// appendConfirm appends a §H-style Yes/No confirm block and records
-// the button click targets (menu renderConfirm pattern); boxTop is the body
-// row the box's first line sits on. It returns the key legend for the
-// frame's bottom edge.
-func (sc *SavesScreen) appendConfirm(lines []string, prompt string, boxTop int) ([]string, string) {
-	lines = append(lines, "  "+sc.theme.Alert.Render(prompt))
-	lines = append(lines, "")
-	const indent = "  "
-	const yesLabel = "[Yes]"
-	const noLabel = "[No]"
-	const gap = "   "
-	// +1: the box's left border sits before the line's first cell.
-	yesCol := len([]rune(indent)) + 1
-	noCol := yesCol + len([]rune(yesLabel)) + len([]rune(gap))
-	row := boxTop + len(lines)
-	sc.yesBtn = buttonRange{row: row, colStart: yesCol, colEnd: yesCol + len([]rune(yesLabel)), set: true}
-	sc.noBtn = buttonRange{row: row, colStart: noCol, colEnd: noCol + len([]rune(noLabel)), set: true}
-	lines = append(lines, indent+sc.theme.Primary.Render(yesLabel)+gap+sc.theme.Primary.Render(noLabel))
-	return lines, "[y]es / [n]o / [esc] cancel"
 }
 
 // displayName is displaySaveName with the autosave badge numbered by the

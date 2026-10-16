@@ -395,7 +395,7 @@ func (s *SpawnCraft) launchpadAllowed() bool {
 		return true
 	}
 	wet := spacecraft.SumDryMass(stages) + spacecraft.SumFuelMass(stages)
-	return craftLiftsOff(stages[0].Thrust, wet, s.currentParent())
+	return craftLiftsOff(spacecraft.LitStageOf(stages).Thrust, wet, s.currentParent())
 }
 
 // IsCustomSelected reports whether the cursor is on the synthetic
@@ -1159,9 +1159,9 @@ func layoutCatalog(rows []catalogRow, level int) []catalogGridRow {
 		if fuel := spacecraft.SumFuelMass(r.stages); fuel > 0 {
 			c.fuel = readout.Mass(fuel)
 		}
-		if len(r.stages) > 0 && r.stages[0].Thrust > 0 {
-			c.thrust = fmt.Sprintf("%.0f", r.stages[0].Thrust/1000)
-			c.isp = fmt.Sprintf("%.0f", r.stages[0].Isp)
+		if lit := spacecraft.LitStageOf(r.stages); lit.Thrust > 0 {
+			c.thrust = fmt.Sprintf("%.0f", lit.Thrust/1000)
+			c.isp = fmt.Sprintf("%.0f", lit.Isp)
 		} else {
 			c.rcs = true
 		}
@@ -1415,8 +1415,8 @@ func (s *SpawnCraft) stackLines() []string {
 		stages, _ := spacecraft.BuildModule(pid)
 		name := m.Name
 		eng := "RCS-only"
-		if len(stages) > 0 && stages[0].Thrust > 0 {
-			eng = fmt.Sprintf("%.0fkN @ %.0fs", stages[0].Thrust/1000, stages[0].Isp)
+		if lit := spacecraft.LitStageOf(stages); lit.Thrust > 0 {
+			eng = fmt.Sprintf("%.0fkN @ %.0fs", lit.Thrust/1000, lit.Isp)
 		}
 		if len(stages) > 1 {
 			name = fmt.Sprintf("%s (%d-stage)", m.Name, len(stages))
@@ -1816,7 +1816,7 @@ func stagesSummary(stages []spacecraft.Stage) string {
 	fuel := spacecraft.SumFuelMass(stages)
 	var bottomThrust, bottomIsp float64
 	if len(stages) > 0 {
-		bottomThrust, bottomIsp = stages[0].Thrust, stages[0].Isp
+		bottomThrust, bottomIsp = spacecraft.LitStageOf(stages).Thrust, spacecraft.LitStageOf(stages).Isp
 	}
 	stageNote := ""
 	if len(stages) > 1 {

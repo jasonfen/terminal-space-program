@@ -878,7 +878,7 @@ func activeStageFuel(c *spacecraft.Spacecraft) (pct, massKg float64, ok bool) {
 	if len(c.Stages) == 0 {
 		return 0, 0, false
 	}
-	st := c.Stages[0]
+	st := c.Stages[c.LitStage()]
 	if st.FuelCapacity <= 0 {
 		return 0, 0, false
 	}
@@ -995,8 +995,8 @@ func deltaVReadout(c *spacecraft.Spacecraft) string {
 }
 
 // stagePips renders one coloured glyph per stage, bottom stage first
-// (#600). Four states: ◉ lit, the bottom stage with fuel aboard, the one
-// that burns now (flame orange, render.ColorFlame); ● fuelled and waiting
+// (#600). Four states: ◉ lit, the lit stage (the lowest with an engine; the
+// bottom stage on most vessels) with fuel aboard, the one that burns now (flame orange, render.ColorFlame); ● fuelled and waiting
 // above it (Primary); ○ spent, the same Warning amber ENGINE's "✕ DRY"
 // uses so the two readouts agree (orbit_box_engine.go engineThrottleLabel);
 // ◇ tankless, a pod or payload that never carried propellant (Dim).
@@ -1010,7 +1010,7 @@ func (v *OrbitView) stagePips(c *spacecraft.Spacecraft) string {
 			pips.WriteString(v.theme.Dim.Render("◇"))
 		case st.FuelMass <= 0:
 			pips.WriteString(v.theme.Warning.Render("○"))
-		case i == 0:
+		case i == c.LitStage():
 			pips.WriteString(lit.Render("◉"))
 		default:
 			pips.WriteString(v.theme.Primary.Render("●"))
