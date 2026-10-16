@@ -66,7 +66,7 @@ func TestHelpKeyLabelsFitTheKeyColumnAndRowsFitDesignSize(t *testing.T) {
 	}
 	touched := map[string]bool{"H": true, "enter (any screen)": true, "F1 / ?": true, "F1 (in a box)": true,
 		"in Settings": true, "in Keyboard layout": true, "enter (invite box)": true, "x (what it does)": true,
-		"asks [y/n] first": true, "; (self-switch)": true, "; (to a target)": true, "h": true, "i / r / x": true, "F4": true}
+		"asks first": true, "d": true, "; (self-switch)": true, "; (to a target)": true, "h": true, "i / r / x": true, "F4": true}
 	h := NewHelp(chipTestTheme())
 	for _, s := range helpSections {
 		for _, r := range s.rows {

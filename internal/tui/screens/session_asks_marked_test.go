@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -16,7 +17,7 @@ import (
 
 func askRow(out string) string {
 	for _, ln := range strings.Split(out, "\n") {
-		if strings.Contains(ln, "asks [y/n] first:") {
+		if strings.Contains(ln, "asks first:") {
 			return ln
 		}
 	}
@@ -39,12 +40,15 @@ func TestRosterAskingKeysAreMarked(t *testing.T) {
 		out := NewSessionScreen(th).Render(sessionWorld(t, true), 140, 0)
 		row := askRow(out)
 		if row == "" {
-			t.Fatalf("no 'asks [y/n] first:' row on the host roster:\n%s", out)
+			t.Fatalf("no 'asks first:' row on the host roster:\n%s", out)
 		}
-		for _, want := range []string{"[x] remove player", "[F4] restart server", "[h] stop hosting"} {
+		for _, want := range []string{"[d] disconnect", "[x] kick (new invite to return)", "[F4] restart server", "[h] stop hosting"} {
 			if !strings.Contains(row, want) {
 				t.Errorf("ask row missing %q: %q", want, row)
 			}
+		}
+		if got := strings.TrimSpace(strings.Trim(strings.TrimSpace(ansi.Strip(row)), "│")); got != "asks first:  [d] disconnect  [x] kick (new invite to return)  [F4] restart server  [h] stop hosting" {
+			t.Errorf("host ask row = %q", got)
 		}
 		if !strings.Contains(row, strings.SplitN(amber.Render("Q"), "Q", 2)[0]+"asks") {
 			t.Errorf("ask row is not amber: %q", row)
@@ -54,7 +58,7 @@ func TestRosterAskingKeysAreMarked(t *testing.T) {
 			if ln == row {
 				continue
 			}
-			for _, k := range []string{"[x] remove player", "[F4] restart server", "[h] stop hosting"} {
+			for _, k := range []string{"[d] disconnect", "[x] kick (new invite to return)", "[F4] restart server", "[h] stop hosting"} {
 				if strings.Contains(ln, k) {
 					t.Errorf("%q still on a grey row: %q", k, ln)
 				}
@@ -69,8 +73,8 @@ func TestRosterAskingKeysAreMarked(t *testing.T) {
 		w := sessionWorld(t, false)
 		w.Session.CanAdminister = true
 		row := askRow(NewSessionScreen(th).Render(w, 140, 0))
-		if !strings.Contains(row, "[x] remove player") || !strings.Contains(row, "[F4] restart server") {
-			t.Errorf("admin ask row = %q", row)
+		if got := strings.TrimSpace(strings.Trim(strings.TrimSpace(ansi.Strip(row)), "│")); got != "asks first:  [d] disconnect  [x] kick (new invite to return)  [F4] restart server" {
+			t.Errorf("admin ask row = %q", got)
 		}
 		if strings.Contains(row, "stop hosting") {
 			t.Errorf("admin ask row offers stop hosting: %q", row)
@@ -93,23 +97,4 @@ func TestRosterAskingKeysAreMarked(t *testing.T) {
 			t.Errorf("solo roster shows an ask row: %q", row)
 		}
 	})
-}
-
-// GK fix-without-asking: the remove ask says what removal does today, and the
-// whole sentence is on screen at 140x40.
-func TestRosterRemoveAskSaysWhatRemovalDoes(t *testing.T) {
-	s := NewSessionScreen(sessionTheme())
-	w := sessionWorld(t, true)
-	s.HandleKey(w, key("j"))
-	s.HandleKey(w, key("j"))
-	s.HandleKey(w, key("j"))
-	s.HandleKey(w, key("x"))
-	out := s.Render(w, 140, 40)
-	want := "remove pat? they stay connected until they disconnect and need a new invite to return; their vessels stay saved [y/n]"
-	if !strings.Contains(out, want) {
-		t.Errorf("remove ask is not the honest sentence %q:\n%s", want, out)
-	}
-	if strings.Contains(out, "from the session?") {
-		t.Errorf("the old overstated wording is still on screen")
-	}
 }

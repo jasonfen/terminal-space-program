@@ -26,16 +26,41 @@ type SessionScreen struct {
 	theme  Theme
 	cursor int // index into the players list
 
-	inviteCursor    int  // index into the invites list (host)
-	inInvites       bool // cursor focus: players vs invites section
-	inCraftList     bool // cursor focus: selected player's craft sub-list (v0.30 S6)
-	craftCursor     int  // index into the selected player's ghost sub-list
-	minting         bool // typing a new invite's handle
-	mintInput       []rune
-	confirmRemove   bool // pending [x] confirmation on the selected player
-	confirmStopHost bool // pending [h] stop-hosting confirmation (v0.28 S3)
-	confirmRestart  bool // pending [F4] server-restart confirmation (v0.30 S4; moved off `u` in #289)
+	inviteCursor int  // index into the invites list (host)
+	inInvites    bool // cursor focus: players vs invites section
+	inCraftList  bool // cursor focus: selected player's craft sub-list (v0.30 S6)
+	craftCursor  int  // index into the selected player's ghost sub-list
+	minting      bool // typing a new invite's handle
+	mintInput    []rune
+
+	// card is the ask on screen (ADR 0054, #633): disconnect, kick, stop
+	// hosting or restart, each a shared Card over the dimmed roster. The App
+	// draws it through ActiveCard; the screen keeps the keys and the answer.
+	card       *Card
+	cardAsk    rosterAsk
+	cardPlayer sim.SessionPlayer // the friend a disconnect / kick card names
 }
+
+// rosterAsk is which question the roster's card is asking.
+type rosterAsk int
+
+const (
+	askNone rosterAsk = iota
+	askDisconnect
+	askKick
+	askStopHost
+	askRestart
+)
+
+// The roster cards' row IDs, what the screen answers on.
+const (
+	rowDisconnect = "disconnect"
+	rowKick       = "kick"
+	rowKickPurge  = "kick-and-delete-vessels"
+	rowStopHost   = "stop-hosting"
+	rowRestart    = "restart"
+	rowCancel     = "cancel"
+)
 
 func NewSessionScreen(th Theme) *SessionScreen { return &SessionScreen{theme: th} }
 
@@ -50,14 +75,19 @@ const (
 	SessionCmdSync        // Sync-to: Auto-Warp to Time (v0.27 S7)
 	SessionCmdMint        // mint invite for Handle
 	SessionCmdRevoke      // revoke invite Code
-	SessionCmdRemove      // remove player Fingerprint
-	SessionCmdToast       // surface Message
-	SessionCmdStartHost   // solo → start hosting (v0.28 S3)
-	SessionCmdStopHost    // hosting → stop the listener (v0.28 S3)
-	SessionCmdRendezvous  // arm a Rendezvous Warp toward Owner's ghost Owner/CraftID (v0.29 S2)
-	SessionCmdPromote     // host promotes Fingerprint (guest → admin) (v0.30 S2)
-	SessionCmdDemote      // host demotes Fingerprint (admin → guest) (v0.30 S2)
-	SessionCmdRestart     // admin drain-and-restart the server (v0.30 S4)
+	// SessionCmdRemove is the serve layer's plain-kick handler (RemovePlayer);
+	// the roster no longer emits it. The App maps SessionCmdKick{Purge:false}
+	// onto it until the drop lands (ADR 0054 slice D), the seam D replaces.
+	SessionCmdRemove
+	SessionCmdDisconnect // disconnect player Fingerprint now; their key stays valid (ADR 0054)
+	SessionCmdKick       // kick player Fingerprint; Purge also deletes their vessels (ADR 0054)
+	SessionCmdToast      // surface Message
+	SessionCmdStartHost  // solo → start hosting (v0.28 S3)
+	SessionCmdStopHost   // hosting → stop the listener (v0.28 S3)
+	SessionCmdRendezvous // arm a Rendezvous Warp toward Owner's ghost Owner/CraftID (v0.29 S2)
+	SessionCmdPromote    // host promotes Fingerprint (guest → admin) (v0.30 S2)
+	SessionCmdDemote     // host demotes Fingerprint (admin → guest) (v0.30 S2)
+	SessionCmdRestart    // admin drain-and-restart the server (v0.30 S4)
 )
 
 // SessionCommand is the screen's finalized action.
@@ -70,6 +100,7 @@ type SessionCommand struct {
 	Fingerprint string
 	Message     string
 	Time        time.Time // SessionCmdSync: the subspace time to chase
+	Purge       bool      // SessionCmdKick: also delete the kicked player's vessels
 }
 
 // SessionAdminMsg carries a session-admin intent (mint/revoke/remove,
@@ -94,8 +125,8 @@ type SessionRestartMsg struct{}
 func (s *SessionScreen) Reset() {
 	s.cursor, s.inviteCursor, s.craftCursor = 0, 0, 0
 	s.inInvites, s.inCraftList = false, false
-	s.minting, s.confirmRemove = false, false
-	s.confirmStopHost, s.confirmRestart = false, false
+	s.minting = false
+	s.card, s.cardAsk = nil, askNone
 	s.mintInput = nil
 }
 
@@ -108,6 +139,7 @@ func (s *SessionScreen) CapturingText() bool { return s.minting }
 func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 	info := w.Session
 	if info == nil {
+		s.card, s.cardAsk = nil, askNone // the session ended under a card
 		// Solo: the screen is the entry point for hosting (v0.28 S3).
 		// [h] asks the always-present wrapper to start the listener; the
 		// App refuses it for a guest by construction (guestSave gate).
@@ -173,37 +205,10 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		return SessionCommand{}
 	}
 
-	// GK Q7 (#589): Enter never answers a [y/n] ask. It does nothing and
-	// the question stays; only y says yes, n / esc (or any other key, as
-	// before) says no.
-	if msg.String() == "enter" && (s.confirmRemove || s.confirmStopHost || s.confirmRestart) {
-		return SessionCommand{}
-	}
-
-	if s.confirmRemove {
-		s.confirmRemove = false
-		if msg.String() == "y" || msg.String() == "Y" {
-			if p, ok := s.selectedPlayer(info); ok {
-				return SessionCommand{Kind: SessionCmdRemove, Fingerprint: p.Fingerprint, Handle: p.Handle}
-			}
-		}
-		return SessionCommand{}
-	}
-
-	if s.confirmStopHost {
-		s.confirmStopHost = false
-		if msg.String() == "y" || msg.String() == "Y" {
-			return SessionCommand{Kind: SessionCmdStopHost}
-		}
-		return SessionCommand{}
-	}
-
-	if s.confirmRestart {
-		s.confirmRestart = false
-		if msg.String() == "y" || msg.String() == "Y" {
-			return SessionCommand{Kind: SessionCmdRestart}
-		}
-		return SessionCommand{}
+	// A card swallows every key but its own (the ADR 0052 modal rule): no
+	// roster key slips through mid-question.
+	if s.card != nil {
+		return s.cardKey(msg)
 	}
 
 	switch msg.String() {
@@ -308,25 +313,35 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 				return SessionCommand{Kind: SessionCmdRevoke, Code: inv.Code, Handle: inv.Handle}
 			}
 		}
-	case "x":
-		// Removal is reachable by the host and admins (v0.30 S3), gated
-		// per-row by the same guardrail the handler enforces: never self,
-		// the host, or (for an admin actor) another admin. Every refusal
-		// toasts (v0.30.1) — see the note on [p] below.
-		if msg, refused := s.sectionRefusal("[x] removes a player"); refused {
+	case "x", "d":
+		// Kick (x) and disconnect (d) are reachable by the host and admins
+		// (v0.30 S3), gated per-row by the same guardrail the handler
+		// enforces: never self, the host, or (for an admin actor) another
+		// admin. Every refusal toasts (v0.30.1) before any card opens, see the
+		// note on [p] below.
+		k := msg.String()
+		verb := map[string]string{"x": "kick", "d": "disconnect"}[k]
+		if msg, refused := s.sectionRefusal("[" + k + "] " + verb + "s a player"); refused {
 			return toast(msg)
 		}
 		if !info.CanAdminister {
-			return toast("only the host or an admin can remove players")
+			return toast("only the host or an admin can " + verb + " players")
 		}
 		p, ok := s.selectedPlayer(info)
 		if !ok {
 			break
 		}
-		if why := removeRefusal(info, p); why != "" {
+		if why := dropRefusal(info, p, verb); why != "" {
 			return toast(why)
 		}
-		s.confirmRemove = true
+		if k == "d" {
+			if !p.Online {
+				return toast(p.Handle + " is not connected")
+			}
+			s.raise(askDisconnect, p, info)
+		} else {
+			s.raise(askKick, p, info)
+		}
 	case "p":
 		// Host-only delegation (v0.30 S2): promote a guest to admin or
 		// demote an admin back to guest. Single-rooted — an admin never
@@ -363,7 +378,7 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		// Host-only stop toggle (v0.28 S3): confirm before dropping
 		// guests. Guests never reach this — their slate is never IsHost.
 		if info.IsHost && !s.inCraftList {
-			s.confirmStopHost = true
+			s.raise(askStopHost, sim.SessionPlayer{}, info)
 		}
 	case "f4":
 		// Admin server restart (v0.30 S4): drain everyone and exit with a
@@ -389,7 +404,7 @@ func (s *SessionScreen) HandleKey(w *sim.World, msg tea.KeyMsg) SessionCommand {
 		if !info.CanAdminister {
 			return toast("only the host or an admin can restart the server")
 		}
-		s.confirmRestart = true
+		s.raise(askRestart, sim.SessionPlayer{}, info)
 	}
 	return SessionCommand{}
 }
@@ -490,21 +505,21 @@ func (s *SessionScreen) sectionRefusal(what string) (string, bool) {
 	return "", false
 }
 
-// removeRefusal mirrors sessiondir.MayRemove for UI gating (v0.30 S3),
-// returning the reason a row can't be removed or "" when it can. The
-// handler re-checks authoritatively; this exists so the screen can say
-// why instead of dangling a key that silently no-ops. Assumes the viewer
-// already carries the admin capability.
-func removeRefusal(info *sim.SessionInfo, p sim.SessionPlayer) string {
+// dropRefusal mirrors sessiondir.MayRemove for UI gating (v0.30 S3),
+// returning the reason a row can't be disconnected or kicked (verb) or ""
+// when it can. The handler re-checks authoritatively; this exists so the
+// screen can say why instead of dangling a key that silently no-ops. Assumes
+// the viewer already carries the admin capability.
+func dropRefusal(info *sim.SessionInfo, p sim.SessionPlayer, verb string) string {
 	if p.Fingerprint == info.Self {
-		return "you can't remove yourself"
+		return "you can't " + verb + " yourself"
 	}
 	if p.Role == "host" {
-		return "you can't remove the host"
+		return "you can't " + verb + " the host"
 	}
-	// An admin (can administer but isn't the host) can't remove another admin.
+	// An admin (can administer but isn't the host) can't drop another admin.
 	if !info.IsHost && p.Role == "admin" {
-		return "only the host can remove an admin"
+		return "only the host can " + verb + " an admin"
 	}
 	return ""
 }
@@ -532,14 +547,116 @@ func restartKeyLabel(info *sim.SessionInfo) string {
 	return "[F4] restart server"
 }
 
-// restartPrompt is the confirmation line for [F4], adopt-aware and naming
-// the drop count.
-func restartPrompt(info *sim.SessionInfo) string {
-	if adopting(info) {
-		return fmt.Sprintf("restart to adopt %s? drops %d player(s) — progress persists, they reconnect",
-			displayVer(info.AvailableVersion), onlineGuests(info))
+// plural is "1 guest" / "2 guests".
+func plural(n int, one string) string {
+	if n == 1 {
+		return fmt.Sprintf("%d %s", n, one)
 	}
-	return fmt.Sprintf("restart server? drops %d player(s) — progress persists, they reconnect", onlineGuests(info))
+	return fmt.Sprintf("%d %ss", n, one)
+}
+
+func cardYes(id, label string) CardRow {
+	return CardRow{ID: id, Label: label, Key: "y", Letters: []string{"y", "Y"}}
+}
+
+func cardOut() CardRow {
+	return CardRow{ID: rowCancel, Label: "cancel", Key: "n  esc", Letters: []string{"n", "N", "esc"}, Out: true}
+}
+
+// raise opens the roster's card for ask on p (ignored for stop hosting and
+// restart). Every card opens on its first row: each verb keeps every save and
+// vessel, and an action row still asks once more (call 1).
+func (s *SessionScreen) raise(ask rosterAsk, p sim.SessionPlayer, info *sim.SessionInfo) {
+	s.cardAsk, s.cardPlayer = ask, p
+	th := s.theme
+	switch ask {
+	case askDisconnect:
+		s.card = NewCard(th, "Disconnect "+p.Handle+"?", playerNote(info, p),
+			[]CardRow{cardYes(rowDisconnect, "disconnect"), cardOut()}, 0)
+	case askKick:
+		// The delete row has no letter: it takes down and enter, and is never
+		// refused or greyed, docked or not (Jason 2026-10-12, conflict 3).
+		s.card = NewCard(th, "Kick "+p.Handle+"?", playerNote(info, p), []CardRow{
+			cardYes(rowKick, "kick"),
+			{ID: rowKickPurge, Label: "kick and delete vessels"},
+			cardOut(),
+		}, 0)
+	case askStopHost:
+		s.card = NewCard(th, "Stop hosting?",
+			fmt.Sprintf("drops %s, their progress is saved", plural(onlineGuests(info), "guest")),
+			[]CardRow{cardYes(rowStopHost, "stop hosting"), cardOut()}, 0)
+	case askRestart:
+		title := "Restart the server?"
+		if adopting(info) {
+			title = "Restart to adopt " + displayVer(info.AvailableVersion) + "?"
+		}
+		s.card = NewCard(th, title,
+			fmt.Sprintf("drops %s, they reconnect; progress is saved", plural(onlineGuests(info), "player")),
+			[]CardRow{cardYes(rowRestart, "restart"), cardOut()}, 0)
+	}
+}
+
+// playerNote is the one-line note a disconnect or kick card carries when the
+// friend is docked with the viewer or in a rendezvous with them, and "" when
+// there is nothing to add (ADR 0054: the rows say the rest).
+func playerNote(info *sim.SessionInfo, p sim.SessionPlayer) string {
+	switch {
+	case p.DockedGuest:
+		return "they are docked with you: the dock stands until you release it"
+	case p.WantsRendezvous || p.RendezvousOut:
+		self := "you"
+		for _, q := range info.Players {
+			if q.Fingerprint == info.Self {
+				self = q.Handle
+			}
+		}
+		return "in a rendezvous with " + self + ": it is cancelled"
+	}
+	return ""
+}
+
+// ActiveCard is the ask on screen, or nil. The App composites it over the
+// dimmed roster and routes clicks to it (the generic screen-card hook).
+func (s *SessionScreen) ActiveCard() *Card { return s.card }
+
+// cardKey answers the card that is up: ↑/↓ (and j/k) move the ▸, enter picks
+// the highlighted row, each row's own letters pick it directly, and every
+// other key is swallowed.
+func (s *SessionScreen) cardKey(msg tea.KeyMsg) SessionCommand {
+	switch k := msg.String(); k {
+	case "up", "k":
+		s.card.Up()
+	case "down", "j":
+		s.card.Down()
+	case "enter":
+		return s.cardPicked(s.card.Enter())
+	default:
+		if row, done, ok := s.card.Letter(k); ok {
+			return s.cardPicked(row, done)
+		}
+	}
+	return SessionCommand{}
+}
+
+// cardPicked runs a pick's result: nothing yet when the card only moved to
+// its second step; otherwise the card closes and the answer is returned.
+func (s *SessionScreen) cardPicked(row int, done bool) SessionCommand {
+	if !done {
+		return SessionCommand{}
+	}
+	id, p := s.card.RowID(row), s.cardPlayer
+	s.card, s.cardAsk = nil, askNone
+	switch id {
+	case rowDisconnect:
+		return SessionCommand{Kind: SessionCmdDisconnect, Fingerprint: p.Fingerprint, Handle: p.Handle}
+	case rowKick, rowKickPurge:
+		return SessionCommand{Kind: SessionCmdKick, Fingerprint: p.Fingerprint, Handle: p.Handle, Purge: id == rowKickPurge}
+	case rowStopHost:
+		return SessionCommand{Kind: SessionCmdStopHost}
+	case rowRestart:
+		return SessionCommand{Kind: SessionCmdRestart}
+	}
+	return SessionCommand{}
 }
 
 // displayVer normalises a version string for display: a numeric SemVer
@@ -649,6 +766,7 @@ func (s *SessionScreen) Render(w *sim.World, width, height int) string {
 	boxW := width - 2*frameInset
 	info := w.Session
 	if info == nil {
+		s.card, s.cardAsk = nil, askNone // the session ended under a card
 		b.WriteString("  Not in a multiplayer session.\n\n")
 		b.WriteString(s.theme.Dim.Render("  [h] start hosting — accept ssh guests on this machine; invite them with serve invite.") + "\n\n")
 		// item-3 UX batch (features finding 13): half of multiplayer —
@@ -814,18 +932,6 @@ func (s *SessionScreen) Render(w *sim.World, width, height int) string {
 		"  warps lock together inside %s when you're closing slower than %s",
 		readout.Distance(sim.CoWarpCoupleRangeM), readout.Speed(sim.CoWarpCoupleSpeedMs))) + "\n")
 
-	if s.confirmRemove {
-		if p, ok := s.selectedPlayer(info); ok {
-			b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  remove %s? they stay connected until they disconnect and need a new invite to return; their vessels stay saved [y/n]", p.Handle)) + "\n")
-		}
-	}
-	if s.confirmStopHost {
-		b.WriteString(s.theme.Alert.Render(fmt.Sprintf("  stop hosting? drops %d guest(s) — progress persists [y/n]", onlineGuests(info))) + "\n")
-	}
-	if s.confirmRestart {
-		b.WriteString(s.theme.Alert.Render("  "+restartPrompt(info)+" [y/n]") + "\n")
-	}
-
 	// Version surface (v0.30 S5): always show the running version; when a
 	// newer release exists, show it, and — on a box with no adopt tooling
 	// — point at the manual update path so the UI never offers an update
@@ -858,13 +964,13 @@ func (s *SessionScreen) Render(w *sim.World, width, height int) string {
 	if info.CanAdminister {
 		keys += "  [tab] section"
 	}
-	// GK Q1 (#589): the keys that ask [y/n] first sit on their own amber
-	// row, so the grey rows are the keys that act at once. Exactly the
-	// asking keys this seat can press: x and F4 for the host and admins,
-	// h for the host.
+	// GK Q1 (#589), ADR 0054: the keys that ask first (each opens a card)
+	// sit on their own amber row, so the grey rows are the keys that act at
+	// once. Exactly the asking keys this seat can press: d, x and F4 for the
+	// host and admins, h for the host.
 	var asks []string
 	if info.CanAdminister {
-		asks = append(asks, "[x] remove player", restartKeyLabel(info))
+		asks = append(asks, "[d] disconnect", "[x] kick (new invite to return)", restartKeyLabel(info))
 	}
 	if info.IsHost {
 		asks = append(asks, "[h] stop hosting")
@@ -880,7 +986,7 @@ func (s *SessionScreen) Render(w *sim.World, width, height int) string {
 		keyLines = append(keyLines, s.theme.Footer.Render(ln))
 	}
 	if len(asks) > 0 {
-		for _, ln := range wrapFooterHints("asks [y/n] first:  "+strings.Join(asks, "  "), boxW-4) {
+		for _, ln := range wrapFooterHints("asks first:  "+strings.Join(asks, "  "), boxW-4) {
 			keyLines = append(keyLines, s.theme.Warning.Render(ln))
 		}
 	}

@@ -136,6 +136,15 @@ func (c *Card) Pick(vis int) (row int, done bool) {
 	return idx, false
 }
 
+// SetCursor puts the ▸ on the visible row vis, for a click: the App points the
+// card at the clicked row and then sends enter, so a click answers through the
+// same handler a key does. An out-of-range row is ignored.
+func (c *Card) SetCursor(vis int) {
+	if vis >= 0 && vis < len(c.visible()) {
+		c.cursor = vis
+	}
+}
+
 // Enter picks the row under the ▸.
 func (c *Card) Enter() (row int, done bool) { return c.Pick(c.cursor) }
 

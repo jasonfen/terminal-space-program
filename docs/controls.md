@@ -349,14 +349,14 @@ docking, chat) are in [multiplayer.md](multiplayer.md). The keys:
 | `w` | roster | Agree to a rendezvous warp with them: commits to an encounter when one's found (a planted node's own arrival, or the current course inside 4 h), otherwise arms with no plan yet; they answer `y` on their main screen |
 | `y` | flight view | Accept a rendezvous warp |
 | `/` | flight view | Cancel a rendezvous warp (either side) |
-| `h` | roster | Host: start hosting from single-player in place, or stop hosting (asks `y`/`n` first; drops guests, keeps progress) |
+| `h` | roster | Host: start hosting from single-player in place, or stop hosting (stop asks first: a card; it drops every guest cleanly and keeps progress) |
+| `d` | roster | Host or admin: disconnect the selected player now. They reconnect at once with the same key (asks first: a card) |
 | `i` / `r` | roster | Host or admin: mint / revoke an invite code. In the invite box `Enter` keeps the typed handle and mints, `Esc` cancels |
-| `x` | roster | Host or admin: remove the selected player (asks `y`/`n` first). They stay connected until they disconnect, then need a new invite to return; their vessels stay saved |
+| `x` | roster | Host or admin: kick the selected player (asks first: a card with `kick`, `kick and delete vessels` and `cancel`). They are dropped now and need a new invite to return; their vessels stay saved unless you pick `kick and delete vessels`, which backs them up first |
 | `p` | roster | Host only: promote the selected player to admin, or demote them |
-| `F4` | roster | Host or admin: restart the server. Everyone is warned and drained with progress saved; on a self-updating host it adopts a newer release. Asks `y`/`n` first |
+| `F4` | roster | Host or admin: restart the server. Everyone is warned and drained with progress saved; on a self-updating host it adopts a newer release. Asks first: a card |
 
-The roster's KEYS box shows the keys that ask first (`x` remove player, `F4` restart server, `h` stop hosting) on their own amber row.
-
+The roster's KEYS box shows the keys that ask first (`d` disconnect, `x` kick, `F4` restart server, `h` stop hosting) on their own amber row. On a card, `↑`/`↓` + `Enter` pick the highlighted row, `y` says yes, `n` or `Esc` says no, and a click on a row picks it; picking an action row asks once more before it acts.
 
 Flight controls are inactive on the roster; only the keys listed apply.
 

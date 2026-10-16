@@ -15,7 +15,8 @@ import (
 // ADR 0054 slice A: the four flight asks (F9 quickload, E end flight, D
 // transpose, Y deploy) and the quit prompt are cards now; app_card_test.go
 // holds their guards (enter picks the highlighted row, an action asks twice).
-// What stays below are the asks other slices convert (saves, roster, VAB).
+// What stays below are the asks other slices convert (saves, VAB). The roster's
+// four asks are cards too (slice C): app_roster_card_test.go.
 //
 // GK Q7 (#589): Enter never answers a [y/n] ask. Every ask in the game is
 // driven here through the real App.Update: raise the ask, press Enter, and
@@ -118,21 +119,6 @@ func ynAsks() []ynAsk {
 			}
 			return n >= 1
 		}},
-		{"roster remove player", func(t *testing.T) *App {
-			a := rosterApp(t)
-			a.Update(keyRunes("x"))
-			return a
-		}, func(a *App) bool { return strings.Contains(a.View(), "they stay connected until they disconnect") }, func(a *App) bool { return true }},
-		{"roster stop hosting", func(t *testing.T) *App {
-			a := rosterApp(t)
-			a.Update(keyRunes("h"))
-			return a
-		}, func(a *App) bool { return strings.Contains(a.View(), "stop hosting?") }, func(a *App) bool { return true }},
-		{"roster restart server", func(t *testing.T) *App {
-			a := rosterApp(t)
-			a.Update(tea.KeyMsg{Type: tea.KeyF4})
-			return a
-		}, func(a *App) bool { return strings.Contains(a.View(), "restart server? drops") }, func(a *App) bool { return true }},
 		{"VAB delete design", func(t *testing.T) *App {
 			testStateDirs(t)
 			a, err := New(nil)
@@ -215,15 +201,9 @@ func TestYNAsksStillAnswerYAndEsc(t *testing.T) {
 			if c.up(a) {
 				t.Errorf("y left the ask up")
 			}
-			switch c.name {
-			case "roster remove player", "roster stop hosting", "roster restart server":
-				if cmd == nil {
-					t.Errorf("y on the roster ask emitted no command")
-				}
-			default:
-				if c.untouched(a) {
-					t.Errorf("y confirmed nothing: state is as before")
-				}
+			_ = cmd
+			if c.untouched(a) {
+				t.Errorf("y confirmed nothing: state is as before")
 			}
 		})
 	}

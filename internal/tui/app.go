@@ -609,6 +609,17 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		}
+		// A screen that asks owns its card (ActiveCard); the same rule holds:
+		// a click on a row answers it as enter on that row would, anything
+		// else is swallowed.
+		if c := a.screenCard(); c != nil {
+			x, y := a.cardOrigin(screens.CardW, c.Height())
+			if vis, ok := c.HitRow(m.X-x, m.Y-y); ok {
+				c.SetCursor(vis)
+				return a.Update(tea.KeyMsg{Type: tea.KeyEnter})
+			}
+			return a, nil
+		}
 		// B11 / G9 Q1: every non-flight screen has the shared Title Row on
 		// row 0 with a [Back] button (the click twin of esc); below it the
 		// screen's own hit-tests see rows counted from the body's top.
@@ -3058,6 +3069,19 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		return a, func() tea.Msg { return msg }
 	case screens.SessionCmdRestart:
 		return a, func() tea.Msg { return screens.SessionRestartMsg{} }
+	case screens.SessionCmdKick:
+		// ADR 0054 slice C: the roster asks for a kick; the server's drop is
+		// slice D's. Until then a plain kick runs the handler that exists (the
+		// roster-row edit, SessionCmdRemove) and the purge is not available.
+		if cmd.Purge {
+			a.toast("kick and delete vessels needs the server update")
+			return a, nil
+		}
+		cmd.Kind = screens.SessionCmdRemove
+		msg := screens.SessionAdminMsg{Cmd: cmd}
+		return a, func() tea.Msg { return msg }
+	case screens.SessionCmdDisconnect:
+		a.toast("disconnect needs the server update") // slice D owns the handler
 	case screens.SessionCmdMint, screens.SessionCmdRevoke, screens.SessionCmdRemove,
 		screens.SessionCmdPromote, screens.SessionCmdDemote:
 		msg := screens.SessionAdminMsg{Cmd: cmd}
@@ -3708,8 +3732,34 @@ func (a *App) View() string {
 			base = a.flightUnderCard()
 		}
 		base = a.cardOver(base, a.card.Render(), screens.CardW)
+	} else if c := a.screenCard(); c != nil {
+		// A screen's own ask (the roster's, ADR 0054) is composited the same
+		// way, over the screen's own rendering.
+		base = a.cardOver(base, c.Render(), screens.CardW)
 	}
 	return base
+}
+
+// cardScreen is a screen that asks questions as cards. It keeps the ask state
+// and the keys; the App draws the card over the dimmed screen and routes a
+// click on a row to it (ADR 0054, #633).
+type cardScreen interface{ ActiveCard() *screens.Card }
+
+// screenCard is the card the active screen has up, or nil.
+func (a *App) screenCard() *screens.Card {
+	var s any
+	switch a.active {
+	case screenSession:
+		s = a.session
+	case screenSaves:
+		s = a.saves
+	case screenVAB:
+		s = a.vab
+	}
+	if cs, ok := s.(cardScreen); ok {
+		return cs.ActiveCard()
+	}
+	return nil
 }
 
 // screensTheme is the theme the screens package takes, built from the
