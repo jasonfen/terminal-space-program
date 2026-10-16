@@ -603,7 +603,7 @@ for a tank, `+` / `-` for the count, done.
 | `PgUp` / `PgDn` | Jump section: previous / next tier or kind section in the palette, or previous / next stage in the vehicle column |
 | `/` | Find: type part of a name (or an ID) and the palette narrows as you type; `Esc` clears it and puts the whole list back, `Enter` closes the find row and keeps the filter. While it is open every key types, so `?` and the global keys do not fire |
 | `←` / `→` | Change part: swap the selected row's part within its kind (engines on an engine row, tanks on a tank row). On an empty stage the placeholder rows cycle from nothing through the catalog. No-op on a stage header or in the palette |
-| `a` | Add the selected part or component: a catalog part becomes a new whole stage directly above the cursor's stage and the cursor moves onto it; a component joins the current stage |
+| `a` | Add the selected part, subassembly or component: a catalog part becomes a new whole stage directly above the cursor's stage and the cursor moves onto it; a subassembly lands whole with its marks (a payload block with a payload seam under it); a component joins the current stage |
 | `n` | Start a new empty stage on top |
 | `x` | Remove the component group under the cursor, or the whole stage when on a stage header or the stage is empty / a catalog part |
 | `+` / `-` | Count: raise / lower the count of the component group under the cursor (`×N`) |
@@ -614,8 +614,9 @@ for a tank, `+` / `-` for the count, done.
 | `c` | **Drops with stage below** (fuse): toggle a fused decouple. The stage drops together with the group below it on one staging press |
 | `t` | **Δv goal**: set a session **Σ Δv target**. The stats strip reads `current / target (delta)`, and with a tank row selected a hint shows how many of that tank close the gap (`+2 → Σ ≈ 9280 ✓`) or that it's unreachable |
 | `s` | Name and save the design |
-| `o` | Open a saved design to edit. In the list `Enter` loads the highlighted design and `x` opens a card, `Delete design 'name'?`, on `keep it` (`delete` asks once more before it acts) |
-| `Enter` in a box | Name box: keep the typed name and save. Δv goal box: keep the typed Σ Δv. `Esc` cancels either |
+| `S` | Save from here up: the cursor's stage and everything above it, named, as a **subassembly**. The card shows the name, the role (`←` / `→` flips payload or stage; payload when the bottom stage was marked `d`) and the stages saved with their marks. It joins the palette's `· subassembly ·` section; `Comsat`, `LM` and `CSM+LM` ship there |
+| `o` | Open a saved design or subassembly to edit. In the list `Enter` loads the highlighted row and `x` opens a card, `Delete design 'name'?` or `Delete subassembly 'name'?`, on `keep it` (`delete` asks once more before it acts) |
+| `Enter` in a box | Name box: keep the typed name and save. Δv goal box: keep the typed Σ Δv. S card: keep the typed name and save the subassembly; a name already taken asks first (`replace "name"?`), and asks once more. `Esc` cancels any of them |
 | `Esc` | Back to the map |
 
 Rules the VAB enforces:

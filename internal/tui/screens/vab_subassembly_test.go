@@ -494,3 +494,30 @@ func TestVABDeployedPayloadIsNamedAfterTheBlock(t *testing.T) {
 		}
 	})
 }
+
+// F1 and docs/controls.md carry the S row and the subassembly words of the
+// o / x / a rows (ADR 0056 "F1 and docs/controls.md").
+func TestVABSubassemblyRowsInF1AndDocs(t *testing.T) {
+	rows := map[string]string{}
+	for _, sec := range helpSections {
+		if sec.header == "VEHICLE ASSEMBLY (VAB)" {
+			for _, r := range sec.rows {
+				rows[r[0]] = r[1]
+			}
+		}
+	}
+	for tok, want := range map[string]string{"S": "save from here up", "s / o": "subassembly", "a": "subassembly", "x (design list)": "subassembly", "enter (S card)": "payload or stage"} {
+		if !strings.Contains(rows[tok], want) {
+			t.Errorf("F1 row %q = %q, want it to say %q", tok, rows[tok], want)
+		}
+	}
+	raw, err := os.ReadFile("../../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"| `S` | Save from here up", "`Delete subassembly 'name'?`", "`· subassembly ·` section"} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("docs/controls.md lacks %q", want)
+		}
+	}
+}
