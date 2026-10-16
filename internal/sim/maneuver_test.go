@@ -947,8 +947,14 @@ func TestPlanTransferIntraPrimaryPhasingMatchesArrival(t *testing.T) {
 	// Tolerance: 1° (0.017 rad). At Luna's distance, 1° = ~6700 km —
 	// within Luna's ~66 000 km SOI, so an actual rendezvous would
 	// capture. Pre-fix the angular gap was unconstrained.
-	if math.Abs(dTheta) > 0.017 {
-		t.Errorf("phasing residual = %.4f rad (%.2f°); want < 1°", dTheta, dTheta*180/math.Pi)
+	//
+	// 2° since #666: the departure is sized and aimed as the centred
+	// finite burn it is flown as, which swings the apse line 0.3 to 0.5°
+	// off the burn-point-plus-180° this approximation assumes (2 to 3 Mm
+	// at Luna), on top of the sub-degree phasing residual. 2° is ~13 400
+	// km, still a fifth of Luna's SOI.
+	if math.Abs(dTheta) > 0.035 {
+		t.Errorf("phasing residual = %.4f rad (%.2f°); want < 2°", dTheta, dTheta*180/math.Pi)
 	}
 	// Also: waitSecs must be non-negative and bounded. v0.12.x (ADR 0006
 	// A): the inclined split waits for the line-of-nodes alignment, not

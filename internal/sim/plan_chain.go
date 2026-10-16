@@ -82,9 +82,11 @@ func (w *World) PlanChainWalks() int { return w.planChain.solves }
 
 // planChainKey covers everything the walk reads: the craft (identity),
 // the sim clock, the live state, its primary, the active system and the
-// whole node list by value.
+// whole node list by value, plus what a finite node's burn is flown with
+// (nodeBurnState reads the live engine: thrust and Isp change with the
+// active stage, mass rides in State.M; #666).
 func (w *World) planChainKey(c *spacecraft.Spacecraft) string {
-	return fmt.Sprintf("%p|%d|%d|%v|%s|%v", c, w.SystemIdx, w.Clock.SimTime.UnixNano(), c.State, c.Primary.ID, c.Nodes)
+	return fmt.Sprintf("%p|%d|%d|%v|%s|%v|%v|%v", c, w.SystemIdx, w.Clock.SimTime.UnixNano(), c.State, c.Primary.ID, c.Nodes, c.Thrust, c.Isp)
 }
 
 // walkPlantedChain walks the active craft's resolved planted nodes in
@@ -135,7 +137,7 @@ func (w *World) computePlanChain(c *spacecraft.Spacecraft) []planChainStep {
 			primary = target
 		}
 		if dir := spacecraft.NodeBurnDirection(n, state.R, state.V); dir.Norm() != 0 && n.DV != 0 {
-			state.V = state.V.Add(dir.Scale(n.DV))
+			state = w.nodeBurnState(state, primary, n, dir)
 		}
 		steps = append(steps, planChainStep{Index: i, Node: n, State: state, Primary: primary, Clock: clock})
 	}
