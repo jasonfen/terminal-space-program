@@ -349,3 +349,36 @@ func TestPlannedDepartureLegMatchesFlownBurn(t *testing.T) {
 		t.Errorf("predicted post-burn Ap %.1f Mm, flown %.1f Mm (want within 1%%)", predicted/1e6, got/1e6)
 	}
 }
+
+// TestPlanChainMemoCoversTheFiniteBurnsInputs: the chain walk flies finite
+// nodes (nodeBurnState), so the engine it flies them with is part of the
+// memo key. Swapping the active stage's thrust or Isp inside a frame must
+// re-walk, and the walk must come out different, not replay the old one.
+func TestPlanChainMemoCoversTheFiniteBurnsInputs(t *testing.T) {
+	w, _ := plannedMoonTransfer(t, 0)
+	c := w.ActiveCraft()
+	frame := func() float64 {
+		st, _, ok := w.PredictedFinalOrbit()
+		if !ok {
+			t.Fatal("no predicted final orbit")
+		}
+		return st.V.Norm()
+	}
+	v0 := frame()
+	frame()
+	base := w.PlanChainWalks()
+	c.Thrust *= 0.1
+	v1 := frame()
+	if w.PlanChainWalks() != base+1 {
+		t.Errorf("thrust change did not re-walk (walks %d, want %d): stale memo", w.PlanChainWalks(), base+1)
+	}
+	if v1 == v0 {
+		t.Errorf("a tenth of the thrust predicts the same final speed %.3f: the walk is not flying the finite burn", v0)
+	}
+	base = w.PlanChainWalks()
+	c.Isp *= 0.9
+	frame()
+	if w.PlanChainWalks() != base+1 {
+		t.Errorf("Isp change did not re-walk: stale memo")
+	}
+}
