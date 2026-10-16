@@ -143,6 +143,7 @@ func driftPhases(t *testing.T, w *World, n int, phaseGapS float64, each func(i i
 //     omega, omega being the measured nose rotation rate, which is the orbit
 //     rate (both vessels hold prograde / retrograde);
 //   - so lateral: moves by amounts rel speed: cannot account for.
+//
 // If a later change makes rel speed: read the port-point velocity (and the
 // gate with it), this test goes red on purpose: update it with that decision.
 func TestRelSpeedMissesThePortPointSweepOfAPivotingStack(t *testing.T) {
