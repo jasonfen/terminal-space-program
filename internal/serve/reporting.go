@@ -183,6 +183,11 @@ func (s *Server) withReporting(app *tui.App, owner string, ls ...*liveSession) t
 func (m reportingModel) Init() tea.Cmd { return m.inner.Init() }
 
 func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, ok := msg.(hostStoppedMsg); ok {
+		m.app.Toast("hosting stopped")
+		return m, nil
+	}
+
 	// Lazy hosting lifecycle (v0.28 S3): [h] on the Session screen
 	// arrives here as a SessionHostMsg. Start binds the listener;
 	// stop shuts it down. Handled before the pass-through so the
@@ -846,7 +851,15 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	srv := m.srv
-	go srv.drainAndClose()
+	// The drain runs off the update goroutine (it can take dropWait for a
+	// peer that is not there) and reports back with hostStoppedMsg; the
+	// toast waits for that. The host reads offline from here on:
+	// markOnline(host) at New has no other pair.
+	drain := func() tea.Msg {
+		srv.drainAndClose(srv.hostDropRecord())
+		srv.presence.markOffline(sessiondir.HostFingerprint)
+		return hostStoppedMsg{}
+	}
 	m.srv, m.rep, m.owner = nil, nil, ""
 	// Back to solo: clear the slates the wrapper had been feeding so the
 	// Session screen shows the [h]-start dead-end again.
@@ -903,8 +916,7 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 	// reconnect" chip on the very first tick of the NEXT hosting
 	// session, for a target that session never even had.
 	m.resetTargetLockWatch()
-	m.app.Toast("hosting stopped")
-	return m, nil
+	return m, drain
 }
 
 // restartServer drains every connected player and exits with the
@@ -941,8 +953,8 @@ func (m reportingModel) restartServer() (tea.Model, tea.Cmd) {
 	srv.presence.event(sim.SessionEventServerRestart, actor, "", "")
 	m.app.Toast("restarting server — draining sessions, progress saved")
 	go func() {
-		time.Sleep(restartAnnounceGrace)
-		srv.drainAndClose()
+		<-srv.after(restartAnnounceGrace)
+		srv.drainAndClose(&dropRecord{kind: dropRestart})
 		// persistMiddleware (folded into the drain above) only ever writes a
 		// session's OWN craft payload — it knows nothing about the
 		// cross-player dock ledger. Same backstop as the SIGTERM path
@@ -962,17 +974,45 @@ func (m reportingModel) restartServer() (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// drainAndClose gracefully stops the listener and waits for every
-// in-flight session to unwind, which writes each guest's final payload
-// through persistMiddleware (v0.28 S3). Shared by the host's
-// stop-hosting toggle and the admin restart (v0.30 S4) so the drain
-// lives in one place. It does not exit the process.
-func (s *Server) drainAndClose() {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	_ = s.Shutdown(ctx)
+// drainAndClose ends hosting for good reason rec: the listener stops
+// accepting, every live session is dropped the clean way (its line, its
+// final payload), and whatever has not unwound within dropWait has its
+// connection closed (ADR 0054 decision 6). Shared by stop hosting, the admin
+// restart, the SIGTERM restart and the host's own quit, so the drain lives
+// in one place. It does not exit the process.
+//
+// The old body called ssh Shutdown, which closes the listener and then only
+// WAITS for connections, so guests lingered against a dead store until the
+// process exited or the 3 s and 5 s limits ran out.
+func (s *Server) drainAndClose(rec *dropRecord) {
+	// Stop accepting first, so no connection arrives after dropAll's
+	// snapshot. A cancelled context makes Shutdown close the listeners and
+	// return at once.
+	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	s.Wait(5 * time.Second)
+	_ = s.Shutdown(ctx)
+	s.dropAll(rec)
+	s.waitSessionsOn(s.after(s.dropWait))
+	// Any straggler (a connection still in its handshake, a session whose
+	// teardown outlived the wait) loses its connection now.
+	_ = s.ssh.Close()
+	s.waitSessionsOn(s.after(s.dropWait))
 }
+
+// hostDropRecord is the stop-hosting record: the host's own handle names
+// who stopped.
+func (s *Server) hostDropRecord() *dropRecord {
+	return &dropRecord{kind: dropStopHosting, actor: s.handleOf(sessiondir.HostFingerprint)}
+}
+
+// StopHostingForQuit is main's exit path while hosting: the host quitting
+// drops every guest with the stop-hosting line and waits for their final
+// payloads, so the process never exits under a write.
+func (s *Server) StopHostingForQuit() { s.drainAndClose(s.hostDropRecord()) }
+
+// hostStoppedMsg arrives after stop hosting's drain has finished, so the
+// "hosting stopped" toast is true when it appears.
+type hostStoppedMsg struct{}
 
 // Relay exposes the session store (tests and later slices read it).
 func (s *Server) Relay() *relay.Store { return s.relay }

@@ -312,6 +312,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // force-closed connections still unwind through persistMiddleware,
 // and the process must not exit under them.
 func (s *Server) Wait(timeout time.Duration) {
+	s.waitSessionsOn(time.After(timeout))
+}
+
+// waitSessionsOn blocks until every session handler has finished (true) or
+// limit fires (false). The drop passes its clock's channel so tests need no
+// real waits.
+func (s *Server) waitSessionsOn(limit <-chan time.Time) bool {
 	done := make(chan struct{})
 	go func() {
 		s.sessions.Wait()
@@ -319,7 +326,9 @@ func (s *Server) Wait(timeout time.Duration) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(timeout):
+		return true
+	case <-limit:
+		return false
 	}
 }
 

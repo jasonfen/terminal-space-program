@@ -213,10 +213,16 @@ func TestStopHostingDropsGuestsPersists(t *testing.T) {
 
 	hostClock := app.World().Clock.SimTime
 
-	m, _ = m.Update(screens.SessionHostMsg{Start: false})
+	m, stopCmd := m.Update(screens.SessionHostMsg{Start: false})
 	if s := hostServer(t, m); s != nil {
 		t.Errorf("stop left a live server: %v", s)
 	}
+	// The drain is the returned command (the runtime runs it off the update
+	// goroutine); run it here.
+	if stopCmd == nil {
+		t.Fatal("stop returned no drain command")
+	}
+	stopCmd()
 	if info := app.World().Session; info != nil {
 		t.Errorf("stop left a session slate: %+v", info)
 	}
@@ -233,7 +239,7 @@ func TestStopHostingDropsGuestsPersists(t *testing.T) {
 		t.Errorf("guest payload time = %v, want %v", wBack.Clock.SimTime, guestTime)
 	}
 
-	// The listener really closes (shutdown runs in the background).
+	// The listener really closes (the drain command has run).
 	addr := srv.Addr()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {

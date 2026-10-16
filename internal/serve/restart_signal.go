@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
@@ -48,8 +47,8 @@ func (s *Server) restartOnSignal(sig <-chan os.Signal, stop <-chan struct{}) {
 	s.AnnounceRestart()
 	// Let the next tick carry the warning to every connected screen before
 	// the listener drains under them. The same grace the admin restart uses.
-	time.Sleep(restartAnnounceGrace)
-	s.drainAndClose()
+	<-s.after(restartAnnounceGrace)
+	s.drainAndClose(&dropRecord{kind: dropRestart})
 	// persistMiddleware (folded into the drain above) only ever writes a
 	// session's OWN craft payload — it knows nothing about the cross-player
 	// dock ledger. ADR 0040 review: every dock mutation is supposed to flush

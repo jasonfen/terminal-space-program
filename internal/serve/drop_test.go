@@ -349,3 +349,14 @@ func TestDroppedSessionThatUnwindsIsNotClosed(t *testing.T) {
 		t.Error("a session that finished unwinding had its connection closed anyway")
 	}
 }
+
+// small seams so the restart tests read as their subject
+const sessionHostFP = sessiondir.HostFingerprint
+
+var restartKind = sim.SessionEventServerRestart
+
+func sessionRestartMsg() tea.Msg { return screens.SessionRestartMsg{} }
+
+func eventsFor(srv *Server, viewer string, kind sim.SessionEventKind) []sim.SessionEvent {
+	return eventsNamed(srv, viewer, kind)
+}
