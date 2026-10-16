@@ -130,6 +130,7 @@ func TestProbeSatComposedFromComponents(t *testing.T) {
 		FuelType:       FuelTypeKerolox, // derived up from the engine/tank chemistry
 		CommandSource:  CommandProbe,
 		Antenna:        &Antenna{Kind: AntennaDirect, RangeM: 1e7},
+		Ports:          []PartPort{{End: PortEndTop}}, // probe-sat-stage's Part-level port
 		// Visual fields the composed part also carries.
 		LaunchSpriteRowsPx:  6,
 		LaunchSpriteWidthPx: 2,

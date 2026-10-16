@@ -140,8 +140,9 @@ Components by ID; **Aggregation** collapses them into the Part's flat scalars.
 Five **Component Kinds** ship: **engine** (thrust / Isp / fuel type), **tank**
 (fuel capacity / fuel type), **command-core** (a control point — crewed or
 probe — plus optional soft-land / parachute), **antenna** (direct / relay +
-range), and **structure** (inert dry mass: adapters, fairings, ballast). The
-**VAB** composes vehicles from Components. **NB:** this is a *different* noun
+range), and **structure** (inert dry mass: adapters, fairings, ballast; this
+kind includes the **Docking Port** component, 50 kg, whose port rides
+**Aggregation** onto the Stage). The **VAB** composes vehicles from Components. **NB:** this is a *different* noun
 from a **Docked Component** (an element of a **Composite**) — see Flagged
 ambiguities.
 _Avoid_: Part (a Component is finer — many compose one Part), Docked Component
@@ -1222,7 +1223,9 @@ with world +X at simTime = 0). Without an explicit longitude offset
 a Vessel's spawn longitude would depend only on sim time (the Body's
 rotation phase), so successive launches at different sim times would
 spawn at different points; with it, KSC stays at KSC regardless of
-the clock.
+the clock. A Vessel has a Launch Site only if it was spawned onto a pad
+(or jettisoned from a landed one); a Vessel spawned in orbit has none, and
+the launch view shows no downrange for it.
 
 Currently a UI-layer preset list (the spawn form), not a first-class
 named entity in the simulation — once spawned, the Vessel carries only
@@ -1616,17 +1619,19 @@ time intervals), Docking envelope, Docking threshold.
 **Docking Port**:
 A place on a Vessel where it can dock. Today every port is the nose, the
 top of the stack, the end away from the engine, and a Vessel has at most
-one (a list in the model, so stations may later carry several). Only parts
-listing `ports` in the catalog carry one (crewed modules, ascent stages,
-tugs, keepers, relays, stations, the Probe Sat); a Vessel whose top part is
-not flagged has no port and cannot dock at all, and a loaded carrier has
-none until its last payload is deployed. A **Composite**'s port is its top
-component's. The port sits at the drawn nose (half a sprite row inside
-`rows x 1.5 m` from the Vessel's position, which is the bottom of its
-stack) and is derived from the stack every time it is read, never stored.
-On screen: a `○` on the hull in the Proximity View, TARGET green for the
-aimed one, your vessel's colour for yours.
-_Avoid_: Docking node, Hatch, Clamp, Part (the catalog word).
+one (a list in the model, so stations may later carry several). A catalog
+part lists its `ports` and a composed stage gets one from the **Docking
+Port** component (a **Component** of kind structure); the ports are copied
+onto the runtime Stage when it is built and saved with it (schema 15), never
+looked up by name. A Vessel whose top stage has no ports cannot dock at all,
+and a loaded carrier has none until its last payload is deployed. A
+**Composite**'s port is its top component's. The port sits at the drawn nose
+(half a sprite row inside `rows x 1.5 m` from the Vessel's position, which is
+the bottom of its stack). On screen: `· port` on the VAB stage header,
+`port: nose` in the VAB's INSPECT, and a `○` on the hull in the Proximity
+View, TARGET green for the aimed one, your vessel's colour for yours.
+_Avoid_: Docking node, Hatch, Clamp, Part (the catalog word), derived port
+(the pre-schema-15 rule).
 
 **Port Line**:
 The dashed line between the two **Docking Ports** in the Proximity View,

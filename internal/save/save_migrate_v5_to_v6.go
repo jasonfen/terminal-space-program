@@ -38,6 +38,7 @@ func wireStagesToSim(wire []Stage) []spacecraft.Stage {
 			CommandSource:        s.CommandSource,
 			AntennaKind:          s.AntennaKind,
 			AntennaRangeM:        s.AntennaRangeM,
+			PartPorts:            portsFromWire(s.Ports),
 		}
 		// The save does not carry the launch-sprite dimensions; the hull,
 		// and the docking port derived from it (ADR 0053), come back from
@@ -86,7 +87,30 @@ func simStagesToWire(stages []spacecraft.Stage) []Stage {
 			CommandSource:        s.CommandSource,
 			AntennaKind:          s.AntennaKind,
 			AntennaRangeM:        s.AntennaRangeM,
+			Ports:                portsToWire(s.PartPorts),
 		}
+	}
+	return out
+}
+
+func portsFromWire(in []PortWire) []spacecraft.PartPort {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]spacecraft.PartPort, len(in))
+	for i, p := range in {
+		out[i] = spacecraft.PartPort{End: p.End}
+	}
+	return out
+}
+
+func portsToWire(in []spacecraft.PartPort) []PortWire {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]PortWire, len(in))
+	for i, p := range in {
+		out[i] = PortWire{End: p.End}
 	}
 	return out
 }
@@ -123,5 +147,8 @@ func migrateV5CraftToStages(wc Craft, monoprop, monoCap, rcsThrust, rcsIsp float
 		MonopropCap:  monoCap,
 		RCSThrust:    rcsThrust,
 		RCSIsp:       rcsIsp,
+		// A pre-v6 save has no stored ports either: the same lookup the
+		// v14 to v15 backfill uses.
+		PartPorts: spacecraft.LookupCatalogPorts(wc.LoadoutID, wc.Name),
 	}}
 }

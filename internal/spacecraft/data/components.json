@@ -269,6 +269,14 @@
       "kind": "structure",
       "dry_mass_kg": 200,
       "description": "Dead-weight ballast for trimming a stack's balance."
+    },
+    {
+      "id": "docking-port",
+      "name": "Docking Port",
+      "kind": "structure",
+      "dry_mass_kg": 50,
+      "ports": [{"end": "top"}],
+      "description": "Docking port on the stage nose."
     }
   ]
 }

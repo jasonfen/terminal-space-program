@@ -13,8 +13,8 @@ import (
 // ADR 0053 decision 10: no schema bump. nav_mode simply may hold 3 (PORT);
 // 0-2 mean what they always meant.
 func TestNavModePortRoundTripsAndOldValuesLoadUnchanged(t *testing.T) {
-	if save.SchemaVersion != 14 {
-		t.Fatalf("SchemaVersion = %d; slice C must not bump it (14)", save.SchemaVersion)
+	if save.SchemaVersion < 14 {
+		t.Fatalf("SchemaVersion = %d; nav_mode PORT shipped at 14", save.SchemaVersion)
 	}
 	for _, nav := range []sim.NavMode{sim.NavOrbit, sim.NavSurface, sim.NavTarget, sim.NavPort} {
 		w, err := sim.NewWorld()

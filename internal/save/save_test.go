@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -300,7 +301,7 @@ func TestRoundtripTopLevelStageFields(t *testing.T) {
 		t.Fatalf("Stages count: got %d want %d", len(gotStages), len(want))
 	}
 	for i := range want {
-		if persisted(gotStages[i]) != persisted(want[i]) {
+		if !reflect.DeepEqual(persisted(gotStages[i]), persisted(want[i])) {
 			t.Errorf("Stage[%d]: got %+v want %+v", i, gotStages[i], want[i])
 		}
 	}

@@ -85,8 +85,8 @@ type Part struct {
 	// Today at most one entry, the top end (`"ports": [{"end": "top"}]`); a
 	// list so later side ports need no format change. Absent means the part
 	// cannot dock, which is also what a user overlay part that omits it
-	// reads as. Never copied onto a Stage and never persisted: the flag is
-	// looked up at read time (Stage.Ports, portIndex below).
+	// reads as. ToStage copies the nose ports onto the Stage (Stage.PartPorts,
+	// ADR 0056 decision 7) and the save persists them (schema 15).
 	Ports []PartPort `json:"ports,omitempty"`
 
 	// Components (v0.24 / ADR 0029 §1, the VAB cycle) optionally declares
@@ -113,7 +113,7 @@ type Part struct {
 // PartPort is one docking port on a catalog part. End says where on the
 // stack it sits; "top" (the nose, away from the engine) is the only end
 // ADR 0053 defines, and an entry with any other end is ignored by
-// Stage.Ports until a later ADR gives it a place.
+// the Stage (ToStage keeps only "top") until a later ADR gives it a place.
 type PartPort struct {
 	End string `json:"end"`
 }
@@ -238,6 +238,7 @@ func (p Part) ToStage() Stage {
 		CanSoftLand:          p.CanSoftLand,
 		HasParachute:         p.HasParachute,
 		CommandSource:        p.CommandSource,
+		PartPorts:            topPorts(p.Ports),
 	}
 	if p.Antenna != nil {
 		st.AntennaKind = p.Antenna.Kind
@@ -420,12 +421,13 @@ func userCatalogDir() string {
 	return filepath.Join(home, ".config", "terminal-space-program", "loadouts")
 }
 
-// portIndex answers "does this stage carry a docking port" without the
-// answer ever being stored on the Stage or in a save (ADR 0053 "Settled
-// here" item 7: a persisted flag would be a schema bump, and an absent
-// omitempty bool cannot tell an old save from a port-less stage). It is
-// rebuilt from the merged catalog at startup and by LoadCatalogOverlay, so
-// a user overlay part that omits `ports` reads port-less.
+// portIndex answers "which ports did a stage of this (loadout, name) carry
+// before ports were stored on the Stage" (ADR 0053's runtime lookup). Since
+// ADR 0056 the read path is Stage.PartPorts; the index survives only behind
+// LookupCatalogPorts, which the v14 to v15 save migration uses to backfill
+// every old stage with the port it had. Rebuilt from the merged catalog at
+// startup and by LoadCatalogOverlay, so a user overlay part that omits
+// `ports` reads port-less.
 type portIndex struct {
 	// byLoadout is authoritative: loadout ID, then the stage's display
 	// name as that loadout resolves it (part name or override name).
@@ -506,4 +508,11 @@ func (idx portIndex) lookup(loadoutID, name string) []PartPort {
 		}
 	}
 	return idx.byName[name]
+}
+
+// LookupCatalogPorts returns the ports a stage with this (loadoutID, name)
+// pair carried under the pre-schema-15 name lookup. The v14 to v15 save
+// migration is its only caller; the sim never reads it.
+func LookupCatalogPorts(loadoutID, name string) []PartPort {
+	return portIdx.lookup(loadoutID, name)
 }

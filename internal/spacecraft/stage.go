@@ -38,15 +38,12 @@ const (
 	AntennaRelay  = "relay"  // can use AND forward (a comm-sat / ground-station relay)
 )
 
-// Ports lists the docking ports this stage's part carries (ADR 0053 §3),
-// today none or one nose port. Derived on every call from the catalog by
-// the stage's (LoadoutID, Name) pair, falling back to a name match across
-// the parts catalog, because the flag is deliberately not stored on the
-// Stage or in a save. A stage the catalog does not know (a custom VAB stage
-// with its own name) has no ports.
-func (s Stage) Ports() []PartPort {
-	return portIdx.lookup(s.LoadoutID, s.Name)
-}
+// Ports lists the docking ports this stage carries (ADR 0053 §3, ADR 0056
+// decision 7), today none or one nose port. It returns the stage's own
+// stored field, set where the stage is built (Part.ToStage, BuildStage,
+// ComposeStage) and persisted in the save (schema 15). There is no
+// fallback to a catalog lookup by name: a stage with no ports has none.
+func (s Stage) Ports() []PartPort { return s.PartPorts }
 
 // HasPort reports whether the stage carries at least one docking port.
 func (s Stage) HasPort() bool { return len(s.Ports()) > 0 }
@@ -253,6 +250,13 @@ type Stage struct {
 	// longest-ranged one in the stack) for the connectivity graph.
 	AntennaKind   string  `json:",omitempty"`
 	AntennaRangeM float64 `json:",omitempty"`
+
+	// PartPorts (ADR 0056 decision 7) is the stage's own docking-port
+	// list, read through Ports(). Named PartPorts because a Go type cannot
+	// hold a field and a method both called Ports. Copied with the stage
+	// on dock, undock, deploy and jettison, and persisted in the save
+	// (schema 15).
+	PartPorts []PartPort `json:",omitempty"`
 }
 
 // SumDryMass returns the total dry mass across every stage in kg.

@@ -13,8 +13,8 @@ import (
 // #594: the standing "done" row survives save/load with NO new persisted
 // field, and a load never replays the completion flash.
 func TestRungDoneSurvivesSaveLoad(t *testing.T) {
-	if save.SchemaVersion != 14 {
-		t.Fatalf("SchemaVersion = %d, #594 must not change the save shape (want 14)", save.SchemaVersion)
+	if save.SchemaVersion < 14 {
+		t.Fatalf("SchemaVersion = %d, want >= 14", save.SchemaVersion)
 	}
 	w, err := sim.NewWorld()
 	if err != nil {

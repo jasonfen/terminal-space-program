@@ -530,6 +530,9 @@ func (v *VAB) inspectStackRow(inner int, add func(string), addText func(string))
 		if i < len(stats.StageDV) {
 			addText(fmt.Sprintf("Δv %.0f m/s", stats.StageDV[i]))
 		}
+		if v.resolveStage(v.stages[i]).HasPort() {
+			addText("port: nose") // ADR 0056 decision 7
+		}
 		return true
 	}
 	groups := v.rowGroups(r.stageIdx)
@@ -723,6 +726,9 @@ func (v *VAB) stageHeaderLine(i int, stats spacecraft.VehicleStats, sel, cursorO
 	tag := ""
 	if v.stages[i].decoupleFused && i >= 1 {
 		tag = " ⛓"
+	}
+	if st.HasPort() {
+		tag += " · port" // ADR 0056 decision 7: the stage carries a nose port
 	}
 	text := truncWidth(fmt.Sprintf("S%d  %s · %s · Δv %.0f%s", i+1, chem, eng, stats.StageDV[i], tag), w-2)
 	marker := "  "

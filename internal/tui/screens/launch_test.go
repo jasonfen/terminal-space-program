@@ -151,11 +151,13 @@ func TestFormatLaunchHUDAppendsOrbitReadyBadge(t *testing.T) {
 func stripLine(t *testing.T, rendered string) string {
 	t.Helper()
 	for _, line := range strings.Split(stripANSI(rendered), "\n") {
-		if strings.Contains(line, "downrange:") {
+		// T+ and the (max ...) Q suffix are the strip's own; downrange: is
+		// absent for a vessel with no launch site (#611).
+		if strings.Contains(line, "T+ ") && strings.Contains(line, "(max ") {
 			return line
 		}
 	}
-	t.Fatal("no launch strip line (containing \"downrange:\") found in the render")
+	t.Fatal("no launch strip line (containing \"T+ \" and \"(max \") found in the render")
 	return ""
 }
 
@@ -1339,4 +1341,38 @@ func TestLaunchViewRendersDescentWithNilHud(t *testing.T) {
 	th := launchThemeForTest()
 	v := NewLaunchView(th, nil)
 	v.Render(w, 200, 60)
+}
+
+// #611: a negative downrange means no launch site; the field is left out and
+// the rest of the strip is unchanged.
+func TestFormatLaunchHUDOmitsDownrangeWithoutALaunchSite(t *testing.T) {
+	got := formatLaunchHUD(0, -1, 0, 0, "")
+	want := "T+ 00:00:00  Q: 0.000 kPa (max 0.000)"
+	if got != want {
+		t.Errorf("\n got: %q\nwant: %q", got, want)
+	}
+}
+
+// #611: the strip of an orbit-spawned vessel carries T+ and Q but no
+// downrange; the same vessel with a launch site (and off its pad) shows one.
+func TestLaunchStripDownrangeFollowsHasLaunchSite(t *testing.T) {
+	th := launchThemeForTest()
+	v := NewLaunchView(th, NewOrbitView(th))
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := w.ActiveCraft()
+	c.Landed = false
+	if c.HasLaunchSite {
+		t.Fatal("setup: the seed vessel was spawned in orbit and has no launch site")
+	}
+	hud := v.composeHUDLine(w, c)
+	if !strings.Contains(hud, "T+ ") || !strings.Contains(hud, "Q:") || strings.Contains(hud, "downrange") {
+		t.Errorf("orbit-spawn strip = %q, want T+ and Q: with no downrange", hud)
+	}
+	c.HasLaunchSite = true
+	if hud := v.composeHUDLine(w, c); !strings.Contains(hud, "downrange:") {
+		t.Errorf("strip with a launch site = %q, want a downrange field", hud)
+	}
 }

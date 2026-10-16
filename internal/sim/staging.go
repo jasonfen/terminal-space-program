@@ -236,6 +236,7 @@ func buildJettisonedCraft(stages []spacecraft.Stage, parent *spacecraft.Spacecra
 		c.LandedLonDeg = parent.LandedLonDeg
 		c.LaunchLatDeg = parent.LaunchLatDeg
 		c.LaunchLonDeg = parent.LaunchLonDeg
+		c.HasLaunchSite = parent.HasLaunchSite
 		c.State = parent.State
 	} else {
 		// Retrograde unit vector — points opposite the active craft's

@@ -54,6 +54,7 @@ func TestBuildStageGoldenByteIdentical(t *testing.T) {
 		LaunchSpriteColor:   "#C8C8D0",
 		HasParachute:        true,
 		CommandSource:       CommandCrewed, // v0.23/ADR 0027: the capsule is a crewed pod
+		PartPorts:           []PartPort{{End: PortEndTop}}, // ADR 0053 decision 3 / ADR 0056: stored on the Stage
 	}
 	if got, ok := BuildStage(StageModuleCapsuleID); !ok || !reflect.DeepEqual(got, wantCapsule) {
 		t.Errorf("BuildStage(capsule) byte-identity drift:\n want %+v\n  got %+v (ok=%v)", wantCapsule, got, ok)

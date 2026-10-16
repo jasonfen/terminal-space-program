@@ -67,6 +67,12 @@ type Component struct {
 	// rated range in metres.
 	AntennaKind string  `json:"antenna_kind,omitempty"`
 	RangeM      float64 `json:"range_m,omitempty"`
+
+	// Ports (ADR 0056 decision 7) lists the docking ports this component
+	// carries, in the Part.Ports shape (`"ports": [{"end": "top"}]`).
+	// composePart unions them onto the composed Part, so a stage that holds
+	// a Docking Port component docks.
+	Ports []PartPort `json:"ports,omitempty"`
 }
 
 // Component-kind constants (ADR 0029 §2). The five kinds that ship this
@@ -163,6 +169,7 @@ func composePart(p Part, comps map[string]Component) (Part, error) {
 	var fuelType, commandSource, antennaKind string
 	var antennaRange float64
 	var canSoftLand, hasParachute bool
+	var compPorts []PartPort
 
 	setFuel := func(ft string) error {
 		if ft == "" {
@@ -184,6 +191,7 @@ func composePart(p Part, comps map[string]Component) (Part, error) {
 			return Part{}, fmt.Errorf("references unknown component %q", cid)
 		}
 		dryMass += c.DryMassKg
+		compPorts = append(compPorts, c.Ports...)
 		switch c.Kind {
 		case ComponentEngine:
 			if c.ThrustN > 0 && c.IspS > 0 {
@@ -234,6 +242,10 @@ func composePart(p Part, comps map[string]Component) (Part, error) {
 	out.CommandSource = commandSource
 	out.CanSoftLand = canSoftLand
 	out.HasParachute = hasParachute
+	// ADR 0056 decision 7: the Part's own ports (a composed catalog part
+	// such as probe-sat-stage keeps them via out := p) plus every
+	// component's.
+	out.Ports = append(append([]PartPort(nil), p.Ports...), compPorts...)
 	if antennaKind != AntennaNone {
 		out.Antenna = &Antenna{Kind: antennaKind, RangeM: antennaRange}
 	} else {
