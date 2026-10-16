@@ -69,6 +69,7 @@ type dropFixture struct {
 	srv   *Server
 	dir   string
 	host  tea.Model
+	app   *tui.App
 	guest *gameSession
 	gfp   string
 	done  chan error
@@ -97,7 +98,7 @@ func startDropFixture(t *testing.T) *dropFixture {
 	if err != nil {
 		t.Fatalf("tui.New: %v", err)
 	}
-	f := &dropFixture{srv: srv, dir: dir, host: srv.HostModel(app), gfp: gfp, done: done}
+	f := &dropFixture{srv: srv, dir: dir, host: srv.HostModel(app), app: app, gfp: gfp, done: done}
 	f.guest = dialGameSession(t, srv.Addr(), signer)
 	f.guest.waitFor(t, "Sol")
 	return f
@@ -359,4 +360,42 @@ func sessionRestartMsg() tea.Msg { return screens.SessionRestartMsg{} }
 
 func eventsFor(srv *Server, viewer string, kind sim.SessionEventKind) []sim.SessionEvent {
 	return eventsNamed(srv, viewer, kind)
+}
+
+// A kicked player's roster row is gone the moment the kick lands, but their
+// ghost keeps its name: the report carries the handle its reporter last knew.
+func TestKickedPlayersGhostKeepsItsName(t *testing.T) {
+	f := startDropFixture(t)
+	// The guest has reported with its handle once its first tick has run.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		reps := f.srv.relay.Snapshot("")
+		if len(reps) == 1 && reps[0].Handle == "pilot2" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the guest's report never carried its handle: %+v", reps)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	f.admin(screens.SessionCommand{Kind: screens.SessionCmdKick, Fingerprint: f.gfp, Handle: "pilot2"})
+	f.waitGone(t, time.Second, "kick")
+	if _, err := f.srv.store.FindPlayer(f.gfp); err == nil {
+		t.Fatal("setup: the roster row survived the kick")
+	}
+	// The host's next refresh rebuilds the ghost slate against a roster
+	// with no row for the guest.
+	f.host, _ = f.host.Update(sim.TickMsg{})
+	var named []string
+	for _, g := range f.app.World().Ghosts {
+		named = append(named, g.Handle)
+	}
+	if len(named) == 0 {
+		t.Fatal("the kicked player's ghost is not on the host's map at all")
+	}
+	for _, h := range named {
+		if h != "pilot2" {
+			t.Errorf("ghost handle = %q, want pilot2", h)
+		}
+	}
 }
