@@ -646,8 +646,11 @@ The orientation the navball displays directions in. Four values:
 **NavPort** (the aimed **Docking Port**'s frame: in and out along its axis,
 up/down and left/right across its face; `;` offers it only when the Target
 has a port, the self-switch never enters it, and it drops to NavOrbit when
-the Target changes or loses its port). `Port+` is the hold that puts your
-nose on the port axis, the docking attitude.
+the Target changes or loses its port, and a `Port` hold resets to Prograde
+when it does). `Port+` is the hold that puts your nose on the port axis, the
+docking attitude. Reaching PORT turns nothing on any vessel; the flash reads
+`nav: PORT`. In PORT the navball's text row reads `pitch` / `yaw` to the port
+axis (see **Misalign**) instead of the surface `pitch` / `hdg`.
 Unlike Focus and Target, NavMode lives on `World`, not on the Vessel — it's
 a known scope cap (each Vessel does not yet remember its own NavMode across
 active-Vessel switches); revisit if that asymmetry starts to bite.
@@ -1601,7 +1604,9 @@ debris stages, not latched. Three terms, all required on the same tick:
 
 - **Port range**: port to port within 0.5 m.
 - **Docking Velocity**: relative speed under 0.1 m/s.
-- **Alignment**: the two noses within 4° of pointing at each other.
+- **Alignment**: the two noses within 4° of pointing at each other, read on
+  the chip as `misalign:` (see **Misalign**); the lateral miss across the
+  port face is `lateral:` (see **Lateral**).
 
 The **Docking Distance** (50 m) survives as the ring on the Proximity View,
 the Proximity fit floor, the warp-cap zone and every "clear of the pair"
@@ -1632,6 +1637,23 @@ the bottom of its stack). On screen: `· port` on the VAB stage header,
 View, TARGET green for the aimed one, your vessel's colour for yours.
 _Avoid_: Docking node, Hatch, Clamp, Part (the catalog word), derived port
 (the pre-schema-15 rule).
+
+**Misalign**:
+The **Docking Gate**'s alignment term as the PROXIMITY chip prints it,
+`misalign: 5° off  (need < 4°)`: the angle between your axis and the reverse
+of the Target's. Zero whenever the noses are parallel, however far off the
+line you sit. Its two components across the port face, up and right, are
+`MisalignUpDeg` / `MisalignRightDeg` on the Proximity state, and read as the
+navball's `pitch` / `yaw` row in PORT (positive = nose above / right of
+parallel). IDSS "pitch/yaw misalignment".
+_Avoid_: Align / alignment (the old row label), Angle off, Attitude error.
+
+**Lateral**:
+The Target's port across your port face, up/down and left/right in metres,
+`lateral: 17.7 m ↓  0.0 m ◂`: the sliding cue, the two numbers the
+`w` / `s` / `a` / `d` PORT pulses move. IDSS and Shuttle "lateral
+misalignment".
+_Avoid_: Off-axis (the old row label), Offset, Miss distance.
 
 **Port Line**:
 The dashed line between the two **Docking Ports** in the Proximity View,
