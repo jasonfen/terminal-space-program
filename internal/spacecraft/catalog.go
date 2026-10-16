@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 )
 
 // Data-driven loadout / parts catalog (ADR 0026, cycle 1 of the Axis B
@@ -276,6 +278,7 @@ func LoadCatalogOverlay() []CatalogWarning {
 	LoadoutOrder = order
 	Components = comps
 	portIdx = buildPortIndex(parts, defs)
+	fleetIdx = buildFleetIndex(defs)
 	return warnings
 }
 
@@ -440,6 +443,43 @@ type portIndex struct {
 }
 
 var portIdx = embeddedPortIndex()
+
+// fleetIdx maps a part ID to the fleet its loadouts put it in, for the VAB
+// inspector's fleet line (ADR 0056 §1). A part is a Lumen part when at least
+// one loadout references it and every loadout that does is stripped-back.
+var fleetIdx = embeddedFleetIndex()
+
+func embeddedFleetIndex() map[string]string {
+	_, _, defs, err := loadEmbeddedCatalog()
+	if err != nil {
+		panic("spacecraft: embedded catalog failed to load: " + err.Error())
+	}
+	return buildFleetIndex(defs)
+}
+
+func buildFleetIndex(defs []LoadoutDef) map[string]string {
+	refs := map[string]int{}
+	lumen := map[string]int{}
+	for _, d := range defs {
+		for _, ref := range d.Parts {
+			refs[ref.PartID]++
+			if d.ScaleClass == string(bodies.ScaleStrippedBack) {
+				lumen[ref.PartID]++
+			}
+		}
+	}
+	out := map[string]string{}
+	for id, n := range refs {
+		if lumen[id] == n {
+			out[id] = "Lumen"
+		}
+	}
+	return out
+}
+
+// PartFleet names the fleet a catalog part belongs to ("Lumen"), or "" when
+// the part is not exclusive to one.
+func PartFleet(id string) string { return fleetIdx[id] }
 
 func embeddedPortIndex() portIndex {
 	comps, parts, defs, err := loadEmbeddedCatalog()

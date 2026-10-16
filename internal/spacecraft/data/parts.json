@@ -292,6 +292,7 @@
     {
       "id": "s-ivb-1",
       "name": "S-IVB",
+      "tier": "transfer",
       "glyph": "➤",
       "color": "#FFD93D",
       "dry_mass_kg": 11000,
@@ -307,6 +308,7 @@
     {
       "id": "s-ivb-tli",
       "name": "S-IVB",
+      "tier": "transfer",
       "glyph": "➤",
       "color": "#FFD93D",
       "dry_mass_kg": 11000,
@@ -322,6 +324,7 @@
     {
       "id": "icps-1",
       "name": "ICPS",
+      "tier": "transfer",
       "glyph": "➤",
       "color": "#5BB3FF",
       "dry_mass_kg": 3500,
@@ -337,6 +340,7 @@
     {
       "id": "icps-sls",
       "name": "ICPS",
+      "tier": "transfer",
       "glyph": "➤",
       "color": "#5BB3FF",
       "dry_mass_kg": 3500,
@@ -353,6 +357,7 @@
     {
       "id": "apollo-descent",
       "name": "Descent",
+      "tier": "payload",
       "glyph": "➤",
       "color": "#5FFF87",
       "dry_mass_kg": 2500,
@@ -371,6 +376,7 @@
       "id": "apollo-ascent",
       "ports": [{"end": "top"}],
       "name": "Ascent",
+      "tier": "payload",
       "command_source": "crewed",
       "glyph": "➤",
       "color": "#7BFFA0",
@@ -388,6 +394,7 @@
     {
       "id": "apollo-sm",
       "name": "SM",
+      "tier": "payload",
       "glyph": "➤",
       "color": "#C0C0FF",
       "dry_mass_kg": 6000,
@@ -403,6 +410,7 @@
     {
       "id": "kern-boost",
       "name": "Boost",
+      "tier": "booster",
       "glyph": "➤",
       "color": "#7BD3FF",
       "dry_mass_kg": 2000,
@@ -419,6 +427,7 @@
     {
       "id": "kern-transfer",
       "name": "Transfer",
+      "tier": "transfer",
       "glyph": "➤",
       "color": "#9BE0FF",
       "dry_mass_kg": 1000,
@@ -435,6 +444,7 @@
     {
       "id": "kern-lander",
       "name": "Lander",
+      "tier": "payload",
       "glyph": "➤",
       "color": "#5FFF87",
       "dry_mass_kg": 800,
@@ -454,6 +464,7 @@
       "id": "kern-pod",
       "ports": [{"end": "top"}],
       "name": "Pod",
+      "tier": "payload",
       "command_source": "crewed",
       "glyph": "➤",
       "color": "#B8C8E0",
