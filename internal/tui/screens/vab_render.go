@@ -260,7 +260,7 @@ func (v *VAB) Render(width, height int) string {
 // columns and hid "[s] save" / "[o] open" outright; wrapFooterHints wraps
 // whole "[key] hint" pairs instead of cutting mid-token.
 const (
-	vabHints1 = "[tab] other column  [↑/↓] move  [←/→] change part  [PgUp/Dn] jump section  [a] add  [n] new stage  [x] remove"
+	vabHints1 = "[tab] other column  [↑/↓] move  [←/→] change part  [PgUp/Dn] jump section  [a] add above cursor  [n] new stage  [x] remove"
 	vabHints2 = "[+/-] count  [ [ / ] ] move stage down / up  [y] copy stage  [enter] open part into pieces  [d] payload from here up"
 	vabHints3 = "[c] drops with stage below  [t] Δv goal  [s] save  [o] open"
 )
@@ -472,7 +472,7 @@ func (v *VAB) inspectStackRow(inner int, add func(string), addText func(string))
 	}
 	if r.isHeader() {
 		i := r.stageIdx
-		stats := spacecraft.StackStats(v.resolvedStages())
+		stats := v.Stats()
 		add(v.theme.Primary.Render(truncWidth(fmt.Sprintf("Stage S%d", i+1), inner)))
 		addText(v.stageLabel(v.stages[i]))
 		if i < len(stats.StageDV) {
@@ -536,7 +536,7 @@ func (v *VAB) paletteItemLabel(it vabPaletteItem) (kind, label string) {
 func (v *VAB) renderVehicleColumn(w, h int) []string {
 	var lines []string
 	stages := v.resolvedStages()
-	stats := spacecraft.StackStats(stages)
+	stats := v.statsOf(stages)
 	lines = append(lines, v.theme.Primary.Render(truncWidth(v.targetReadout(stats), w)))
 	if hint := v.tankHint(); hint != "" {
 		lines = append(lines, v.theme.Warning.Render(truncWidth("  ↳ "+hint, w)))
@@ -564,7 +564,7 @@ func (v *VAB) renderVehicleColumn(w, h int) []string {
 			// A dock seam below the stage above (i+1) sits between it and this
 			// stage — render the divider just before this header (top-down).
 			if up := r.stageIdx + 1; up < len(v.stages) && v.stages[up].dockSeamBelow {
-				push(v.theme.Warning.Render(truncWidth("── dock seam (Undock to release) ──", w)), true)
+				push(v.theme.Warning.Render(truncWidth("── payload seam ([Y] deploys, [U] undocks) ──", w)), true)
 				if cursorOn {
 					cursorLine = len(body) - 1
 				}
