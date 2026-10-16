@@ -498,10 +498,10 @@ func TestQuitFromThePauseMenuStillAutosaves(t *testing.T) {
 	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
 	esc(a)
 	press(a, "q")
-	if !a.quitConfirm {
+	if !cardKindUp(a, cardQuit) {
 		t.Fatal("q in the menu did not arm the quit prompt")
 	}
-	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	_, cmd := pressTwice(a, 'y')
 	if cmd == nil {
 		t.Fatal("y did not quit")
 	}
@@ -654,10 +654,10 @@ func TestLoadFromThePauseMenuReleasesTheMenuHold(t *testing.T) {
 		t.Fatal("the loaded world should be running (saved while running)")
 	}
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	if !a.quitConfirm {
+	if !cardKindUp(a, cardQuit) {
 		t.Fatal("ctrl+c did not arm the quit prompt")
 	}
-	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("y")})
+	_, cmd := pressTwice(a, 'y')
 	if cmd == nil {
 		t.Fatal("y did not quit")
 	}

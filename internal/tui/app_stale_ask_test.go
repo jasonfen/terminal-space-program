@@ -19,7 +19,7 @@ import (
 // the menu, a vessel switch from the sim side, a world swap from a load.
 // The tests mutate that state directly and then drive the real Update.
 
-func askShown(a *App) bool { return strings.Contains(a.View(), "[y/n]") }
+func askShown(a *App) bool { return a.card != nil && !strings.Contains(a.View(), "[y/n]") }
 
 func TestTransposeAskDropsWhenScreenChanges(t *testing.T) {
 	a := apolloReadyApp(t)
@@ -33,7 +33,7 @@ func TestTransposeAskDropsWhenScreenChanges(t *testing.T) {
 	if askShown(a) {
 		t.Error("transpose ask survived a screen change")
 	}
-	a.Update(keyRunes("y"))
+	pressTwice(a, 'y')
 	if got := a.world.ActiveCraft().Stages[0].Name; got != "Descent" {
 		t.Errorf("a stale y transposed the stack (Stages[0] = %q)", got)
 	}
@@ -68,7 +68,7 @@ func TestDeployAskDropsWhenActiveVesselChanges(t *testing.T) {
 	if askShown(a) {
 		t.Error("deploy ask survived a switch of the active vessel")
 	}
-	a.Update(keyRunes("y"))
+	pressTwice(a, 'y')
 	if len(a.world.Crafts) != n {
 		t.Error("a stale y deployed from the wrong vessel")
 	}

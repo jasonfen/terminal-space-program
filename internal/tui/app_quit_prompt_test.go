@@ -33,7 +33,7 @@ func TestCtrlCRaisesQuitPromptInsteadOfQuitting(t *testing.T) {
 	if isQuitCmd(cmd) {
 		t.Fatal("ctrl+c quit immediately — it must raise the quit prompt instead (#474)")
 	}
-	if !a.quitConfirm {
+	if !cardKindUp(a, cardQuit) {
 		t.Fatal("ctrl+c did not arm the quit prompt")
 	}
 	if files := savesDirFiles(t, dir); len(files) != 0 {
@@ -55,13 +55,13 @@ func TestQuitPromptNoWritesNothing(t *testing.T) {
 	before := savesDirFiles(t, dir)
 
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
+	_, cmd := pressTwice(a, 'n')
 
 	if !isQuitCmd(cmd) {
 		t.Fatal("[n] did not quit")
 	}
-	if a.quitConfirm {
-		t.Error("quitConfirm still armed after n")
+	if cardKindUp(a, cardQuit) {
+		t.Error("quit card still up after n")
 	}
 	after := savesDirFiles(t, dir)
 	if len(before) != 0 || len(after) != 0 {
@@ -80,13 +80,13 @@ func TestQuitPromptYesWritesAutosave(t *testing.T) {
 	}
 
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	_, cmd := pressTwice(a, 'y')
 
 	if !isQuitCmd(cmd) {
 		t.Fatal("[y] did not quit")
 	}
-	if a.quitConfirm {
-		t.Error("quitConfirm still armed after y")
+	if cardKindUp(a, cardQuit) {
+		t.Error("quit card still up after y")
 	}
 	files := savesDirFiles(t, dir)
 	if len(files) != 1 || files[0] != "autosave-1.json" {
@@ -112,8 +112,8 @@ func TestQuitPromptEscReturnsExactlyWhereYouWere(t *testing.T) {
 	if isQuitCmd(cmd) {
 		t.Fatal("esc quit the prompt instead of cancelling it")
 	}
-	if a.quitConfirm {
-		t.Error("quitConfirm still armed after esc")
+	if cardKindUp(a, cardQuit) {
+		t.Error("quit card still up after esc")
 	}
 	if a.active != wantActive {
 		t.Errorf("active = %v, want unchanged %v", a.active, wantActive)
@@ -140,7 +140,7 @@ func TestQuitPromptYesSkipsPausedWorld(t *testing.T) {
 	a.world.Clock.Paused = true
 
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	_, cmd := pressTwice(a, 'y')
 
 	if !isQuitCmd(cmd) {
 		t.Fatal("[y] did not quit")
@@ -191,7 +191,7 @@ func TestMenuQuitRowRaisesSameQuitPrompt(t *testing.T) {
 	if isQuitCmd(cmd) {
 		t.Fatal("menu q quit immediately instead of arming the prompt")
 	}
-	if !a.quitConfirm {
+	if !cardKindUp(a, cardQuit) {
 		t.Fatal("menu q did not arm the app-level quit prompt")
 	}
 	if files := savesDirFiles(t, dir); len(files) != 0 {
@@ -199,7 +199,7 @@ func TestMenuQuitRowRaisesSameQuitPrompt(t *testing.T) {
 	}
 
 	// The same y/n/esc handling answers it — y from here writes.
-	_, cmd = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	_, cmd = pressTwice(a, 'y')
 	if !isQuitCmd(cmd) {
 		t.Fatal("y at the menu-raised prompt did not quit")
 	}
@@ -230,14 +230,14 @@ func TestGuestQuitPromptHasNoDecline(t *testing.T) {
 	if isQuitCmd(cmd) {
 		t.Fatal("[n] quit a guest session — it must have no decline")
 	}
-	if !a.quitConfirm {
+	if !cardKindUp(a, cardQuit) {
 		t.Fatal("[n] disarmed the guest quit prompt — it should be a no-op, prompt stays up")
 	}
 	if wrote {
 		t.Fatal("[n] wrote through the guest sink")
 	}
 
-	_, cmd = a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	_, cmd = pressTwice(a, 'y')
 	if !isQuitCmd(cmd) {
 		t.Fatal("[y] did not quit the guest session")
 	}

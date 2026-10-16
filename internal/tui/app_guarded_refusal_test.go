@@ -32,7 +32,7 @@ func TestEndFlightRefusesLiveVessel(t *testing.T) {
 
 	pressKey(a, 'E')
 
-	if a.endFlightConfirm {
+	if cardKindUp(a, cardEndFlight) {
 		t.Fatal("[E] armed the end-flight confirm on a live vessel")
 	}
 	if a.statusMsg != "end flight: vessel is not wreckage" {
@@ -56,7 +56,7 @@ func TestEndFlightArmsConfirmForCrashedVessel(t *testing.T) {
 
 	pressKey(a, 'E')
 
-	if !a.endFlightConfirm {
+	if !cardKindUp(a, cardEndFlight) {
 		t.Fatal("[E] on a crashed vessel did not arm the end-flight confirm")
 	}
 }
@@ -75,7 +75,7 @@ func TestEndFlightRefusesNoVessel(t *testing.T) {
 
 	pressKey(a, 'E')
 
-	if a.endFlightConfirm {
+	if cardKindUp(a, cardEndFlight) {
 		t.Fatal("[E] armed the end-flight confirm with no active craft")
 	}
 	if a.statusMsg != "end flight: no vessel" {

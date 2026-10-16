@@ -12,6 +12,11 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
+// ADR 0054 slice A: the four flight asks (F9 quickload, E end flight, D
+// transpose, Y deploy) and the quit prompt are cards now; app_card_test.go
+// holds their guards (enter picks the highlighted row, an action asks twice).
+// What stays below are the asks other slices convert (saves, roster, VAB).
+//
 // GK Q7 (#589): Enter never answers a [y/n] ask. Every ask in the game is
 // driven here through the real App.Update: raise the ask, press Enter, and
 // the ask must still be up with nothing changed; then the same ask must
@@ -128,36 +133,6 @@ func ynAsks() []ynAsk {
 			a.Update(tea.KeyMsg{Type: tea.KeyF4})
 			return a
 		}, func(a *App) bool { return strings.Contains(a.View(), "restart server? drops") }, func(a *App) bool { return true }},
-		{"F9 quickload", func(t *testing.T) *App {
-			a, _ := savedGameApp(t, "l")
-			a.world.Clock.WarpIdx = 3
-			a.Update(tea.KeyMsg{Type: tea.KeyF9})
-			return a
-		}, func(a *App) bool { return a.quickloadConfirm }, func(a *App) bool { return a.world.Clock.WarpIdx == 3 }},
-		{"end flight E", func(t *testing.T) *App {
-			testStateDirs(t)
-			a, err := New(nil)
-			if err != nil {
-				t.Fatalf("New: %v", err)
-			}
-			a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
-			a.world.ActiveCraft().Crashed = true
-			a.Update(keyRunes("E"))
-			return a
-		}, func(a *App) bool { return a.endFlightConfirm }, func(a *App) bool { return a.world.ActiveCraft() != nil }},
-		{"transpose D", func(t *testing.T) *App {
-			a := apolloReadyApp(t)
-			a.Update(keyRunes("D"))
-			return a
-		}, func(a *App) bool { return a.transposeConfirm }, func(a *App) bool {
-			return a.world.ActiveCraft().Stages[0].Name == "Descent"
-		}},
-		{"deploy Y", func(t *testing.T) *App {
-			a, _ := deployApp(t)
-			deployBase = len(a.world.Crafts)
-			a.Update(keyRunes("Y"))
-			return a
-		}, func(a *App) bool { return a.deployConfirm != "" }, func(a *App) bool { return len(a.world.Crafts) == deployBase }},
 		{"VAB delete design", func(t *testing.T) *App {
 			testStateDirs(t)
 			a, err := New(nil)
@@ -187,7 +162,6 @@ func ynAsks() []ynAsk {
 	}
 }
 
-var deployBase int
 
 func designFileCount() int {
 	e, _ := filepath.Glob(filepath.Join(os.Getenv("XDG_CONFIG_HOME"), "terminal-space-program", "designs", "*.json"))

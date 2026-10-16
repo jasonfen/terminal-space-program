@@ -36,17 +36,16 @@ func (a *App) currentAskContext() askContext {
 	return askContext{active: a.active, world: a.world, craft: a.world.ActiveCraft()}
 }
 
-// dropStaleAsks clears an armed transpose / deploy ask whose context
+// dropStaleAsks clears a transpose / deploy card whose context
 // (screen, world, active vessel) changed since it was raised. Runs at the
 // top of every Update, so a tick, click or key after the change drops it
 // before anything can answer it.
 func (a *App) dropStaleAsks() {
-	if !a.transposeConfirm && a.deployConfirm == "" {
+	if a.card == nil || !a.card.stamped {
 		return
 	}
-	if a.askStamp != a.currentAskContext() {
-		a.transposeConfirm = false
-		a.deployConfirm = ""
+	if a.card.stamp != a.currentAskContext() {
+		a.card = nil
 	}
 }
 
@@ -135,10 +134,12 @@ type App struct {
 	maneuver   *screens.Maneuver
 	porkchop   *screens.Porkchop
 	menu       *screens.Menu
-	// quitCard is the quit prompt drawn as a card (2026-10-05).
-	quitCard *screens.QuitCard
-	missions   *screens.Missions
-	spawn      *screens.SpawnCraft
+	// card is the one question on screen (ADR 0054, #633): the quit prompt
+	// or a flight ask (end flight, transpose, deploy, quickload), drawn
+	// over the dimmed screen. nil = no question is up.
+	card     *appCard
+	missions *screens.Missions
+	spawn    *screens.SpawnCraft
 
 	// settingsScreen is the v0.13 per-Chip visibility toggle screen. Its
 	// edits write through to orbitView's settings.Settings and persist to
@@ -207,50 +208,6 @@ type App struct {
 	// through this per-player sink instead of the host's local saves,
 	// and the local Saves surface (F5/F9, menu Save/Load) is disabled.
 	guestSave func(*sim.World) error
-
-	// endFlightConfirm (v0.11.4+, ADR 0004) gates the [E] end-flight
-	// removal behind a y/n confirm. When true, the orbit screen
-	// renders a footer prompt and the next y/Y commits the removal;
-	// n/N/Esc cancels. Session-only state — not persisted (the
-	// confirmation has no meaning across a save / load boundary).
-	endFlightConfirm bool
-
-	// quickloadConfirm (item-3 UX batch, PR #448 — reverses ADR 0033
-	// §H) gates F9 quickload behind the same y/n confirm the Saves
-	// browser's Load already uses. §H kept F9 instant on the theory
-	// that the quicksave lane is zero-risk; the review found the
-	// opposite in practice with a one-slot quicksave lane — a fat-
-	// finger discards everything since the last F5 with no undo.
-	// Modeled on endFlightConfirm's shape (see its Update/Render call
-	// sites) but not identical: it clears on ANY non-"y" key rather
-	// than only y/n/esc, so it can never get stuck armed via the
-	// keyboard — and needs the same "~ must not hide an armed prompt"
-	// guard endFlightConfirm has (see the chat-open check above).
-	quickloadConfirm bool
-
-	// transposeConfirm / deployConfirm (ADR 0052 decision 7) gate `D`
-	// (Apollo transposition) and `Y` (release the top payload) behind the
-	// same y/n shape as endFlightConfirm: y/Y commits, n/N/esc cancels,
-	// every other key is swallowed. Both reshape the vessel with no undo.
-	// They are only armed once the verb has passed its refusal checks, so
-	// the player is never asked about something that would refuse anyway.
-	// deployConfirm carries the payload's name for the prompt ("" = unarmed).
-	// Session-only state, not persisted.
-	transposeConfirm bool
-	deployConfirm    string
-	// askStamp records what the transpose / deploy ask was raised about
-	// (screen, world, active vessel). dropStaleAsks clears the ask when any
-	// of them has changed, so a later y never commits against a view the
-	// player was not looking at (review LOW 122/123).
-	askStamp askContext
-
-	// quitConfirm (#474) gates every quit path — ctrl+c and the menu's
-	// Quit row both arm it — behind one prompt with one wording: [y]
-	// saves into the autosave ring and quits, [n] quits writing
-	// nothing (refused for a guest, who can't decline — see
-	// handleQuitConfirmKey), [esc] returns to exactly where the
-	// player was. Session-only state, not persisted.
-	quitConfirm bool
 
 	// Chat input overlay (ADR 0035 S3). App-level rather than a screen
 	// so the capturingText obligation is one unconditional check — not
@@ -329,7 +286,6 @@ func New(scenario *sim.StartScenario) (*App, error) {
 		maneuver:   screens.NewManeuver(sth),
 		porkchop:   screens.NewPorkchop(sth),
 		menu:       screens.NewMenu(sth),
-		quitCard:   screens.NewQuitCard(sth),
 		missions:   screens.NewMissions(sth),
 		spawn:      screens.NewSpawnCraft(sth),
 
@@ -643,6 +599,16 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.sizeGated() {
 			return a, nil
 		}
+		// A card swallows every click that is not on one of its rows (ADR
+		// 0054): not the Title Row's buttons, not the screen under it, not the
+		// pause menu's rows a quit card covers. A row picks as its letter would.
+		if a.card != nil {
+			x, y := a.cardOrigin(screens.CardW, a.card.Height())
+			if vis, ok := a.card.HitRow(m.X-x, m.Y-y); ok {
+				return a.cardPicked(a.card.Pick(vis))
+			}
+			return a, nil
+		}
 		// B11 / G9 Q1: every non-flight screen has the shared Title Row on
 		// row 0 with a [Back] button (the click twin of esc); below it the
 		// screen's own hit-tests see rows counted from the body's top.
@@ -888,12 +854,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.armQuit()
 			return a, nil
 		}
-		// While the quit prompt is armed, every key funnels through its
-		// own y/n/esc handling — honored from any screen for the same
-		// reason the raise above is, so a stray flight key can't slip
-		// through mid-confirm.
-		if a.quitConfirm {
-			return a.handleQuitConfirmKey(m)
+		// While a card is up (the quit prompt or a flight ask), every key
+		// funnels through its handling — honored from any screen for the
+		// same reason the raise above is, so a stray flight key can't slip
+		// through mid-question (ADR 0054, the ADR 0052 modal rule).
+		if a.card != nil {
+			return a.handleCardKey(m)
 		}
 		// v0.27 S2: while the size gate is up, gameplay keys are
 		// swallowed — the player can't see what a keypress would do.
@@ -904,7 +870,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Boss key: a single global keypress (backtick) swaps the whole
 		// screen to a fake developer shell, and swaps back on
 		// exit/logout/ctrl+d. This block sits ABOVE every per-screen block
-		// and above endFlightConfirm so it fires from ANY screen and so the
+		// and above the flight keys so it fires from ANY screen and so the
 		// shell's own keystrokes never leak into game handlers — while the
 		// shell is active we return early for EVERY key. Checking
 		// screenBoss first also means a backtick typed inside the shell is
@@ -938,14 +904,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// ~ opens chat from the flight view (ADR 0035 §4; U+007E, a
 		// different rune from the U+0060 boss key, and absent from every
 		// layout map so normalization passed it through untouched). Not
-		// while the END FLIGHT confirm is armed — the ~ falls through to
-		// the confirm's swallow-everything intercept below, instead of
-		// opening an overlay that hides an armed destructive prompt
-		// (v0.32 review finding). item-3 UX batch review: quickloadConfirm
-		// gets the identical guard — the same hole would let ~ hide the F9
-		// prompt behind the chat band, where it survives the round-trip
-		// and fires on whatever key closes chat.
-		if a.active == screenOrbit && !a.endFlightConfirm && !a.quickloadConfirm && !a.transposeConfirm && a.deployConfirm == "" && m.Type == tea.KeyRunes && len(m.Runes) == 1 && m.Runes[0] == '~' {
+		// while a card is up: the card above swallows the ~, so chat can
+		// never open over an armed question.
+		if a.active == screenOrbit && m.Type == tea.KeyRunes && len(m.Runes) == 1 && m.Runes[0] == '~' {
 			if a.world.Session == nil {
 				// Solo: say so — a dead key reads as broken (v0.30 lesson).
 				a.toast("chat is multiplayer — host or join a session [O]")
@@ -954,78 +915,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.chatOpen = true
 			a.chatInput = a.chatInput[:0]
 			a.chatTabbing = false
-			return a, nil
-		}
-		// v0.11.4+ (ADR 0004): end-flight y/n confirm intercept. When
-		// the [E] prompt is open, y/Y commits the removal and n/N/Esc
-		// cancels; every other key is swallowed so attitude / warp
-		// inputs don't slip through mid-confirm. Honored from any
-		// screen for the same reason ctrl+c is — accidental escape
-		// from a confirm prompt would be the wrong answer to "are
-		// you sure?"
-		if a.endFlightConfirm {
-			s := m.String()
-			switch s {
-			case "y", "Y":
-				if a.world.EndFlightActive() {
-					a.flash("● END FLIGHT — wreckage removed")
-				}
-				a.endFlightConfirm = false
-			case "n", "N", "esc":
-				a.endFlightConfirm = false
-			}
-			return a, nil
-		}
-		// transposeConfirm / deployConfirm intercepts (ADR 0052 decision 7):
-		// the endFlightConfirm shape. The verb is re-checked at commit time
-		// through the same sim method, so a state change between ask and
-		// answer (a tick that moved the stack) still refuses honestly.
-		if a.transposeConfirm {
-			switch m.String() {
-			case "y", "Y":
-				a.transposeConfirm = false
-				switch err := a.world.Transpose(a.world.ActiveCraftIdx); {
-				case err == nil:
-					a.world.RecordAction(missions.ActionTranspose) // ADR 0025 §7
-					a.flash("transposed: SM is firing core, press U to release the LM")
-				case errors.Is(err, sim.ErrTransposeNotReady):
-					a.flash("transpose: drop the launch vehicle first (stack must be Descent/Ascent/SM/CM)")
-				default:
-					a.flash(fmt.Sprintf("transpose failed: %v", err))
-				}
-			case "n", "N", "esc":
-				a.transposeConfirm = false
-			}
-			return a, nil
-		}
-		if a.deployConfirm != "" {
-			switch m.String() {
-			case "y", "Y":
-				a.deployConfirm = ""
-				if a.world.Deploy(a.world.ActiveCraftIdx) {
-					a.flash(fmt.Sprintf("deployed payload, %d vessels on the slate", len(a.world.Crafts)))
-				} else {
-					a.flash("deploy: no payload to release (carrier carries no docked payload)")
-				}
-			case "n", "N", "esc":
-				a.deployConfirm = ""
-			}
-			return a, nil
-		}
-		// quickloadConfirm intercept (item-3 UX batch): same shape as
-		// endFlightConfirm above — y/Y commits the F9 quickload, every
-		// other key (including n/N/esc) cancels and is swallowed so a
-		// stray flight key doesn't slip through mid-confirm.
-		if a.quickloadConfirm {
-			s := m.String()
-			if s == "enter" {
-				// GK Q7 (#589): Enter never answers a [y/n] ask.
-				return a, nil
-			}
-			a.quickloadConfirm = false
-			if s == "y" || s == "Y" {
-				a.flashStatus("load", a.doLoad())
-			}
 			return a, nil
 		}
 		// F1 / ? opens help from every screen, on that screen's own page,
@@ -1043,7 +932,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// open, so this can't be handled by any of the a.active==screenXxx
 		// blocks below. Sits above the flight-key switch (which owns
 		// PanLeft/Right/Up/Down on the very same physical keys) for the
-		// same reason endFlightConfirm does: a new interactive surface
+		// same reason the card intercept does: a new interactive surface
 		// that forgets to claim its keys here bleeds into flight controls
 		// — exactly the trap ADR 0044's review caught (#399's own second
 		// named trap).
@@ -1646,7 +1535,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.flashStatus("load", a.doLoad())
 				return a, nil
 			}
-			a.quickloadConfirm = true
+			a.askQuickload()
 			return a, nil
 		case key.Matches(m, a.keys.CycleView):
 			a.world.CycleViewMode()
@@ -1728,7 +1617,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case c == nil:
 				a.refuse("end flight", "no vessel")
 			case c.Crashed:
-				a.endFlightConfirm = true
+				a.askEndFlight(c.Name)
 			default:
 				a.refuse("end flight", "vessel is not wreckage")
 			}
@@ -1915,8 +1804,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.flash("deploy: no payload to release (carrier carries no docked payload)")
 				return a, nil
 			}
-			a.deployConfirm = name
-			a.askStamp = a.currentAskContext()
+			a.askDeploy(name)
 			return a, nil
 		case key.Matches(m, a.keys.Transpose):
 			// v0.12 / ADR 0009: one-shot Apollo transposition. Reorders
@@ -1925,8 +1813,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// ADR 0052 decision 7: ask first, but refuse before asking.
 			switch err := a.world.TransposeRefusal(a.world.ActiveCraftIdx); {
 			case err == nil:
-				a.transposeConfirm = true
-				a.askStamp = a.currentAskContext()
+				a.askTranspose()
 			case errors.Is(err, sim.ErrTransposeNotReady):
 				a.flash("transpose: drop the launch vehicle first (stack must be Descent/Ascent/SM/CM)")
 			default:
@@ -2162,7 +2049,7 @@ var errGuestSettings = errors.New("settings belong to the host in a session")
 
 // doLoad replaces the live world with the quicksave lane. F9 used to
 // stay instant with no confirm (ADR 0033 §H); the item-3 UX batch
-// reversed that (see the App.quickloadConfirm doc and the ADR's
+// reversed that (see the quickload card and the ADR's
 // Amendments section) — this func is now only reached after that
 // confirm, or when the lane is empty and there's nothing to discard.
 // An empty lane (no F5 yet) is surfaced as a clear "no quicksave"
@@ -2207,7 +2094,7 @@ func (a *App) hasResumableAutosave() bool {
 }
 
 // quicksaveExists reports whether the quicksave lane holds a readable
-// entry — gates whether F9 arms quickloadConfirm (item-3 UX batch) or
+// entry — gates whether F9 raises the quickload card (item-3 UX batch) or
 // falls straight through to doLoad's own empty-lane message.
 func (a *App) quicksaveExists() bool {
 	infos, err := save.List()
@@ -2241,38 +2128,122 @@ func (a *App) loadWorldByID(id string) error {
 	return nil
 }
 
-// handleQuitConfirmKey answers the quit prompt armed by ctrl+c or the
-// menu's Quit row (#474): [y] saves into the autosave ring and quits;
-// [n] quits writing nothing at all; [esc] cancels and returns the
-// player to exactly where they were, touching nothing. A guest session
-// has no [n] — persistMiddleware writes SavePlayer on session unwind
-// regardless of how the App exits (internal/serve/serve.go), so
-// offering a decline would be a lie; the key is simply swallowed.
-// Every other key is swallowed too, so nothing slips through mid-confirm.
-func (a *App) handleQuitConfirmKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// The card's rows (2026-10-05): ↑/↓ move the ▸, enter answers with the
-	// row's own key, so every path below stays the one place each answer
-	// is handled.
-	switch m.String() {
+// appCard is the one card the App has up (ADR 0054, #633): the shared
+// screens.Card plus what only the App knows. answer is called once, with the
+// card already closed, with the ID of the row that was finally picked.
+type appCard struct {
+	*screens.Card
+	kind   cardKind
+	answer func(a *App, id string) (tea.Model, tea.Cmd)
+	// stamp is what the card was raised about (screen, world, active
+	// vessel) for the asks that reshape the vessel; dropStaleAsks closes
+	// the card when it changes, so a later y never commits against a view
+	// the player was not looking at (review LOW 122/123).
+	stamp   askContext
+	stamped bool
+}
+
+type cardKind int
+
+const (
+	cardQuit cardKind = iota + 1
+	cardEndFlight
+	cardTranspose
+	cardDeploy
+	cardQuickload
+)
+
+// card row IDs for the flight asks.
+const (
+	rowYes = "yes"
+	rowOut = "out"
+)
+
+// outRow is the way-out row every flight card ends on: n, N and esc.
+func outRow(label string) screens.CardRow {
+	return screens.CardRow{ID: rowOut, Label: label, Key: "n  esc", Letters: []string{"n", "N", "esc"}, Out: true}
+}
+
+// yesRow is the first, action row: y or Y.
+func yesRow(label string) screens.CardRow {
+	return screens.CardRow{ID: rowYes, Label: label, Key: "y", Letters: []string{"y", "Y"}}
+}
+
+// raiseCard puts a card up on the App, replacing any card already up.
+func (a *App) raiseCard(kind cardKind, c *screens.Card, answer func(a *App, id string) (tea.Model, tea.Cmd)) *appCard {
+	a.card = &appCard{Card: c, kind: kind, answer: answer}
+	return a.card
+}
+
+// handleCardKey answers the card that is up. ↑/↓ (and j/k) move the ▸ and
+// enter picks the highlighted row; each row's own letters pick it directly;
+// every other key is swallowed, so no flight key slips through mid-question.
+// An action row asks once more before it acts (call 1); the way-out row acts
+// at once.
+func (a *App) handleCardKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// A flight ask raised before the window shrank below the design size is
+	// not answerable blind; the quit card still is (ctrl+c is honoured from
+	// the size gate, and so is its way out).
+	if a.card.kind != cardQuit && a.sizeGated() {
+		return a, nil
+	}
+	switch s := m.String(); s {
 	case "up", "k":
-		a.quitCard.Up()
-		return a, nil
+		a.card.Up()
 	case "down", "j":
-		a.quitCard.Down()
-		return a, nil
+		a.card.Down()
 	case "enter":
-		switch a.quitCard.Choice() {
-		case screens.QuitSaveAndQuit:
-			return a.handleQuitConfirmKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
-		case screens.QuitNoSave:
-			return a.handleQuitConfirmKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
-		default:
-			return a.handleQuitConfirmKey(tea.KeyMsg{Type: tea.KeyEsc})
+		return a.cardPicked(a.card.Enter())
+	default:
+		if row, done, ok := a.card.Letter(s); ok {
+			return a.cardPicked(row, done)
 		}
 	}
-	switch m.String() {
-	case "y", "Y":
-		a.quitConfirm = false
+	return a, nil
+}
+
+// cardPicked runs a pick's result: nothing yet when the card only moved to its
+// second step; otherwise the card closes and its answer runs.
+func (a *App) cardPicked(row int, done bool) (tea.Model, tea.Cmd) {
+	if !done {
+		return a, nil
+	}
+	c := a.card
+	id := c.RowID(row)
+	a.card = nil
+	return c.answer(a, id)
+}
+
+// cardOrigin is where a card of the given size sits: centred under the Title
+// Row, one cell short of the dimmed screen all round (cardOver draws it there,
+// the mouse route hit-tests against it).
+func (a *App) cardOrigin(cardW, cardH int) (x, y int) {
+	x = (a.width - cardW) / 2
+	if x < 0 {
+		x = 0
+	}
+	y = 1 + (a.height-1-cardH)/2
+	if y < 1 {
+		y = 1
+	}
+	return x, y
+}
+
+// armQuit raises the quit card (#474 prompt, drawn as a card since
+// 2026-10-05) on its first row, worded for a host or a guest. Every quit path
+// (ctrl+c, the menu's Quit row) lands here. A guest can't decline
+// (persistMiddleware writes their flight on session unwind no matter how the
+// App exits), so their card offers only quit and stay, never a "no".
+func (a *App) armQuit() {
+	a.raiseCard(cardQuit, screens.NewQuitCard(a.screensTheme(), a.guestSave != nil), (*App).answerQuit)
+}
+
+// answerQuit: save and quit autosaves into the ring and quits; quit without
+// saving quits writing nothing; stay returns the player to exactly where they
+// were, touching nothing.
+func (a *App) answerQuit(id string) (tea.Model, tea.Cmd) {
+	switch id {
+	case screens.QuitRowSave:
 		// The Saves browser freezes the clock while it's up (finding 4);
 		// that freeze is transient UI state, not a gameplay pause, so
 		// don't let a quit-from-browser persist Paused=true into the
@@ -2289,17 +2260,82 @@ func (a *App) handleQuitConfirmKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		a.autosave()
 		return a, tea.Quit
-	case "n", "N":
-		if a.guestSave != nil {
-			return a, nil // no real "no" for a guest — see doc comment above
-		}
-		a.quitConfirm = false
+	case screens.QuitRowNoSave:
 		return a, tea.Quit
-	case "esc":
-		a.quitConfirm = false
-		return a, nil
 	}
 	return a, nil
+}
+
+// askEndFlight raises the end-flight card (E on a crashed vessel).
+func (a *App) askEndFlight(name string) {
+	a.raiseCard(cardEndFlight, screens.NewCard(a.screensTheme(), "End flight for "+name+"?", "",
+		[]screens.CardRow{yesRow("remove the wreckage"), outRow("keep it")}, 0),
+		func(a *App, id string) (tea.Model, tea.Cmd) {
+			if id == rowYes && a.world.EndFlightActive() {
+				a.flash("● END FLIGHT — wreckage removed")
+			}
+			return a, nil
+		})
+}
+
+// askTranspose raises the transpose card. The verb is re-checked at commit
+// time through the same sim method, so a state change between ask and answer
+// (a tick that moved the stack) still refuses honestly. The way out is under
+// the ▸: the stack has no undo.
+func (a *App) askTranspose() {
+	c := a.raiseCard(cardTranspose, screens.NewCard(a.screensTheme(), "Transpose?",
+		"SM becomes the firing core, LM rides as a nose payload",
+		[]screens.CardRow{yesRow("transpose"), outRow("cancel")}, 1),
+		func(a *App, id string) (tea.Model, tea.Cmd) {
+			if id != rowYes {
+				return a, nil
+			}
+			switch err := a.world.Transpose(a.world.ActiveCraftIdx); {
+			case err == nil:
+				a.world.RecordAction(missions.ActionTranspose) // ADR 0025 §7
+				a.flash("transposed: SM is firing core, press U to release the LM")
+			case errors.Is(err, sim.ErrTransposeNotReady):
+				a.flash("transpose: drop the launch vehicle first (stack must be Descent/Ascent/SM/CM)")
+			default:
+				a.flash(fmt.Sprintf("transpose failed: %v", err))
+			}
+			return a, nil
+		})
+	c.stamp, c.stamped = a.currentAskContext(), true
+}
+
+// askDeploy raises the deploy card for the named payload (Y). Like transpose,
+// it has no undo, so the ▸ opens on the way out.
+func (a *App) askDeploy(name string) {
+	c := a.raiseCard(cardDeploy, screens.NewCard(a.screensTheme(), "Deploy "+name+"?",
+		"it flies on as its own vessel",
+		[]screens.CardRow{yesRow("deploy"), outRow("cancel")}, 1),
+		func(a *App, id string) (tea.Model, tea.Cmd) {
+			if id != rowYes {
+				return a, nil
+			}
+			if a.world.Deploy(a.world.ActiveCraftIdx) {
+				a.flash(fmt.Sprintf("deployed payload, %d vessels on the slate", len(a.world.Crafts)))
+			} else {
+				a.flash("deploy: no payload to release (carrier carries no docked payload)")
+			}
+			return a, nil
+		})
+	c.stamp, c.stamped = a.currentAskContext(), true
+}
+
+// askQuickload raises the F9 card: a load discards everything since the last
+// quicksave, so the ▸ opens on the way out.
+func (a *App) askQuickload() {
+	a.raiseCard(cardQuickload, screens.NewCard(a.screensTheme(), "Load the quicksave?",
+		"discards everything since your last quicksave",
+		[]screens.CardRow{yesRow("load"), outRow("cancel")}, 1),
+		func(a *App, id string) (tea.Model, tea.Cmd) {
+			if id == rowYes {
+				a.flashStatus("load", a.doLoad())
+			}
+			return a, nil
+		})
 }
 
 // autosave persists on quit into the rotating autosave ring (v0.26 /
@@ -3650,32 +3686,6 @@ func (a *App) View() string {
 	if a.statusMsg != "" && time.Now().Before(a.statusExpires) {
 		base = overlayBottomBorder(base, a.theme.Warning.Render(a.statusMsg), border)
 	}
-	// v0.11.4+ (ADR 0004): end-flight confirm prompt rides the same
-	// bottom-border band as the status flash. Takes precedence when both
-	// are active: an in-flight confirm is the actionable state; a stale
-	// status message can wait.
-	if a.endFlightConfirm {
-		c := a.world.ActiveCraft()
-		name := "vessel"
-		if c != nil {
-			name = c.Name
-		}
-		prompt := fmt.Sprintf("END FLIGHT — remove %s? [y/n]", name)
-		base = overlayBottomBorder(base, a.theme.Alert.Render(prompt), border)
-	}
-	// transposeConfirm / deployConfirm ride the same band (ADR 0052).
-	if a.transposeConfirm {
-		base = overlayBottomBorder(base, a.theme.Alert.Render("transpose: SM becomes the firing core, LM rides as payload? [y/n]"), border)
-	}
-	if a.deployConfirm != "" {
-		base = overlayBottomBorder(base, a.theme.Alert.Render(fmt.Sprintf("deploy %s as its own vessel? [y/n]", a.deployConfirm)), border)
-	}
-	// quickloadConfirm rides the same band (item-3 UX batch): takes the
-	// same precedence as the end-flight prompt above, for the same
-	// reason — an armed confirm is the actionable state.
-	if a.quickloadConfirm {
-		base = overlayBottomBorder(base, a.theme.Alert.Render("F9 — discard everything since your last quicksave? [y/n]"), border)
-	}
 	// Chat input (ADR 0035 S3) rides the same band and wins it while
 	// open — it is the live actionable state. A concurrent toast (a DM
 	// refusal) rides along after the draft so refusals stay visible
@@ -3687,29 +3697,19 @@ func (a *App) View() string {
 		}
 		base = overlayBottomBorder(base, a.theme.Primary.Render(line), border)
 	}
-	// quitConfirm (#474) rides the same band and wins it over every
-	// other overlay above — quitting is the highest-stakes prompt in
-	// the game, and the point of asking is defeated if a stale toast or
-	// an open chat draft could hide the question. Host and guest see
-	// different wording: a guest can't decline (persistMiddleware writes
-	// their flight on session unwind no matter how the App exits), so
-	// their prompt offers only quit and stay, never a "no".
-	if a.quitConfirm {
+	// A card (ADR 0054) is composited last, over everything above: the
+	// point of asking is defeated if a stale toast or an open chat draft
+	// could hide the question. The map is dimmed under it and the clock is
+	// not held (Jason 2026-10-12, conflict 1).
+	if a.card != nil {
 		// Raised from the pause menu, the quit card replaces the pause card
 		// rather than stacking on it (its edges would show above and below).
 		if a.active == screenMenu {
 			base = a.flightUnderCard()
 		}
-		base = a.cardOver(base, a.quitCard.Render(), screens.QuitCardW)
+		base = a.cardOver(base, a.card.Render(), screens.CardW)
 	}
 	return base
-}
-
-// armQuit raises the quit card (#474 prompt, drawn as a card since
-// 2026-10-05) on its first row, worded for a host or a guest.
-func (a *App) armQuit() {
-	a.quitConfirm = true
-	a.quitCard.Open(a.guestSave != nil)
 }
 
 // screensTheme is the theme the screens package takes, built from the
@@ -3764,15 +3764,8 @@ func (a *App) flightUnderCard() string {
 func (a *App) cardOver(under, cardStr string, cardW int) string {
 	lines := strings.Split(under, "\n")
 	card := strings.Split(cardStr, "\n")
-	x := (a.width - cardW) / 2
-	if x < 0 {
-		x = 0
-	}
 	// Centre the card in the rows below the Title Row.
-	y := 1 + (a.height-1-len(card))/2
-	if y < 1 {
-		y = 1
-	}
+	x, y := a.cardOrigin(cardW, len(card))
 	a.menuOriginX, a.menuOriginY = x, y-1
 	dim := a.theme.Dim
 	// One clear cell all round the card (B11 review L11): without it a map
