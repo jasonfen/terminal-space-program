@@ -353,6 +353,10 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			plain("◇ " + e.Handle + " joined")
 		case sim.SessionEventLeave:
 			plain("◇ " + e.Handle + " left")
+		case sim.SessionEventDisconnectedBy:
+			plain("◇ " + e.Handle + " was disconnected by " + e.Detail)
+		case sim.SessionEventKickedBy:
+			plain("◇ " + e.Handle + " was kicked by " + e.Detail)
 		case sim.SessionEventSync:
 			plain("◇ " + e.Handle + " synced to you")
 		case sim.SessionEventSyncedTo:

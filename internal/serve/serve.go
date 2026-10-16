@@ -136,6 +136,12 @@ type Server struct {
 	reprieveWindow time.Duration
 	reclaimWait    time.Duration
 	awayAfter      time.Duration
+	dropWait       time.Duration // ADR 0054: how long a dropped session unwinds before its conn is closed
+
+	// after is the clock the drop's waits use (time.After in production), a
+	// field so a test can drive the 1.5 s restart grace and the 2 s dropWait
+	// without sleeping.
+	after func(time.Duration) <-chan time.Time
 
 	// persistMu serialises dock cross-ref persists across sessions (v0.28
 	// finding 3). Two sessions racing SetDocks could otherwise interleave
@@ -198,6 +204,7 @@ func New(cfg Config) (*Server, error) {
 		presence: newPresence(), chat: newChatRing(), ver: newVersionSurface(),
 		live: newSessionRegistry(), sweepEvery: defaultSweepEvery, reprieveWindow: defaultReprieveWindow,
 		reclaimWait: defaultReclaimWait, awayAfter: defaultAwayAfter,
+		dropWait: defaultDropWait, after: time.After,
 		away: newAwayWatch(), mail: newAwayMail(), admit: newAdmission(),
 		reclaimed: make(chan string, 4),
 	}

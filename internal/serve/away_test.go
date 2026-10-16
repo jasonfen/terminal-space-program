@@ -237,3 +237,27 @@ func TestDisplacedSessionAnnouncesNeitherLeaveNorJoin(t *testing.T) {
 			"that reads as the coast dying")
 	}
 }
+
+// ADR 0054: a session the host dropped departs as "disconnected by" or
+// "kicked by", whatever its peer's silence says, and the chip carries the
+// handles the roster can no longer supply once a kick has removed the row.
+func TestDepartureKindForDroppedSessions(t *testing.T) {
+	srv := newOfflineServer(t)
+	srv.live = newSessionRegistry()
+	register(t, srv, fpA, time.Now().Add(-90*time.Second)) // also silent: the drop still wins
+	ls, _ := srv.live.get(fpA)
+	ls.dropped.Store(&dropRecord{kind: dropDisconnect, actor: "jason", target: "vex"})
+	if got := departureKind(ls, srv.awayAfter); got != sim.SessionEventDisconnectedBy {
+		t.Errorf("disconnect: departureKind = %v, want DisconnectedBy", got)
+	}
+	ls.dropped.Store(&dropRecord{kind: dropKick, actor: "jason", target: "vex"})
+	if got := departureKind(ls, srv.awayAfter); got != sim.SessionEventKickedBy {
+		t.Errorf("kick: departureKind = %v, want KickedBy", got)
+	}
+	// Stop hosting and restart end the room, they are not a verdict on a
+	// player: those keep the ordinary kinds.
+	ls.dropped.Store(&dropRecord{kind: dropStopHosting, actor: "jason"})
+	if got := departureKind(ls, srv.awayAfter); got == sim.SessionEventKickedBy || got == sim.SessionEventDisconnectedBy {
+		t.Errorf("stop hosting rendered as a verdict on the player: %v", got)
+	}
+}

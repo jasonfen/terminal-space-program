@@ -34,6 +34,12 @@ type liveSession struct {
 	// displaced session's own, so it is atomic.
 	displaced atomic.Bool
 
+	// dropped is set from outside when the host (or the server) ends this
+	// session on purpose (ADR 0054). The session's own wrapper reads it on
+	// its next tick and quits; the teardown reads it to choose the line, the
+	// chip and whether to write the final payload.
+	dropped atomic.Pointer[dropRecord]
+
 	// done is closed once this session's final payload write has landed —
 	// at the very end of persistMiddleware, after SavePlayer. A reclaiming
 	// connection waits on it so it can never load a world the session it
