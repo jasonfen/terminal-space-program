@@ -141,8 +141,10 @@ func TestProximityGhostHullIsTheReportedRectangle(t *testing.T) {
 	if got := strings.Count(text, "○"); got != 2 {
 		t.Errorf("port marks on screen = %d, want 2", got)
 	}
-	if got := strings.Count(text, "8.00 m"); got != 2 {
-		t.Errorf("\"8.00 m\" appears %d times, want 2 (chip row + the port line's label)", got)
+	// Three: the chip row, the port line's label, and the Centerline ring's
+	// label (ADR 0055 slice 2), which carries the same port range.
+	if got := strings.Count(text, "8.00 m"); got != 3 {
+		t.Errorf("\"8.00 m\" appears %d times, want 3 (chip row + the port line's label + the Centerline ring's)", got)
 	}
 }
 

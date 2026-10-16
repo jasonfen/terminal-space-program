@@ -362,9 +362,10 @@ func TestProximityPortLabelAndMarksCoexist(t *testing.T) {
 	if got := strings.Count(out, "○"); got != 2 {
 		t.Errorf("port marks on screen = %d, want 2 (one per hull)", got)
 	}
-	// Once in the chip's port: row, once as the line's label.
-	if got := strings.Count(out, "2.10 m"); got != 2 {
-		t.Errorf("\"2.10 m\" appears %d times, want 2 (chip row + the port line's label):\n%s", got, out)
+	// Once in the chip's port: row, once as the line's label, once on the
+	// Centerline ring (ADR 0055 slice 2).
+	if got := strings.Count(out, "2.10 m"); got != 3 {
+		t.Errorf("\"2.10 m\" appears %d times, want 3 (chip row + the port line's label + the Centerline ring's):\n%s", got, out)
 	}
 }
 
