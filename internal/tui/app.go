@@ -1043,6 +1043,15 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handled here so its keys don't fall through to the orbit flight
 		// controls.
 		if a.active == screenVAB {
+			// A terminal delivers fast typing (or a paste) as one multi-rune
+			// message; while a text box is open it is a run of characters,
+			// not a named key, so feed them one at a time.
+			if m.Type == tea.KeyRunes && len(m.Runes) > 1 && a.vab.CapturingText() {
+				for _, r := range m.Runes {
+					a.vab.HandleKey(string(r))
+				}
+				return a, nil
+			}
 			if a.vab.HandleKey(m.String()) == screens.VABActionCancel {
 				a.backToOpener()
 			}

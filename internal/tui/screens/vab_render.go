@@ -564,7 +564,7 @@ func (v *VAB) renderInspector(w int) []string {
 			v.inspectComponent(it.id, inner, add, addText)
 			add(v.inspectAddLine(inner))
 		} else if m, ok := spacecraft.StageCatalog[it.id]; ok {
-			add(v.theme.Primary.Render(truncWidth(m.Name, inner)))
+			add(v.theme.Primary.Render(truncWidth(partDisplayName(it.id), inner)))
 			tier := "catalog part · " + m.Tier
 			if f := spacecraft.PartFleet(it.id); f != "" {
 				tier += " · " + f + " fleet"
@@ -658,6 +658,22 @@ func (v *VAB) inspectAddLine(w int) string {
 	return truncWidth(fmt.Sprintf("adds to S%d", i+1), w)
 }
 
+// partDisplayName is a catalog part's name, followed by its ID in brackets
+// when another part shares the name (three S-IVBs, three Ascents), so two
+// rows never read the same.
+func partDisplayName(id string) string {
+	m, ok := spacecraft.StageCatalog[id]
+	if !ok {
+		return id
+	}
+	for other, o := range spacecraft.StageCatalog {
+		if other != id && o.Name == m.Name {
+			return m.Name + " (" + id + ")"
+		}
+	}
+	return m.Name
+}
+
 // paletteItemLabel returns the kind (section header / jump key) and the short
 // display name for a palette entry. Full stats are in the inspector.
 func (v *VAB) paletteItemLabel(it vabPaletteItem) (kind, label string) {
@@ -666,7 +682,7 @@ func (v *VAB) paletteItemLabel(it vabPaletteItem) (kind, label string) {
 		if !ok {
 			return "catalog part", it.id
 		}
-		return m.Tier, fmt.Sprintf("%s [%s]", m.Name, m.Tier)
+		return m.Tier, fmt.Sprintf("%s [%s]", partDisplayName(it.id), m.Tier)
 	}
 	c := v.comps[it.id]
 	return c.Kind, v.compName(c)

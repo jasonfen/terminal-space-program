@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -325,5 +326,59 @@ func TestVABFindFiltersCatalogPartsAndSelects(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("a on the found part added %v", catalogIDs(v))
+	}
+}
+
+// F1 and docs/controls.md carry the rows for the new keys (ADR 0056 "F1 and
+// docs/controls.md").
+func TestVABFindAndSectionRowsInF1AndDocs(t *testing.T) {
+	vabRow := func(tok string) string {
+		for _, sec := range helpSections {
+			if sec.header != "VEHICLE ASSEMBLY (VAB)" {
+				continue
+			}
+			for _, r := range sec.rows {
+				if r[0] == tok {
+					return r[1]
+				}
+			}
+		}
+		t.Fatalf("no VAB help row %q", tok)
+		return ""
+	}
+	find := vabRow("/")
+	if !strings.Contains(find, "find") || !strings.Contains(find, "esc clears") || !strings.Contains(find, "enter keeps the filter") {
+		t.Errorf("F1 / row = %q", find)
+	}
+	pg := vabRow("PgUp / PgDn")
+	if !strings.Contains(pg, "tier or kind") {
+		t.Errorf("F1 PgUp / PgDn row = %q, want tier or kind", pg)
+	}
+	raw, err := os.ReadFile("../../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := string(raw)
+	for _, want := range []string{"| `/` | Find: type part of a name", "previous / next tier or kind section in the palette"} {
+		if !strings.Contains(doc, want) {
+			t.Errorf("docs/controls.md lacks %q", want)
+		}
+	}
+}
+
+// Two parts that share a name (the three S-IVBs, the Ascents) never read the
+// same in the palette.
+func TestVABPaletteRowsAreDistinct(t *testing.T) {
+	v := realVAB(t)
+	seen := map[string]string{}
+	for _, it := range v.palette {
+		if it.isComponent {
+			continue
+		}
+		_, label := v.paletteItemLabel(it)
+		if prev, dup := seen[label]; dup {
+			t.Errorf("parts %q and %q both read %q", prev, it.id, label)
+		}
+		seen[label] = it.id
 	}
 }

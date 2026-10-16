@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // ADR 0056 S2: the palette find row is a free-text surface, so it joins
@@ -32,5 +34,18 @@ func TestVABFindCapturesGlobalKeys(t *testing.T) {
 	press(a, "esc")
 	if a.capturingText() || a.active != screenVAB {
 		t.Errorf("esc: capturing=%v active=%v, want find closed and still in the VAB", a.capturingText(), a.active)
+	}
+}
+
+// A terminal hands fast typing over as one multi-rune message; the find field
+// takes it as characters, not as an unknown named key.
+func TestVABFindTakesRunsOfTypedCharacters(t *testing.T) {
+	a := helpTestApp(t)
+	press(a, "esc")
+	press(a, "b")
+	press(a, "/")
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("rel")})
+	if !strings.Contains(a.View(), "find: rel") {
+		t.Errorf("a multi-rune message did not type into find:\n%s", a.View())
 	}
 }
