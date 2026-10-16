@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/save"
@@ -121,7 +120,7 @@ func (s *Store) ResetFleet(epoch time.Time) ([]FleetResetEntry, error) {
 		}
 	}
 
-	backupStamp := time.Now().UTC().Format("20060102T150405Z")
+	backupStamp := time.Now().UTC().Format(backupStampLayout)
 	entries := make([]FleetResetEntry, 0, n)
 	for i, p := range ordered {
 		e := FleetResetEntry{
@@ -144,12 +143,8 @@ func (s *Store) ResetFleet(epoch time.Time) ([]FleetResetEntry, error) {
 		if data, err := os.ReadFile(src); err == nil {
 			// Back up before anything else touches the file. The backup
 			// is the raw previous envelope, byte-identical.
-			bdir := filepath.Join(s.dir, "backup")
-			if err := os.MkdirAll(bdir, 0o755); err != nil {
-				return nil, fmt.Errorf("sessiondir: reset-fleet: backup dir: %w", err)
-			}
-			bak := filepath.Join(bdir, backupStamp+"-"+filepath.Base(src))
-			if err := os.WriteFile(bak, data, 0o644); err != nil {
+			bak, err := s.backupPayload(src, data, backupStamp)
+			if err != nil {
 				return nil, fmt.Errorf("sessiondir: reset-fleet: backup %s: %w", p.Handle, err)
 			}
 			e.BackupPath = bak
