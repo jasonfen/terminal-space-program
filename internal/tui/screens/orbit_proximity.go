@@ -879,6 +879,7 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 	return append(rows,
 		chipRow(readout.LabelRelSpeed, readout.Speed(st.VRelMS)+proximityOverSpeedSuffix(st)),
 		chipRow("closing:", readout.SignedSpeed(st.ClosingMS)),
+		proximityHoldRow(w),
 		proximityTrimRow(w),
 		v.proximityEngineRow(w),
 		v.proximityRCSRow(w),
@@ -967,14 +968,21 @@ func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
 		v.proximityChipHeader(st),
 		chipRow("range:", readout.Distance(st.HullGapM)),
 	}
-	// ADR 0053 decision 6: port: and align: survive the shrink, but only
-	// inside 50 m and out of gate; off-axis: is dropped in Compact Form.
+	// ADR 0053 decision 6: port: and misalign: survive the shrink, but only
+	// inside 50 m and out of gate; lateral: is dropped in Compact Form.
 	capturing := proximityCapturing(w)
 	if proximityInsideRing(st) && (proximityPortOutOfGate(st) || capturing) {
 		lines = append(lines, v.proximityPortRow(st, capturing))
 		if st.HasPort {
 			lines = append(lines, proximityAlignRow(st))
 		}
+	}
+	// ADR 0055 decision 2: hold: survives the shrink only while NavMode is
+	// PORT and the hold is not Port+, the same "out of gate survives" rule:
+	// a wrong hold is the one reading that says why the nose is not on the
+	// port.
+	if c := w.ActiveCraft(); c != nil && w.NavMode == sim.NavPort && c.AttitudeMode != spacecraft.BurnPortIn {
+		lines = append(lines, proximityHoldRow(w))
 	}
 	// A trim that is on stays visible even in the Compact Form: it is the
 	// one reading that says why the vessel is not holding its attitude.

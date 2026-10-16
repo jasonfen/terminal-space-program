@@ -54,7 +54,7 @@ func TestProximityChipInsideZoneAgainstTheStartVessel(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(DesignWidth, DesignHeight)
 	chip := v.buildProximityChip(w)
-	if row := chipLine(chip, "off-axis:"); row == "" {
+	if row := chipLine(chip, "lateral:"); row == "" {
 		t.Errorf("no off-axis: row at 0.8 m from the port: %q", chip)
 	}
 	if row := chipLine(chip, "port:"); !strings.Contains(row, "need < 0.50") {

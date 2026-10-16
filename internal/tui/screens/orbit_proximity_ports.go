@@ -14,7 +14,7 @@ import (
 
 // Docking ports in the Proximity View (ADR 0053 decision 6, slice A): the
 // `○` port marks, the port line and its length label, and the `port:` /
-// `align:` / `off-axis:` chip rows. Everything here READS the numbers
+// `misalign:` / `lateral:` chip rows. Everything here READS the numbers
 // sim.ProximityState derives; none of it decides whether a dock happens.
 // The capture gate, the green line and the magnet are slice B's.
 
@@ -82,12 +82,15 @@ func (v *OrbitView) proximityPortRow(st sim.ProximityState, capturing bool) stri
 	return chipRow("port:", fitPortNote(st.PortNote, proximityChipInnerWidth-chipValueCol))
 }
 
-// proximityAlignRow is the `align:` row, whole degrees off straight.
+// proximityAlignRow is the `misalign:` row (IDSS "pitch/yaw misalignment"),
+// whole degrees off straight. ADR 0055 decision 2: renamed from `align:`,
+// same number.
 func proximityAlignRow(st sim.ProximityState) string {
-	return chipRow("align:", fmt.Sprintf("%.0f° off", st.AlignDeg)+proximityAlignNeedSuffix(st))
+	return chipRow("misalign:", fmt.Sprintf("%.0f° off", st.AlignDeg)+proximityAlignNeedSuffix(st))
 }
 
-// proximityOffAxisRow is the `off-axis:` row: their port relative to yours
+// proximityOffAxisRow is the `lateral:` row (IDSS "lateral misalignment",
+// renamed from `off-axis:`, ADR 0055 decision 2): their port relative to yours
 // across the port face, up/down then left/right, one decimal.
 func proximityOffAxisRow(st sim.ProximityState) string {
 	up, right := "↑", "▸"
@@ -97,7 +100,18 @@ func proximityOffAxisRow(st sim.ProximityState) string {
 	if st.OffAxisRightM < 0 {
 		right = "◂"
 	}
-	return chipRow("off-axis:", readout.PortOffset(st.OffAxisUpM)+" "+up+"  "+readout.PortOffset(st.OffAxisRightM)+" "+right)
+	return chipRow("lateral:", readout.PortOffset(st.OffAxisUpM)+" "+up+"  "+readout.PortOffset(st.OffAxisRightM)+" "+right)
+}
+
+// proximityHoldRow is the `hold:` row (ADR 0055 decision 2): the attitude
+// the vessel is holding, read from the same builder as GUIDANCE's hold:
+// row (attitudeHoldLabel) so the two cannot drift.
+func proximityHoldRow(w *sim.World) string {
+	c := w.ActiveCraft()
+	if c == nil {
+		return chipRow(readout.LabelHold, "—")
+	}
+	return chipRow(readout.LabelHold, attitudeHoldLabel(w, c.AttitudeMode))
 }
 
 // proximityPortOutOfGate is the Compact Form's "out of gate" for the port

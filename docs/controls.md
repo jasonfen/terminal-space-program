@@ -173,7 +173,7 @@ On the Keyboard layout screen `←` / `→`, `Space` or `Enter` cycle the layout
 | `v` | Cycle the projection: Tilted (default, a 3D-style perspective) → Top → Right → Bottom → Left → Orbit-flat. Two rows above the `view:` label read which way north points (`N ↑` up the screen, `N ⊙` toward you, `N ⊗` away; in Tilted and Orbit-flat a degree figure, `N ↑ 42°`, is how far north tilts out of the screen toward or away from you, 0° being flat on the screen, and it is not the orbit ring's `plane` angle) and how open your orbit ring looks (`plane ◠ 67° open`: 0° `─` is a flat line, 90° `○` a full circle); the maneuver planner shows the same cue. The camera re-frames once when focus, view, or system changes and otherwise stays where you put it |
 | `>` / `<` | Tilt the 3D view up / down (tilted view only). Camera only: a missed shift can move the view, never the vessel |
 | `{` / `}` | Yaw the 3D view left / right in 5° steps, wrapping (tilted view only) |
-| `o` | **Proximity view** for the last kilometres of a rendezvous: the target vessel sits dead centre, its direction of travel runs right, the planet is below, so you read your drift the way the physics works. Needs a vessel target; a `CLOSE RANGE` chip reminds you once within 35 km. Both vessels' docking ports are marked `○` (theirs in target green, yours in your vessel's colour), a port line joins them with its length, and the chip gains `port:`, `align:` and `off-axis:` rows (see [Docking](#docking)). The plain arrows still trim your vessel here; the PROXIMITY chip's `trim:` row and the bottom legend show it. Press again to return to the map as you left it |
+| `o` | **Proximity view** for the last kilometres of a rendezvous: the target vessel sits dead centre, its direction of travel runs right, the planet is below, so you read your drift the way the physics works. Needs a vessel target; a `CLOSE RANGE` chip reminds you once within 35 km. Both vessels' docking ports are marked `○` (theirs in target green, yours in your vessel's colour), a port line joins them with its length, and the chip gains `port:`, `misalign:`, `lateral:` and `hold:` rows (see [Docking](#docking)). The plain arrows still trim your vessel here; the PROXIMITY chip's `trim:` row and the bottom legend show it. Press again to return to the map as you left it |
 | `V` | **Launch / surface view**: chase-cam on your active vessel with a curved horizon, pad marker, and breadcrumb trail, scaled tight at liftoff and pulled back high up. Lifting off routes you here automatically. Press again to return to the map |
 | `j` | **Inspect**: each press steps a bright highlight onto the next thing drawn (bodies, vessels, other players' ghosts, planned burns, the closest-approach `✕`) and names it in a chip. One press past the last item clears it; `Esc` clears immediately. Clicking any orbit line or marker jumps the highlight there |
 | `Enter` | While inspecting: make the highlighted thing your target and clear the highlight. Works on vessels and other players, not just bodies. Things that can't be a target say so |
@@ -212,7 +212,7 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 | `alt` | The Alt key on Windows and Linux (WezTerm and most terminals send it as-is); Option on a Mac, see the next row |
 | `alt` on a Mac | Ghostty sends Option as alt as-is. Terminal.app and iTerm2 need Option sent as Meta: Terminal.app, Profiles > Keyboard > "Use Option as Meta key"; iTerm2, Profiles > Keys > Left Option key = Esc+ |
 | `\|` | Clear the manual tip and the commanded heading (both trims back to 0) |
-| `;` | Autopilot reference: Surface → Orbit → Target → Port (Target needs a targeted vessel; Port needs that vessel, yours or a friend's, to have a docking port). It also switches itself: Surface → Orbit climbing through the upper atmosphere (Earth 51 km), Orbit → Surface coming back down. Press `;` to override; it is kept until the next crossing. Target and Port are only ever chosen by hand: they never switch themselves, even right beside a target vessel |
+| `;` | Autopilot reference: Surface → Orbit → Target → Port (Target needs a targeted vessel; Port needs that vessel, yours or a friend's, to have a docking port; reaching Port turns nothing, the flash reads `nav: PORT`). It also switches itself: Surface → Orbit climbing through the upper atmosphere (Earth 51 km), Orbit → Surface coming back down. Press `;` to override; it is kept until the next crossing. Target and Port are only ever chosen by hand: they never switch themselves, even right beside a target vessel |
 | `k` | Steering style: smooth turning (default) or instant snap |
 | `r` | Switch between the main engine and RCS thrusters |
 | `p` | RCS pulse step: cycle the per-press Δv (0.1 → 0.01 → 0.001 m/s) |
@@ -231,7 +231,7 @@ the port along its axis and `e` pushes you out; `w` / `s` push up / down
 across the port's face and `a` / `d` push left / right. With the main engine
 selected `q` holds your nose on the port axis (`hold: Port+ (PORT)`, the
 docking attitude) and `e` holds it away. The frame drops back to Orbit if you
-change target or the target loses its port.
+change target or the target loses its port; XPrograde with it.
 
 ### Targets and the map cursor
 
@@ -295,9 +295,11 @@ slowly and straight, and the last half metre closes by itself.
   relative speed under 0.1 m/s (port to port: a long stack turning with the
   orbit swings its port, and that counts), and the two noses within 4° of
   pointing at each other. The Proximity view shows them as the `port:`, `rel speed:` and
-  `align:` rows, each with a `(need < ...)` reminder while you are inside
-  50 m and that term fails; `off-axis:` splits the miss into up/down and
-  left/right across the port. The port line goes solid green when the gate
+  `misalign:` rows, each with a `(need < ...)` reminder while you are inside
+  50 m and that term fails; `misalign:` is the angle between the two axes,
+  zero whenever the noses are parallel however far off the line you sit.
+  `lateral:` splits the miss into up/down and left/right across the port.
+  `hold:` names the attitude you are holding, as GUIDANCE's `hold:` row does. The port line goes solid green when the gate
   holds. The 50 m ring is where the close picture starts, no longer a dock.
 - **The magnet.** The tick the gate holds, a five-second pull starts. It moves
   the vessel you are flying (the active one) the last half metre onto the
@@ -310,8 +312,12 @@ slowly and straight, and the last half metre closes by itself.
 - **The PORT frame.** `;` reaches `[PORT]` once your target has a port. There
   `q` / `e` push in / out along the port's axis, `w` / `s` up / down and
   `a` / `d` left / right across its face (RCS armed), and the main-engine `q`
-  hold (`Port+`) puts your nose on the port axis, the docking attitude. The
-  speed readout is then relative to the target and tagged `(port)`.
+  hold (`Port+`) puts your nose on the port axis, the docking attitude
+  (`hold: Port+ (PORT)` on the chip). Reaching `[PORT]` turns nothing on any
+  vessel; the flash reads `nav: PORT`. The navball's text row reads
+  `pitch` / `yaw`: how far your nose is above or below, and right or left of,
+  parallel to their port axis (the same two components `misalign:` combines).
+  The speed readout is then relative to the target and tagged `(port)`.
   `p` steps the pulse down to 0.01 or 0.001 m/s for the last metres.
 - **A bad approach bumps.** Hulls that touch outside the gate (too fast, too
   crooked, or not at the ports) bounce: the pair pushes apart at half the

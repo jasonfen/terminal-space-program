@@ -471,7 +471,18 @@ func navballPanelDisk(g navballGeom, w *sim.World, subLat, subLon float64) strin
 // the ball's sticky dead-band, so it updates as the nose moves. Distinct
 // from GUIDANCE's heading:, which is the commanded bearing. "" when the
 // nose has no defined reading.
+//
+// In PORT (ADR 0055 decision 3) the surface reading names nothing the pilot
+// is doing, so the row reads the nose's lean across the port face instead,
+// "pitch +5°  yaw -2°": above / below and right / left of parallel to the
+// target's port axis, the pair ProximityState derives for the Centerline
+// view too.
 func navballReadoutLabel(w *sim.World) string {
+	if w.NavMode == sim.NavPort && w.TargetHasPort() {
+		if st, ok := w.ProximityState(); ok && st.HasPort {
+			return fmt.Sprintf("pitch %+d°  yaw %+d°", int(math.Round(st.MisalignUpDeg)), int(math.Round(st.MisalignRightDeg)))
+		}
+	}
 	pitch, hdg, ok := w.NavballNoseReading()
 	if !ok {
 		return ""
