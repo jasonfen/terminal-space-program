@@ -499,6 +499,14 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 			// moon's SOI and reaches perilune earlier, so the retrograde
 			// capture must fire there — refine the arrival to the perilune.
 			w.refineCombinedCapture(&plan, c, muShared, target)
+			// Size the fixed-direction burn for the finite burn it is flown as
+			// (#666). After the capture refinement, which reads the plan's
+			// impulsive post-burn orbit.
+			if depState, ok := physics.KeplerStep(c.State, muShared, plan.Departure.OffsetTime.Seconds()); ok {
+				if err := refineFusedDeparture(&plan, depState, muShared, mass, thrust, c.Isp); err != nil {
+					return nil, err
+				}
+			}
 			w.PlanNode(transferNodeToManeuver(plan.Departure, now, c))
 			w.PlanNode(transferNodeToManeuver(plan.Arrival, now, c))
 			return &plan, nil
@@ -576,7 +584,9 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		}
 		// Refine the finite coplanar departure (v0.6.2 iterator) so the
 		// burn delivers the (trimmed) far apsis under integration.
-		refineFiniteDeparture(&plan, muShared, rPark, mass, thrust, c.Isp, rFarAim)
+		if err := refineFiniteDeparture(&plan, muShared, rPark, mass, thrust, c.Isp, rFarAim); err != nil {
+			return nil, err
+		}
 
 		w.PlanNode(transferNodeToManeuver(plan.Departure, now, c))
 		if pcDv > 0 {
@@ -1510,12 +1520,17 @@ func compensateFiniteBurn(dvIdeal, mass, thrust, mu, rPark float64) float64 {
 // — same |R|, tangent V matching circular-orbit speed — since the
 // burn dynamics are translation-invariant around the orbit.
 //
-// Iteration failure (max-iter or derivative collapse) leaves the
-// impulsive Δv untouched; falling back to the impulsive plan is
-// strictly better than failing the transfer.
-func refineFiniteDeparture(plan *planner.TransferPlan, mu, rPark, mass, thrust, isp, rArrival float64) {
+// Failure is never silent. The solver keeps the best iterate it
+// evaluated, and that is what gets planted (it is at least as close
+// to the aim as the impulsive guess, which is iterate zero). If even
+// the best iterate misses the aim by more than refineMissLimit of the
+// aim radius, the plan is refused with errDepartureBurnShort rather
+// than planted as a departure that flies somewhere else (#666: the
+// old behaviour planted the impulsive delta-v whenever the iterator
+// ran out of steps, and a low-TWR vessel flew 100 Mm short of the Moon).
+func refineFiniteDeparture(plan *planner.TransferPlan, mu, rPark, mass, thrust, isp, rArrival float64) error {
 	if thrust <= 0 || mass <= 0 || isp <= 0 || plan.Departure.DV <= 0 {
-		return
+		return nil
 	}
 	parkV := math.Sqrt(mu / rPark)
 	parkState := physics.StateVector{
@@ -1530,19 +1545,32 @@ func refineFiniteDeparture(plan *planner.TransferPlan, mu, rPark, mass, thrust, 
 	direction := func(r, v orbital.Vec3) orbital.Vec3 {
 		return spacecraft.DirectionUnit(mode, r, v)
 	}
-	const tolMeters = 1000.0 // 1 km on apoapsis radius is well below display precision.
-	const maxIter = 8
-	refinedDv, _, err := planner.IterateForTarget(
+	sol, _ := planner.SolveFiniteBurn(
 		parkState, mu, thrust, isp, plan.Departure.DV,
 		direction,
 		planner.TargetApoapsis(rArrival),
-		tolMeters, maxIter,
+		refineTolMeters, refineMaxIter,
 	)
-	if err != nil {
-		return
+	if sol.Dv > 0 {
+		plan.Departure.DV = sol.Dv
 	}
-	plan.Departure.DV = refinedDv
+	if !sol.Converged && math.Abs(sol.Residual) > refineMissLimit*rArrival {
+		return errDepartureBurnShort
+	}
+	return nil
 }
+
+const (
+	// refineTolMeters: 1 km on apoapsis radius. Newton with a short
+	// finite-difference step reaches it in 2 to 4 steps for a Moon aim
+	// from 500 km at TWR 0.4 to 8.5 (planner.finiteDiffStep).
+	refineTolMeters = 1000.0
+	// refineMaxIter leaves headroom over the measured 4.
+	refineMaxIter = 12
+	// refineMissLimit: an unconverged best iterate within 1 % of the aim
+	// radius (about 1 m/s of delta-v on a lunar aim) is still planted.
+	refineMissLimit = 0.01
+)
 
 // estimateIntraPrimaryDepDv returns the Hohmann departure Δv for a
 // circular-to-circular transfer from rDep to rArr around a primary
@@ -1905,6 +1933,54 @@ func applyPlaneChangeImpulse(st physics.StateVector, theta float64) physics.Stat
 	return out
 }
 
+// splitDeparturePost is the post-burn state of the split's raise at the
+// departure node, as the conic the vessel really coasts on. With thrust
+// data it is the finite burn the executor flies: the delta-v that
+// refineFiniteDeparture solves for the far apsis rFar, burned centred on
+// the node, with the burn-end state carried back to the node epoch along
+// its own orbit. (A centred finite burn from a circular parking orbit
+// reaches the same apoapsis as the impulsive raise but swings the apse
+// line by 0.3 to 0.5 deg, 2 to 3 Mm at the Moon, enough to move the aimed
+// perilune from 200 km to an impact; the aim must therefore be measured on
+// the orbit that is flown, #666.) Without thrust data it is the impulsive
+// raise. ok=false when the raise cannot be flown as a finite burn.
+func splitDeparturePost(dep physics.StateVector, mu, rPark, rFar, mass, thrust, isp float64) (physics.StateVector, bool) {
+	dv := splitRaiseDv(mu, rPark, rFar)
+	mode := spacecraft.BurnPrograde
+	if dv < 0 {
+		mode = spacecraft.BurnRetrograde
+	}
+	if thrust <= 0 || isp <= 0 || mass <= 0 {
+		post := dep
+		post.V = dep.V.Add(spacecraft.DirectionUnit(spacecraft.BurnPrograde, dep.R, dep.V).Scale(dv))
+		return post, true
+	}
+	var plan planner.TransferPlan
+	plan.Departure.DV = math.Abs(dv)
+	plan.Departure.IsRetrograde = dv < 0
+	if err := refineFiniteDeparture(&plan, mu, rPark, mass, thrust, isp, rFar); err != nil {
+		return physics.StateVector{}, false
+	}
+	dvF := plan.Departure.DV
+	const g0 = 9.80665
+	half := mass * (1 - math.Exp(-dvF/(isp*g0))) / (thrust / (isp * g0)) / 2
+	start := dep
+	start.M = mass
+	start, ok := physics.KeplerStep(start, mu, -half)
+	if !ok {
+		return physics.StateVector{}, false
+	}
+	fin := planner.SimulateFiniteBurn(start, mu, thrust, isp, dvF, func(r, v orbital.Vec3) orbital.Vec3 {
+		return spacecraft.DirectionUnit(mode, r, v)
+	})
+	post, ok := physics.KeplerStep(fin, mu, -half)
+	if !ok {
+		return physics.StateVector{}, false
+	}
+	post.M = dep.M
+	return post, true
+}
+
 // splitArrival is the capture-safe split arrival geometry resolved by
 // splitCaptureAim (GH #159): the trimmed far-apsis aim plus the encounter
 // timing, plane-change sizing, and capture Δv measured on the trimmed arc.
@@ -1985,9 +2061,10 @@ func (w *World) splitCaptureAim(c *spacecraft.Spacecraft, target bodies.Celestia
 			}
 			depClock = depClock0.Add(time.Duration(float64(delayOrbits) * tPark * float64(time.Second)))
 		}
-		post := depState
-		progradeDir := spacecraft.DirectionUnit(spacecraft.BurnPrograde, depState.R, depState.V)
-		post.V = depState.V.Add(progradeDir.Scale(splitRaiseDv(muShared, rPark, rFar)))
+		post, okPost := splitDeparturePost(depState, muShared, rPark, rFar, c.TotalMass(), c.Thrust, c.Isp)
+		if !okPost {
+			return measurement{}, false
+		}
 		tEntry, _, found := w.transferEncounterTimes(post, primary, target, depClock, tTransfer*1.2)
 		if !found {
 			return measurement{}, false
@@ -2102,6 +2179,8 @@ func (w *World) splitCaptureAim(c *spacecraft.Spacecraft, target bodies.Celestia
 	rFar := rFarSeed
 	var best measurement
 	haveBest := false
+	var prevRFar, prevBSigned float64
+	havePrev := false
 	for iter := 0; iter < 6; iter++ {
 		m, ok := measure(rFar)
 		if !ok {
@@ -2127,7 +2206,19 @@ func (w *World) splitCaptureAim(c *spacecraft.Spacecraft, target bodies.Celestia
 		if !m.prograde {
 			bSigned = -bSigned
 		}
-		next := rFar + lever*(bDesIn-bSigned)
+		// The 1:1 lever is only the seed slope; the measured d(b)/d(rFar)
+		// is up to ~1.8x steeper near a lunar aim, which makes the fixed
+		// lever overshoot and oscillate (6 iterations never settle). Once
+		// two points exist, step on the secant slope when it has the
+		// lever's sign and a sane magnitude.
+		step := lever * (bDesIn - bSigned)
+		if havePrev && rFar != prevRFar {
+			if slope := (bSigned - prevBSigned) / (rFar - prevRFar); slope*lever > 0 && math.Abs(slope) > 0.25 && math.Abs(slope) < 8 {
+				step = (bDesIn - bSigned) / slope
+			}
+		}
+		prevRFar, prevBSigned, havePrev = rFar, bSigned, true
+		next := rFar + step
 		if next <= 0 || (rFarSeed > rPark && next <= rPark) || (rFarSeed < rPark && next >= rPark) {
 			break
 		}
@@ -2634,6 +2725,10 @@ func transferNodeToManeuver(tn planner.TransferNode, now time.Time, craft *space
 var (
 	errInvalidTransferTarget = transferError("invalid transfer target body")
 	errNoCraftForTransfer    = transferError("no vessel to plan transfer for")
+	// errDepartureBurnShort: the finite departure burn cannot deliver the
+	// aimed apoapsis (the solver's best delta-v is still off by more than
+	// refineMissLimit). Facts only; no remedy text.
+	errDepartureBurnShort    = transferError("departure burn does not reach the aimed apoapsis")
 	errNoRefineTarget        = transferError("no pending transfer to refine")
 	errSamePrimaryUseHohmann = transferError("target shares vessel's primary — use [H] auto-Hohmann instead of porkchop")
 
@@ -3215,20 +3310,18 @@ func (w *World) PostBurnState(n ManeuverNode) (physics.StateVector, string) {
 	dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
 	var state physics.StateVector
 	var primaryID string
+	primary := w.ActiveCraft().Primary
 	if dt <= 0 {
 		state = w.ActiveCraft().State
-		primaryID = w.ActiveCraft().Primary.ID
 	} else {
-		var primary bodies.CelestialBody
 		state, primary = w.propagateCraftWithPrimary(dt)
-		primaryID = primary.ID
 	}
+	primaryID = primary.ID
 	dir := spacecraft.NodeBurnDirection(n, state.R, state.V)
 	if dir.Norm() == 0 || n.DV == 0 {
 		return state, primaryID
 	}
-	state.V = state.V.Add(dir.Scale(n.DV))
-	return state, primaryID
+	return w.nodeBurnState(state, primary, n, dir), primaryID
 }
 
 // postBurnStateWithTarget is PostBurnState extended with the target's
@@ -3267,14 +3360,13 @@ func (w *World) postBurnStateWithTarget(n ManeuverNode, rT, vT orbital.Vec3) (ph
 	dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
 	var state physics.StateVector
 	var primaryID string
+	primary := w.ActiveCraft().Primary
 	if dt <= 0 {
 		state = w.ActiveCraft().State
-		primaryID = w.ActiveCraft().Primary.ID
 	} else {
-		var primary bodies.CelestialBody
 		state, primary = w.propagateCraftWithPrimary(dt)
-		primaryID = primary.ID
 	}
+	primaryID = primary.ID
 	var dir orbital.Vec3
 	if n.IsTargetRelative() {
 		dir = spacecraft.DirectionUnitTarget(n.Mode, state.R, state.V, rT, vT)
@@ -3285,7 +3377,7 @@ func (w *World) postBurnStateWithTarget(n ManeuverNode, rT, vT orbital.Vec3) (ph
 		dir = spacecraft.NodeBurnDirection(n, state.R, state.V)
 	}
 	if dir.Norm() != 0 && n.DV != 0 {
-		state.V = state.V.Add(dir.Scale(n.DV))
+		state = w.nodeBurnState(state, primary, n, dir)
 	}
 	return state, primaryID, true
 }
@@ -3368,7 +3460,7 @@ func (w *World) ArrivalCapturePreview() (CapturePreview, bool) {
 		}
 		dir := spacecraft.NodeBurnDirection(n, state.R, state.V)
 		if dir.Norm() != 0 && n.DV != 0 {
-			state.V = state.V.Add(dir.Scale(n.DV))
+			state = w.nodeBurnState(state, primary, n, dir)
 		}
 		// A node "captures" when it leaves the chain in a frame
 		// different from the craft's home primary.
@@ -3514,7 +3606,7 @@ func (w *World) PredictedLegs() []PredictedLeg {
 		}
 		dir := spacecraft.NodeBurnDirection(n, state.R, state.V)
 		if dir.Norm() != 0 && n.DV != 0 {
-			state.V = state.V.Add(dir.Scale(n.DV))
+			state = w.nodeBurnState(state, primary, n, dir)
 		}
 		// Horizon: until next planted node, else one orbital period.
 		period := orbitalPeriod(state, primary.GravitationalParameter())
@@ -3761,7 +3853,7 @@ func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody
 		}
 		dir := spacecraft.NodeBurnDirection(n, state.R, state.V)
 		if dir.Norm() != 0 && n.DV != 0 {
-			state.V = state.V.Add(dir.Scale(n.DV))
+			state = w.nodeBurnState(state, primary, n, dir)
 		}
 		any = true
 	}

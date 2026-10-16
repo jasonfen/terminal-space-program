@@ -78,7 +78,7 @@ func SimulateFiniteBurn(
 
 	state := init
 	for i := 0; i < nSub; i++ {
-		massAt := init.M - mdot*float64(i)*h
+		massAt := init.M - mdot*(float64(i)+0.5)*h
 		if massAt <= 0 {
 			break
 		}
@@ -94,23 +94,102 @@ func SimulateFiniteBurn(
 	return state
 }
 
-// IterateForTarget Newton-iterates the commanded Δv until the
-// residual function evaluates within `tolerance` (in residual units —
-// for TargetApoapsis that's metres). Each iteration runs
-// SimulateFiniteBurn twice: once at the current guess and once at a
-// nudged guess to estimate dResidual/dDv numerically.
+// FiniteBurnSolution is what SolveFiniteBurn found: the best commanded
+// delta-v it evaluated (smallest |residual|, the initial guess
+// included), the post-burn state and residual at that delta-v, how
+// many Newton steps it took, and whether the residual met the
+// tolerance.
+type FiniteBurnSolution struct {
+	Dv         float64
+	State      physics.StateVector
+	Residual   float64
+	Iterations int
+	Converged  bool
+}
+
+// finiteDiffStep is the delta-v nudge (m/s) used for the numerical
+// derivative. It is small on purpose: apoapsis against delta-v is
+// steeply convex near a transfer to the Moon (a raise from 500 km moves
+// Ap 3 to 4 Mm per m/s and the slope itself changes by tens of percent
+// over 30 m/s), so the old 1 %-of-dv step (30 m/s at 3 km/s) gave a
+// secant slope wrong enough to converge only linearly. The burn model
+// is deterministic, so a tenth of a m/s adds no noise.
+const finiteDiffStep = 0.1
+
+// SolveFiniteBurn Newton-iterates the commanded delta-v until the
+// residual is within `tolerance` (residual units; metres for
+// TargetApoapsis). Each iteration runs SimulateFiniteBurn twice: at the
+// current guess and at a nudged guess for dResidual/dDv.
 //
-// Returns the converged commandedDv and the post-burn state. Errors
-// out with ErrFiniteBurnDiverged after maxIter without convergence —
-// callers should fall back to the impulsive guess in that case
-// (still better than no plan).
-//
-// Use case: v0.5.10's S-IVB-1 default vessel makes finite-burn
-// gravity-rotation loss < 0.1% on the Earth → Luna profile, so the
-// impulsive Hohmann is "good enough" out of the box. v0.6.2 ships
-// this iterator for low-TWR loadouts (revived ICPS, future ion
-// stages) where the impulsive guess can mis-deliver apoapsis by
-// 20 %+.
+// It never discards work: on failure (maxIter reached, or the
+// derivative collapsed) it still returns the best delta-v it evaluated,
+// with Converged false, so the caller decides what an unconverged
+// answer means instead of silently reverting to the initial guess.
+func SolveFiniteBurn(
+	init physics.StateVector,
+	mu, thrust, isp, initialDvGuess float64,
+	direction DirectionFn,
+	residual ResidualFn,
+	tolerance float64,
+	maxIter int,
+) (FiniteBurnSolution, error) {
+	if initialDvGuess <= 0 {
+		return FiniteBurnSolution{State: init}, errors.New("iterateforTarget: initialDvGuess must be > 0")
+	}
+	if maxIter < 1 {
+		maxIter = 1
+	}
+	best := FiniteBurnSolution{Residual: math.Inf(1)}
+	consider := func(dv float64, st physics.StateVector, res float64) {
+		if math.Abs(res) < math.Abs(best.Residual) {
+			best = FiniteBurnSolution{Dv: dv, State: st, Residual: res}
+		}
+	}
+	dv := initialDvGuess
+	for i := 0; i < maxIter; i++ {
+		final := SimulateFiniteBurn(init, mu, thrust, isp, dv, direction)
+		err := residual(final, mu)
+		consider(dv, final, err)
+		if math.Abs(err) <= tolerance {
+			best.Iterations, best.Converged = i, true
+			return best, nil
+		}
+		nudged := SimulateFiniteBurn(init, mu, thrust, isp, dv+finiteDiffStep, direction)
+		dResidual := (residual(nudged, mu) - err) / finiteDiffStep
+		if dResidual == 0 || math.IsNaN(dResidual) {
+			best.Iterations = i
+			return best, ErrFiniteBurnDiverged
+		}
+		// Newton: dv_new = dv - residual/residual'. residual = target -
+		// delivered, so dResidual/dDv < 0 and an under-delivering burn
+		// (err > 0) steps up.
+		step := -err / dResidual
+		// Guard against runaway: cap any single step at +-50 % of dv.
+		maxStep := dv * 0.5
+		if step > maxStep {
+			step = maxStep
+		} else if step < -maxStep {
+			step = -maxStep
+		}
+		// dv stays in [0.5*dv, 1.5*dv] and enters strictly positive.
+		dv += step
+	}
+	// The last Newton step was never evaluated; do it so a solution
+	// that landed on the final step is not thrown away.
+	final := SimulateFiniteBurn(init, mu, thrust, isp, dv, direction)
+	err := residual(final, mu)
+	consider(dv, final, err)
+	best.Iterations = maxIter
+	if math.Abs(err) <= tolerance {
+		best.Converged = true
+		return best, nil
+	}
+	return best, ErrFiniteBurnDiverged
+}
+
+// IterateForTarget is SolveFiniteBurn returning the historical
+// (dv, state, error) triple. On ErrFiniteBurnDiverged the delta-v is
+// the best one evaluated, not the last iterate.
 func IterateForTarget(
 	init physics.StateVector,
 	mu, thrust, isp, initialDvGuess float64,
@@ -119,49 +198,8 @@ func IterateForTarget(
 	tolerance float64,
 	maxIter int,
 ) (float64, physics.StateVector, error) {
-	if initialDvGuess <= 0 {
-		return 0, init, errors.New("iterateforTarget: initialDvGuess must be > 0")
-	}
-	if maxIter < 1 {
-		maxIter = 1
-	}
-	dv := initialDvGuess
-	var final physics.StateVector
-	for i := 0; i < maxIter; i++ {
-		final = SimulateFiniteBurn(init, mu, thrust, isp, dv, direction)
-		err := residual(final, mu)
-		if math.Abs(err) <= tolerance {
-			return dv, final, nil
-		}
-		// Numerical derivative — perturb by 1 % of current guess (or
-		// 1 m/s minimum so single-digit guesses still get a stable
-		// finite difference).
-		eps := math.Max(dv*0.01, 1.0)
-		nudged := SimulateFiniteBurn(init, mu, thrust, isp, dv+eps, direction)
-		errNudged := residual(nudged, mu)
-		dResidual := (errNudged - err) / eps
-		if dResidual == 0 || math.IsNaN(dResidual) {
-			return dv, final, ErrFiniteBurnDiverged
-		}
-		// Newton's method root-finding: dv_new = dv − residual / residual'.
-		// residual = target − delivered → residual decreases as dv
-		// rises (delivering more apo), so dResidual/dDv < 0. With err
-		// > 0 (under-delivered) the step is +|err / dResidual| → dv
-		// increases, exactly the correction we want.
-		step := -err / dResidual
-		// Guard against runaway: cap any single step at ±50 % of current dv.
-		maxStep := dv * 0.5
-		if step > maxStep {
-			step = maxStep
-		} else if step < -maxStep {
-			step = -maxStep
-		}
-		// step is clamped to [-0.5·dv, +0.5·dv] and dv enters the loop
-		// strictly positive (guarded above), so next ∈ [0.5·dv, 1.5·dv]
-		// stays > 0 — no further non-negativity guard is needed.
-		dv += step
-	}
-	return dv, final, ErrFiniteBurnDiverged
+	sol, err := SolveFiniteBurn(init, mu, thrust, isp, initialDvGuess, direction, residual, tolerance, maxIter)
+	return sol.Dv, sol.State, err
 }
 
 // ErrFiniteBurnDiverged means IterateForTarget hit maxIter without

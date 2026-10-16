@@ -192,3 +192,51 @@ func TestIterateForTargetMaxIterDiverges(t *testing.T) {
 		t.Errorf("expected ErrFiniteBurnDiverged, got %v", err)
 	}
 }
+
+// TestSimulateFiniteBurnDeliversTheCommandedDv: with gravity negligible, a
+// finite burn must change the speed by the commanded delta-v. The rocket
+// equation fixes the burn time, so the only way to miss is the thrust
+// quadrature: sampling the mass at the START of each sub-step
+// under-delivered by massFraction/(2*200) of the delta-v (7 m/s of 3 km/s
+// on a 50 % mass-fraction burn, #666), which put every refined departure
+// 20 Mm of apoapsis off the aim the iterator thought it hit.
+func TestSimulateFiniteBurnDeliversTheCommandedDv(t *testing.T) {
+	const (
+		mu     = 1.0 // negligible gravity
+		thrust = 1.0e6
+		isp    = 421.0
+		mass   = 1.0e5
+		dv     = 3000.0
+	)
+	init := physics.StateVector{R: orbital.Vec3{X: 1e9}, V: orbital.Vec3{Y: 100}, M: mass}
+	along := func(_, _ orbital.Vec3) orbital.Vec3 { return orbital.Vec3{Y: 1} }
+	got := SimulateFiniteBurn(init, mu, thrust, isp, dv, along).V.Y - 100
+	if math.Abs(got-dv) > 0.5 {
+		t.Errorf("a %.0f m/s burn changed the speed by %.2f m/s, want within 0.5 m/s", dv, got)
+	}
+}
+
+// TestSolveFiniteBurnKeepsTheBestIterate: an unconverged solve returns the
+// best delta-v it evaluated, not the initial guess and not a worse last
+// iterate, so a caller that plants it is never worse off than the
+// impulsive guess (#666: the old iterator threw its work away on failure).
+func TestSolveFiniteBurnKeepsTheBestIterate(t *testing.T) {
+	const mu = 3.986004418e14
+	rPark := 6378137.0 + 500e3
+	park := physics.StateVector{R: orbital.Vec3{X: rPark}, V: orbital.Vec3{Y: math.Sqrt(mu / rPark)}, M: 16114}
+	prograde := func(r, v orbital.Vec3) orbital.Vec3 { return v.Unit() }
+	const aim = 391.757e6
+	guess := 3059.96
+	res := TargetApoapsis(aim)
+	r0 := math.Abs(res(SimulateFiniteBurn(park, mu, 67000, 900, guess, prograde), mu))
+	sol, err := SolveFiniteBurn(park, mu, 67000, 900, guess, prograde, res, 1.0, 2)
+	if err != ErrFiniteBurnDiverged || sol.Converged {
+		t.Fatalf("2 iterations to 1 m should not converge: err=%v converged=%v", err, sol.Converged)
+	}
+	if sol.Dv == guess {
+		t.Errorf("returned the initial guess %.2f; the iterate that got closer was discarded", guess)
+	}
+	if math.Abs(sol.Residual) >= r0 {
+		t.Errorf("best residual %.0f m is no better than the guess's %.0f m", sol.Residual, r0)
+	}
+}

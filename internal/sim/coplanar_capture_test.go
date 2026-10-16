@@ -333,8 +333,9 @@ func splitArrivalPeriapsis(t *testing.T, equatorial, withPlaneChange bool) {
 		t.Fatal("no predicted legs")
 	}
 	leg := legs[0]
-	w.Clock.SimTime = leg.StartClock
-	c.State = leg.State
+	// The departure is flown as the finite burn it is (#666); the leg's
+	// impulsive post-burn state would overshoot the refined delta-v.
+	c.State, w.Clock.SimTime = finiteDepartureLegState(t, w, leg.NodeIndex)
 	c.Primary = leg.Primary
 	var pcTheta float64
 	pcPending := false

@@ -149,7 +149,8 @@ func TestPlanTransferSplitArrivesCoplanar(t *testing.T) {
 	// apoapsis the residual is small.
 	legs := w.PredictedLegs()
 	raise := legs[0]
-	atPC, okk := physics.KeplerStep(raise.State, mu, raise.HorizonSecs)
+	burnEnd, burnEndClock := finiteDepartureLegState(t, w, raise.NodeIndex)
+	atPC, okk := physics.KeplerStep(burnEnd, mu, raise.HorizonSecs-burnEndClock.Sub(raise.StartClock).Seconds())
 	if !okk {
 		t.Fatal("KeplerStep to plane-change point failed")
 	}
