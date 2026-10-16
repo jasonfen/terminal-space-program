@@ -165,6 +165,14 @@ const (
 	// back at TargetNone, not merely waiting. Addressed at the player who
 	// had the lock; Handle names the peer it was aimed at.
 	SessionEventTargetLockLost
+
+	// SessionEventDisconnectedBy / SessionEventKickedBy (ADR 0054): the host
+	// or an admin ended this player's session. Handle names the player,
+	// Detail the actor. They replace the plain departure so everyone else
+	// reads what happened instead of "left". Appended last: kinds are
+	// ordinals and the existing ones must not move.
+	SessionEventDisconnectedBy
+	SessionEventKickedBy
 )
 
 // SessionEvent is a transient session moment (join / leave / sync —

@@ -136,6 +136,12 @@ type Server struct {
 	reprieveWindow time.Duration
 	reclaimWait    time.Duration
 	awayAfter      time.Duration
+	dropWait       time.Duration // ADR 0054: how long a dropped session unwinds before its conn is closed
+
+	// after is the clock the drop's waits use (time.After in production), a
+	// field so a test can drive the 1.5 s restart grace and the 2 s dropWait
+	// without sleeping.
+	after func(time.Duration) <-chan time.Time
 
 	// persistMu serialises dock cross-ref persists across sessions (v0.28
 	// finding 3). Two sessions racing SetDocks could otherwise interleave
@@ -198,6 +204,7 @@ func New(cfg Config) (*Server, error) {
 		presence: newPresence(), chat: newChatRing(), ver: newVersionSurface(),
 		live: newSessionRegistry(), sweepEvery: defaultSweepEvery, reprieveWindow: defaultReprieveWindow,
 		reclaimWait: defaultReclaimWait, awayAfter: defaultAwayAfter,
+		dropWait: defaultDropWait, after: time.After,
 		away: newAwayWatch(), mail: newAwayMail(), admit: newAdmission(),
 		reclaimed: make(chan string, 4),
 	}
@@ -305,6 +312,13 @@ func (s *Server) Shutdown(ctx context.Context) error {
 // force-closed connections still unwind through persistMiddleware,
 // and the process must not exit under them.
 func (s *Server) Wait(timeout time.Duration) {
+	s.waitSessionsOn(time.After(timeout))
+}
+
+// waitSessionsOn blocks until every session handler has finished (true) or
+// limit fires (false). The drop passes its clock's channel so tests need no
+// real waits.
+func (s *Server) waitSessionsOn(limit <-chan time.Time) bool {
 	done := make(chan struct{})
 	go func() {
 		s.sessions.Wait()
@@ -312,7 +326,9 @@ func (s *Server) Wait(timeout time.Duration) {
 	}()
 	select {
 	case <-done:
-	case <-time.After(timeout):
+		return true
+	case <-limit:
+		return false
 	}
 }
 
@@ -402,7 +418,7 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 		}
 	}
 
-	game := s.withReporting(app, fp) // v0.27 S4: sessions feed the store
+	game := s.withReporting(app, fp, ls) // v0.27 S4: sessions feed the store
 	if p, err := s.store.FindPlayer(fp); err == nil {
 		// Enrolled reconnect: no card, no code — resume. Presence +
 		// join chip fire now; the middleware pairs the leave.
@@ -539,6 +555,18 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 		defer close(done)
 		sess.Context().SetValue(ctxKeyDone, done)
 		next(sess)
+		// A session the host ended on purpose leaves its player one line
+		// (ADR 0054 decision 4). Deferred so it runs after the payload
+		// write below and before done closes: the program has already
+		// restored the terminal, and nothing here closes the session.
+		if ls, _ := sess.Context().Value(ctxKeyLive).(*liveSession); ls != nil {
+			if rec := ls.dropped.Load(); rec != nil && !ls.displaced.Load() {
+				defer func() {
+					fmt.Fprintln(sess.Stderr(), rec.line())
+					_ = sess.Exit(1)
+				}()
+			}
+		}
 		fp, ok := sess.Context().Value(ctxKeyFingerprint).(string)
 		if !ok {
 			return
@@ -556,8 +584,25 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 			// is not leaving, they are resuming on another connection, and
 			// mid-coast a leave chip reads as the rendezvous dying.
 			if ls == nil || !ls.displaced.Load() {
-				if p, err := s.store.FindPlayer(fp); err == nil {
-					s.presence.event(departureKind(ls, s.awayAfter), fp, p.Handle, "")
+				// The handle comes from the drop record when there is one: a
+				// kick has already removed the roster row this would look up,
+				// which used to make a removed player's leave silent.
+				handle, actor := "", ""
+				if rec := ls.droppedRecord(); rec != nil {
+					handle, actor = rec.target, rec.actor
+				}
+				if handle == "" {
+					if p, err := s.store.FindPlayer(fp); err == nil {
+						handle = p.Handle
+					}
+				}
+				if handle != "" {
+					kind := departureKind(ls, s.awayAfter)
+					if kind == sim.SessionEventDisconnectedBy || kind == sim.SessionEventKickedBy {
+						s.presence.eventWith(kind, fp, handle, "", actor)
+					} else {
+						s.presence.event(kind, fp, handle, "")
+					}
 				}
 				// This session ended rather than handing over, so its banked
 				// interval ends with it (ADR 0036 S6), and so does any record
@@ -575,8 +620,16 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 		if !ok {
 			return
 		}
-		if _, err := s.store.FindPlayer(fp); err != nil {
+		// "Was enrolled" comes from the session, not the roster: a kick
+		// has already removed the row, and the burn in progress it
+		// promised to keep must still be saved (ADR 0054 decision 5).
+		if joined, _ := sess.Context().Value(ctxKeyJoined).(bool); !joined {
 			return // never enrolled — ephemeral visit
+		}
+		// A purging drop writes nothing: a late write would resurrect the
+		// payload the purge deletes (call 3).
+		if rec := ls.droppedRecord(); rec != nil && rec.purge {
+			return
 		}
 		_ = s.store.SavePlayer(fp, app.World())
 	}

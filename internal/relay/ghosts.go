@@ -24,6 +24,12 @@ func GhostsFor(w *sim.World, reports []CraftReport, handles map[string]string) [
 	var out []sim.Ghost
 	for _, rep := range reports {
 		dt := viewerT.Sub(rep.SubspaceTime).Seconds()
+		// The roster names a ghost; a report's own last known handle is the
+		// fallback for an owner whose row is gone (ADR 0054 decision 5).
+		handle, ok := handles[rep.Owner]
+		if !ok || handle == "" {
+			handle = rep.Handle
+		}
 		for _, cs := range rep.Crafts {
 			if cs.Landed || cs.System != sysName {
 				continue
@@ -41,7 +47,7 @@ func GhostsFor(w *sim.World, reports []CraftReport, handles map[string]string) [
 			out = append(out, sim.Ghost{
 				Owner:     rep.Owner,
 				CraftID:   cs.ID,
-				Handle:    handles[rep.Owner],
+				Handle:    handle,
 				Name:      cs.Name,
 				Glyph:     cs.Glyph,
 				PrimaryID: cs.Primary,

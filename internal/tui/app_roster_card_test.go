@@ -119,38 +119,28 @@ func TestRosterCardClickElsewhereIsSwallowed(t *testing.T) {
 	}
 }
 
-// The plain kick reaches the server's existing handler as the old remove
-// command; the purge and the disconnect toast until the server slice lands.
+// ADR 0054 slice D wired the seam: each roster answer reaches the serve
+// wrapper as its own admin command (the purge flag travels with the kick).
 func TestRosterAnswersMapOntoTheServerSeam(t *testing.T) {
-	run := func(keys ...tea.KeyMsg) (*App, tea.Msg) {
+	run := func(keys ...tea.KeyMsg) tea.Msg {
 		a := rosterApp(t)
 		var cmd tea.Cmd
 		for _, k := range keys {
 			_, cmd = a.Update(k)
 		}
-		var msg tea.Msg
-		if cmd != nil {
-			msg = cmd()
+		if cmd == nil {
+			return nil
 		}
-		return a, msg
+		return cmd()
 	}
-	_, msg := run(keyRunes("x"), keyRunes("y"), keyRunes("y"))
-	am, ok := msg.(screens.SessionAdminMsg)
-	if !ok || am.Cmd.Kind != screens.SessionCmdRemove || am.Cmd.Fingerprint != "SHA256:guest" {
-		t.Errorf("x,y,y sent %#v, want the server's remove command for pilot2", msg)
+	want := func(name string, msg tea.Msg, kind screens.SessionCommandKind, purge bool) {
+		t.Helper()
+		am, ok := msg.(screens.SessionAdminMsg)
+		if !ok || am.Cmd.Kind != kind || am.Cmd.Purge != purge || am.Cmd.Fingerprint != "SHA256:guest" {
+			t.Errorf("%s sent %#v, want kind %v purge %v for pilot2", name, msg, kind, purge)
+		}
 	}
-	a, msg := run(keyRunes("x"), tea.KeyMsg{Type: tea.KeyDown}, enterKey(), tea.KeyMsg{Type: tea.KeyUp}, enterKey())
-	if _, isAdmin := msg.(screens.SessionAdminMsg); isAdmin {
-		t.Errorf("the purge reached the server as a plain remove")
-	}
-	if !strings.Contains(a.statusMsg, "needs the server update") {
-		t.Errorf("purge toast = %q", a.statusMsg)
-	}
-	a, msg = run(keyRunes("d"), keyRunes("y"), keyRunes("y"))
-	if _, isAdmin := msg.(screens.SessionAdminMsg); isAdmin {
-		t.Errorf("disconnect reached the server as a command that kicks")
-	}
-	if a.statusMsg != "disconnect needs the server update" {
-		t.Errorf("disconnect toast = %q", a.statusMsg)
-	}
+	want("x,y,y", run(keyRunes("x"), keyRunes("y"), keyRunes("y")), screens.SessionCmdKick, false)
+	want("kick and delete", run(keyRunes("x"), tea.KeyMsg{Type: tea.KeyDown}, enterKey(), tea.KeyMsg{Type: tea.KeyUp}, enterKey()), screens.SessionCmdKick, true)
+	want("d,y,y", run(keyRunes("d"), keyRunes("y"), keyRunes("y")), screens.SessionCmdDisconnect, false)
 }

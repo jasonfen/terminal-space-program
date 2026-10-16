@@ -115,6 +115,15 @@ func (s *Server) handleOf(fp string) string {
 // blames a player for abandoning a coast they never touched, and the
 // rendezvous cancel chip that follows compounds it.
 func departureKind(sess *liveSession, awayAfter time.Duration) sim.SessionEventKind {
+	// A session the host dropped on purpose says so (ADR 0054), whatever its
+	// peer's silence would have said.
+	if sess != nil {
+		if rec := sess.dropped.Load(); rec != nil {
+			if k, ok := rec.chipKind(); ok {
+				return k
+			}
+		}
+	}
 	if sess == nil || sess.conn == nil {
 		return sim.SessionEventLeave
 	}

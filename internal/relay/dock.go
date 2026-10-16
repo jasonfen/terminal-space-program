@@ -884,13 +884,13 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 				dt := w.Clock.SimTime.Sub(time.Unix(0, r.parcelAtNano)).Seconds()
 				sim.PlaceAcrossSubspaceGap(r.returnPayload, dt)
 			}
-			// Safed at DELIVERY, not at release: the throttle and the live
-			// burn state are not part of a craft's persisted form, so safing
-			// at release would be undone by the first restart a Parcel
-			// outlived — and a live handback needs the exact same invariant
-			// regardless (#303: the docker's throttle/engine mode/attitude
-			// hold must never ride home with the guest). Every return leaves
-			// inert now, not just Parcels.
+			// Safed at DELIVERY, not at release: the docker's throttle, engine
+			// mode and attitude hold must never ride home with the guest
+			// (#303), and one call here covers every return path, a live
+			// handback and a Parcel alike. (The throttle and an in-flight
+			// burn do persist with a craft, save.go and craft_wire.go, so
+			// this is about whose hold the craft arrives with, not about
+			// what a restart keeps.) Every return leaves inert.
 			sim.SafeHandback(r.returnPayload)
 			if r.parcel {
 				kind = sim.SessionEventParcelReturned

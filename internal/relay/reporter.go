@@ -37,6 +37,11 @@ const (
 type Reporter struct {
 	Owner string
 
+	// Handle is stamped onto every report (ADR 0054): the owner's display
+	// name, so a ghost keeps its name after the roster row is gone. The
+	// serve wrapper refreshes it from the roster each tick.
+	Handle string
+
 	store        *Store
 	lastWall     time.Time
 	lastKeys     []craftKey
@@ -148,6 +153,7 @@ func (r *Reporter) Tick(w *sim.World, now time.Time) {
 	r.lastRzRate, r.lastRzSeat = rzRate, rzSeat
 	r.store.Report(CraftReport{
 		Owner:            r.Owner,
+		Handle:           r.Handle,
 		SubspaceTime:     w.Clock.SimTime,
 		ReportedAt:       now,
 		Crafts:           states,

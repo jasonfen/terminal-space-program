@@ -3069,21 +3069,11 @@ func (a *App) applySessionCommand(cmd screens.SessionCommand) (tea.Model, tea.Cm
 		return a, func() tea.Msg { return msg }
 	case screens.SessionCmdRestart:
 		return a, func() tea.Msg { return screens.SessionRestartMsg{} }
-	case screens.SessionCmdKick:
-		// ADR 0054 slice C: the roster asks for a kick; the server's drop is
-		// slice D's. Until then a plain kick runs the handler that exists (the
-		// roster-row edit, SessionCmdRemove) and the purge is not available.
-		if cmd.Purge {
-			a.toast("kick and delete vessels needs the server update")
-			return a, nil
-		}
-		cmd.Kind = screens.SessionCmdRemove
-		msg := screens.SessionAdminMsg{Cmd: cmd}
-		return a, func() tea.Msg { return msg }
-	case screens.SessionCmdDisconnect:
-		a.toast("disconnect needs the server update") // slice D owns the handler
 	case screens.SessionCmdMint, screens.SessionCmdRevoke, screens.SessionCmdRemove,
+		screens.SessionCmdKick, screens.SessionCmdDisconnect,
 		screens.SessionCmdPromote, screens.SessionCmdDemote:
+		// ADR 0054: kick and disconnect go to the serve wrapper like the other
+		// admin intents, which drops the live session (serve/drop.go).
 		msg := screens.SessionAdminMsg{Cmd: cmd}
 		return a, func() tea.Msg { return msg }
 	}
