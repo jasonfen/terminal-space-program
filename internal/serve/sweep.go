@@ -40,6 +40,11 @@ type liveSession struct {
 	// chip and whether to write the final payload.
 	dropped atomic.Pointer[dropRecord]
 
+	// purgeHandled is set by the session's own last tick once it has released
+	// the friends' vessels riding in its stack (ADR 0054 slice E), so the
+	// purge does not do it a second time against the saved program.
+	purgeHandled atomic.Bool
+
 	// done is closed once this session's final payload write has landed —
 	// at the very end of persistMiddleware, after SavePlayer. A reclaiming
 	// connection waits on it so it can never load a world the session it

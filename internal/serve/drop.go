@@ -1,7 +1,13 @@
 package serve
 
 import (
+	"errors"
+	"fmt"
+	"io/fs"
+	"path/filepath"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
@@ -153,29 +159,111 @@ func (m *reportingModel) disconnectPlayer(fp string) {
 // kickPlayer drops fp's live session and removes their roster row, so only
 // a freshly minted invite lets them back. The drop is flagged first (call 3:
 // the purge flag must be on the session before the roster edit). Their
-// vessels stay saved.
-func (m *reportingModel) kickPlayer(fp string, purge bool) {
+// vessels stay saved, unless purge is set, in which case the returned Cmd
+// finishes the delete and reports it to the host.
+func (m *reportingModel) kickPlayer(fp string, purge bool) tea.Cmd {
 	// Target-aware guardrail (v0.30 S3): an admin may kick guests but not the
 	// host, another admin, or themselves. MayAdminister passed in the caller;
 	// MayRemove adds the actor-by-target rules.
 	if !m.srv.store.MayRemove(m.owner, fp) {
 		m.app.Toast("you can't kick that player")
-		return
+		return nil
 	}
 	if purge {
-		m.purgeKickedPlayer(fp)
-		return
+		return m.purgeKickedPlayer(fp)
 	}
 	target := m.srv.handleOf(fp)
 	m.srv.dropPlayer(fp, &dropRecord{kind: dropKick, actor: m.actorHandle(), target: target})
 	_ = m.srv.store.RemovePlayer(fp)
+	return nil
 }
 
-// purgeKickedPlayer is the seam for slice E (kick and delete vessels): the
-// backup, the payload delete, the dock-record cleanup and the relay
-// Forget(owner). The teardown half (a purging drop writes no final payload)
-// is already in place via dropRecord.purge. Until E lands the request is
-// refused whole, so nobody is dropped and nothing is half-purged.
-func (m *reportingModel) purgeKickedPlayer(fp string) {
-	m.app.Toast("kick and delete vessels needs the server update")
+// purgeDoneMsg is the host's receipt for a kick and delete vessels.
+type purgeDoneMsg struct {
+	handle string
+	backup string // backup path, empty when there was nothing to back up
+	err    error
+}
+
+// text is the one toast line the host gets.
+func (d purgeDoneMsg) text() string {
+	switch {
+	case d.err != nil:
+		return "kicked " + d.handle + ", vessels not deleted: " + d.err.Error()
+	case d.backup == "":
+		return "kicked " + d.handle + ", no saved vessels to delete"
+	}
+	return "backed up " + d.handle + "'s vessels to backup/" + filepath.Base(d.backup)
+}
+
+// purgeKickedPlayer is kick and delete vessels (ADR 0054 slice E). The
+// flag goes on the live session first (call 3), then the roster row goes,
+// then the returned Cmd waits for the session to unwind and finishes the
+// purge off the host's update loop: the wait can last a dropWait.
+func (m *reportingModel) purgeKickedPlayer(fp string) tea.Cmd {
+	s := m.srv
+	target := s.handleOf(fp)
+	rec := &dropRecord{kind: dropKick, actor: m.actorHandle(), target: target, purge: true}
+	ls, live := s.live.get(fp)
+	if live {
+		if !s.dropSession(ls, rec) {
+			// Already ending for another reason (a disconnect a moment ago):
+			// it must still not write the payload the purge is about to
+			// delete, and its line must say what happened to them now.
+			if prev := ls.dropped.Load(); prev != nil && !prev.purge {
+				ls.dropped.Store(rec)
+			}
+		}
+	}
+	_ = s.store.RemovePlayer(fp)
+	return func() tea.Msg {
+		if live && ls.done != nil {
+			select {
+			case <-ls.done:
+			case <-s.after(2 * s.dropWait):
+			}
+		}
+		return s.finishPurge(fp, target, ls)
+	}
+}
+
+// finishPurge does the deleting, once the player's session has unwound (or
+// the wait ran out): their saved program is backed up and removed, the
+// friends' vessels riding in their stack are handed back, every dock record
+// naming them is rewritten or closed, and their report is forgotten so no
+// ghost of theirs is rebuilt. ls is nil when they were not connected.
+func (s *Server) finishPurge(fp, handle string, ls *liveSession) purgeDoneMsg {
+	defer s.admit.enter(fp)()
+	done := purgeDoneMsg{handle: handle}
+
+	// A stack of theirs with a friend's vessel inside is released on their own
+	// last tick when they were connected. Anything that did not happen there
+	// (they were offline, or the session never ticked) is done against their
+	// saved program, read BEFORE the delete.
+	var offline *sim.World
+	if ls == nil || !ls.purgeHandled.Load() {
+		if w, err := s.store.LoadPlayer(fp); err == nil {
+			offline = w
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			done.err = fmt.Errorf("their saved program could not be read: %w", err)
+		}
+	}
+
+	res, err := s.store.PurgePlayer(fp)
+	if err != nil && done.err == nil {
+		done.err = err
+	}
+	done.backup = res.BackupPath
+
+	// Ledger and ghost are cleaned whatever happened to the file: a kicked
+	// player must not stay named by a record or drawn on a map.
+	if offline != nil {
+		s.dock.ReleaseGuestsOf(offline, fp, s.presence.isOnline)
+	}
+	s.dock.DropRecordsNaming(fp)
+	s.relay.Forget(fp)
+	if err := s.persistDocks(); err != nil {
+		s.markDockFlushFailed(err)
+	}
+	return done
 }

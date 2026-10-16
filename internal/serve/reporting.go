@@ -183,6 +183,10 @@ func (s *Server) withReporting(app *tui.App, owner string, ls ...*liveSession) t
 func (m reportingModel) Init() tea.Cmd { return m.inner.Init() }
 
 func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if d, ok := msg.(purgeDoneMsg); ok {
+		m.app.Toast(d.text())
+		return m, nil
+	}
 	if _, ok := msg.(hostStoppedMsg); ok {
 		m.app.Toast("hosting stopped")
 		return m, nil
@@ -285,6 +289,7 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.app.Toast("you can't administer this session")
 			return m, nil
 		}
+		var cmd tea.Cmd
 		switch admin.Cmd.Kind {
 		case screens.SessionCmdMint:
 			// #274: MintInvite refuses a handle that case-insensitively
@@ -300,11 +305,11 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case screens.SessionCmdDisconnect:
 			m.disconnectPlayer(admin.Cmd.Fingerprint)
 		case screens.SessionCmdKick:
-			m.kickPlayer(admin.Cmd.Fingerprint, admin.Cmd.Purge)
+			cmd = m.kickPlayer(admin.Cmd.Fingerprint, admin.Cmd.Purge)
 		case screens.SessionCmdRemove:
 			// The pre-ADR-0054 name for a plain kick; the roster no longer
 			// emits it, but a command already in flight still means a kick.
-			m.kickPlayer(admin.Cmd.Fingerprint, false)
+			cmd = m.kickPlayer(admin.Cmd.Fingerprint, false)
 		case screens.SessionCmdPromote, screens.SessionCmdDemote:
 			// Delegation is host-only — an admin can neither create nor
 			// remove another admin (single-rooted, v0.30 S2). MayAdminister
@@ -321,7 +326,7 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.metaAt = time.Time{} // force refresh — the list is the feedback
 		m.refreshSession(time.Now())
-		return m, nil
+		return m, cmd
 	}
 
 	inner, cmd := m.inner.Update(msg)
@@ -329,8 +334,18 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// The host ended this session (ADR 0054 decision 4): the tick passes
 	// through, then the program quits on its own goroutine, restores the
 	// terminal, and persistMiddleware leaves the line and saves the world.
-	if _, ok := msg.(sim.TickMsg); ok && m.ls != nil && m.ls.dropped.Load() != nil {
-		return m, tea.Quit
+	if _, ok := msg.(sim.TickMsg); ok && m.ls != nil {
+		if rec := m.ls.dropped.Load(); rec != nil {
+			// A purge needs this World once more: a friend's vessel riding in
+			// this player's stack is handed back before the program that holds
+			// it is deleted (ADR 0054 slice E). Only the session's own
+			// goroutine may touch the World, so it happens here.
+			if rec.purge && m.srv != nil && m.ls.purgeHandled.CompareAndSwap(false, true) {
+				m.srv.dock.ReleaseGuestsOf(m.app.World(), m.owner, m.srv.presence.isOnline)
+				_ = m.srv.persistDocks()
+			}
+			return m, tea.Quit
+		}
 	}
 	// Solo (no listener): pure pass-through — no store, no reports.
 	if _, ok := msg.(sim.TickMsg); ok && m.srv != nil {
