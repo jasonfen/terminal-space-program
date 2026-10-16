@@ -134,8 +134,21 @@ func TestNavigationPlanRowShowsEquatorial(t *testing.T) {
 func TestNavigationPlanRowShowsEncounter(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
 	w := inclinedCircularEarthOrbitCraft(t, 10, 500e3)
-	c := w.ActiveCraft()
-	plantProgradeNode(w, c, 3100, "moon") // ~Trans-Lunar-Injection-sized burn, planted in Moon's frame
+	// A real [H] transfer: its arrival node is planted in the Moon's frame
+	// and the predicted path reaches the Moon's SOI (#667: a node label
+	// alone no longer makes an encounter).
+	moonIdx := -1
+	for i, b := range w.System().Bodies {
+		if b.ID == "moon" {
+			moonIdx = i
+		}
+	}
+	if moonIdx < 0 {
+		t.Fatal("no Moon in Sol")
+	}
+	if _, err := w.PlanTransfer(moonIdx); err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
 
 	planRow := v.buildNavigationBox(w)[7]
 	if !strings.Contains(planRow, "Moon encounter") {

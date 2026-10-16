@@ -947,24 +947,28 @@ func (w *World) NextFrameTransition() (FrameTransition, bool) {
 		return FrameTransition{}, false
 	}
 	current := w.ActiveCraft().Primary.ID
-	for i, n := range w.ActiveCraft().Nodes {
-		if !n.IsResolved() {
-			continue
+	var (
+		out   FrameTransition
+		found bool
+	)
+	// #667: the walk gates on frameReached, so a capture node whose
+	// frame the predicted path never enters is not a transition.
+	w.walkPlantedChain(func(st planChainStep) bool {
+		if st.Missed {
+			return false
 		}
+		n := st.Node
 		if n.PrimaryID == "" {
-			continue
+			return true
 		}
 		if n.PrimaryID != current {
-			return FrameTransition{
-				NodeIndex: i,
-				From:      current,
-				To:        n.PrimaryID,
-				When:      n.TriggerTime,
-			}, true
+			out = FrameTransition{NodeIndex: st.Index, From: current, To: n.PrimaryID, When: n.TriggerTime}
+			found = true
+			return false
 		}
-		current = n.PrimaryID
-	}
-	return FrameTransition{}, false
+		return true
+	})
+	return out, found
 }
 
 // IterateBurnDV refines the commanded Δv for a finite burn so the
@@ -3337,48 +3341,28 @@ func (w *World) ArrivalCapturePreview() (CapturePreview, bool) {
 	}
 	// Walk the planted chain, recording the post-burn state at any
 	// frame-changing node. The LAST such node is the capture point.
-	state := c.State
-	primary := c.Primary
-	clock := w.Clock.SimTime
-	systems := w.Systems
+	// #667: the walk stops at a capture node the path never reaches.
 	homeID := c.Primary.ID
-
 	var (
 		captureState   physics.StateVector
 		capturePrimary bodies.CelestialBody
 		captureTime    time.Time
 		captureIdx     = -1
 	)
-	for i, n := range c.Nodes {
-		if !n.IsResolved() {
-			continue
-		}
-		dt := n.TriggerTime.Sub(clock).Seconds()
-		if dt > 0 {
-			state, primary = w.propagateStateWithPrimary(state, primary, clock, dt)
-			clock = n.TriggerTime
-		}
-		if target, ok := bodies.LookupByID(systems, n.PrimaryID); ok && target.ID != primary.ID {
-			oldInertial := w.BodyPositionAt(primary, clock)
-			newInertial := w.BodyPositionAt(target, clock)
-			vOld := w.bodyInertialVelocityAt(primary, clock)
-			vNew := w.bodyInertialVelocityAt(target, clock)
-			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
-			primary = target
-		}
-		dir := spacecraft.NodeBurnDirection(n, state.R, state.V)
-		if dir.Norm() != 0 && n.DV != 0 {
-			state.V = state.V.Add(dir.Scale(n.DV))
+	w.walkPlantedChain(func(st planChainStep) bool {
+		if st.Missed {
+			return false
 		}
 		// A node "captures" when it leaves the chain in a frame
 		// different from the craft's home primary.
-		if primary.ID != homeID {
-			captureState = state
-			capturePrimary = primary
-			captureTime = clock
-			captureIdx = i
+		if st.Primary.ID != homeID {
+			captureState = st.State
+			capturePrimary = st.Primary
+			captureTime = st.Clock
+			captureIdx = st.Index
 		}
-	}
+		return true
+	})
 	if captureIdx < 0 {
 		return CapturePreview{}, false
 	}
@@ -3728,43 +3712,24 @@ func (w *World) PredictedFinalOrbit() (physics.StateVector, bodies.CelestialBody
 	if w.ActiveCraft().ActiveBurn != nil {
 		return physics.StateVector{}, bodies.CelestialBody{}, false
 	}
-	state := w.ActiveCraft().State
-	primary := w.ActiveCraft().Primary
-	clock := w.Clock.SimTime
-	any := false
-	systems := w.Systems
-	for _, n := range w.ActiveCraft().Nodes {
-		if !n.IsResolved() {
-			continue
+	// v0.6.1: a node planted in a non-default frame (the arrival burn
+	// of a Hohmann transfer is planted with PrimaryID = destination
+	// body) wants its Δv applied in THAT frame, so the walk rebases
+	// into it. #667: only when the path is actually in that body's SOI
+	// (frameReached); a missed capture node ends the chain, so the
+	// result is the last orbit the path really has.
+	var (
+		state   physics.StateVector
+		primary bodies.CelestialBody
+		any     bool
+	)
+	w.walkPlantedChain(func(st planChainStep) bool {
+		if st.Missed {
+			return false
 		}
-		dt := n.TriggerTime.Sub(clock).Seconds()
-		if dt > 0 {
-			state, primary = w.propagateStateWithPrimary(state, primary, clock, dt)
-			clock = n.TriggerTime
-		}
-		// v0.6.1: a node planted in a non-default frame (the
-		// arrival burn of a Hohmann transfer is planted with
-		// PrimaryID = destination body) wants its Δv applied in
-		// THAT frame, not in whatever frame the chained
-		// propagation landed in. Without this rebase, an Earth →
-		// Mars Hohmann arrival fires its capture burn while the
-		// state is still heliocentric (the integrator hasn't yet
-		// crossed Mars's SOI at the rendezvous moment), and the
-		// post-burn orbit comes out as a heliocentric Sol orbit.
-		if target, ok := bodies.LookupByID(systems, n.PrimaryID); ok && target.ID != primary.ID {
-			oldInertial := w.BodyPositionAt(primary, clock)
-			newInertial := w.BodyPositionAt(target, clock)
-			vOld := w.bodyInertialVelocityAt(primary, clock)
-			vNew := w.bodyInertialVelocityAt(target, clock)
-			state = physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew))
-			primary = target
-		}
-		dir := spacecraft.NodeBurnDirection(n, state.R, state.V)
-		if dir.Norm() != 0 && n.DV != 0 {
-			state.V = state.V.Add(dir.Scale(n.DV))
-		}
-		any = true
-	}
+		state, primary, any = st.State, st.Primary, true
+		return true
+	})
 	if !any {
 		return physics.StateVector{}, bodies.CelestialBody{}, false
 	}
