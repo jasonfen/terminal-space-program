@@ -44,6 +44,12 @@ type ProximityState struct {
 	// you are ABOVE it.
 	RelPos orbital.Vec3
 	RelVel orbital.Vec3
+	// RelPortVel is the active vessel's PORT POINT relative to the target's
+	// (ADR 0055 slice 0), set only when HasPort; the zero vector otherwise.
+	// VRelMS and ClosingMS are read from it then, so the chip, the dock gate
+	// and the ring share one velocity. RelVel stays the stack-bottom relative
+	// velocity (the drawn drift arrow).
+	RelPortVel orbital.Vec3
 
 	// RangeM / VRelMS / ClosingMS are the readout triple. ClosingMS is
 	// positive while the gap is shrinking — the same sign convention the
@@ -137,7 +143,7 @@ func (w *World) ProximityState() (ProximityState, bool) {
 		ClosingMS:   closing,
 		TargetName:  w.TargetName(),
 	}
-	w.resolveProximityPorts(&st, c, rT)
+	w.resolveProximityPorts(&st, c, rT, vT)
 	st.HullGapM = rangeM
 	if st.Own.Known && st.Target.Known {
 		st.HullGapM = HullDistanceM(c.State.R, st.Own, rT, st.Target)
@@ -149,14 +155,16 @@ func (w *World) ProximityState() (ProximityState, bool) {
 // decisions 2, 3 and 6). The aimed port is the target's first free port; a
 // vessel's own is its first. Both are ports, not "the nose": a later
 // multi-port vessel changes which entry is chosen, not these formulas.
-func (w *World) resolveProximityPorts(st *ProximityState, own *spacecraft.Spacecraft, rT orbital.Vec3) {
+func (w *World) resolveProximityPorts(st *ProximityState, own *spacecraft.Spacecraft, rT, vT orbital.Vec3) {
 	st.Own = VesselPortGeometry(own)
 	st.OwnHasPort = st.Own.HasPort()
 
 	tc, _, isCraft := w.ResolveTargetCraft()
+	var tgtRate orbital.Vec3 // a ghost carries no attitude rate
 	switch {
 	case isCraft:
 		st.Target = VesselPortGeometry(tc)
+		tgtRate = tc.AttitudeRate
 	case w.Target.Kind == TargetGhost:
 		// A ghost's hull is what its owner last reported (ADR 0053
 		// decision 9). A report without one, or a ghost that no longer
@@ -199,6 +207,15 @@ func (w *World) resolveProximityPorts(st *ProximityState, own *spacecraft.Spacec
 	if up, right, ok := PortFaceBasis(st.Target.Axis, st.Frame); ok {
 		st.OffAxisUpM = delta.Dot(up)
 		st.OffAxisRightM = delta.Dot(right)
+	}
+	// ADR 0055 slice 0: rel speed: and closing: read the PORT POINTS' relative
+	// velocity, the rate of change of the separation port range and lateral:
+	// measure, through the one reader the dock gate uses (portRelVelocity).
+	// closing keeps its sign: positive while the port separation shrinks.
+	st.RelPortVel = portRelVelocity(own.State.V, own.AttitudeRate, st.Own, vT, tgtRate, st.Target)
+	st.VRelMS = st.RelPortVel.Norm()
+	if st.PortRangeM > 0 {
+		st.ClosingMS = delta.Dot(st.RelPortVel) / st.PortRangeM
 	}
 }
 

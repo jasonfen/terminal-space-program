@@ -11,14 +11,15 @@ import (
 // ADR 0055 slice 0 (#655): does the PROXIMITY chip's `rel speed:` tell the
 // same story as the port-point geometry `lateral:` reads?
 //
-// Measured answer (see the PR and the vault log for the raw numbers): no, by
-// exactly the attitude sweep. `rel speed:` is |State.V(own) - State.V(target)|
-// (stack-bottom velocity), and so is the dock gate's speed term, but the port
-// points ride a stack that pivots about its bottom at the orbit rate, so the
-// port-to-port separation changes by (Lown + Ltarget) x omega more than
-// `rel speed:` says. `lateral:` and the port range see that; `rel speed:`
-// cannot. Candidate (b) of the ADR holds. Candidate (a), #652's radial drift,
-// is the other term and is real, but it is already inside `rel speed:`.
+// Measured answer (see the PR and the vault log for the raw numbers): they
+// did NOT agree before this slice. `rel speed:` was |State.V(own) -
+// State.V(target)| (stack-bottom velocity), and so was the dock gate's speed
+// term, but the port points ride a stack that pivots about its bottom at the
+// orbit rate, so the port-to-port separation changed by (Lown + Ltarget) x
+// omega more than `rel speed:` said (0.0116 m/s on a tug pair, 0.1214 m/s on
+// an Apollo-TLI pair). Jason decided (ADR 0055 amendment): read speed at the
+// ports. rel speed:, closing:, the gate's speed term and the ring now read the
+// port-point relative velocity, through one reader (portRelVelocity).
 
 // driftReading is one frame of everything the comparison reads.
 type driftReading struct {
@@ -26,6 +27,7 @@ type driftReading struct {
 	delta orbital.Vec3 // target port point minus own port point, world axes
 	axis  orbital.Vec3 // own nose
 	tSec  float64
+	rng   float64 // port range
 }
 
 func driftRead(t *testing.T, w *World) driftReading {
@@ -38,21 +40,22 @@ func driftRead(t *testing.T, w *World) driftReading {
 	tc, _, _ := w.ResolveTargetCraft()
 	pa := st.Own.PortPoint(own.State.R, 0)
 	pb := st.Target.PortPoint(tc.State.R, 0)
-	return driftReading{st: st, delta: pb.Sub(pa), axis: st.Own.Axis, tSec: float64(w.Clock.SimTime.UnixNano()) / 1e9}
+	return driftReading{st: st, delta: pb.Sub(pa), axis: st.Own.Axis, tSec: float64(w.Clock.SimTime.UnixNano()) / 1e9, rng: st.PortRangeM}
 }
 
 // driftSample is the centred finite-difference measurement at one orbit
 // phase: window of +-1 tick around the middle reading.
 type driftSample struct {
-	relSpeed   float64 // the chip's rel speed:, at the centre
-	portRate   float64 // |d(port separation)/dt|, centred difference
-	stateRate  float64 // |RelVel| from State.V, the readout's own source
-	sweep      float64 // |portRate vector - RelVel vector|: what State.V never carries
-	predSweep  float64 // (Lown + Ltarget) x omega, from the measured nose rotation rate
-	omega      float64 // measured rotation rate of the own nose, rad/s
-	closing    float64
-	latRateUp  float64 // d(OffAxisUpM)/dt
-	latRateRgt float64
+	relSpeed    float64 // the chip's rel speed:, at the centre
+	portRate    float64 // |d(port separation)/dt|, centred difference
+	stateRate   float64 // |RelVel| from State.V, the readout's own source
+	sweep       float64 // |portRate vector - RelVel vector|: what State.V never carries
+	predSweep   float64 // (Lown + Ltarget) x omega, from the measured nose rotation rate
+	omega       float64 // measured rotation rate of the own nose, rad/s
+	closing     float64
+	latRateUp   float64 // d(OffAxisUpM)/dt
+	latRateRgt  float64
+	portClosing float64 // -d(port range)/dt, centred difference
 }
 
 func driftMeasure(t *testing.T, w *World, afterTick func()) driftSample {
@@ -78,15 +81,16 @@ func driftMeasure(t *testing.T, w *World, afterTick func()) driftSample {
 	// is RelVel(target - own) = -RelVel(own - target) plus the sweep.
 	targetMinusOwn := m.st.RelVel.Scale(-1)
 	return driftSample{
-		relSpeed:   m.st.VRelMS,
-		portRate:   portVel.Norm(),
-		stateRate:  m.st.RelVel.Norm(),
-		sweep:      portVel.Sub(targetMinusOwn).Norm(),
-		predSweep:  lsum * omega,
-		omega:      omega,
-		closing:    m.st.ClosingMS,
-		latRateUp:  (b.st.OffAxisUpM - a.st.OffAxisUpM) / dt,
-		latRateRgt: (b.st.OffAxisRightM - a.st.OffAxisRightM) / dt,
+		relSpeed:    m.st.VRelMS,
+		portRate:    portVel.Norm(),
+		stateRate:   m.st.RelVel.Norm(),
+		sweep:       portVel.Sub(targetMinusOwn).Norm(),
+		predSweep:   lsum * omega,
+		omega:       omega,
+		closing:     m.st.ClosingMS,
+		latRateUp:   (b.st.OffAxisUpM - a.st.OffAxisUpM) / dt,
+		latRateRgt:  (b.st.OffAxisRightM - a.st.OffAxisRightM) / dt,
+		portClosing: -(b.rng - a.rng) / dt,
 	}
 }
 
@@ -122,6 +126,9 @@ func driftWorld(t *testing.T, loadout string) *World {
 		t.Fatal(err)
 	}
 	w.SetTargetCraft(0)
+	// Three ticks of settle: the first slew tick snaps an uninitialised nose,
+	// which is not a rotation, so AttitudeRate reads 0 until the second.
+	tickFor(w, 0.15)
 	return w
 }
 
@@ -135,41 +142,42 @@ func driftPhases(t *testing.T, w *World, n int, phaseGapS float64, each func(i i
 	}
 }
 
-// TestRelSpeedMissesThePortPointSweepOfAPivotingStack is the slice-0 finding
-// as a guard. Spawned Alongside, over a full lap:
-//   - rel speed: is exactly |State.V relative| (it carries #652's radial
-//     drift, and nothing else);
-//   - the port-point separation changes faster than that by (Lown+Ltarget) x
-//     omega, omega being the measured nose rotation rate, which is the orbit
-//     rate (both vessels hold prograde / retrograde);
-//   - so lateral: moves by amounts rel speed: cannot account for.
+// TestRelSpeedSeesThePortPointSweepOfAPivotingStack is the slice-0 guard.
+// Spawned Alongside, over a full lap, for a small and a ~55 m pair:
+//   - the port-point separation changes by (Lown+Ltarget) x omega more than
+//     the stack-bottom velocity says (the finding), omega being the orbit
+//     rate;
+//   - rel speed: now equals the measured rate of change of the port-point
+//     separation vector (finite difference of the very positions lateral:
+//     and port range read), within 2%;
+//   - closing: equals -d(port range)/dt, + = closing, within 0.2 mm/s.
 //
-// If a later change makes rel speed: read the port-point velocity (and the
-// gate with it), this test goes red on purpose: update it with that decision.
-func TestRelSpeedMissesThePortPointSweepOfAPivotingStack(t *testing.T) {
+// Restoring the State.V read (VRelMS = |RelVel|) turns this red at every phase.
+func TestRelSpeedSeesThePortPointSweepOfAPivotingStack(t *testing.T) {
 	for _, loadout := range []string{"RCS-tug", "Apollo-TLI"} {
 		t.Run(loadout, func(t *testing.T) {
 			w := driftWorld(t, loadout)
-			var maxSweep, maxRel float64
+			var maxSweep float64
 			driftPhases(t, w, 8, 700, func(i int, s driftSample) {
-				t.Logf("phase %d: rel speed=%.5f |port sep rate|=%.5f sweep=%.5f predicted (L1+L2)w=%.5f omega=%.3e rad/s closing=%+.5f d(up)/dt=%+.5f d(right)/dt=%+.5f",
-					i, s.relSpeed, s.portRate, s.sweep, s.predSweep, s.omega, s.closing, s.latRateUp, s.latRateRgt)
-				if math.Abs(s.relSpeed-s.stateRate) > 1e-12 {
-					t.Errorf("phase %d: rel speed %.6f != |State.V relative| %.6f", i, s.relSpeed, s.stateRate)
+				t.Logf("phase %d: rel speed=%.5f |port sep rate|=%.5f |State.V rel|=%.5f sweep=%.5f predicted (L1+L2)w=%.5f omega=%.3e closing=%+.5f vs -d(range)/dt=%+.5f",
+					i, s.relSpeed, s.portRate, s.stateRate, s.sweep, s.predSweep, s.omega, s.closing, s.portClosing)
+				if d := math.Abs(s.relSpeed - s.portRate); d > 0.02*s.portRate {
+					t.Errorf("phase %d: rel speed %.5f vs measured port-point rate %.5f (off %.5f, tolerance 2%%)", i, s.relSpeed, s.portRate, d)
+				}
+				if d := math.Abs(s.closing - s.portClosing); d > 2e-4 {
+					t.Errorf("phase %d: closing %+.5f vs -d(port range)/dt %+.5f", i, s.closing, s.portClosing)
 				}
 				if s.omega < 1e-4 || s.omega > 3e-3 {
 					t.Errorf("phase %d: nose turns at %.3e rad/s, want the ~1e-3 orbit rate (hold fixture broken)", i, s.omega)
 				}
 				if rel := s.unexplained(); rel > driftTolerance {
-					t.Errorf("phase %d: unexplained port-point motion %.5f m/s vs (L1+L2)w = %.5f (%.0f%% off, tolerance %.0f%%)", i, s.sweep, s.predSweep, rel*100, driftTolerance*100)
+					t.Errorf("phase %d: port-point motion beyond State.V is %.5f m/s vs (L1+L2)w = %.5f (%.0f%% off, tolerance %.0f%%)", i, s.sweep, s.predSweep, rel*100, driftTolerance*100)
 				}
 				maxSweep = math.Max(maxSweep, s.sweep)
-				maxRel = math.Max(maxRel, s.relSpeed)
 			})
 			if maxSweep < 0.005 {
 				t.Errorf("sweep %.5f m/s is below the 5 mm/s the finding rests on", maxSweep)
 			}
-			t.Logf("%s: max rel speed %.5f m/s, max sweep rel speed cannot see %.5f m/s (gate DockingVMS %.2f)", loadout, maxRel, maxSweep, DockingVMS)
 		})
 	}
 }
@@ -204,7 +212,13 @@ func TestDriftInstrumentSeesAnInjectedPortPointVelocity(t *testing.T) {
 	if s.unexplained() <= driftTolerance {
 		t.Errorf("injected 0.05 m/s port-point velocity read as only %.1f%% unexplained (<= %.0f%%): the instrument cannot go red", s.unexplained()*100, driftTolerance*100)
 	}
+	if d := math.Abs(s.relSpeed - s.portRate); d < 0.02*s.portRate {
+		t.Errorf("rel speed %.5f matches the injected port rate %.5f: the readout comparison cannot go red", s.relSpeed, s.portRate)
+	}
+	if d := math.Abs(cleanS.relSpeed - cleanS.portRate); d > 0.02*cleanS.portRate+1e-6 {
+		t.Errorf("clean control: rel speed %.5f vs port rate %.5f", cleanS.relSpeed, cleanS.portRate)
+	}
 	if math.Abs(s.relSpeed-cleanS.relSpeed) > 1e-6 {
-		t.Errorf("rel speed moved %.6f -> %.6f under a nose-only injection", cleanS.relSpeed, s.relSpeed)
+		t.Errorf("rel speed moved %.6f -> %.6f under a nose-only injection (the readout reads the sim-measured AttitudeRate, which the injection bypasses)", cleanS.relSpeed, s.relSpeed)
 	}
 }
