@@ -111,9 +111,9 @@ func (v *OrbitView) engineThrottleLabel(w *sim.World, c *spacecraft.Spacecraft) 
 }
 
 // engineTWRCell renders the TWR row (decision 13b): the current-throttle
-// figure, with the max-throttle figure alongside it, and "(will not
-// lift)" only when even full throttle can't clear 1.0: the verdict
-// judges the maximum, not the current setting. Whether the "(max N)"
+// figure, with the max-throttle figure alongside it. There is no lift
+// verdict (#648): a max below 1.0 is the tell on its own, and a verdict
+// read as a fault on every vessel coasting in orbit. Whether the "(max N)"
 // suffix still prints once the throttle is already at maximum is not
 // ruled by the ADR (decision 13b's open note); this build choice omits
 // it there (nothing new to say when current equals max), a reversible
@@ -129,8 +129,6 @@ func (v *OrbitView) engineTWRCell(c *spacecraft.Spacecraft) string {
 	maxLabel := fmt.Sprintf("%.2f", max)
 	var value string
 	switch {
-	case max < 1.0:
-		value = v.theme.Alert.Render(fmt.Sprintf("%s (max %s, will not lift)", curLabel, maxLabel))
 	case curLabel == maxLabel:
 		value = curLabel
 	default:
