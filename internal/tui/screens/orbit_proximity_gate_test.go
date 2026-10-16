@@ -148,6 +148,10 @@ func TestProximityPortLineSolidOnlyWhenGateReady(t *testing.T) {
 // gate reminder; before it, and after it lets go, it does not.
 func TestProximityPortRowCapturingWhileTheMagnetPulls(t *testing.T) {
 	w := portedPairWorld(t, []string{"rcs-tug"}, []string{"nudge-tug"}, orbital.Vec3{X: 0.3}, 0)
+	// The fixture's nose points retrograde and SAS would slew it prograde at
+	// 10 deg/s, moving the port faster than the gate allows (ADR 0055 slice
+	// 0). Hold the nose so the gate meets a parked pair.
+	w.Crafts[0].SlewRateDegPerSec = 1e-9
 	v := NewOrbitView(chipTestTheme())
 	v.Resize(DesignWidth, DesignHeight)
 	if row := chipLine(v.buildProximityChip(w), "port:"); strings.Contains(row, "capturing") {

@@ -292,8 +292,9 @@ slowly and straight, and the last half metre closes by itself.
   when the other leaves (a carrier with payload aboard likewise). Any port mates with any port. Targeting a port-less
   vessel in the Proximity view reads `no port`.
 - **The gate.** A dock needs all three at once: the two ports within 0.5 m,
-  relative speed under 0.1 m/s, and the two noses within 4° of pointing at
-  each other. The Proximity view shows them as the `port:`, `rel speed:` and
+  relative speed under 0.1 m/s (port to port: a long stack turning with the
+  orbit swings its port, and that counts), and the two noses within 4° of
+  pointing at each other. The Proximity view shows them as the `port:`, `rel speed:` and
   `align:` rows, each with a `(need < ...)` reminder while you are inside
   50 m and that term fails; `off-axis:` splits the miss into up/down and
   left/right across the port. The port line goes solid green when the gate
