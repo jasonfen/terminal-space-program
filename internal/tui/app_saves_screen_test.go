@@ -125,6 +125,7 @@ func TestSavesScreenOverwritePreservesOthers(t *testing.T) {
 	press(a, "down")
 	press(a, "enter") // overwrite confirm
 	press(a, "y")
+	press(a, "y")               // the card asks once more (ADR 0054 call 1)
 	if a.active != screenMenu { // back to the opener (B11 / G9 Q3)
 		t.Fatalf("active = %v after overwrite, want the pause menu that opened Saves", a.active)
 	}
@@ -209,6 +210,7 @@ func TestSavesScreenDeleteRemovesRow(t *testing.T) {
 	openSavesVia(t, a, "l")
 	press(a, "d")
 	press(a, "y")
+	press(a, "y") // the card asks once more (ADR 0054 call 1)
 	infos, err := save.List()
 	if err != nil {
 		t.Fatalf("List: %v", err)
@@ -243,6 +245,7 @@ func TestSavesScreenLoadConfirmGatesWorldSwap(t *testing.T) {
 		t.Fatal("Enter swapped the world before the confirm")
 	}
 	press(a, "y")
+	press(a, "y") // the card asks once more (ADR 0054 call 1)
 	if a.world == old {
 		t.Fatal("confirmed load did not swap the world")
 	}
