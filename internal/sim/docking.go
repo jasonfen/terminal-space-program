@@ -694,7 +694,8 @@ func (w *World) checkDocking() (int, int, bool) {
 //
 // If neither partner has a main engine, the composite ends up
 // RCS-only (Thrust=0). If only one has a main, the composite
-// inherits that engine.
+// inherits that engine (the lit stage, spacecraft.LitStageIdx: an
+// engineless leader's thrust passes up to the first engine above it).
 //
 // ActiveCraftIdx is adjusted so the player keeps flying the
 // composite (the active partner's slate position).
@@ -791,8 +792,9 @@ func (w *World) fuseCompositeAt(lead, drop int, atCentroid bool) (*spacecraft.Sp
 	// The bottom stage of the composite is unchanged (it's still
 	// `a`'s bottom — the active partner's currently-firing engine).
 	// Composite thrust / Isp accessors degenerate cleanly because
-	// SyncFields reads Stages[0] for engine numbers; the player
-	// keeps firing the same engine they were before docking.
+	// SyncFields reads the lit stage (the lowest stage with an engine,
+	// Stages[0] when the lead is powered) for engine numbers; the
+	// player keeps firing the same engine they were before docking.
 	//
 	// For the **composite-as-a-whole** thrust + Isp readout (which
 	// the v0.9 plan §"Code surface (composite-craft post-docking)"
