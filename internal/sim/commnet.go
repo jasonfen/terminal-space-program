@@ -104,7 +104,7 @@ type commNode struct {
 	rangeM   float64 // antenna rated range (m) — see commLinkRangeM
 	forwards bool    // can relay traffic onward: a relay antenna + Controllable, or a ground station
 	station  bool    // a ground station (a connection sink)
-	probe    bool    // an unmanned controllable craft — a BFS source that needs a connection
+	probe    bool    // a controllable craft with an antenna — a BFS source the link is solved for (crewed too, ADR 0057); only an uncrewed one is command-gated by it
 	craftID  uint64  // 0 for stations
 	// bodyID ties a node to a body: for a station, the body it sits on; for a
 	// craft, the primary it orbits. nearHome (craft only) marks a craft inside
@@ -356,7 +356,7 @@ func (w *World) RecomputeCommGraph() {
 			pos:      w.BodyPosition(c.Primary).Add(c.State.R),
 			rangeM:   c.AntennaRangeM,
 			forwards: c.AntennaKind == spacecraft.AntennaRelay && c.Controllable,
-			probe:    c.Controllable && !c.Crewed,
+			probe:    c.Controllable,
 			craftID:  c.ID,
 			bodyID:   c.Primary.ID,
 			nearHome: nearHome,
@@ -408,8 +408,8 @@ func nearestStationPos(nodes []commNode, p commNode) (orbital.Vec3, bool) {
 // ActiveCommPath returns the active craft's relay chain as ordered
 // world-frame points (probe, relays…, station), the hop count (number of
 // links = len(points)-1), and whether it is connected. Recomputes the graph
-// lazily if the cache is nil. connected is false for a crewed/non-probe
-// active craft (which has no BFS path) or a disconnected probe — the comms
+// lazily if the cache is nil. connected is false for a craft with no BFS
+// path (no antenna, or not controllable) or a disconnected one — the comms
 // HUD uses that to choose between DIRECT/CONNECTED and NO SIGNAL, and to
 // decide whether to draw the chain. (C2-7)
 func (w *World) ActiveCommPath() (points []orbital.Vec3, hops int, connected bool) {

@@ -634,3 +634,154 @@ func TestNearHomeOnlyAroundStationBodies(t *testing.T) {
 		t.Error("a probe in low lunar orbit (no Moon stations, Earth out of range) must read NO SIGNAL")
 	}
 }
+
+// ADR 0057 decision 2 guards. A Dragon carries a 100,000 km direct antenna
+// (range_m 1e8); against a 5e9 DSN station the geometric-mean link holds out
+// to 707,000 km, past the Moon's apogee plus its sphere of influence.
+
+// moonApoPlusSOI reads the game's own Luna: apoapsis plus SOI, in metres.
+func moonApoPlusSOI(t *testing.T, w *World) float64 {
+	t.Helper()
+	sys := w.System()
+	moon := sys.FindBody("moon")
+	earth := sys.FindBody("earth")
+	if moon == nil || earth == nil {
+		t.Fatal("home system lacks earth/moon")
+	}
+	return moon.SemimajorAxisMeters()*(1+moon.Eccentricity) + physics.SOIRadius(*moon, *earth)
+}
+
+// Guard 1: a Cargo Dragon at 500 km is connected by the home blanket at
+// any time of day, whichever side of the Earth the stations are on.
+func TestCargoDragonConnectedInLowEarthOrbit(t *testing.T) {
+	w := mustWorld(t)
+	for i := 0; i < 8; i++ {
+		w.Crafts = nil
+		w.ActiveCraftIdx = -1
+		w.Clock.SimTime = w.Clock.SimTime.Add(3 * time.Hour)
+		c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Cargo-Dragon", ParentBodyID: "earth", AltitudeM: 500_000})
+		if err != nil {
+			t.Fatalf("spawn: %v", err)
+		}
+		w.RecomputeCommGraph()
+		if !w.CommGraph.HasConnection(c.ID) {
+			t.Fatalf("Cargo Dragon at 500 km not connected at sample %d", i)
+		}
+	}
+}
+
+// Guard 2: at the Moon's distance with clear line of sight to a station the
+// Cargo Dragon is connected with no disconnect reason; the 707,000 km link
+// exceeds Luna's apoapsis plus SOI with margin (Not verified 2).
+func TestCargoDragonReachesTheMoon(t *testing.T) {
+	w := mustWorld(t)
+	reach := commLinkRangeM(100_000_000, w.GroundStations[0].AntennaRangeM)
+	if need := moonApoPlusSOI(t, w); reach < need*1.2 {
+		t.Fatalf("link reach %.0f km < 1.2 x (Luna apoapsis + SOI) %.0f km", reach/1e3, need*1.2/1e3)
+	}
+	c := spacecraft.NewFromLoadout("Cargo-Dragon")
+	radialAboveStation0(t, w, c, 384_400e3)
+	w.Crafts = []*spacecraft.Spacecraft{c}
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	w.RecomputeCommGraph()
+	if !w.CommGraph.HasConnection(c.ID) {
+		t.Fatalf("Cargo Dragon at lunar distance not connected (reason %v)", w.CommGraph.Reason(c.ID))
+	}
+	if r := w.CommGraph.Reason(c.ID); r != CommDisconnectNone {
+		t.Errorf("reason = %v, want none", r)
+	}
+	// And the range is the limit, not the blanket: well past 707,000 km it drops.
+	far := spacecraft.NewFromLoadout("Cargo-Dragon")
+	radialAboveStation0(t, w, far, 900_000e3)
+	w.Crafts = []*spacecraft.Spacecraft{far}
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	w.RecomputeCommGraph()
+	if w.CommGraph.HasConnection(far.ID) {
+		t.Error("Cargo Dragon at 900,000 km must be out of range")
+	}
+	if r := w.CommGraph.Reason(far.ID); r != CommDisconnectOutOfRange {
+		t.Errorf("reason at 900,000 km = %v, want out of range", r)
+	}
+}
+
+// Guard 3: behind the Moon nothing talks through it.
+func TestCargoDragonFarSideOfLunaIsDark(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	moon := *sys.FindBody("moon")
+	earth := *sys.FindBody("earth")
+	away := w.BodyPosition(moon).Sub(w.BodyPosition(earth)).Unit()
+	c := spacecraft.NewFromLoadout("Cargo-Dragon")
+	c.SystemIdx = 0
+	c.Primary = moon
+	c.State.R = away.Scale(moon.RadiusMeters() + 100_000)
+	w.Crafts = []*spacecraft.Spacecraft{c}
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	w.RecomputeCommGraph()
+	if w.CommGraph.HasConnection(c.ID) {
+		t.Fatal("Cargo Dragon directly behind Luna must have no link")
+	}
+	if r := w.CommGraph.Reason(c.ID); r != CommDisconnectBlocked {
+		t.Errorf("reason = %v, want blocked (needs a relay)", r)
+	}
+}
+
+// Guard 4 (sim half): a crewed Dragon is a BFS source and connects in LEO;
+// commands stay ungated either way.
+func TestCrewedDragonConnectsInLowEarthOrbit(t *testing.T) {
+	w := mustWorld(t)
+	w.Crafts = nil
+	w.ActiveCraftIdx = -1
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Dragon", ParentBodyID: "earth", AltitudeM: 500_000})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	w.RecomputeCommGraph()
+	if !w.CommGraph.HasConnection(c.ID) {
+		t.Fatal("a crewed Dragon with an antenna must connect in LEO")
+	}
+	if _, hops, ok := w.ActiveCommPath(); !ok || hops != 1 {
+		t.Errorf("ActiveCommPath hops/connected = %d/%v, want 1/true", hops, ok)
+	}
+}
+
+// Guard 5 (corrected from the ADR). EnsureCommandSource backfills a basic
+// 10,000 km direct antenna onto EVERY vessel (v0.24), so the ADR's premise
+// "no crewed part carries an antenna" does not hold at the vessel level: once
+// a crewed vessel is a link source, the Capsule and Apollo TLI also read
+// connected inside the home blanket. What stays true is the reach (10,000 km
+// against a 5e9 station is 223,600 km, short of the Moon) and that a crewed
+// craft is never command-gated, linked or not.
+func TestBackfilledAntennaCrewedVesselsReachLEONotTheMoon(t *testing.T) {
+	for _, id := range []string{"Apollo-TLI", "Capsule"} {
+		w := mustWorld(t)
+		w.Crafts = nil
+		w.ActiveCraftIdx = -1
+		c, err := w.SpawnCraft(SpawnSpec{LoadoutID: id, ParentBodyID: "earth", AltitudeM: 500_000})
+		if err != nil {
+			t.Fatalf("spawn %s: %v", id, err)
+		}
+		if c.AntennaRangeM != spacecraft.DefaultProbeAntennaRangeM {
+			t.Fatalf("%s antenna = %g, want the backfilled %g", id, c.AntennaRangeM, spacecraft.DefaultProbeAntennaRangeM)
+		}
+		w.RecomputeCommGraph()
+		if !w.CommGraph.HasConnection(c.ID) {
+			t.Errorf("%s in LEO: want connected through the home blanket", id)
+		}
+		far := spacecraft.NewFromLoadout(id)
+		radialAboveStation0(t, w, far, 384_400e3)
+		w.Crafts = []*spacecraft.Spacecraft{far}
+		w.EnsureCraftIDs()
+		w.SetActiveCraftIdx(0)
+		w.RecomputeCommGraph()
+		if w.CommGraph.HasConnection(far.ID) {
+			t.Errorf("%s at lunar distance: a 10,000 km antenna must not reach the Moon", id)
+		}
+		if !w.CanCommandCraft(far) {
+			t.Errorf("%s: a crewed craft out of contact must stay commandable", id)
+		}
+	}
+}
