@@ -61,7 +61,7 @@ func TestProximityGhostRowsMatchALocalVessel(t *testing.T) {
 	if h := ansi.Strip(cg[0]); !strings.HasSuffix(h, "port: Nudge Tug") {
 		t.Errorf("ghost header = %q, want port: Nudge Tug", h)
 	}
-	for _, label := range []string{"range:", "port:", "align:", "off-axis:", "rel speed:"} {
+	for _, label := range []string{"range:", "port:", "misalign:", "lateral:", "rel speed:"} {
 		if a, b := chipLine(cl, label), chipLine(cg, label); a == "" || a != b {
 			t.Errorf("%s ghost %q, local %q", label, b, a)
 		}

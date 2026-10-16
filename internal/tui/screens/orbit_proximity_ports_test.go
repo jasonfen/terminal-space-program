@@ -97,14 +97,14 @@ func TestProximityChipPortRows(t *testing.T) {
 	if !strings.Contains(port, "1.27 m") || !strings.Contains(port, "(need < 0.50)") {
 		t.Errorf("port row = %q, want 1.27 m (|(1.1,0.6,0.2)|) with the gate reminder", port)
 	}
-	if got := chipLine(chip, "align:"); !strings.Contains(got, "0° off") || strings.Contains(got, "need") {
+	if got := chipLine(chip, "misalign:"); !strings.Contains(got, "0° off") || strings.Contains(got, "need") {
 		t.Errorf("align row = %q, want 0° off with no reminder", got)
 	}
-	if got := chipLine(chip, "off-axis:"); !strings.Contains(got, "0.6 m ↓") || !strings.Contains(got, "0.2 m ◂") {
+	if got := chipLine(chip, "lateral:"); !strings.Contains(got, "0.6 m ↓") || !strings.Contains(got, "0.2 m ◂") {
 		t.Errorf("off-axis row = %q, want 0.6 m ↓  0.2 m ◂ (their port is below and to the left)", got)
 	}
 	// Order: header, range, port, align, off-axis, rel speed, ...
-	order := []string{"PROXIMITY", "range:", "port:", "align:", "off-axis:", "rel speed:", "closing:"}
+	order := []string{"PROXIMITY", "range:", "port:", "misalign:", "lateral:", "rel speed:", "closing:"}
 	last := -1
 	for _, label := range order {
 		idx := -1
@@ -146,8 +146,8 @@ func TestProximityNeedSuffixesTrackTheirTerm(t *testing.T) {
 		if got := strings.Contains(chipLine(chip, "port:"), "(need < 0.50)"); got != k.wantPort {
 			t.Errorf("%s: port suffix = %v, want %v (%q)", k.name, got, k.wantPort, chipLine(chip, "port:"))
 		}
-		if got := strings.Contains(chipLine(chip, "align:"), "(need < 4°)"); got != k.wantAlign {
-			t.Errorf("%s: align suffix = %v, want %v (%q)", k.name, got, k.wantAlign, chipLine(chip, "align:"))
+		if got := strings.Contains(chipLine(chip, "misalign:"), "(need < 4°)"); got != k.wantAlign {
+			t.Errorf("%s: align suffix = %v, want %v (%q)", k.name, got, k.wantAlign, chipLine(chip, "misalign:"))
 		}
 	}
 	// Outside 50 m neither shows, however badly the terms fail; off-axis is hidden.
@@ -158,10 +158,10 @@ func TestProximityNeedSuffixesTrackTheirTerm(t *testing.T) {
 	if strings.Contains(strings.Join(chip, "\n"), "need < 0.50") || strings.Contains(strings.Join(chip, "\n"), "need < 4°") {
 		t.Errorf("a reminder shows outside 50 m:\n%s", strings.Join(chip, "\n"))
 	}
-	if chipLine(chip, "off-axis:") != "" {
+	if chipLine(chip, "lateral:") != "" {
 		t.Error("off-axis row must be hidden beyond 50 m")
 	}
-	if chipLine(chip, "align:") == "" {
+	if chipLine(chip, "misalign:") == "" {
 		t.Error("align row should still read beyond 50 m")
 	}
 }
@@ -188,7 +188,7 @@ func TestProximityChipPortlessTarget(t *testing.T) {
 		if got := chipLine(chip, "port:"); !strings.Contains(got, c.row) {
 			t.Errorf("%s: port row %q, want %q", c.name, got, c.row)
 		}
-		if chipLine(chip, "align:") != "" || chipLine(chip, "off-axis:") != "" {
+		if chipLine(chip, "misalign:") != "" || chipLine(chip, "lateral:") != "" {
 			t.Errorf("%s: align/off-axis must not be drawn without a port", c.name)
 		}
 	}
@@ -317,10 +317,10 @@ func TestProximityCompactFormPortRows(t *testing.T) {
 	}
 	// Inside 50 m, 1.1 m, 6 deg off: out of gate.
 	out := compact(portedPairWorld(t, []string{"rcs-tug"}, []string{"nudge-tug"}, orbital.Vec3{X: 1.1}, 6))
-	if chipLine(out, "port:") == "" || chipLine(out, "align:") == "" {
+	if chipLine(out, "port:") == "" || chipLine(out, "misalign:") == "" {
 		t.Errorf("out-of-gate Compact Form must keep port: and align:, got %q", out)
 	}
-	if chipLine(out, "off-axis:") != "" {
+	if chipLine(out, "lateral:") != "" {
 		t.Errorf("off-axis: must be dropped in Compact Form, got %q", out)
 	}
 	if got := chipLine(out, "port:"); !strings.Contains(got, "(need < 0.50)") {
@@ -393,7 +393,7 @@ func TestProximityGhostTargetPortUnknown(t *testing.T) {
 	if got := chipLine(chip, "port:"); !strings.Contains(got, "unknown") {
 		t.Errorf("ghost port row = %q", got)
 	}
-	if chipLine(chip, "align:") != "" || chipLine(chip, "off-axis:") != "" {
+	if chipLine(chip, "misalign:") != "" || chipLine(chip, "lateral:") != "" {
 		t.Error("a ghost with no known shape must not draw align/off-axis")
 	}
 }
