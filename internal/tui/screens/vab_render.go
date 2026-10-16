@@ -23,6 +23,8 @@ func (v *VAB) HandleKey(key string) VABAction {
 		return v.handleTargetKey(key)
 	case vabModeFind:
 		return v.handleFindKey(key)
+	case vabModeSavingSub:
+		return v.handleSubKey(key)
 	default:
 		return v.handleBuildKey(key)
 	}
@@ -80,6 +82,8 @@ func (v *VAB) handleBuildKey(key string) VABAction {
 	case "s":
 		v.flash = ""
 		v.mode = vabModeNaming
+	case "S":
+		v.enterSaveSub()
 	case "o":
 		v.enterLoadMode()
 	case "/":
@@ -207,40 +211,73 @@ func (v *VAB) handleLoadKey(key string) VABAction {
 	if v.confirmDelete {
 		return v.cardKey(key)
 	}
+	n := v.loadCount()
 	switch key {
 	case "esc":
 		v.mode = vabModeBuild
 	case "up":
-		if len(v.designs) > 0 {
-			v.loadIdx = wrapIdx(v.loadIdx-1, len(v.designs))
+		if n > 0 {
+			v.loadIdx = wrapIdx(v.loadIdx-1, n)
 		}
 	case "down":
-		if len(v.designs) > 0 {
-			v.loadIdx = wrapIdx(v.loadIdx+1, len(v.designs))
+		if n > 0 {
+			v.loadIdx = wrapIdx(v.loadIdx+1, n)
 		}
 	case "enter":
 		if v.loadIdx >= 0 && v.loadIdx < len(v.designs) {
 			v.loadDesign(v.designs[v.loadIdx])
 			v.flash = fmt.Sprintf("loaded %q", v.name)
+		} else if sa, ok := v.loadedSubRow(); ok {
+			v.loadSubassembly(sa)
+			v.flash = fmt.Sprintf("loaded %q", sa.Name())
 		}
 	case "x":
-		if v.loadIdx >= 0 && v.loadIdx < len(v.designs) {
+		if v.loadIdx >= 0 && v.loadIdx < n {
 			v.raiseDelete()
 		}
 	}
 	return VABActionNone
 }
 
+// loadCount is the rows `o` lists: the designs, then the player's subassemblies.
+func (v *VAB) loadCount() int { return len(v.designs) + len(v.userSubs) }
+
+// loadedSubRow is the subassembly under the `o` cursor, when it is on one.
+func (v *VAB) loadedSubRow() (spacecraft.Subassembly, bool) {
+	i := v.loadIdx - len(v.designs)
+	if i < 0 || i >= len(v.userSubs) {
+		return spacecraft.Subassembly{}, false
+	}
+	return v.userSubs[i], true
+}
+
+// loadSubassembly opens a subassembly as the vehicle to edit, unsaved: its
+// role and name are offered again by S on the bottom stage (ADR 0056 decision
+// 10.4).
+func (v *VAB) loadSubassembly(sa spacecraft.Subassembly) {
+	v.loadDesign(sa.Design)
+	v.name = ""
+	v.loadedSub = &loadedSubassembly{name: sa.Name(), role: sa.Role()}
+}
+
 const (
 	rowDesignDelete = "delete"
 	rowDesignOut    = "out"
+	rowSubReplace   = "replace"
 )
 
-// raiseDelete opens the delete-design card on the highlighted design (ADR 0054
-// inventory row 5). The verb destroys data, so it opens on the way out.
+// raiseDelete opens the delete card on the highlighted design or subassembly
+// (ADR 0054 inventory row 5). The verb destroys data, so it opens on the way
+// out.
 func (v *VAB) raiseDelete() {
 	v.confirmDelete = true
-	v.card = NewCard(v.theme, "Delete design '"+v.designs[v.loadIdx].Name()+"'?", "This cannot be undone.", []CardRow{
+	kind, name := "design", ""
+	if v.loadIdx < len(v.designs) {
+		name = v.designs[v.loadIdx].Name()
+	} else if sa, ok := v.loadedSubRow(); ok {
+		kind, name = "subassembly", sa.Name()
+	}
+	v.card = NewCard(v.theme, "Delete "+kind+" '"+name+"'?", "This cannot be undone.", []CardRow{
 		{ID: rowDesignDelete, Label: "delete", Key: "y", Letters: []string{"y", "Y"}},
 		{ID: rowDesignOut, Label: "keep it", Key: "n  esc", Letters: []string{"n", "N", "esc"}, Out: true},
 	}, 1)
@@ -249,41 +286,49 @@ func (v *VAB) raiseDelete() {
 // ActiveCard is the ask on screen, or nil. The App composites it over the
 // dimmed screen and routes clicks to it.
 func (v *VAB) ActiveCard() *Card {
-	if v.mode == vabModeLoad && v.confirmDelete {
+	if (v.mode == vabModeLoad && v.confirmDelete) || (v.mode == vabModeSavingSub && v.subAsk) {
 		return v.card
 	}
 	return nil
 }
 
-// cardKey answers the delete card: up/down move the ▸, enter picks the
-// highlighted row, y / n / esc pick directly, every other key is swallowed.
-// Delete asks once more on the same card before it acts (call 1).
-func (v *VAB) cardKey(key string) VABAction {
-	if v.card == nil {
-		v.confirmDelete = false
-		return VABActionNone
-	}
+// answerCard feeds a key to the open card: up/down move the ▸, enter picks the
+// highlighted row, y / n / esc pick directly, every other key is swallowed. done
+// is true once a row is answered, with that row's ID; an action row asks once
+// more on the same card before it acts (call 1).
+func (v *VAB) answerCard(key string) (id string, done bool) {
 	var row int
-	var done bool
 	switch key {
 	case "up", "k":
 		v.card.Up()
-		return VABActionNone
+		return "", false
 	case "down", "j":
 		v.card.Down()
-		return VABActionNone
+		return "", false
 	case "enter":
 		row, done = v.card.Enter()
 	default:
 		var ok bool
 		if row, done, ok = v.card.Letter(key); !ok {
-			return VABActionNone
+			return "", false
 		}
 	}
 	if !done {
+		return "", false
+	}
+	return v.card.RowID(row), true
+}
+
+// cardKey answers the delete card.
+func (v *VAB) cardKey(key string) VABAction {
+	if v.card == nil {
+		v.confirmDelete = false
 		return VABActionNone
 	}
-	id := v.card.RowID(row)
+	id, done := v.answerCard(key)
+	if !done {
+		return VABActionNone
+	}
 	v.confirmDelete, v.card = false, nil
 	if id != rowDesignDelete {
 		return VABActionNone
@@ -293,6 +338,14 @@ func (v *VAB) cardKey(key string) VABAction {
 		if err := spacecraft.DeleteDesign(did); err == nil {
 			v.refreshDesigns()
 			v.flash = fmt.Sprintf("deleted %q", did)
+		} else {
+			v.flash = "delete failed: " + err.Error()
+		}
+	} else if sa, ok := v.loadedSubRow(); ok {
+		if err := spacecraft.DeleteSubassembly(sa.ID()); err == nil {
+			v.refreshDesigns()
+			v.buildPalette()
+			v.flash = fmt.Sprintf("deleted %q", sa.ID())
 		} else {
 			v.flash = "delete failed: " + err.Error()
 		}
@@ -311,9 +364,120 @@ func (v *VAB) enterLoadMode() {
 func (v *VAB) refreshDesigns() {
 	designs, _ := spacecraft.ListDesigns()
 	v.designs = designs
-	if v.loadIdx >= len(v.designs) {
+	// Only the player's subassemblies are listed: a shipped block has nothing
+	// to do from here, it is in the palette (ADR 0056 decision 8).
+	v.userSubs = nil
+	all, _ := spacecraft.ListSubassemblies()
+	for _, sa := range all {
+		if !sa.Shipped() {
+			v.userSubs = append(v.userSubs, sa)
+		}
+	}
+	if v.loadIdx >= v.loadCount() {
 		v.loadIdx = 0
 	}
+}
+
+// enterSaveSub opens the SAVE SUBASSEMBLY card on the cursor's stage and
+// everything above it (ADR 0056 decision 4). The role starts as the seam under
+// the bottom stage says: payload when it was marked `d`, else stage.
+func (v *VAB) enterSaveSub() {
+	if len(v.stages) == 0 {
+		v.flash = "nothing to save"
+		return
+	}
+	from := clampI(v.stageIdx, 0, len(v.stages)-1)
+	for i := from; i < len(v.stages); i++ {
+		if v.isEmptyComposed(i) {
+			v.flash = fmt.Sprintf("S%d is empty", i+1)
+			return
+		}
+	}
+	v.subFrom, v.subName, v.subRole = from, "", spacecraft.SubassemblyStage
+	if v.stages[from].dockSeamBelow {
+		v.subRole = spacecraft.SubassemblyPayload
+	}
+	if from == 0 && v.loadedSub != nil {
+		v.subName, v.subRole = v.loadedSub.name, v.loadedSub.role
+	}
+	v.flash = ""
+	v.subAsk, v.card = false, nil
+	v.mode = vabModeSavingSub
+}
+
+// handleSubKey drives the SAVE SUBASSEMBLY card: printable keys type the name,
+// ←/→ flips the role, enter saves (asking first over an existing name), esc
+// cancels.
+func (v *VAB) handleSubKey(key string) VABAction {
+	if v.subAsk {
+		if v.card == nil {
+			v.subAsk = false
+			return VABActionNone
+		}
+		id, done := v.answerCard(key)
+		if !done {
+			return VABActionNone
+		}
+		v.subAsk, v.card = false, nil
+		if id == rowSubReplace {
+			v.saveSubassembly()
+		}
+		return VABActionNone
+	}
+	switch key {
+	case "esc":
+		v.mode = vabModeBuild
+	case "left", "right":
+		if v.subRole == spacecraft.SubassemblyPayload {
+			v.subRole = spacecraft.SubassemblyStage
+		} else {
+			v.subRole = spacecraft.SubassemblyPayload
+		}
+	case "enter":
+		name := strings.TrimSpace(v.subName)
+		if name == "" {
+			v.flash = "name can't be empty"
+			return VABActionNone
+		}
+		v.flash = ""
+		if old, ok := v.subByID[slugifyDesign(name)]; ok {
+			note := ""
+			if old.Shipped() {
+				note = fmt.Sprintf("replaces the built-in %q", old.Name())
+			}
+			v.subAsk = true
+			v.card = NewCard(v.theme, fmt.Sprintf("replace %q?", old.Name()), note, []CardRow{
+				{ID: rowSubReplace, Label: "replace", Key: "y", Letters: []string{"y", "Y"}},
+				{ID: rowDesignOut, Label: "keep it", Key: "n  esc", Letters: []string{"n", "N", "esc"}, Out: true},
+			}, 1)
+			return VABActionNone
+		}
+		v.saveSubassembly()
+	case "backspace":
+		if r := []rune(v.subName); len(r) > 0 {
+			v.subName = string(r[:len(r)-1])
+		}
+	default:
+		if len([]rune(key)) == 1 {
+			v.subName += key
+		}
+	}
+	return VABActionNone
+}
+
+// saveSubassembly writes the block from subFrom up to the player's store and
+// puts it in the palette.
+func (v *VAB) saveSubassembly() {
+	name := strings.TrimSpace(v.subName)
+	frag := v.toFragment(v.subFrom, len(v.stages), name)
+	frag.Loadout.SubassemblyRole = v.subRole
+	if err := spacecraft.SaveSubassembly(spacecraft.Subassembly{Design: frag}); err != nil {
+		v.flash = "save failed: " + err.Error()
+	} else {
+		v.flash = fmt.Sprintf("saved subassembly %q", name)
+		v.buildPalette()
+	}
+	v.mode = vabModeBuild
 }
 
 // TitleScreen is the Title Row's screen name for the VAB's current mode
@@ -326,6 +490,8 @@ func (v *VAB) TitleScreen() string {
 		return "Load design"
 	case vabModeTarget:
 		return "Σ Δv target"
+	case vabModeSavingSub:
+		return "Save subassembly"
 	}
 	return "Vehicle Assembly (VAB)"
 }
@@ -341,6 +507,8 @@ func (v *VAB) Render(width, height int) string {
 		return v.renderLoad(width, height)
 	case vabModeTarget:
 		return v.renderTarget(width, height)
+	case vabModeSavingSub:
+		return v.renderSavingSub(width, height)
 	default:
 		return v.renderBuild(width, height)
 	}
@@ -354,7 +522,7 @@ func (v *VAB) Render(width, height int) string {
 const (
 	vabHints1 = "[tab] other column  [↑/↓] move  [←/→] change part  [PgUp/Dn] jump section  [a] add above cursor  [n] new stage  [x] remove"
 	vabHints2 = "[+/-] count  [ [ / ] ] move stage down / up  [y] copy stage  [enter] open part into pieces  [d] payload from here up"
-	vabHints3 = "[c] drops with stage below  [t] Δv goal  [s] save  [o] open  [/] find part"
+	vabHints3 = "[c] drops with stage below  [t] Δv goal  [s] save  [S] save from here up  [o] open  [/] find part"
 )
 
 // renderBuild lays out the VAB as three titled boxes in the frame (B11 / G9
@@ -564,7 +732,9 @@ func (v *VAB) renderInspector(w int) []string {
 		return nil
 	default:
 		it := v.palette[v.paletteIdx]
-		if it.isComponent {
+		if it.subassemblyID != "" {
+			v.inspectSubassembly(it.subassemblyID, add, addText)
+		} else if it.isComponent {
 			v.inspectComponent(it.id, inner, add, addText)
 			add(v.inspectAddLine(inner))
 		} else if m, ok := spacecraft.StageCatalog[it.id]; ok {
@@ -581,6 +751,38 @@ func (v *VAB) renderInspector(w int) []string {
 	}
 
 	return formBox(v.theme, "INSPECT", body, w)
+}
+
+// inspectSubassembly describes a palette subassembly: its role and stage
+// count, then its dry mass and the Δv of its own chain (ADR 0056 decision 10.6).
+func (v *VAB) inspectSubassembly(id string, add func(string), addText func(string)) {
+	sa, ok := v.subByID[id]
+	if !ok {
+		add(v.theme.Primary.Render(id))
+		return
+	}
+	block := subassemblyStages(sa)
+	stages := make([]spacecraft.Stage, len(block))
+	seams := make([]bool, len(block))
+	dry, rcs, burns := 0.0, false, false
+	for i, vs := range block {
+		stages[i] = v.resolveStage(vs)
+		seams[i] = vs.dockSeamBelow
+		dry += stages[i].DryMass
+		rcs = rcs || stages[i].RCSThrust > 0
+		burns = burns || stages[i].Thrust > 0
+	}
+	add(v.theme.Primary.Render(sa.Name()))
+	addText(sa.Role() + " · " + stageCount(len(block)))
+	switch {
+	case burns:
+		addText(fmt.Sprintf("%.0f kg dry · Δv %.0f m/s", dry, spacecraft.StackStatsSeams(stages, seams).TotalDV))
+	case rcs:
+		addText(fmt.Sprintf("%.0f kg dry · RCS only", dry))
+	default:
+		addText(fmt.Sprintf("%.0f kg dry · no engine", dry))
+	}
+	addText("adds above the cursor")
 }
 
 // inspectComponent writes the component's name line, stats and description.
@@ -623,6 +825,9 @@ func (v *VAB) inspectStackRow(inner int, add func(string), addText func(string))
 		}
 		if v.resolveStage(v.stages[i]).HasPort() {
 			addText("port: nose") // ADR 0056 decision 7
+		}
+		if sa, ok := v.subByID[v.stages[i].subassemblyID]; ok {
+			addText(fmt.Sprintf("from %q", sa.Name())) // ADR 0056 decision 3
 		}
 		return true
 	}
@@ -681,6 +886,17 @@ func partDisplayName(id string) string {
 // paletteItemLabel returns the kind (section header / jump key) and the short
 // display name for a palette entry. Full stats are in the inspector.
 func (v *VAB) paletteItemLabel(it vabPaletteItem) (kind, label string) {
+	if it.subassemblyID != "" {
+		sa, ok := v.subByID[it.subassemblyID]
+		if !ok {
+			return "subassembly", it.subassemblyID
+		}
+		tag := sa.Role()
+		if n := len(sa.Loadout.Parts); n > 1 {
+			tag += fmt.Sprintf(" · %d stages", n)
+		}
+		return "subassembly", fmt.Sprintf("%s [%s]", sa.Name(), tag)
+	}
 	if !it.isComponent {
 		m, ok := spacecraft.StageCatalog[it.id]
 		if !ok {
@@ -1008,6 +1224,63 @@ func (v *VAB) renderNaming(width, height int) string {
 	return v.vabModalBox("SAVE DESIGN", lines, width, height, "[enter] save · [esc] cancel")
 }
 
+// renderSavingSub is the SAVE SUBASSEMBLY card (ADR 0056 decision 4): the name,
+// the role, and the stages that will be saved with their marks.
+func (v *VAB) renderSavingSub(width, height int) string {
+	var lines []string
+	lines = append(lines, "  "+v.theme.Primary.Render("name: ")+v.theme.Warning.Render(v.subName+"▏"))
+	lines = append(lines, "  "+v.theme.Primary.Render("role: ")+v.theme.Warning.Render("‹ "+v.subRole+" ›")+v.theme.Dim.Render("   (←/→: payload or stage)"))
+	lines = append(lines, "")
+	run := v.stages[v.subFrom:]
+	mass := 0.0
+	for _, st := range v.resolvedStages()[v.subFrom:] {
+		mass += st.DryMass + st.FuelMass + st.MonopropMass
+	}
+	lines = append(lines, "  "+v.theme.Primary.Render(fmt.Sprintf("%s, from S%d up · %s", stageCount(len(run)), v.subFrom+1, massLabel(mass))))
+	if v.flash != "" {
+		lines = append(lines, "  "+v.theme.Warning.Render(v.flash))
+	}
+	lines = append(lines, "")
+	room := 1 << 20
+	if height > 0 {
+		room = maxInt(0, height-len(lines)-6)
+	}
+	inner := clampI(width-2*frameInset-4, 28, 96)
+	preview := v.renderRangePreview(v.subFrom, inner)
+	if len(preview) > room {
+		preview = append(preview[:maxInt(0, room-1)], v.theme.Dim.Render("…"))
+	}
+	for _, ln := range preview {
+		lines = append(lines, "  "+ln)
+	}
+	return v.vabModalBox("SAVE SUBASSEMBLY", lines, width, height, "[enter] save · [esc] cancel")
+}
+
+// renderRangePreview draws stages [from, top] top first, each header with its
+// component groups and the payload seam rows between them.
+func (v *VAB) renderRangePreview(from, w int) []string {
+	stats := v.statsOf(v.resolvedStages())
+	var out []string
+	for i := len(v.stages) - 1; i >= from; i-- {
+		if i+1 < len(v.stages) && v.stages[i+1].dockSeamBelow {
+			out = append(out, v.theme.Warning.Render(truncWidth("── payload seam ([Y] deploys, [U] undocks) ──", w)))
+		}
+		out = append(out, v.stageHeaderLine(i, stats, false, false, w))
+		for _, g := range v.rowGroups(i) {
+			out = append(out, v.groupLine(g, false, false, w))
+		}
+	}
+	return out
+}
+
+// massLabel is a mass in tonnes from 1000 kg up, else kilograms.
+func massLabel(kg float64) string {
+	if kg >= 1000 {
+		return fmt.Sprintf("%.1f t", kg/1000)
+	}
+	return fmt.Sprintf("%.0f kg", kg)
+}
+
 // renderTarget is the Σ Δv target input modal (ADR 0032 §8).
 func (v *VAB) renderTarget(width, height int) string {
 	var lines []string
@@ -1022,20 +1295,29 @@ func (v *VAB) renderTarget(width, height int) string {
 
 func (v *VAB) renderLoad(width, height int) string {
 	var lines []string
-	if len(v.designs) == 0 {
-		lines = append(lines, "  "+v.theme.Dim.Render("(no saved designs yet)"))
-	} else {
-		for i, d := range v.designs {
-			marker := "  "
-			row := fmt.Sprintf("%s  (%s)", d.Name(), stageCount(len(d.Loadout.Parts)))
-			if i == v.loadIdx {
-				marker = v.theme.Primary.Render("▸") + " "
-				row = v.theme.Warning.Render(row)
-			} else {
-				row = v.theme.Dim.Render(row)
-			}
-			lines = append(lines, "  "+marker+row)
+	row := func(i int, text string) {
+		marker := "  "
+		if i == v.loadIdx {
+			marker = v.theme.Primary.Render("▸") + " "
+			text = v.theme.Warning.Render(text)
+		} else {
+			text = v.theme.Dim.Render(text)
 		}
+		lines = append(lines, "  "+marker+text)
+	}
+	lines = append(lines, "  "+v.theme.Primary.Render("YOUR DESIGNS"))
+	if len(v.designs) == 0 {
+		lines = append(lines, "  "+v.theme.Dim.Render("  (no saved designs yet)"))
+	}
+	for i, d := range v.designs {
+		row(i, fmt.Sprintf("%s  (%s)", d.Name(), stageCount(len(d.Loadout.Parts))))
+	}
+	lines = append(lines, "  "+v.theme.Primary.Render("SUBASSEMBLIES"))
+	if len(v.userSubs) == 0 {
+		lines = append(lines, "  "+v.theme.Dim.Render("  (none saved yet)"))
+	}
+	for i, sa := range v.userSubs {
+		row(len(v.designs)+i, fmt.Sprintf("%s  (%s · %s)", sa.Name(), sa.Role(), stageCount(len(sa.Loadout.Parts))))
 	}
 	if v.flash != "" {
 		lines = append(lines, "", "  "+v.theme.Warning.Render(v.flash))

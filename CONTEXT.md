@@ -239,6 +239,19 @@ built-in Loadout, and the spawn form lists Designs alongside the built-ins
 _Avoid_: Loadout (a Design is a *player-saved* vehicle that resolves to its own
 Loadout, outside the built-in catalog namespace), Blueprint, Craft file.
 
+**Subassembly** (ADR 0056):
+A named block of one or more consecutive stages, saved from the **VAB** with
+`S` ("from here up": the cursor's stage and everything above it) and added
+whole with `a` from the palette's `· subassembly ·` section. It carries its
+internal **Dock Seam** and **Fuse** marks and a role for the whole block: a
+**payload** (released with `Y`, one at a time, or `U`) or a **stage** (fires in
+the chain). The same catalog fragment as a **Design** plus `subassembly_role`,
+stored under `$XDG_CONFIG_HOME/terminal-space-program/subassemblies/`; three
+ship (Comsat, LM, CSM+LM) as embedded data a user file can replace by ID. A
+released payload block is named after the subassembly (`Comsat-1`).
+_Avoid_: Design (a whole vehicle the spawn form lists), Part (one catalog
+stage), Module, Block, Kit, Bundle, Sub-assembly (hyphenated).
+
 **Designs Store** (v0.24 / ADR 0029):
 The app-managed directory of saved **Designs**
 (`$XDG_CONFIG_HOME/terminal-space-program/designs/`), kept distinct from the

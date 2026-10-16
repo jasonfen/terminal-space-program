@@ -460,7 +460,7 @@ func newCustomCraft(stages []spacecraft.Stage, nosePayloadPlan []int) *spacecraf
 	if c == nil || len(nosePayloadPlan) == 0 {
 		return c
 	}
-	if !splitNosePayloads(c, nosePayloadPlan) {
+	if !splitNosePayloads(c, nosePayloadPlan, nil) {
 		return c // malformed plan — NewFromStages already left it a linear craft
 	}
 	// Identity: a hand-assembled stack flies as the core (the surviving firing
@@ -483,6 +483,9 @@ func newCustomCraft(stages []spacecraft.Stage, nosePayloadPlan []int) *spacecraf
 // when the plan is malformed (any entry ≤ 0, or the payloads consume the whole
 // stack leaving no carrier core), so a stray plan degrades to a linear craft.
 //
+// names is parallel to nosePayloadPlan (top-down): a non-empty entry names that
+// payload group in place of the top-stage-derived name (ADR 0056 decision 6).
+//
 // DockedComponents come out **bottom-to-top** — core first, then each payload
 // from the bottom of the stack up — so their in-order stage concatenation
 // equals c.Stages: Undock peels stages sequentially off that order, and Deploy
@@ -494,7 +497,7 @@ func newCustomCraft(stages []spacecraft.Stage, nosePayloadPlan []int) *spacecraf
 // It sets only DockedComponents — which don't feed SyncFields — so it does NOT
 // re-sync: the caller already synced at construction (NewFromStages /
 // NewFromLoadout) and Stages are untouched here.
-func splitNosePayloads(c *spacecraft.Spacecraft, nosePayloadPlan []int) bool {
+func splitNosePayloads(c *spacecraft.Spacecraft, nosePayloadPlan []int, names []string) bool {
 	stages := c.Stages
 	n := len(stages)
 	total := 0
@@ -520,8 +523,12 @@ func splitNosePayloads(c *spacecraft.Spacecraft, nosePayloadPlan []int) bool {
 		k := nosePayloadPlan[i]
 		payloadStages := append([]spacecraft.Stage(nil), stages[off:off+k]...)
 		off += k
+		name := vehicleNameForStages(payloadStages)
+		if i < len(names) && names[i] != "" {
+			name = names[i] // ADR 0056 decision 6: named after the subassembly added
+		}
 		comps = append(comps, dockedComponentFromStages(
-			payloadStages, vehicleNameForStages(payloadStages), payloadRoleForStages(payloadStages)))
+			payloadStages, name, payloadRoleForStages(payloadStages)))
 	}
 	c.DockedComponents = comps
 	return true
@@ -539,7 +546,7 @@ func newDesignCraft(l spacecraft.Loadout) *spacecraft.Spacecraft {
 		return c
 	}
 	if len(l.NosePayloadPlan) > 0 {
-		splitNosePayloads(c, l.NosePayloadPlan) // no-op on a malformed plan → linear
+		splitNosePayloads(c, l.NosePayloadPlan, l.NosePayloadNames) // no-op on a malformed plan → linear
 	}
 	return c
 }
@@ -555,7 +562,7 @@ func (w *World) newCatalogCraft(id string) *spacecraft.Spacecraft {
 		return c
 	}
 	if plan := spacecraft.LookupLoadout(id).NosePayloadPlan; len(plan) > 0 {
-		splitNosePayloads(c, plan) // no-op on a malformed plan → linear catalog craft
+		splitNosePayloads(c, plan, spacecraft.LookupLoadout(id).NosePayloadNames) // no-op on a malformed plan → linear catalog craft
 	}
 	return c
 }

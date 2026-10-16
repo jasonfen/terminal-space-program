@@ -29,7 +29,7 @@ import (
 // and need the catalog only at spawn time, so the loadout catalog is not
 // wired into BodyCatalogHash.
 
-//go:embed data/components.json data/parts.json data/loadouts.json
+//go:embed data/components.json data/parts.json data/loadouts.json data/subassemblies/*.json
 var catalogFS embed.FS
 
 // Part is a normalized, data-authored atomic stage — engine + tank +
@@ -159,16 +159,24 @@ type PartRef struct {
 // Loadout struct — a loadout references parts by ID rather than inlining
 // full Stage literals (ADR 0026 §1).
 type LoadoutDef struct {
-	ID                string    `json:"id"`
-	Name              string    `json:"name,omitempty"`
-	Role              string    `json:"role,omitempty"`
-	Glyph             string    `json:"glyph,omitempty"`
-	Color             string    `json:"color,omitempty"`
-	Parts             []PartRef `json:"parts"`
-	DecouplePlan      []int     `json:"decouple_plan,omitempty"`
-	NosePayloadPlan   []int     `json:"nose_payload_plan,omitempty"`
-	SlewRateDegPerSec float64   `json:"slew_rate_deg_per_sec,omitempty"`
-	ScaleClass        string    `json:"scale_class,omitempty"`
+	ID              string    `json:"id"`
+	Name            string    `json:"name,omitempty"`
+	Role            string    `json:"role,omitempty"`
+	Glyph           string    `json:"glyph,omitempty"`
+	Color           string    `json:"color,omitempty"`
+	Parts           []PartRef `json:"parts"`
+	DecouplePlan    []int     `json:"decouple_plan,omitempty"`
+	NosePayloadPlan []int     `json:"nose_payload_plan,omitempty"`
+	// NosePayloadNames (ADR 0056 decision 6) is parallel to NosePayloadPlan,
+	// top-down: a non-empty entry names that payload group when it is
+	// released ("Comsat" -> "Comsat-1"); "" keeps the stage-derived name.
+	NosePayloadNames []string `json:"nose_payload_names,omitempty"`
+	// SubassemblyRole (ADR 0056 decision 3) is "payload" or "stage" for a
+	// loadout that is a Subassembly block. Ignored by the loadout path, so a
+	// subassembly file copied into loadouts/ still parses.
+	SubassemblyRole   string  `json:"subassembly_role,omitempty"`
+	SlewRateDegPerSec float64 `json:"slew_rate_deg_per_sec,omitempty"`
+	ScaleClass        string  `json:"scale_class,omitempty"`
 
 	// Category (v0.24 / ADR 0031) is the spawn-form display grouping key
 	// (e.g. "launch-vehicles", "satellites-payloads") — the CRAFT TYPE

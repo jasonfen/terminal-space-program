@@ -60,7 +60,7 @@ func TestVABPaletteHoldsEveryCatalogPart(t *testing.T) {
 func TestVABPaletteSectionOrder(t *testing.T) {
 	v := realVAB(t)
 	kinds := paletteKinds(v)
-	want := append([]string{"engine", "tank", "command-core", "antenna", "structure"}, s2Tiers...)
+	want := append(append([]string{"engine", "tank", "command-core", "antenna", "structure"}, s2Tiers...), "subassembly")
 	if strings.Join(kinds, ",") != strings.Join(want, ",") {
 		t.Errorf("palette sections = %v, want %v", kinds, want)
 	}

@@ -51,9 +51,28 @@ type VAB struct {
 
 	name string
 
-	// load-mode picker state.
-	designs []spacecraft.Design
-	loadIdx int
+	// subs is every subassembly (shipped, then the player's), subByID by ID;
+	// the palette's `· subassembly ·` section and the stage names a released
+	// payload takes come from here (ADR 0056 decisions 3 and 6).
+	subs    []spacecraft.Subassembly
+	subByID map[string]spacecraft.Subassembly
+
+	// S mode (ADR 0056 decision 4): the SAVE SUBASSEMBLY card's name, role
+	// and the stage the block starts from; subAsk is the replace ask that
+	// opens on top of it (card).
+	subName string
+	subRole string
+	subFrom int
+	subAsk  bool
+	// loadedSub is the subassembly the vehicle was opened from in `o`, so S on
+	// its bottom stage offers the same name and role again.
+	loadedSub *loadedSubassembly
+
+	// load-mode picker state: designs, then the player's subassemblies, one
+	// cursor (loadIdx) over both.
+	designs  []spacecraft.Design
+	userSubs []spacecraft.Subassembly
+	loadIdx  int
 	// confirmDelete: the open-design list is asking before it deletes the
 	// highlighted design (GK Q2, #589); card is that ask (ADR 0054, #633),
 	// non-nil exactly while confirmDelete is set.
@@ -93,18 +112,22 @@ const (
 type vabMode int
 
 const (
-	vabModeBuild  vabMode = iota
-	vabModeNaming         // typing a name to save
-	vabModeLoad           // picking a saved design to load / delete
-	vabModeTarget         // typing a Σ Δv target (ADR 0032 §8)
-	vabModeFind           // typing a palette find (ADR 0056 §2)
+	vabModeBuild     vabMode = iota
+	vabModeNaming            // typing a name to save
+	vabModeLoad              // picking a saved design to load / delete
+	vabModeTarget            // typing a Σ Δv target (ADR 0032 §8)
+	vabModeFind              // typing a palette find (ADR 0056 §2)
+	vabModeSavingSub         // the SAVE SUBASSEMBLY card (ADR 0056 §4)
 )
+
+// loadedSubassembly remembers what `o` opened a vehicle from.
+type loadedSubassembly struct{ name, role string }
 
 // CapturingText reports whether a free-text box (the design name, the Σ Δv
 // target, the palette find) is open, so `?` types and only F1 opens help (GK
 // Q3, #589).
 func (v *VAB) CapturingText() bool {
-	return v.mode == vabModeNaming || v.mode == vabModeTarget || v.mode == vabModeFind
+	return v.mode == vabModeNaming || v.mode == vabModeTarget || v.mode == vabModeFind || v.mode == vabModeSavingSub
 }
 
 // vabStage is one stage under assembly: either a composition of component
@@ -117,6 +140,10 @@ type vabStage struct {
 	catalogPartID string
 	dockSeamBelow bool // a dock seam here → this stage starts a nose-payload group (Undock release)
 	decoupleFused bool // this stage decouples together with the group below (one staging press)
+	// subassemblyID is the subassembly this stage came in with (ADR 0056
+	// decision 3), "" for a stage added by hand. It names what a released
+	// payload is called and lets the inspector say where a stage came from.
+	subassemblyID string
 }
 
 func (vs vabStage) isCatalog() bool { return vs.catalogPartID != "" }
@@ -125,6 +152,8 @@ func (vs vabStage) isCatalog() bool { return vs.catalogPartID != "" }
 type vabPaletteItem struct {
 	isComponent bool
 	id          string
+	// subassemblyID is set (and id empty) for a `· subassembly ·` row.
+	subassemblyID string
 }
 
 // vabKindOrder is the palette grouping order for components.
@@ -148,6 +177,8 @@ func (v *VAB) Reset(comps map[string]spacecraft.Component) {
 	v.stackCursor = 0
 	v.paletteIdx = 0
 	v.find = ""
+	v.loadedSub = nil
+	v.subAsk, v.card = false, nil
 	v.focus = focusStack // vehicle-primary: common edits happen in the vehicle column (ADR 0032 §2)
 	v.mode = vabModeBuild
 	v.name = ""
@@ -223,7 +254,21 @@ func (v *VAB) buildPalette() {
 			v.paletteAll = append(v.paletteAll, vabPaletteItem{isComponent: false, id: id})
 		}
 	}
+	v.refreshSubs()
+	for _, sa := range v.subs {
+		v.paletteAll = append(v.paletteAll, vabPaletteItem{subassemblyID: sa.ID()})
+	}
 	v.applyFind()
+}
+
+// refreshSubs re-reads the subassembly store (shipped blocks, then the
+// player's) into v.subs / v.subByID.
+func (v *VAB) refreshSubs() {
+	v.subs, _ = spacecraft.ListSubassemblies()
+	v.subByID = make(map[string]spacecraft.Subassembly, len(v.subs))
+	for _, sa := range v.subs {
+		v.subByID[sa.ID()] = sa
+	}
 }
 
 // matchesFind reports whether a palette item's display name or ID contains
@@ -233,12 +278,14 @@ func (v *VAB) matchesFind(it vabPaletteItem) bool {
 		return true
 	}
 	_, label := v.paletteItemLabel(it)
-	if !it.isComponent {
+	if it.subassemblyID != "" {
+		label = v.subByID[it.subassemblyID].Name() // the name, not the "[payload · 2 stages]" tag
+	} else if !it.isComponent {
 		if m, ok := spacecraft.StageCatalog[it.id]; ok {
 			label = m.Name
 		}
 	}
-	return strings.Contains(strings.ToLower(label+" "+it.id), strings.ToLower(v.find))
+	return strings.Contains(strings.ToLower(label+" "+it.id+" "+it.subassemblyID), strings.ToLower(v.find))
 }
 
 // applyFind rebuilds the visible palette from paletteAll and re-clamps the
@@ -277,6 +324,12 @@ func (v *VAB) addSelected() {
 		return
 	}
 	it := v.palette[v.paletteIdx]
+	if it.subassemblyID != "" {
+		if sa, ok := v.subByID[it.subassemblyID]; ok {
+			v.insertBlockAbove(sa)
+		}
+		return
+	}
 	if !it.isComponent {
 		// Reuse an empty current composed stage (e.g. the auto-seed) rather than
 		// orphaning it below a new catalog stage as a phantom zero-mass stage.
@@ -303,6 +356,65 @@ func (v *VAB) insertStageAbove(st vabStage) {
 	copy(v.stages[at+1:], v.stages[at:])
 	v.stages[at] = st
 	v.focusStageInStack(at)
+}
+
+// subassemblyStages is a subassembly as working stages, bottom first: its
+// composed parts keep their components, every other ref is an atomic catalog
+// stage (the discrimination loadDesign makes), each stamped with the block's
+// ID, and the block's own seam and fuse marks are applied. The bottom stage
+// carries no seam: the role gives it one when the block lands (decision 2).
+func subassemblyStages(sa spacecraft.Subassembly) []vabStage {
+	return designStages(sa.Design, sa.ID())
+}
+
+// designStages turns a design's refs into working stages with its plans
+// applied; sub, when non-empty, stamps each stage with that subassembly ID.
+func designStages(d spacecraft.Design, sub string) []vabStage {
+	byID := map[string]spacecraft.Part{}
+	for _, p := range d.Parts {
+		byID[p.ID] = p
+	}
+	var out []vabStage
+	for _, ref := range d.Loadout.Parts {
+		if p, ok := byID[ref.PartID]; ok {
+			out = append(out, vabStage{components: append([]string(nil), p.Components...), subassemblyID: sub})
+		} else {
+			out = append(out, vabStage{catalogPartID: ref.PartID, subassemblyID: sub})
+		}
+	}
+	applyNosePlan(out, d.Loadout.NosePayloadPlan)
+	applyFusePlan(out, d.Loadout.DecouplePlan)
+	return out
+}
+
+// insertBlockAbove lands a subassembly whole, with its marks, directly above
+// the cursor's stage (ADR 0056 decision 5) and puts the cursor on the block's
+// top stage. A payload block gets a payload seam under its bottom stage when
+// that stage is not the vehicle's first. An untouched empty stage (the
+// auto-seed) is replaced by the block's bottom stage rather than left under it.
+func (v *VAB) insertBlockAbove(sa spacecraft.Subassembly) {
+	block := subassemblyStages(sa)
+	if len(block) == 0 {
+		return
+	}
+	at := v.stageIdx + 1
+	if v.isEmptyComposed(v.stageIdx) {
+		at = v.stageIdx
+		v.stages = append(v.stages[:at:at], v.stages[at+1:]...)
+	}
+	if at < 0 || at > len(v.stages) {
+		at = len(v.stages)
+	}
+	if sa.Role() == spacecraft.SubassemblyPayload && at >= 1 {
+		block[0].dockSeamBelow = true
+	}
+	ns := make([]vabStage, 0, len(v.stages)+len(block))
+	ns = append(ns, v.stages[:at]...)
+	ns = append(ns, block...)
+	ns = append(ns, v.stages[at:]...)
+	v.stages = ns
+	v.focusStageInStack(at + len(block) - 1)
+	v.flash = ""
 }
 
 // addComponentToCurrent appends a component to the current stage, enforcing
@@ -428,10 +540,15 @@ func (v *VAB) toggleDecoupleFuse() {
 // dock-seam flags (the ADR 0028 / catalog.go convention: each entry is a
 // count of contiguous TOP stages forming one docked payload, ordered
 // top-down). Nil when no seams are set.
-func (v *VAB) nosePayloadPlan() []int {
+func (v *VAB) nosePayloadPlan() []int { return nosePlanOf(v.stages) }
+
+// nosePlanOf is nosePayloadPlan over any run of stages. The first stage's own
+// seam is never read: a seam under the bottom of a run is meaningless, and a
+// saved block carries its role instead (ADR 0056 decision 10.2).
+func nosePlanOf(stages []vabStage) []int {
 	var seams []int
-	for i := 1; i < len(v.stages); i++ {
-		if v.stages[i].dockSeamBelow {
+	for i := 1; i < len(stages); i++ {
+		if stages[i].dockSeamBelow {
 			seams = append(seams, i)
 		}
 	}
@@ -441,7 +558,7 @@ func (v *VAB) nosePayloadPlan() []int {
 	// Group sizes bottom-up between consecutive seams; the last runs to the top.
 	var bottomUp []int
 	for j := 0; j < len(seams); j++ {
-		end := len(v.stages)
+		end := len(stages)
 		if j+1 < len(seams) {
 			end = seams[j+1]
 		}
@@ -458,8 +575,11 @@ func (v *VAB) nosePayloadPlan() []int {
 // decouple-fuse flags (catalog.go convention: how many contiguous bottom
 // stages each staging press releases; the surviving top core is excluded).
 // Nil when every stage decouples singly (the all-ones default).
-func (v *VAB) decouplePlan() []int {
-	n := len(v.stages)
+func (v *VAB) decouplePlan() []int { return fusePlanOf(v.stages) }
+
+// fusePlanOf is decouplePlan over any run of stages.
+func fusePlanOf(stages []vabStage) []int {
+	n := len(stages)
 	if n <= 1 {
 		return nil
 	}
@@ -467,7 +587,7 @@ func (v *VAB) decouplePlan() []int {
 	var groups []int
 	cur := 1
 	for i := 1; i < n; i++ {
-		if v.stages[i].decoupleFused {
+		if stages[i].decoupleFused {
 			cur++
 			fused = true
 		} else {
@@ -484,38 +604,44 @@ func (v *VAB) decouplePlan() []int {
 
 // applyNosePayloadPlan sets the dock-seam flags from a top-down plan (the
 // inverse of nosePayloadPlan), used when loading a design.
-func (v *VAB) applyNosePayloadPlan(plan []int) {
-	for i := range v.stages {
-		v.stages[i].dockSeamBelow = false
+func (v *VAB) applyNosePayloadPlan(plan []int) { applyNosePlan(v.stages, plan) }
+
+// applyNosePlan is applyNosePayloadPlan over any run of stages.
+func applyNosePlan(stages []vabStage, plan []int) {
+	for i := range stages {
+		stages[i].dockSeamBelow = false
 	}
 	cum := 0
 	for _, g := range plan {
 		cum += g
-		idx := len(v.stages) - cum
-		if idx >= 1 && idx < len(v.stages) {
-			v.stages[idx].dockSeamBelow = true
+		idx := len(stages) - cum
+		if idx >= 1 && idx < len(stages) {
+			stages[idx].dockSeamBelow = true
 		}
 	}
 }
 
 // applyDecouplePlan sets the decouple-fuse flags from a bottom-up plan (the
 // inverse of decouplePlan), used when loading a design.
-func (v *VAB) applyDecouplePlan(plan []int) {
-	for i := range v.stages {
-		v.stages[i].decoupleFused = false
+func (v *VAB) applyDecouplePlan(plan []int) { applyFusePlan(v.stages, plan) }
+
+// applyFusePlan is applyDecouplePlan over any run of stages.
+func applyFusePlan(stages []vabStage, plan []int) {
+	for i := range stages {
+		stages[i].decoupleFused = false
 	}
 	if len(plan) == 0 {
 		return
 	}
 	idx := 0
 	for _, g := range plan {
-		for k := 0; k < g && idx < len(v.stages); k++ {
-			v.stages[idx].decoupleFused = k > 0
+		for k := 0; k < g && idx < len(stages); k++ {
+			stages[idx].decoupleFused = k > 0
 			idx++
 		}
 	}
-	for k := idx; k < len(v.stages); k++ {
-		v.stages[k].decoupleFused = k > idx // surviving core fuses together
+	for k := idx; k < len(stages); k++ {
+		stages[k].decoupleFused = k > idx // surviving core fuses together
 	}
 }
 
@@ -606,20 +732,33 @@ func (v *VAB) Warnings() []string {
 
 // toDesign builds the portable Design for the current stack: a composed
 // Part per composed stage (design-scoped auto IDs _<slug>_s<n>), an atomic
-// reference per catalog stage, plus the decouple + nose-payload plans.
+// reference per catalog stage, plus the decouple + nose-payload plans, and the
+// name each payload group takes when it is released (ADR 0056 decision 6).
 func (v *VAB) toDesign() spacecraft.Design {
-	id := slugifyDesign(v.name)
+	d := v.toFragment(0, len(v.stages), v.name)
+	d.Loadout.NosePayloadNames = v.nosePayloadNames()
+	return d
+}
+
+// toFragment builds the catalog fragment for stages [from, to): composed
+// stages become design-scoped Parts named "<name> S<n>" with the ID
+// _<slug>_s<n>, n counting from 1 within the range, and the plans run over
+// the range only, so the bottom stage's own seam is not emitted (ADR 0056
+// decision 4). Used whole by toDesign and from the cursor up by S.
+func (v *VAB) toFragment(from, to int, name string) spacecraft.Design {
+	id := slugifyDesign(name)
+	run := v.stages[from:to]
 	var parts []spacecraft.Part
-	refs := make([]spacecraft.PartRef, 0, len(v.stages))
-	for i, vs := range v.stages {
+	refs := make([]spacecraft.PartRef, 0, len(run))
+	for i, vs := range run {
 		if vs.isCatalog() {
 			refs = append(refs, spacecraft.PartRef{PartID: vs.catalogPartID})
 			continue
 		}
-		pid := fmt.Sprintf("_%s_s%d", id, i)
+		pid := fmt.Sprintf("_%s_s%d", id, i+1)
 		parts = append(parts, spacecraft.Part{
 			ID:         pid,
-			Name:       fmt.Sprintf("%s S%d", v.name, i+1),
+			Name:       fmt.Sprintf("%s S%d", name, i+1),
 			Glyph:      spacecraft.VesselGlyph,
 			Color:      "#FFD93D",
 			Components: append([]string(nil), vs.components...),
@@ -629,22 +768,46 @@ func (v *VAB) toDesign() spacecraft.Design {
 	return spacecraft.Design{
 		Loadout: spacecraft.LoadoutDef{
 			ID:              id,
-			Name:            v.name,
+			Name:            name,
 			Role:            "custom",
 			Glyph:           spacecraft.VesselGlyph,
 			Color:           "#FFD93D",
 			Parts:           refs,
-			DecouplePlan:    v.decouplePlan(),
-			NosePayloadPlan: v.nosePayloadPlan(),
+			DecouplePlan:    fusePlanOf(run),
+			NosePayloadPlan: nosePlanOf(run),
 		},
 		Parts: parts,
 	}
+}
+
+// nosePayloadNames is the per-group name list parallel to nosePayloadPlan
+// (top-down): a group that is wholly one payload-role subassembly is named
+// after it, every other group is "" and keeps its stage-derived name. A group
+// inside a stage-role block (the LM in CSM+LM) is not the block, so it is not
+// named after it.
+func (v *VAB) nosePayloadNames() []string {
+	plan := v.nosePayloadPlan()
+	names := make([]string, len(plan))
+	any := false
+	top := len(v.stages)
+	for i, k := range plan {
+		lo, hi := v.stages[top-k], v.stages[top-1]
+		if sa, ok := v.subByID[hi.subassemblyID]; ok && hi.subassemblyID == lo.subassemblyID && sa.Role() == spacecraft.SubassemblyPayload {
+			names[i], any = sa.Name(), true
+		}
+		top -= k
+	}
+	if !any {
+		return nil
+	}
+	return names
 }
 
 // loadDesign rebuilds the working stack from a saved Design — composed
 // stages keep their component lists; non-composed refs become atomic catalog
 // stages — then restores the seam / decouple flags.
 func (v *VAB) loadDesign(d spacecraft.Design) {
+	v.loadedSub = nil
 	v.name = d.Name()
 	byID := map[string]spacecraft.Part{}
 	for _, p := range d.Parts {
@@ -1085,6 +1248,7 @@ func (v *VAB) crackOpen() {
 		components:    append([]string(nil), m.VabSeed...),
 		dockSeamBelow: vs.dockSeamBelow,
 		decoupleFused: vs.decoupleFused,
+		subassemblyID: vs.subassemblyID,
 	}
 	v.stages[r.stageIdx] = cracked
 	after := v.stageDV(v.resolveStage(cracked))
@@ -1243,6 +1407,7 @@ func (v *VAB) duplicateStage() {
 		catalogPartID: src.catalogPartID,
 		dockSeamBelow: src.dockSeamBelow,
 		decoupleFused: src.decoupleFused,
+		subassemblyID: src.subassemblyID,
 	}
 	ns := make([]vabStage, 0, len(v.stages)+1)
 	ns = append(ns, v.stages[:i+1]...)
