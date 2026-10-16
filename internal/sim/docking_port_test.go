@@ -164,14 +164,20 @@ func TestDockGateEachTermRefuses(t *testing.T) {
 func TestDockMagnetMovesOnlyThePuller(t *testing.T) {
 	pull := newPortPair(t, "rcs-tug", "rcs-tug", 0.4, 0.05, 2)
 	// A SAS-held at radial-out: the slew would drag it 90 deg off the port
-	// axis if the magnet did not own its nose.
+	// axis if the magnet did not own its nose. Set after the tick that
+	// starts the pull: a vessel already slewing 90 deg moves its port faster
+	// than the gate allows (ADR 0055 slice 0), so it would never be captured.
+	pull.w.Tick()
+	if pull.w.dockMagnet == nil {
+		t.Fatal("no magnet after the first tick")
+	}
 	pull.a.AttitudeMode = spacecraft.BurnRadialOut
 	// Control: the identical pair, but two pieces of debris never dock each
 	// other, so nothing pulls and B flies its own trajectory untouched.
 	ctrl := newPortPair(t, "rcs-tug", "rcs-tug", 0.4, 0.05, 2)
 	ctrl.a.Role, ctrl.b.Role = spacecraft.RoleJettisonedStage, spacecraft.RoleJettisonedStage
 	// Run the pulled pair up to just short of the dock; the control the same.
-	tickFor(pull.w, 4.5)
+	tickFor(pull.w, 4.45)
 	tickFor(ctrl.w, 4.5)
 	if pull.w.dockMagnet == nil {
 		t.Fatal("no magnet running at 4.5 s")

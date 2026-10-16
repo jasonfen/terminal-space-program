@@ -55,7 +55,9 @@ func GhostPortGeometry(g Ghost) PortGeometry {
 // known shape.
 func ghostPairGate(a *spacecraft.Spacecraft, g Ghost) (hasPort bool, portRangeM, relSpeedMS, alignDeg float64) {
 	ga, gg := VesselPortGeometry(a), GhostPortGeometry(g)
-	relSpeedMS = a.State.V.Sub(g.Vel).Norm()
+	// A ghost carries no attitude rate on the wire: its port point reads its
+	// stack-bottom velocity, ours includes the pivot.
+	relSpeedMS = portRelVelocity(a.State.V, a.AttitudeRate, ga, g.Vel, orbital.Vec3{}, gg).Norm()
 	if !ga.HasPort() || !gg.HasPort() || !ga.Known || !gg.Known {
 		return false, 0, relSpeedMS, 0
 	}

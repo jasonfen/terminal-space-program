@@ -45,12 +45,49 @@ func PortGateTermsHold(st ProximityState) bool {
 	return dockGateHolds(st.HasPort, st.PortRangeM, st.VRelMS, st.AlignDeg)
 }
 
+// attitudeRateOf is the angular velocity (rad/s, world axes) that carries
+// unit vector from onto to in secs. Zero when either end is undefined or the
+// nose did not move.
+func attitudeRateOf(from, to orbital.Vec3, secs float64) orbital.Vec3 {
+	if secs <= 0 || from.Norm() == 0 || to.Norm() == 0 {
+		return orbital.Vec3{}
+	}
+	axis := from.Cross(to)
+	n := axis.Norm()
+	if n < 1e-15 {
+		return orbital.Vec3{}
+	}
+	ang := math.Atan2(n, from.Dot(to))
+	return axis.Scale(ang / n / secs)
+}
+
+// portPointVelocity is the inertial velocity of port i of a vessel whose
+// stack bottom moves at v and whose nose turns at omega: the stack pivots
+// about its bottom, so the port point carries omega x (axis * offset) on top
+// of v. A vessel with no known shape or no port reads v.
+func portPointVelocity(v, omega orbital.Vec3, g PortGeometry, i int) orbital.Vec3 {
+	if !g.Known || i >= len(g.Ports) {
+		return v
+	}
+	return v.Add(omega.Cross(g.Axis.Scale(g.Ports[i].OffsetM)))
+}
+
+// portRelVelocity is THE relative velocity of the dock gate, the chip's
+// rel speed: / closing: and the Proximity ring: own port point minus the
+// target's, so it is the rate of change of exactly the separation that port
+// range and lateral: measure. The chip (ProximityState), dockPairGate and
+// ghostPairGate all call it, so the three cannot drift apart. Either side
+// without a known port reads its stack-bottom velocity.
+func portRelVelocity(vOwn, wOwn orbital.Vec3, gOwn PortGeometry, vTgt, wTgt orbital.Vec3, gTgt PortGeometry) orbital.Vec3 {
+	return portPointVelocity(vOwn, wOwn, gOwn, 0).Sub(portPointVelocity(vTgt, wTgt, gTgt, 0))
+}
+
 // dockPairGate is the gate's three readings for two vessels, from their
 // stacks and attitudes. hasPort is false when either vessel is port-less or
 // either attitude is uninitialised (no shape is known).
 func dockPairGate(a, b *spacecraft.Spacecraft) (hasPort bool, portRangeM, relSpeedMS, alignDeg float64) {
 	ga, gb := VesselPortGeometry(a), VesselPortGeometry(b)
-	relSpeedMS = a.State.V.Sub(b.State.V).Norm()
+	relSpeedMS = portRelVelocity(a.State.V, a.AttitudeRate, ga, b.State.V, b.AttitudeRate, gb).Norm()
 	if !ga.HasPort() || !gb.HasPort() || !ga.Known || !gb.Known {
 		return false, 0, relSpeedMS, 0
 	}

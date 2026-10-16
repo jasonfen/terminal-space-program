@@ -1855,7 +1855,11 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	// ADR 0053 decision 5: the docking magnet owns the nose of the vessel
 	// it is pulling, so the slew is suspended for it.
 	if !w.InstantSAS && !w.dockMagnetPulls(c) && !w.ghostMagnetPulls(c) {
+		before := c.CurrentAttitudeDir.Unit()
 		c.SlewToward(w.slewTargetFor(c), secs)
+		c.AttitudeRate = attitudeRateOf(before, c.CurrentAttitudeDir.Unit(), secs)
+	} else {
+		c.AttitudeRate = orbital.Vec3{}
 	}
 
 	// Warp-lock fast path: analytic Kepler propagation in chunks small

@@ -166,6 +166,14 @@ type Spacecraft struct {
 	// mid-slew restores its real nose.
 	CurrentAttitudeDir orbital.Vec3
 
+	// AttitudeRate (ADR 0055 slice 0) is the nose's inertial angular
+	// velocity in rad/s, world axes, measured by the sim from the slew it
+	// applied this tick. It is what makes a port point's velocity more than
+	// State.V: a stack pivots about its bottom (State.R), so its port point
+	// moves at State.V + AttitudeRate x (axis * portOffset). Transient (a
+	// load starts at zero until the first tick) and never persisted.
+	AttitudeRate orbital.Vec3 `json:"-"`
+
 	// SlewRateDegPerSec (v0.10.0+) caps attitude angular rate in
 	// **sim-time** (deg/s, integrated against the warp-scaled tick).
 	// Zero => DefaultSlewRateDegPerSec. Set from the loadout at
