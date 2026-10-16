@@ -205,3 +205,29 @@ func TestQuitCardRows(t *testing.T) {
 		t.Error("n answers a guest's quit card")
 	}
 }
+
+// A key column never touches the right edge, and a row with no key can run to
+// the edge, so the longest verb (a destructive extra row, one to four words)
+// reads whole in its second step.
+func TestCardKeyColumnAndLongVerb(t *testing.T) {
+	rows := []CardRow{
+		{ID: "k", Label: "kick", Key: "y", Letters: []string{"y"}},
+		{ID: "kd", Label: "kick and delete vessels"},
+		{ID: "out", Label: "cancel", Key: "n  esc", Letters: []string{"n", "esc"}, Out: true},
+	}
+	c := NewCard(sessionTheme(), "Kick pilot2?", "", rows, 0)
+	for step := 0; step < 2; step++ {
+		for i, ln := range strings.Split(ansi.Strip(c.Render()), "\n") {
+			if r := []rune(ln); len(r) == CardW && r[CardW-1] == '│' && i > 1 && i < 8 && r[CardW-2] != ' ' {
+				t.Errorf("step %d line %d: text touches the right edge: %q", step, i, ln)
+			}
+		}
+		if step == 0 {
+			c.Down()
+			c.Enter()
+		}
+	}
+	if out := ansi.Strip(c.Render()); !strings.Contains(out, "yes, kick and delete vessels") {
+		t.Errorf("the second step cut the long verb:\n%s", out)
+	}
+}

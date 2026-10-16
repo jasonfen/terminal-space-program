@@ -23,7 +23,8 @@ const CardW = MenuCardW
 const (
 	cardTitleW  = CardW - 4 // the title's room: two indent cells and the box edges
 	cardNoteW   = CardW - 6
-	cardLabelW  = 28
+	cardLabelW  = 26 // the label column when the row has a key; a row with no key may use the whole line
+	cardRowW    = CardW - 6
 	cardMinRows = 9 // a two- or three-row card is 9 rows tall
 )
 
@@ -209,12 +210,16 @@ func (c *Card) Render() string {
 	lines = append(lines, "")
 	for i, r := range c.visible() {
 		cursor := "  "
-		label := truncWidth(r.Label, cardLabelW-1)
+		w := cardLabelW
+		if r.Key == "" {
+			w = cardRowW
+		}
+		label := truncWidth(r.Label, w-1)
 		if i == c.cursor {
 			cursor = c.theme.Primary.Render("▸") + " "
 			label = c.theme.Primary.Render(label)
 		}
-		lines = append(lines, "  "+cursor+padCells(label, cardLabelW)+c.theme.Dim.Render(r.Key))
+		lines = append(lines, "  "+cursor+padCells(label, w)+c.theme.Dim.Render(r.Key))
 	}
 	for len(lines)+5 < c.Height() { // rows pad to the height of the first step
 		lines = append(lines, "")
