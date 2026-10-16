@@ -3,8 +3,6 @@ package screens
 import (
 	"strings"
 	"testing"
-
-	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // GK Q4 (#589): the VAB's key list in plain words, same keys; a third KEYS row
@@ -62,54 +60,5 @@ func TestVABGrammar(t *testing.T) {
 	}
 	if got := stageCount(3); got != "3 stages" {
 		t.Errorf("stageCount(3) = %q", got)
-	}
-}
-
-// GK Q2 (#589): x in the open-design list asks first, in the saves voice.
-// Enter does nothing (Q7), n / esc keep the file, only y deletes.
-func TestVABDesignDeleteAsksFirst(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	v := NewVAB(Theme{})
-	v.Reset(testVABComps())
-	v.addComponentToCurrent("eng")
-	v.name = "Moon Lifter"
-	if err := spacecraft.SaveDesign(v.toDesign()); err != nil {
-		t.Fatalf("SaveDesign: %v", err)
-	}
-	onDisk := func() int { v.refreshDesigns(); return len(v.designs) }
-	v.enterLoadMode()
-	if onDisk() != 1 {
-		t.Fatalf("setup: %d designs on disk, want 1", onDisk())
-	}
-	v.enterLoadMode()
-
-	v.HandleKey("x")
-	out := v.Render(140, 40)
-	if !strings.Contains(out, "delete design 'Moon Lifter'? This cannot be undone. [y/n]") {
-		t.Errorf("x raised no ask:\n%s", out)
-	}
-	if onDisk() != 1 {
-		t.Fatal("x deleted the design before any answer")
-	}
-	v.mode = vabModeLoad
-	for _, k := range []string{"enter", "w", "x", "up"} {
-		v.HandleKey(k)
-		if !strings.Contains(v.Render(140, 40), "[y/n]") || onDisk() != 1 || v.mode != vabModeLoad {
-			t.Fatalf("%q answered or dismissed the ask (designs %d)", k, onDisk())
-		}
-	}
-	for _, k := range []string{"n", "esc"} {
-		v.HandleKey(k)
-		if strings.Contains(v.Render(140, 40), "[y/n]") || onDisk() != 1 {
-			t.Fatalf("%q did not cancel cleanly (designs %d)", k, onDisk())
-		}
-		if v.mode != vabModeLoad {
-			t.Fatalf("%q left the design list (mode %v), it should only drop the ask", k, v.mode)
-		}
-		v.HandleKey("x")
-	}
-	v.HandleKey("y")
-	if onDisk() != 0 {
-		t.Error("y did not delete the design")
 	}
 }

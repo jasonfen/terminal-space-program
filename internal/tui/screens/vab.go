@@ -49,9 +49,11 @@ type VAB struct {
 	// load-mode picker state.
 	designs []spacecraft.Design
 	loadIdx int
-	// confirmDelete: the open-design list is asking [y/n] before it deletes
-	// the highlighted design (GK Q2, #589).
+	// confirmDelete: the open-design list is asking before it deletes the
+	// highlighted design (GK Q2, #589); card is that ask (ADR 0054, #633),
+	// non-nil exactly while confirmDelete is set.
 	confirmDelete bool
+	card          *Card
 
 	// target is the vehicle-level Σ Δv target in m/s (ADR 0032 §8), 0 == none.
 	// Session-only: it drives the stats-strip readout and the tank-row hint but
