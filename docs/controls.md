@@ -606,7 +606,7 @@ for a tank, `+` / `-` for the count, done.
 | `c` | **Drops with stage below** (fuse): toggle a fused decouple. The stage drops together with the group below it on one staging press |
 | `t` | **Δv goal**: set a session **Σ Δv target**. The stats strip reads `current / target (delta)`, and with a tank row selected a hint shows how many of that tank close the gap (`+2 → Σ ≈ 9280 ✓`) or that it's unreachable |
 | `s` | Name and save the design |
-| `o` | Open a saved design to edit. In the list `Enter` loads the highlighted design and `x` asks `delete design 'name'? This cannot be undone. [y/n]` first (only `y` deletes; `Enter` never answers the ask) |
+| `o` | Open a saved design to edit. In the list `Enter` loads the highlighted design and `x` opens a card, `Delete design 'name'?`, on `keep it` (`delete` asks once more before it acts) |
 | `Enter` in a box | Name box: keep the typed name and save. Δv goal box: keep the typed Σ Δv. `Esc` cancels either |
 | `Esc` | Back to the map |
 
@@ -654,9 +654,9 @@ it in save mode (with a `＋ New save…` row), `[Load Game]` in load mode.
 | Key | Action |
 |---|---|
 | `↑` / `↓` | Move the save cursor (click a row to select it; click again to activate) |
-| `Enter` | Load mode: load the save (asks first). Save mode: `＋ New save…` prompts for a name (prefilled with vessel + in-game day); an existing named save asks to overwrite |
+| `Enter` | Load mode: load the save (a card asks first). Save mode: `＋ New save…` prompts for a name (prefilled with vessel + in-game day); an existing named save asks to overwrite (a card) |
 | `Enter` in the name box | Keep the typed name and save; `Esc` cancels |
-| `y` / `n` / `Esc` | On an ask (load, overwrite, delete): only `y` says yes; `n` or `Esc` says no; `Enter` does nothing and the question stays |
-| `d` | Delete the highlighted save (asks first; works on quicksave and autosaves too) |
+| A card | Opens on the way out (`cancel` / `keep it`): `↑`/`↓` + `Enter` pick a row, `y` the first, `n` or `Esc` the way out; an action row asks once more. A click on a row picks it |
+| `d` | Delete the highlighted save (a card asks first; works on quicksave and autosaves too) |
 | `r` | Rename a named save. Quicksave and autosave slots are managed and can't be renamed or overwritten by hand |
 | `Esc` | Back |

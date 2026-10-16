@@ -223,7 +223,7 @@ var helpSections = []helpSection{
 		{"enter (name box)", "keep the typed name and save the design; esc cancels"},
 		{"enter (Δv box)", "keep the typed Σ Δv goal; esc cancels"},
 		{"enter (design list)", "load the highlighted design; esc closes the list"},
-		{"x (design list)", "delete the highlighted design: asks [y/n] first, only y deletes; enter never answers the ask"},
+		{"x (design list)", "delete the highlighted design: a card asks first, opening on keep it; delete asks once more before it acts"},
 	}},
 	{"MISSIONS (ladder screen, open with M)", [][2]string{
 		{"1", "turn Flight School on / off (the row under its list says which)"},
@@ -231,10 +231,10 @@ var helpSections = []helpSection{
 	}},
 	{"SAVES (menu → Save / Load Game)", [][2]string{
 		{"↑ / ↓", "move the save cursor"},
-		{"enter", "load-mode: load (asks [y/n]) · save-mode: new save / overwrite (asks [y/n])"},
+		{"enter", "load-mode: load (a card asks first) · save-mode: new save / overwrite (a card asks first)"},
 		{"enter (name box)", "keep the typed name and save; esc cancels"},
-		{"d", "delete the highlighted save (asks [y/n])"},
-		{"y / n / esc", "on an ask: only y says yes; n or esc says no; enter does nothing and the question stays"},
+		{"d", "delete the highlighted save (a card asks first)"},
+		{"a card", "opens on the way out: ↑ / ↓ + enter pick a row, y the first, n or esc the way out; an action row asks once more"},
 		{"r", "rename a named save (quicksave / autosaves can't be renamed)"},
 		{"esc", "back to the map"},
 	}},
