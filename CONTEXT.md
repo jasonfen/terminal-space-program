@@ -602,6 +602,33 @@ entry scale, also outside the `v` cycle — and the two can stack (jumping
 to Proximity from inside the chase-cam and back).
 _Avoid_: Docking view, RPO screen.
 
+**Centerline view** (ADR 0055):
+The right half of the **Proximity View** at Design Size and above: the
+picture out of your own **Docking Port** along your nose, in the port
+face's frame (up = the face's up, right = its right, the same basis the
+`lateral:` row and the PORT-frame pulses read). Your port is a fixed
+**crosshair** near the middle of the half; the Target's port is a **ring**
+of the port gate's radius (0.5 m at the half's scale) drawn where it is
+across your face, a `○` glyph under 3 cells across, dashed until the
+**Docking Gate** holds and solid after; a **Standoff cross** inside the
+ring slides off its centre by the alignment lean. The half fits on entry
+to twice the lateral miss (2 m across at least), then the **Camera
+Contract** holds; `+` / `-` zoom it with the side picture by one factor
+(one Zoom Memory multiplier for the pair), and the side picture's scale bar
+is the only one. Below Design Size it is the first thing Compact Form
+drops; the side picture keeps its dotted **corridor**, 50 m out along the
+Target's port axis. Named for the Shuttle's ODS centerline camera.
+_Avoid_: Port view (the surface `V` view's future sibling, not this),
+Docking camera, DPAI.
+
+**Standoff cross**:
+The small `+` inside the **Centerline view**'s ring that shows which way
+your nose leans off parallel to the Target's port axis, displaced from the
+ring's centre by the lean (up / right of the face, the **Misalign** pair),
+reaching the ring's edge exactly at the 4° **Docking Gate** term. Centred
+= straight. The Apollo docking target's standoff cross, read the same way.
+_Avoid_: Tick, Lean mark, Alignment vector.
+
 **Camera Contract**:
 The rule that camera fit (center + zoom) is solely the player's: the sim
 may fit the canvas only once per **Framing Event**, and ambient sim-state
