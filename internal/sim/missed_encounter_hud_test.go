@@ -124,9 +124,12 @@ func TestMissedTransferHUDDoesNotClaimMoonEncounter(t *testing.T) {
 
 // plannedMoonTransfer plants the default vessel's [H] Moon transfer;
 // shortMps trims the departure node so the predicted path misses.
-func plannedMoonTransfer(t *testing.T, shortMps float64) (*World, bodies.CelestialBody) {
+func plannedMoonTransfer(t testing.TB, shortMps float64) (*World, bodies.CelestialBody) {
 	t.Helper()
-	w := mustWorld(t)
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
 	for i, b := range w.System().Bodies {
 		if b.ID != "moon" {
 			continue
