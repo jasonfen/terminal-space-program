@@ -411,3 +411,30 @@ func TestPurgeMidDockMyVesselInTheirStackIsHandedBackOffline(t *testing.T) {
 		t.Fatalf("the host did not get their own vessel back: crafts=%d", len(hw.Crafts))
 	}
 }
+
+// Their session never gets to tick again (a dead peer, closed under it by the
+// watchdog): the friend's vessel is still handed back, from the saved
+// program, rather than going with the delete.
+func TestPurgeMidDockHandsBackFromDiskWhenTheirSessionNeverTicks(t *testing.T) {
+	d := newMidDock(t, true, true)
+	hw, gw := d.hostApp.World(), d.gernApp.World()
+	if err := d.srv.store.SavePlayer(d.gfp, gw); err != nil {
+		t.Fatal(err)
+	}
+	cmd := d.purgeFromHost()
+	close(d.gernLS.done) // the connection is gone; no tick ever saw the flag
+	if d.gernLS.purgeHandled.Load() {
+		t.Fatal("setup: their session handled the purge")
+	}
+	if done := cmd().(purgeDoneMsg); done.err != nil {
+		t.Fatal(done.err)
+	}
+	d.host = tick(d.host)
+	d.host = tick(d.host)
+	if len(hw.Crafts) != 1 || hw.Crafts[0].TotalMass() != d.hostMass {
+		t.Fatalf("the host did not get their own vessel back: crafts=%d", len(hw.Crafts))
+	}
+	if n := namedInLedger(t, d.srv, d.gfp, "gern"); len(n) != 0 {
+		t.Errorf("a record still names the purged player: %v", n)
+	}
+}
