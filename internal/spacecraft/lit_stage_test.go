@@ -46,8 +46,15 @@ func TestLitStageIsBottomForEveryShippedLoadout(t *testing.T) {
 			t.Errorf("%s: no stages", id)
 			continue
 		}
-		if got := LitStageIdx(l.Stages); got != 0 {
-			t.Errorf("%s: LitStageIdx = %d, want 0", id, got)
+		wantLit := 0
+		if id == "Dragon" || id == "Cargo-Dragon" {
+			wantLit = 1 // ADR 0057 decision 3: the trunk is the inert bottom stage
+		}
+		if got := LitStageIdx(l.Stages); got != wantLit {
+			t.Errorf("%s: LitStageIdx = %d, want %d", id, got, wantLit)
+		}
+		if wantLit != 0 {
+			continue // the bottom-stage identities below hold only where lit == bottom
 		}
 		b := l.Stages[0]
 		if l.Thrust() != b.Thrust || l.Isp() != b.Isp || l.Fuel() != b.FuelMass {

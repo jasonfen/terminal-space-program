@@ -15,7 +15,7 @@ import (
 // the chain). It is the same catalog fragment a Design is
 // ({parts, loadouts:[one]}) plus LoadoutDef.SubassemblyRole.
 //
-// Three ship embedded under data/subassemblies/. Player-saved ones live in
+// Five ship embedded under data/subassemblies/. Player-saved ones live in
 // $XDG_CONFIG_HOME/terminal-space-program/subassemblies/<slug>.json, a sibling
 // of designs/. IDs are their own namespace: they are never merged into
 // Loadouts or StageCatalog, so the subassembly "csm-lm" and the skipped part
@@ -41,8 +41,8 @@ func (s Subassembly) Role() string {
 // replaced it).
 func (s Subassembly) Shipped() bool { return s.Loadout.Source == "embedded" }
 
-// shippedSubassemblyOrder is the order the three shipped blocks list in.
-var shippedSubassemblyOrder = []string{"comsat", "lm", "csm-lm"}
+// shippedSubassemblyOrder is the order the shipped blocks list in.
+var shippedSubassemblyOrder = []string{"comsat", "lm", "csm-lm", "dragon", "cargo-dragon"}
 
 // SubassembliesDir resolves the player's subassemblies directory, a sibling of
 // DesignsDir.

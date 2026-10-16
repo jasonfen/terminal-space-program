@@ -1,0 +1,11 @@
+{
+  "loadouts": [
+    {
+      "id": "cargo-dragon",
+      "name": "Cargo Dragon",
+      "role": "custom",
+      "parts": [{"part_id": "dragon-trunk"}, {"part_id": "dragon-cargo"}],
+      "subassembly_role": "stage"
+    }
+  ]
+}

@@ -49,6 +49,11 @@ type Part struct {
 	// "sustainer", "transfer", "payload", "tug") — purely descriptive,
 	// carried over from StageModule.Tier. Not part of the runtime Stage.
 	Tier string `json:"tier,omitempty"`
+	// Description is an optional one-line fact the VAB inspector prints under
+	// the tier line (ADR 0057 decision 4); purely cosmetic catalog data with
+	// no hash weight, like Component.Description. Atomic parts only: a
+	// composed part has none.
+	Description string `json:"description,omitempty"`
 
 	// Physical numbers (units mirror Stage exactly).
 	DryMassKg            float64 `json:"dry_mass_kg"`

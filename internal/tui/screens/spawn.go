@@ -263,7 +263,7 @@ type craftCategory struct {
 
 var craftCategories = []craftCategory{
 	{"launch-vehicles", "Launch Vehicles"},
-	{"mission-stacks", "Crewed Mission Stacks"},
+	{"mission-stacks", "Mission Stacks"},
 	{"upper-stages", "Upper Stages"},
 	{"landers-capsules", "Landers & Capsules"},
 	{"tugs-relays", "Tugs & Relays"},

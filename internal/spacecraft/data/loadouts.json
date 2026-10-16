@@ -189,6 +189,82 @@
       ]
     },
     {
+      "id": "Dragon",
+      "name": "Dragon",
+      "role": "capsule",
+      "category": "landers-capsules",
+      "glyph": "➤",
+      "color": "#DCE4F0",
+      "parts": [
+        {
+          "part_id": "dragon-trunk"
+        },
+        {
+          "part_id": "dragon-crew"
+        }
+      ]
+    },
+    {
+      "id": "Cargo-Dragon",
+      "name": "Cargo Dragon",
+      "role": "capsule",
+      "category": "landers-capsules",
+      "glyph": "➤",
+      "color": "#DCE4F0",
+      "parts": [
+        {
+          "part_id": "dragon-trunk"
+        },
+        {
+          "part_id": "dragon-cargo"
+        }
+      ]
+    },
+    {
+      "id": "Falcon-9-Dragon",
+      "name": "Falcon 9 + Dragon",
+      "role": "mission-stack",
+      "category": "mission-stacks",
+      "glyph": "➤",
+      "color": "#B0D8FF",
+      "parts": [
+        {
+          "part_id": "f9-s1"
+        },
+        {
+          "part_id": "f9-s2"
+        },
+        {
+          "part_id": "dragon-trunk"
+        },
+        {
+          "part_id": "dragon-crew"
+        }
+      ]
+    },
+    {
+      "id": "Falcon-9-Cargo-Dragon",
+      "name": "F9 + Cargo Dragon",
+      "role": "mission-stack",
+      "category": "mission-stacks",
+      "glyph": "➤",
+      "color": "#B0D8FF",
+      "parts": [
+        {
+          "part_id": "f9-s1"
+        },
+        {
+          "part_id": "f9-s2"
+        },
+        {
+          "part_id": "dragon-trunk"
+        },
+        {
+          "part_id": "dragon-cargo"
+        }
+      ]
+    },
+    {
       "id": "Kern-Stack",
       "name": "Kern Stack",
       "role": "mission-stack",
