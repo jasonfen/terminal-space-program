@@ -80,11 +80,18 @@ type ProximityState struct {
 	// the TARGET's port relative to yours, split across the target's port
 	// face (PortFaceBasis): positive up / right means push that way to
 	// centre on it, negative down / left.
-	PortRangeM    float64
-	AlignDeg      float64
-	OffAxisUpM    float64
-	OffAxisRightM float64
-	HasPort       bool
+	PortRangeM float64
+	AlignDeg   float64
+	// MisalignUpDeg / MisalignRightDeg (ADR 0055 decision 3) split the lean of
+	// your axis off parallel-to-theirs across the target's port face: the
+	// components of a_own along PortFaceBasis(a_target) up / right, as asin
+	// degrees. Positive = nose above / right of parallel. One definition for
+	// the navball's pitch / yaw row and the Centerline view's standoff cross.
+	MisalignUpDeg    float64
+	MisalignRightDeg float64
+	OffAxisUpM       float64
+	OffAxisRightM    float64
+	HasPort          bool
 
 	// PortName is the target's top component ("CM"), empty when the target
 	// has no port. TargetHasPort / OwnHasPort say which side lacks one;
@@ -207,6 +214,8 @@ func (w *World) resolveProximityPorts(st *ProximityState, own *spacecraft.Spacec
 	if up, right, ok := PortFaceBasis(st.Target.Axis, st.Frame); ok {
 		st.OffAxisUpM = delta.Dot(up)
 		st.OffAxisRightM = delta.Dot(right)
+		st.MisalignUpDeg = misalignDeg(st.Own.Axis.Unit().Dot(up))
+		st.MisalignRightDeg = misalignDeg(st.Own.Axis.Unit().Dot(right))
 	}
 	// ADR 0055 slice 0: rel speed: and closing: read the PORT POINTS' relative
 	// velocity, the rate of change of the separation port range and lateral:
@@ -217,6 +226,11 @@ func (w *World) resolveProximityPorts(st *ProximityState, own *spacecraft.Spacec
 	if st.PortRangeM > 0 {
 		st.ClosingMS = delta.Dot(st.RelPortVel) / st.PortRangeM
 	}
+}
+
+// misalignDeg is asin of a unit-vector component, clamped, in degrees.
+func misalignDeg(c float64) float64 {
+	return math.Asin(math.Max(-1, math.Min(1, c))) * 180 / math.Pi
 }
 
 // portlessReason is the parenthesis of a "none (...)" port row: a lone
