@@ -184,7 +184,7 @@ func (v *VAB) buildPalette() {
 
 // addSelected adds the palette item under the cursor: a component to the
 // current stage (creating one if needed), or a catalog part as a new atomic
-// stage on top.
+// stage directly above the cursor's stage.
 func (v *VAB) addSelected() {
 	if v.paletteIdx < 0 || v.paletteIdx >= len(v.palette) {
 		return
@@ -198,18 +198,31 @@ func (v *VAB) addSelected() {
 			v.focusStageInStack(v.stageIdx)
 			return
 		}
-		v.stages = append(v.stages, vabStage{catalogPartID: it.id})
-		v.stageIdx = len(v.stages) - 1
-		v.focusStageInStack(v.stageIdx)
+		v.insertStageAbove(vabStage{catalogPartID: it.id})
 		return
 	}
 	v.addComponentToCurrent(it.id)
 }
 
+// insertStageAbove puts st directly above the cursor's stage (ADR 0056 §5) and
+// moves the cursor onto it. With the cursor on the top stage, or on an empty
+// stack, that is the same as appending.
+func (v *VAB) insertStageAbove(st vabStage) {
+	at := v.stageIdx + 1
+	if at < 0 || at > len(v.stages) {
+		at = len(v.stages)
+	}
+	v.stages = append(v.stages, vabStage{})
+	copy(v.stages[at+1:], v.stages[at:])
+	v.stages[at] = st
+	v.focusStageInStack(at)
+}
+
 // addComponentToCurrent appends a component to the current stage, enforcing
 // single-fuel-per-stage (ADR 0029 §3): a chemistry conflict is rejected with
 // a flash, not applied. Adding to an atomic catalog stage starts a fresh
-// composed stage instead (you can't crack open an opaque block).
+// composed stage above the cursor instead (you can't crack open an opaque
+// block).
 func (v *VAB) addComponentToCurrent(id string) {
 	if len(v.stages) == 0 {
 		v.stages = append(v.stages, vabStage{})
@@ -219,9 +232,7 @@ func (v *VAB) addComponentToCurrent(id string) {
 		v.stageIdx = len(v.stages) - 1
 	}
 	if v.stages[v.stageIdx].isCatalog() {
-		v.stages = append(v.stages, vabStage{components: []string{id}})
-		v.stageIdx = len(v.stages) - 1
-		v.focusStageInStack(v.stageIdx)
+		v.insertStageAbove(vabStage{components: []string{id}})
 		return
 	}
 	if warn := v.fuelConflict(v.stages[v.stageIdx].components, id); warn != "" {
@@ -448,7 +459,18 @@ func (v *VAB) resolvedStages() []spacecraft.Stage {
 
 // Stats is the live Δv / TWR / mass readout for the current stack.
 func (v *VAB) Stats() spacecraft.VehicleStats {
-	return spacecraft.StackStats(v.resolvedStages())
+	return v.statsOf(v.resolvedStages())
+}
+
+// statsOf is StackStats with this vehicle's payload seams applied: per-stage Δv
+// stops at a seam and Σ is the carrier chain (ADR 0056 decision 9). stages must
+// be the resolved form of v.stages (same length, same order).
+func (v *VAB) statsOf(stages []spacecraft.Stage) spacecraft.VehicleStats {
+	seams := make([]bool, len(v.stages))
+	for i, vs := range v.stages {
+		seams[i] = vs.dockSeamBelow
+	}
+	return spacecraft.StackStatsSeams(stages, seams)
 }
 
 // Warnings returns the soft (non-blocking) validation notes (ADR 0029 §5):
@@ -1016,12 +1038,19 @@ func (v *VAB) setTarget(input string) bool {
 // targetReadout is the vehicle stats strip: the plain Σ Δv line, or — when a
 // target is set — the "current / target (delta)" form (ADR 0032 §8).
 func (v *VAB) targetReadout(stats spacecraft.VehicleStats) string {
-	if v.target > 0 {
-		return fmt.Sprintf("Σ Δv %.0f / %.0f (%+.0f) m/s · %.1f t · TWR %.2f",
-			stats.TotalDV, v.target, stats.TotalDV-v.target, stats.TotalMass/1000, stats.LiftoffTWR)
+	carrier := ""
+	for _, vs := range v.stages {
+		if vs.dockSeamBelow {
+			carrier = " (carrier)" // Σ is the carrier chain; each payload row reads its own Δv
+			break
+		}
 	}
-	return fmt.Sprintf("Σ Δv %.0f m/s · %.1f t · TWR %.2f",
-		stats.TotalDV, stats.TotalMass/1000, stats.LiftoffTWR)
+	if v.target > 0 {
+		return fmt.Sprintf("Σ Δv %.0f / %.0f (%+.0f) m/s%s · %.1f t · TWR %.2f",
+			stats.TotalDV, v.target, stats.TotalDV-v.target, carrier, stats.TotalMass/1000, stats.LiftoffTWR)
+	}
+	return fmt.Sprintf("Σ Δv %.0f m/s%s · %.1f t · TWR %.2f",
+		stats.TotalDV, carrier, stats.TotalMass/1000, stats.LiftoffTWR)
 }
 
 // sigmaWithTank returns the whole-stack Σ Δv if `extra` more of compID were in
@@ -1041,7 +1070,7 @@ func (v *VAB) sigmaWithTank(i int, compID string, extra int) float64 {
 			stages[k] = v.resolveStage(vs)
 		}
 	}
-	return spacecraft.StackStats(stages).TotalDV
+	return v.statsOf(stages).TotalDV
 }
 
 // tankHint is the optional one-line hint under the stats strip when a target is
@@ -1069,7 +1098,7 @@ func (v *VAB) tankHint() string {
 	// added, so the other stages are computed a single time and the target
 	// stage grows one component per step (not a full re-resolve per step).
 	base := v.resolvedStages()
-	cur := spacecraft.StackStats(base).TotalDV
+	cur := v.statsOf(base).TotalDV
 	if cur >= v.target {
 		return "" // met — the strip's (+delta) already says so
 	}
@@ -1080,7 +1109,7 @@ func (v *VAB) tankHint() string {
 	for k := 1; k <= maxAdd; k++ {
 		comps = append(comps, g.compID)
 		base[r.stageIdx], _ = spacecraft.ComposeStage(comps, v.comps)
-		s := spacecraft.StackStats(base).TotalDV
+		s := v.statsOf(base).TotalDV
 		if s >= v.target {
 			return fmt.Sprintf("%s: +%d → Σ ≈ %.0f ✓", name, k, s)
 		}
@@ -1113,8 +1142,8 @@ func (v *VAB) reorderStage(dir int) {
 }
 
 // duplicateStage clones the cursor's stage and inserts the copy directly above
-// it (ADR 0030 §5). The clone starts with fresh boundary flags so it doesn't
-// inherit surprising staging.
+// it (ADR 0030 §5). The clone keeps the stage's marks (dock seam, fused
+// decouple), so a copy of a seamed stage is seamed (ADR 0056 decision 10.1).
 func (v *VAB) duplicateStage() {
 	r, ok := v.currentRow()
 	if !ok {
@@ -1125,6 +1154,8 @@ func (v *VAB) duplicateStage() {
 	clone := vabStage{
 		components:    append([]string(nil), src.components...),
 		catalogPartID: src.catalogPartID,
+		dockSeamBelow: src.dockSeamBelow,
+		decoupleFused: src.decoupleFused,
 	}
 	ns := make([]vabStage, 0, len(v.stages)+1)
 	ns = append(ns, v.stages[:i+1]...)

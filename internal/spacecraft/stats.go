@@ -24,11 +24,41 @@ type VehicleStats struct {
 	LiftoffTWR float64
 }
 
-// StackStats computes the VAB readout for a bottom-first stage stack.
-func StackStats(stages []Stage) VehicleStats {
-	massAtOrAbove := func(i int) float64 {
+// StackStats computes the VAB readout for a bottom-first stage stack with no
+// payload seams: every stage hauls everything above it.
+func StackStats(stages []Stage) VehicleStats { return StackStatsSeams(stages, nil) }
+
+// StackStatsSeams is StackStats for a stack with payload (dock) seams.
+// seamBelow[i] marks a seam under stage i (index 0 is never a seam). A payload
+// group runs from a seamed stage up to the next seam or the top. Per-stage Δv
+// stops at the group's top: a payload stage reads the Δv it has on its own
+// (what it flies with once released), while stages below the first seam carry
+// the payloads as mass. TotalDV is the carrier chain alone (the stages under
+// the first seam), not a sum over payloads (ADR 0056 decision 9).
+func StackStatsSeams(stages []Stage, seamBelow []bool) VehicleStats {
+	seamed := func(i int) bool { return i >= 1 && i < len(seamBelow) && seamBelow[i] }
+	// top[i] is the exclusive upper bound of the stack stage i hauls; carrier[i]
+	// marks the stages under the first seam.
+	top := make([]int, len(stages))
+	carrier := make([]bool, len(stages))
+	inCarrier, groupStart := true, 0
+	for i := range stages {
+		if seamed(i) {
+			inCarrier, groupStart = false, i
+		}
+		if inCarrier {
+			carrier[i], top[i] = true, len(stages)
+			continue
+		}
+		e := groupStart + 1
+		for e < len(stages) && !seamed(e) {
+			e++
+		}
+		top[i] = e
+	}
+	massUpTo := func(i int) float64 {
 		m := 0.0
-		for j := i; j < len(stages); j++ {
+		for j := i; j < top[i]; j++ {
 			m += stages[j].DryMass + stages[j].FuelMass
 		}
 		return m
@@ -36,12 +66,14 @@ func StackStats(stages []Stage) VehicleStats {
 	vs := VehicleStats{StageDV: make([]float64, len(stages))}
 	for i, s := range stages {
 		if s.FuelMass > 0 && s.Isp > 0 {
-			m0 := massAtOrAbove(i)
+			m0 := massUpTo(i)
 			m1 := m0 - s.FuelMass
 			if m1 > 0 {
 				dv := s.Isp * g0 * math.Log(m0/m1)
 				vs.StageDV[i] = dv
-				vs.TotalDV += dv
+				if carrier[i] {
+					vs.TotalDV += dv
+				}
 			}
 		}
 		vs.TotalMass += s.DryMass + s.FuelMass + s.MonopropMass
