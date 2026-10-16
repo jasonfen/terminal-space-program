@@ -91,7 +91,7 @@ func TestSessionScreenHostVsGuestSections(t *testing.T) {
 	if !strings.Contains(host, "INVITES") || !strings.Contains(host, "AB2C-DE3F") {
 		t.Errorf("host screen missing invites section:\n%s", host)
 	}
-	if !strings.Contains(host, "[i] invite") || !strings.Contains(host, "[x] remove player") {
+	if !strings.Contains(host, "[i] invite") || !strings.Contains(host, "[x] kick (new invite to return)") {
 		t.Errorf("host screen missing admin key hints:\n%s", host)
 	}
 
@@ -175,23 +175,24 @@ func TestSessionScreenMintFlow(t *testing.T) {
 	}
 }
 
-// Remove flow: [x] on a guest arms a confirm; y emits the removal;
-// the host row can't be removed.
-func TestSessionScreenRemoveConfirm(t *testing.T) {
+// Kick flow: [x] on a guest raises the card; y, y emits the kick (the card
+// asks twice); the host row can't be kicked.
+func TestSessionScreenKickConfirm(t *testing.T) {
 	s := NewSessionScreen(sessionTheme())
 	w := sessionWorld(t, true)
 
-	// Cursor starts on the host — [x] must not arm.
+	// Cursor starts on the host: [x] must not raise a card.
 	s.HandleKey(w, key("x"))
-	if cmd := s.HandleKey(w, key("y")); cmd.Kind == SessionCmdRemove {
-		t.Fatal("removed the host")
+	if cmd := s.HandleKey(w, key("y")); cmd.Kind == SessionCmdKick {
+		t.Fatal("kicked the host")
 	}
 
 	s.HandleKey(w, key("j")) // down to gern
 	s.HandleKey(w, key("x"))
+	s.HandleKey(w, key("y"))
 	cmd := s.HandleKey(w, key("y"))
-	if cmd.Kind != SessionCmdRemove || cmd.Fingerprint != "SHA256:guest" {
-		t.Errorf("remove command = %+v", cmd)
+	if cmd.Kind != SessionCmdKick || cmd.Fingerprint != "SHA256:guest" {
+		t.Errorf("kick command = %+v", cmd)
 	}
 }
 
@@ -239,8 +240,8 @@ func TestSessionScreenSoloStartHost(t *testing.T) {
 	}
 }
 
-// Hosting: [h] arms a confirm naming the guest count; y stops, n
-// cancels. The prompt is host-only.
+// Hosting: [h] raises a card naming the guest count; y, y stops, n
+// cancels. The card is host-only.
 func TestSessionScreenStopHostConfirm(t *testing.T) {
 	s := NewSessionScreen(sessionTheme())
 	w := sessionWorld(t, true) // one online guest (gern)
@@ -248,14 +249,15 @@ func TestSessionScreenStopHostConfirm(t *testing.T) {
 	if cmd := s.HandleKey(w, key("h")); cmd.Kind != SessionCmdNone {
 		t.Fatalf("[h] emitted %v before confirm", cmd.Kind)
 	}
-	if out := s.Render(w, 140, 0); !strings.Contains(out, "stop hosting? drops 1 guest(s)") {
-		t.Errorf("stop-host confirm prompt missing:\n%s", out)
+	if out := cardFlat(s); !strings.Contains(out, "drops 1 guest, their progress is saved") {
+		t.Errorf("stop-host card missing:\n%s", out)
 	}
 	if !strings.Contains(s.Render(w, 140, 0), "[h] stop hosting") {
 		t.Error("host key hints missing the stop-hosting toggle")
 	}
+	s.HandleKey(w, key("y"))
 	if cmd := s.HandleKey(w, key("y")); cmd.Kind != SessionCmdStopHost {
-		t.Errorf("confirm y = %+v, want SessionCmdStopHost", cmd)
+		t.Errorf("confirm y,y = %+v, want SessionCmdStopHost", cmd)
 	}
 
 	// n cancels — no command, confirm cleared.
@@ -337,7 +339,7 @@ func TestSessionScreenAdminRemoveGating(t *testing.T) {
 	// Row 0 host: not offered.
 	s := NewSessionScreen(sessionTheme())
 	s.HandleKey(w, key("x"))
-	if s.confirmRemove {
+	if s.ActiveCard() != nil {
 		t.Error("[x] armed on the host row")
 	}
 
@@ -345,7 +347,7 @@ func TestSessionScreenAdminRemoveGating(t *testing.T) {
 	s = NewSessionScreen(sessionTheme())
 	s.HandleKey(w, key("j"))
 	s.HandleKey(w, key("x"))
-	if s.confirmRemove {
+	if s.ActiveCard() != nil {
 		t.Error("[x] armed on the viewer's own row")
 	}
 
@@ -354,7 +356,7 @@ func TestSessionScreenAdminRemoveGating(t *testing.T) {
 	s.HandleKey(w, key("j"))
 	s.HandleKey(w, key("j"))
 	s.HandleKey(w, key("x"))
-	if s.confirmRemove {
+	if s.ActiveCard() != nil {
 		t.Error("[x] armed on another admin's row")
 	}
 
@@ -364,11 +366,12 @@ func TestSessionScreenAdminRemoveGating(t *testing.T) {
 	s.HandleKey(w, key("j"))
 	s.HandleKey(w, key("j"))
 	s.HandleKey(w, key("x"))
-	if !s.confirmRemove {
+	if s.ActiveCard() == nil {
 		t.Fatal("[x] didn't arm on a guest row")
 	}
-	if cmd := s.HandleKey(w, key("y")); cmd.Kind != SessionCmdRemove || cmd.Fingerprint != "SHA256:never" {
-		t.Errorf("guest removal command = %+v", cmd)
+	s.HandleKey(w, key("y"))
+	if cmd := s.HandleKey(w, key("y")); cmd.Kind != SessionCmdKick || cmd.Fingerprint != "SHA256:never" {
+		t.Errorf("guest kick command = %+v", cmd)
 	}
 }
 
@@ -383,14 +386,15 @@ func TestSessionScreenRestartConfirm(t *testing.T) {
 	if cmd := s.HandleKey(w, key("f4")); cmd.Kind != SessionCmdNone {
 		t.Fatalf("[F4] emitted %v before confirm", cmd.Kind)
 	}
-	if out := s.Render(w, 140, 0); !strings.Contains(out, "restart server? drops 1 player(s)") {
-		t.Errorf("restart confirm prompt missing:\n%s", out)
+	if out := cardFlat(s); !strings.Contains(out, "drops 1 player, they reconnect; progress is saved") {
+		t.Errorf("restart card missing:\n%s", out)
 	}
 	if !strings.Contains(s.Render(w, 140, 0), "[F4] restart server") {
 		t.Error("admin footer missing the restart hint")
 	}
+	s.HandleKey(w, key("y"))
 	if cmd := s.HandleKey(w, key("y")); cmd.Kind != SessionCmdRestart {
-		t.Errorf("confirm y = %+v, want SessionCmdRestart", cmd)
+		t.Errorf("confirm y,y = %+v, want SessionCmdRestart", cmd)
 	}
 	// n cancels.
 	s.HandleKey(w, key("f4"))
@@ -402,14 +406,14 @@ func TestSessionScreenRestartConfirm(t *testing.T) {
 	adminScreen := NewSessionScreen(sessionTheme())
 	wa := sessionWorld(t, false)
 	wa.Session.CanAdminister = true
-	if cmd := adminScreen.HandleKey(wa, key("f4")); cmd.Kind != SessionCmdNone || !adminScreen.confirmRestart {
+	if cmd := adminScreen.HandleKey(wa, key("f4")); cmd.Kind != SessionCmdNone || adminScreen.ActiveCard() == nil {
 		t.Errorf("admin [F4] didn't arm restart confirm (cmd %+v)", cmd)
 	}
 
 	// A guest doesn't: [F4] refuses (with a reason, v0.30.1) and no hint.
 	guestScreen := NewSessionScreen(sessionTheme())
 	wg := sessionWorld(t, false)
-	if cmd := guestScreen.HandleKey(wg, key("f4")); cmd.Kind != SessionCmdToast || guestScreen.confirmRestart {
+	if cmd := guestScreen.HandleKey(wg, key("f4")); cmd.Kind != SessionCmdToast || guestScreen.ActiveCard() != nil {
 		t.Errorf("guest [F4] armed a restart (cmd %+v)", cmd)
 	}
 	if strings.Contains(guestScreen.Render(wg, 140, 0), "restart server") {
@@ -428,15 +432,15 @@ func TestSessionScreenRestartConfirm(t *testing.T) {
 func TestSessionScreenRestartKeyFreedFromU(t *testing.T) {
 	s := NewSessionScreen(sessionTheme())
 	w := sessionWorld(t, true)
-	if cmd := s.HandleKey(w, key("u")); cmd.Kind != SessionCmdNone || s.confirmRestart {
-		t.Errorf("host [u] = %+v (confirmRestart=%v), want a no-op — u must not restart anything", cmd, s.confirmRestart)
+	if cmd := s.HandleKey(w, key("u")); cmd.Kind != SessionCmdNone || (s.ActiveCard() != nil) {
+		t.Errorf("host [u] = %+v (card up=%v), want a no-op — u must not restart anything", cmd, (s.ActiveCard() != nil))
 	}
 
 	adminScreen := NewSessionScreen(sessionTheme())
 	wa := sessionWorld(t, false)
 	wa.Session.CanAdminister = true
-	if cmd := adminScreen.HandleKey(wa, key("u")); cmd.Kind != SessionCmdNone || adminScreen.confirmRestart {
-		t.Errorf("admin [u] = %+v (confirmRestart=%v), want a no-op", cmd, adminScreen.confirmRestart)
+	if cmd := adminScreen.HandleKey(wa, key("u")); cmd.Kind != SessionCmdNone || (adminScreen.ActiveCard() != nil) {
+		t.Errorf("admin [u] = %+v (card up=%v), want a no-op", cmd, (adminScreen.ActiveCard() != nil))
 	}
 
 	guestScreen := NewSessionScreen(sessionTheme())
@@ -502,8 +506,8 @@ func TestSessionScreenVersionSurface(t *testing.T) {
 	}
 	// The confirm is adopt-aware.
 	s.HandleKey(w, key("f4"))
-	if !strings.Contains(s.Render(w, 140, 0), "restart to adopt v0.31.0? drops") {
-		t.Errorf("adopt confirm prompt missing:\n%s", s.Render(w, 140, 0))
+	if !strings.Contains(cardText(s), "Restart to adopt v0.31.0?") {
+		t.Errorf("adopt card missing:\n%s", cardText(s))
 	}
 
 	// Update available + NOT adopt-capable → manual path, plain restart.
@@ -818,7 +822,7 @@ func TestSessionScreenPromoteRefusalsToast(t *testing.T) {
 	}
 }
 
-func TestSessionScreenRemoveRefusalsToast(t *testing.T) {
+func TestSessionScreenKickRefusalsToast(t *testing.T) {
 	// Viewer is gern, a promoted admin: host, gern (self), dave, pat.
 	toastAt := func(steps int, setup func(w *sim.World)) string {
 		w := sessionWorld(t, false)
@@ -841,7 +845,7 @@ func TestSessionScreenRemoveRefusalsToast(t *testing.T) {
 		t.Errorf("[x] on host row toast = %q, want it to name the host", msg)
 	}
 	if msg := toastAt(1, nil); !strings.Contains(msg, "yourself") {
-		t.Errorf("[x] on own row toast = %q, want it to say you can't remove yourself", msg)
+		t.Errorf("[x] on own row toast = %q, want it to say you can't kick yourself", msg)
 	}
 	if msg := toastAt(2, func(w *sim.World) { w.Session.Players[2].Role = "admin" }); !strings.Contains(msg, "only the host") {
 		t.Errorf("admin [x] on another admin toast = %q, want host-only", msg)
@@ -862,7 +866,7 @@ func TestSessionScreenRestartRefusalToast(t *testing.T) {
 	if cmd.Kind != SessionCmdToast || !strings.Contains(cmd.Message, "restart") {
 		t.Errorf("guest [F4] = %+v, want a toast explaining the refusal", cmd)
 	}
-	if s.confirmRestart {
+	if s.ActiveCard() != nil {
 		t.Error("guest [F4] armed the restart confirm")
 	}
 }

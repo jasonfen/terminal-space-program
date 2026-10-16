@@ -231,3 +231,25 @@ func TestCardKeyColumnAndLongVerb(t *testing.T) {
 		t.Errorf("the second step cut the long verb:\n%s", out)
 	}
 }
+
+// A click points the ▸ at the clicked row (SetCursor) and then sends enter, so
+// it answers through the same handler a key does.
+func TestCardSetCursorPointsTheArrow(t *testing.T) {
+	c := NewCard(sessionTheme(), "Q?", "", []CardRow{
+		{ID: "a", Label: "a", Letters: []string{"y"}},
+		{ID: "b", Label: "b"},
+		{ID: "c", Label: "c", Out: true},
+	}, 0)
+	c.SetCursor(1)
+	if got := c.Choice(); got != 1 {
+		t.Fatalf("SetCursor(1): Choice = %d", got)
+	}
+	c.SetCursor(9) // out of range: ignored
+	c.SetCursor(-1)
+	if got := c.Choice(); got != 1 {
+		t.Fatalf("out-of-range SetCursor moved the arrow to %d", got)
+	}
+	if row, done := c.Enter(); row != 1 || done {
+		t.Errorf("enter on row b = (%d,%v), want the confirm step", row, done)
+	}
+}
