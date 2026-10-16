@@ -432,7 +432,11 @@ func (v *VAB) renderBuild(width, height int) string {
 	} else if v.find != "" {
 		palTitle += "  find: " + v.find
 	}
-	left := formBox(v.theme, v.focusTitle(truncWidth(palTitle, palW-2), focusPalette), v.renderPalette(palW-2, palRows), palW)
+	palLines := v.renderPalette(palW-2, palRows)
+	for avail > 0 && len(palLines) < palRows { // a narrowed list keeps the box's height, so INSPECT stays put
+		palLines = append(palLines, "")
+	}
+	left := formBox(v.theme, v.focusTitle(truncWidth(palTitle, palW-2), focusPalette), palLines, palW)
 	left = append(left, v.renderInspector(palW)...)
 	right := formBox(v.theme, v.focusTitle("VEHICLE  top → bottom", focusStack), vehLines, vehW)
 	if picRows > 0 {

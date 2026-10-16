@@ -382,3 +382,15 @@ func TestVABPaletteRowsAreDistinct(t *testing.T) {
 		seen[label] = it.id
 	}
 }
+
+// A narrowed list keeps the palette box's height, so the INSPECT box does not
+// jump while typing.
+func TestVABFindKeepsTheBoxHeight(t *testing.T) {
+	v := realVAB(t)
+	before := len(paletteBoxRows(t, v))
+	v.HandleKey("/")
+	typeFind(v, "rel")
+	if after := len(paletteBoxRows(t, v)); after != before {
+		t.Errorf("palette box is %d rows with rel typed, %d without", after, before)
+	}
+}
