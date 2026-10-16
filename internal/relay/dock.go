@@ -123,6 +123,34 @@ type DockRecord struct {
 	// of this (both sides are live and roughly time-aligned already). Zero
 	// means "not a reclaim-sourced transfer" — nothing to advance.
 	reclaimAtNano int64
+	// end marks a record whose other party was purged from the session
+	// (ADR 0054 slice E, kick and delete vessels): the record ends instead
+	// of waiting for a verb that nobody is left to press. It names nobody;
+	// endHandle is the purged player's display handle, kept only so the
+	// survivor's chip can say who it was.
+	//
+	//   endTransfer: the purged player was the guest. Their components stay in
+	//     the owner's stack as the owner's own (the owner's reconcile clears
+	//     the guest tags and ends the record); [U] then releases them as the
+	//     owner's vessel, not as a handback.
+	//   endHandback: the purged player owned the stack. The record ends when
+	//     the friend has their craft back, with no re-arm latch.
+	end       string
+	endHandle string
+}
+
+const (
+	endTransfer = "transfer"
+	endHandback = "handback"
+)
+
+// otherHandle is how a chip names the other party of r: the owner's handle,
+// or the purged owner's kept display handle once the record names nobody.
+func (r *DockRecord) otherHandle() string {
+	if r.OwnerHandle != "" {
+		return r.OwnerHandle
+	}
+	return r.endHandle
 }
 
 // hasParkedPayload reports whether the record is holding a craft that exists
@@ -261,7 +289,7 @@ func (l *DockLedger) RequestTransfer(owner string, live func(string) bool) (bool
 		return false, why
 	}
 	for _, r := range l.records {
-		if r.Owner == owner && r.Phase == DockActive {
+		if r.Owner == owner && r.Phase == DockActive && r.end == "" {
 			r.transferTo = r.GuestOwner
 			return true, ""
 		}
@@ -286,7 +314,7 @@ const transferNoStack = "transfer: not flying a cross-player stack"
 // ledger mutex.
 func (l *DockLedger) transferRefusalLocked(owner string, live func(string) bool) string {
 	for _, r := range l.records {
-		if r.Owner != owner || r.Phase != DockActive {
+		if r.Owner != owner || r.Phase != DockActive || r.end != "" {
 			continue
 		}
 		// ADR 0040 §2: handing someone the stick needs someone there to take
@@ -329,7 +357,7 @@ func (l *DockLedger) RequestRelease(owner string, live func(string) bool) (bool,
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	for _, r := range l.records {
-		if r.Owner != owner || r.Phase != DockActive {
+		if r.Owner != owner || r.Phase != DockActive || r.end != "" {
 			continue
 		}
 		r.releaseAsk = true
@@ -678,8 +706,27 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 		w.AdoptCraft(payload, true)
 		r.CompositeID = payload.ID
 		r.transferPayload = nil
-		*chips = append(*chips, DockChip{Kind: sim.SessionEventTransfer, Handle: r.GuestHandle})
+		handle := r.GuestHandle
+		if handle == "" {
+			handle = r.endHandle
+		}
+		*chips = append(*chips, DockChip{Kind: sim.SessionEventTransfer, Handle: handle})
+		if r.end == endTransfer {
+			adoptGuestComponents(payload)
+			return true
+		}
 		return false
+	}
+	// A purged guest's components become the owner's own (ADR 0054 slice E).
+	if r.end == endTransfer {
+		if c, _, ok := w.CraftByID(r.CompositeID); ok {
+			adoptGuestComponents(c)
+			return true
+		}
+		// The stack is not in this World. If it is on its way (a payload
+		// parked), the arrival above adopts it; otherwise there is nothing
+		// left to adopt and the record has no reason to live.
+		return !r.hasParkedPayload()
 	}
 	switch r.Phase {
 	case DockPending:
@@ -835,6 +882,9 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 		if r.returnPayload != nil {
 			// The docker couldn't fuse — reclaim the handed-over craft.
 			w.AdoptCraft(r.returnPayload, true)
+			if r.end == endHandback {
+				*chips = append(*chips, DockChip{Kind: sim.SessionEventParcelReturned, Handle: r.endHandle})
+			}
 			return true
 		}
 		// #309: nothing comes back — the stack this dock named no longer
@@ -842,7 +892,7 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 		// the guest stops being flagged docked-as-guest to a phantom, and say
 		// what happened: the docked marker vanishing on its own is the same
 		// silence this batch is about.
-		*chips = append(*chips, DockChip{Kind: sim.SessionEventDockLost, Handle: r.OwnerHandle})
+		*chips = append(*chips, DockChip{Kind: sim.SessionEventDockLost, Handle: r.otherHandle()})
 		return true
 	}
 	switch r.Phase {
@@ -868,6 +918,10 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 		// Undock/abort completion: the docker handed my craft back.
 		if r.returnPayload != nil {
 			kind := sim.SessionEventUndocked
+			// A record the purge ended (the stack's owner was deleted) hands
+			// the craft back like a Parcel: explained, and nothing left to
+			// re-arm against.
+			terminal := r.parcel || r.end == endHandback
 			// ADR 0038 §4, generalised from the Parcel-only ADR 0040 stamp:
 			// Kepler-advance the craft to MY OWN sim-time before it joins my
 			// slate — a live guest's World can sit a few seconds off the
@@ -892,11 +946,11 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 			// this is about whose hold the craft arrives with, not about
 			// what a restart keeps.) Every return leaves inert.
 			sim.SafeHandback(r.returnPayload)
-			if r.parcel {
+			if terminal {
 				kind = sim.SessionEventParcelReturned
 			}
 			w.AdoptCraft(r.returnPayload, true)
-			if !r.parcel {
+			if !terminal {
 				// ADR 0038 §6: I undock already targeting the stack I just
 				// left. Skipped for a Parcel — I only just reconnected, and
 				// "targeting the ghost of a stack I haven't seen in hours" is
@@ -913,8 +967,8 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 				w.SetTargetGhost(r.Owner, r.CompositeID)
 			}
 			r.returnPayload = nil
-			*chips = append(*chips, DockChip{Kind: kind, Handle: r.OwnerHandle})
-			if r.parcel {
+			*chips = append(*chips, DockChip{Kind: kind, Handle: r.otherHandle()})
+			if terminal {
 				// Parcel teardown is unchanged: I wasn't there to re-approach
 				// anything, so there is nothing for a re-arm latch to guard.
 				return true

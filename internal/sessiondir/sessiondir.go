@@ -161,6 +161,12 @@ type DockLink struct {
 	// subspace-gap placement reads at delivery, generalising ParcelAtNano to
 	// every return, not just Parcels.
 	ReturnAtNano int64 `json:"return_at_unix_nano,omitempty"`
+	// End / EndHandle (ADR 0054 slice E) mark a record the purge of its other
+	// party is ending ("transfer" or "handback") and carry the purged
+	// player's display handle for the survivor's chip. Additive: absent on
+	// every ordinary record, ignored by a build that predates them.
+	End       string `json:"end,omitempty"`
+	EndHandle string `json:"end_handle,omitempty"`
 }
 
 // Meta is the session.json shape.
