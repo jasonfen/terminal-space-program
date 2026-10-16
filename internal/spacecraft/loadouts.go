@@ -66,6 +66,9 @@ type Loadout struct {
 	// so the spawn assembles a carrier core + three deployable payloads; the
 	// sim spawn path honours it (see World.newCatalogCraft / splitNosePayloads).
 	NosePayloadPlan []int
+	// NosePayloadNames (ADR 0056 decision 6) is parallel to NosePayloadPlan:
+	// a non-empty entry names that payload group when it is released.
+	NosePayloadNames []string
 	// SlewRateDegPerSec (v0.10.0+) is the per-loadout attitude
 	// angular-rate cap (deg/s, sim-time). Zero => the global
 	// DefaultSlewRateDegPerSec. Loadout-level (not per-stage):
@@ -312,6 +315,7 @@ func resolveLoadout(d LoadoutDef, parts map[string]Part) Loadout {
 		Stages:            stages,
 		DecouplePlan:      plan,
 		NosePayloadPlan:   nosePlan,
+		NosePayloadNames:  append([]string(nil), d.NosePayloadNames...),
 		SlewRateDegPerSec: d.SlewRateDegPerSec,
 		ScaleClass:        bodies.ScaleClass(d.ScaleClass),
 		Category:          d.Category,

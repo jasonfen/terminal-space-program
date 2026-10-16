@@ -1,0 +1,11 @@
+{
+  "loadouts": [
+    {
+      "id": "lm",
+      "name": "LM",
+      "role": "custom",
+      "parts": [{"part_id": "apollo-descent"}, {"part_id": "apollo-ascent"}],
+      "subassembly_role": "payload"
+    }
+  ]
+}

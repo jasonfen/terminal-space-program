@@ -1,0 +1,11 @@
+{
+  "loadouts": [
+    {
+      "id": "comsat",
+      "name": "Comsat",
+      "role": "custom",
+      "parts": [{"part_id": "relay-comsat"}],
+      "subassembly_role": "payload"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "loadouts": [
+    {
+      "id": "csm-lm",
+      "name": "CSM+LM",
+      "role": "custom",
+      "parts": [{"part_id": "apollo-sm"}, {"part_id": "command-module"}, {"part_id": "apollo-descent"}, {"part_id": "apollo-ascent"}],
+      "nose_payload_plan": [2],
+      "subassembly_role": "stage"
+    }
+  ]
+}
