@@ -318,6 +318,15 @@ func LitStageIdx(stages []Stage) int {
 	return 0
 }
 
+// LitStageOf returns a copy of the lit stage of stages, or the zero Stage
+// for an empty slice.
+func LitStageOf(stages []Stage) Stage {
+	if len(stages) == 0 {
+		return Stage{}
+	}
+	return stages[LitStageIdx(stages)]
+}
+
 // LitStage returns the lit stage's index on s (see LitStageIdx).
 func (s *Spacecraft) LitStage() int { return LitStageIdx(s.Stages) }
 
