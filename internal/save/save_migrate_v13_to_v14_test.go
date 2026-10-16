@@ -1,6 +1,7 @@
 package save_test
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,8 +17,8 @@ import (
 // (the last Rendezvous Burn planted from the picker, kept after the node
 // fires) round-trips, so a reloaded save's TARGET chip still reads the plan.
 func TestRoundtripRendezvousPlan(t *testing.T) {
-	if save.SchemaVersion != 14 {
-		t.Fatalf("SchemaVersion = %d, want 14", save.SchemaVersion)
+	if save.SchemaVersion < 14 {
+		t.Fatalf("SchemaVersion = %d, want >= 14", save.SchemaVersion)
 	}
 	w, err := sim.NewWorld()
 	if err != nil {
@@ -67,7 +68,7 @@ func TestMigrateV13ToV14_NoPlan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s := strings.Replace(string(raw), `"version": 14`, `"version": 13`, 1)
+	s := strings.Replace(string(raw), fmt.Sprintf(`"version": %d`, save.SchemaVersion), `"version": 13`, 1)
 	if s == string(raw) {
 		t.Fatal("could not build the v13 fixture")
 	}

@@ -208,6 +208,13 @@ type Spacecraft struct {
 	LaunchLatDeg float64
 	LaunchLonDeg float64
 
+	// HasLaunchSite (schema v15, #611) is true when LaunchLatDeg /
+	// LaunchLonDeg name a real launch pad: set by a Launchpad spawn and
+	// copied to a stage jettisoned from a landed parent. An orbit spawn
+	// leaves them at the zero value with this false, so the launch view
+	// shows no downrange for it instead of a distance from lat 0, lon 0.
+	HasLaunchSite bool
+
 	// Crashed (v0.11.4+): destructive-impact lifecycle flag. Set by
 	// the surface-contact predicate (physics.ClampToSurface call
 	// site) when impact velocity exceeds V_CRIT or nose alignment

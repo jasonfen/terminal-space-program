@@ -86,7 +86,16 @@ import (
 // v14 adds Craft.RendezvousPlan (the last Rendezvous Burn planted from the
 // picker, kept after the node fires so the TARGET chip can keep reading the
 // plan's arrival); migrateV13PayloadToV14 is an identity pass.
-const SchemaVersion = 14
+// ADR 0056 decision 7 (and #611) bump to v15 - the first non-identity
+// migration since v13. Every Stage (Craft.Stages and every
+// DockedComponent.Stages) gains Ports, the stage's own docking ports, which
+// until now were looked up by (loadout, name) at read time and never saved;
+// migrateV14PayloadToV15 backfills each old stage with the ports that lookup
+// returned, so no vessel loses or gains a port. Craft also gains
+// HasLaunchSite, true for a vessel with a launch pad (the launch view's
+// downrange is measured from it; #611); the migration derives it from the
+// old save (see migrateV14PayloadToV15).
+const SchemaVersion = 15
 
 // RendezvousPlan is spacecraft.RendezvousPlan on the wire (times as UnixNano).
 type RendezvousPlan struct {
@@ -289,6 +298,12 @@ type Craft struct {
 	LaunchLatDeg float64 `json:"launch_lat_deg,omitempty"`
 	LaunchLonDeg float64 `json:"launch_lon_deg,omitempty"`
 
+	// HasLaunchSite (schema v15, #611): true when LaunchLatDeg/LaunchLonDeg
+	// are a real launch pad rather than the zero value of an orbit spawn.
+	// The launch view shows a downrange figure only when set. Schema <15
+	// saves are backfilled by migrateV14PayloadToV15.
+	HasLaunchSite bool `json:"has_launch_site,omitempty"`
+
 	// Crashed / CanSoftLand / OnPad / LandedLatDeg / LandedLonDeg
 	// (v0.11.4+, schema v6 additive — no bump, per ADR 0004). All
 	// `omitempty`-default-false so pre-v0.11.4 saves round-trip
@@ -373,6 +388,16 @@ type Stage struct {
 	CommandSource string  `json:"command_source,omitempty"`
 	AntennaKind   string  `json:"antenna_kind,omitempty"`
 	AntennaRangeM float64 `json:"antenna_range_m,omitempty"`
+
+	// Ports (ADR 0056 decision 7, schema v15): the stage's own docking
+	// ports. Authoritative after load: a stage with no "ports" key has no
+	// port. Schema <15 saves are backfilled by migrateV14PayloadToV15.
+	Ports []PortWire `json:"ports,omitempty"`
+}
+
+// PortWire mirrors spacecraft.PartPort on the wire.
+type PortWire struct {
+	End string `json:"end"`
 }
 
 // Node mirrors sim.ManeuverNode. Event (v0.6.0+, schema v2) is
@@ -704,6 +729,12 @@ func Load(path string) (*sim.World, error) {
 	// plan), so an identity pass whose job is the version gate.
 	if f.Version < 14 {
 		migrateV13PayloadToV14(&f.Payload)
+	}
+	// schema v15 (ADR 0056 decision 7, #611): stages store their ports and
+	// crafts record whether they have a launch site; backfilled from the
+	// old lookup and the old coordinates.
+	if f.Version < 15 {
+		migrateV14PayloadToV15(&f.Payload)
 	}
 	return worldFromPayload(f.Payload, systems)
 }

@@ -320,6 +320,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		c.Landed = true
 		c.LaunchLatDeg = latDeg
 		c.LaunchLonDeg = spec.LongitudeOffset
+		c.HasLaunchSite = true // #611
 		// v0.11.4+ (ADR 0004): mark this Landed-true vessel as on the
 		// launchpad. The ViewLaunch auto-route handler gates on
 		// `OnPad && Landed=false→true`, so a fresh launchpad spawn

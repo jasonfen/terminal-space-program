@@ -151,11 +151,13 @@ func TestFormatLaunchHUDAppendsOrbitReadyBadge(t *testing.T) {
 func stripLine(t *testing.T, rendered string) string {
 	t.Helper()
 	for _, line := range strings.Split(stripANSI(rendered), "\n") {
-		if strings.Contains(line, "downrange:") {
+		// T+ and the (max ...) Q suffix are the strip's own; downrange: is
+		// absent for a vessel with no launch site (#611).
+		if strings.Contains(line, "T+ ") && strings.Contains(line, "(max ") {
 			return line
 		}
 	}
-	t.Fatal("no launch strip line (containing \"downrange:\") found in the render")
+	t.Fatal("no launch strip line (containing \"T+ \" and \"(max \") found in the render")
 	return ""
 }
 

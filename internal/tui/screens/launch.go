@@ -168,7 +168,7 @@ func launchAutoScale(altitudeM float64, rows int) float64 {
 // this frame, so formatLaunchHUD stays a pure, plain-string-testable
 // formatter with no theme dependency of its own.
 //
-// Inputs in SI units: downrangeM m, q / qMaxPa Pa.
+// Inputs in SI units: downrangeM m (negative = no launch site, field omitted), q / qMaxPa Pa.
 func formatLaunchHUD(tPlus time.Duration, downrangeM, qPa, qMaxPa float64, orbitReadyBadge string) string {
 	if tPlus < 0 {
 		tPlus = 0
@@ -193,10 +193,17 @@ func formatLaunchHUD(tPlus time.Duration, downrangeM, qPa, qMaxPa float64, orbit
 	// repeated unit per decision 6's own worked example ("Q: 0.0 kPa
 	// (max 0.0)", not "(max 0.0 kPa)").
 	qMaxNum, _, _ := strings.Cut(readout.Pressure(qMaxPa), " ")
+	// #611: a negative downrange means the vessel has no launch site (an
+	// orbit spawn), so the field is left out rather than measured from
+	// lat 0, lon 0.
+	downrangeField := ""
+	if downrangeM >= 0 {
+		downrangeField = "downrange: " + readout.Distance(downrangeM) + "  "
+	}
 	line := fmt.Sprintf(
-		"T+ %02d:%02d:%02d  downrange: %s  %s %s (max %s)",
+		"T+ %02d:%02d:%02d  %s%s %s (max %s)",
 		h, m, s,
-		readout.Distance(downrangeM),
+		downrangeField,
 		readout.LabelQ,
 		readout.Pressure(qPa),
 		qMaxNum,
@@ -1688,7 +1695,10 @@ func (v *LaunchView) composeHUDLine(w *sim.World, c *spacecraft.Spacecraft) stri
 	if w.LaunchSessionActive && !w.LaunchT0.IsZero() {
 		tPlus = w.Clock.SimTime.Sub(w.LaunchT0)
 	}
-	downrange := greatCircleDistanceM(c.Primary, c.LaunchLatDeg, c.LaunchLonDeg, c, w.Clock.SimTime)
+	downrange := -1.0 // no launch site: formatLaunchHUD omits the field (#611)
+	if c.HasLaunchSite {
+		downrange = greatCircleDistanceM(c.Primary, c.LaunchLatDeg, c.LaunchLonDeg, c, w.Clock.SimTime)
+	}
 	q := dynamicPressurePa(c)
 	return formatLaunchHUD(tPlus, downrange, q, w.LaunchMaxQ, v.launchOrbitReadyBadge(c))
 }
