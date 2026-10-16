@@ -171,6 +171,36 @@ func TestCenterlineCrosshairIsFixedAtItsCell(t *testing.T) {
 	}
 }
 
+// The crosshair's two arms cross on the pixel of the pane's cell (86, 15): the
+// vertical arm is lit in that pixel column and dark three columns either side,
+// the horizontal arm in that row and dark three rows above and below.
+func TestCenterlineCrosshairArmsCrossAtTheCell(t *testing.T) {
+	w := ringWorld(t, 0, 0, 0) // ring 16 px out: clear of the arms
+	v, _ := renderSplit(t, w)
+	lit := func(px0, py0, px1, py1 int) (n int) {
+		for py := py0; py <= py1; py++ {
+			for px := px0; px <= px1; px++ {
+				if v.cl.SubPixelSet(px, py) {
+					n++
+				}
+			}
+		}
+		return
+	}
+	if n := lit(clCrossPxX, clCrossPxY-10, clCrossPxX, clCrossPxY+10); n < 6 {
+		t.Errorf("vertical arm lit %d dots in pixel column %d, want a line", n, clCrossPxX)
+	}
+	if n := lit(clCrossPxX-3, clCrossPxY-10, clCrossPxX-3, clCrossPxY+10) + lit(clCrossPxX+3, clCrossPxY-10, clCrossPxX+3, clCrossPxY+10); n != 0 {
+		t.Errorf("%d dots lit three pixel columns off the crosshair's column", n)
+	}
+	if n := lit(clCrossPxX-5, clCrossPxY, clCrossPxX+5, clCrossPxY); n < 3 {
+		t.Errorf("horizontal arm lit %d dots in pixel row %d, want a line", n, clCrossPxY)
+	}
+	if n := lit(clCrossPxX-5, clCrossPxY-3, clCrossPxX+5, clCrossPxY-3) + lit(clCrossPxX-5, clCrossPxY+3, clCrossPxX+5, clCrossPxY+3); n != 0 {
+		t.Errorf("%d dots lit three pixel rows off the crosshair's row", n)
+	}
+}
+
 // The ring is centred at (right, up) metres from the crosshair at the shared
 // fit: 1 m up and 0.6 m left of the crosshair.
 func TestCenterlineRingSitsAtTheLateralOffset(t *testing.T) {
