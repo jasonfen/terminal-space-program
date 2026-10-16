@@ -155,6 +155,9 @@ type World struct {
 	// Transient: rebuilt lazily, never persisted.
 	lwCache launchWindowCache
 
+	// planChain memoises the HUD's chained node walk (plan_chain.go).
+	planChain planChainCache
+
 	// tpnSolves counts plane-crossing solves (target_plane_cache.go).
 	tpnSolves int
 	tpnCache  planeCrossingCache

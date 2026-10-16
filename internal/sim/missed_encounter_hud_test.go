@@ -193,3 +193,32 @@ func TestEncounterReadoutsShareOnePredicate(t *testing.T) {
 		t.Errorf("sweep never crossed hit/miss (hit=%v miss=%v); the agreement check proved nothing", sawHit, sawMiss)
 	}
 }
+
+// TestPlanChainWalkIsMemoisedPerFrame: the three encounter sources in one
+// frame cost one chain walk, and any change to the clock, the nodes or the
+// craft state forces a fresh one (a stale walk would show a plan the
+// player has already changed).
+func TestPlanChainWalkIsMemoisedPerFrame(t *testing.T) {
+	w, _ := plannedMoonTransfer(t, 0)
+	frame := func() { w.PredictedFinalOrbit(); w.NextFrameTransition(); w.ArrivalCapturePreview() }
+	frame()
+	frame()
+	if n := w.PlanChainWalks(); n != 1 {
+		t.Fatalf("two identical frames ran %d walks, want 1", n)
+	}
+	w.ActiveCraft().Nodes[0].DV += 5
+	frame()
+	if n := w.PlanChainWalks(); n != 2 {
+		t.Errorf("after editing a node's dv: %d walks, want 2 (stale cache)", n)
+	}
+	w.Clock.SimTime = w.Clock.SimTime.Add(time.Second)
+	frame()
+	if n := w.PlanChainWalks(); n != 3 {
+		t.Errorf("after the clock moved: %d walks, want 3 (stale cache)", n)
+	}
+	w.ActiveCraft().State.V.X += 1
+	frame()
+	if n := w.PlanChainWalks(); n != 4 {
+		t.Errorf("after the craft state moved: %d walks, want 4 (stale cache)", n)
+	}
+}
