@@ -90,7 +90,7 @@ func TestQuitPromptIsACardOverTheScreen(t *testing.T) {
 				t.Fatalf("%dx%d %s: no quit card on screen:\n%s", sz[0], sz[1], from, ansi.Strip(out))
 			}
 			card := strings.Join(rows, "\n")
-			for _, want := range []string{"Save and quit", "Quit without saving", "Stay", "▸"} {
+			for _, want := range []string{"save and quit", "quit without saving", "stay", "▸"} {
 				if !strings.Contains(card, want) {
 					t.Errorf("%dx%d %s: quit card lacks %q:\n%s", sz[0], sz[1], from, want, card)
 				}
@@ -122,9 +122,21 @@ func TestQuitCardArrowsAndEnterPick(t *testing.T) {
 	a, _ := New(nil)
 	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	a.Update(tea.KeyMsg{Type: tea.KeyEnter}) // an action row asks once more (ADR 0054, call 1)
+	if files := savesDirFiles(t, dir); len(files) != 0 {
+		t.Fatalf("the first enter on save and quit wrote %v before the confirm", files)
+	}
+	// The second step opens on its way out (stay): enter there leaves.
 	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if isQuitCmd(cmd) || cardKindUp(a, cardQuit) {
+		t.Fatal("enter on the second step's open row (stay) quit or left the card up")
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	a.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	a.Update(tea.KeyMsg{Type: tea.KeyUp})
+	_, cmd = a.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if !isQuitCmd(cmd) {
-		t.Fatal("enter on Save and quit did not quit")
+		t.Fatal("enter, up, enter on save and quit did not quit")
 	}
 	if files := savesDirFiles(t, dir); len(files) != 1 {
 		t.Fatalf("enter on Save and quit: saves dir = %v, want one autosave", files)
@@ -136,12 +148,14 @@ func TestQuitCardArrowsAndEnterPick(t *testing.T) {
 	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	a.Update(tea.KeyMsg{Type: tea.KeyDown})
-	if rows, _ := quitCardRows(a.View(), "Save before quitting?"); rows == nil || !strings.Contains(strings.Join(rows, "\n"), "▸ Quit without saving") {
+	if rows, _ := quitCardRows(a.View(), "Save before quitting?"); rows == nil || !strings.Contains(strings.Join(rows, "\n"), "▸ quit without saving") {
 		t.Fatalf("down did not move the cursor to Quit without saving:\n%s", strings.Join(rows, "\n"))
 	}
+	a.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	a.Update(tea.KeyMsg{Type: tea.KeyUp})
 	_, cmd = a.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if !isQuitCmd(cmd) {
-		t.Fatal("enter on Quit without saving did not quit")
+		t.Fatal("enter, up, enter on quit without saving did not quit")
 	}
 	if files := savesDirFiles(t, dir); len(files) != 0 {
 		t.Fatalf("Quit without saving wrote %v", files)
@@ -155,13 +169,13 @@ func TestQuitCardArrowsAndEnterPick(t *testing.T) {
 	a.Update(tea.KeyMsg{Type: tea.KeyDown})
 	a.Update(tea.KeyMsg{Type: tea.KeyDown})
 	_, cmd = a.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if isQuitCmd(cmd) || a.quitConfirm {
+	if isQuitCmd(cmd) || cardKindUp(a, cardQuit) {
 		t.Fatal("enter on Stay quit or left the card open")
 	}
 	// Up wraps from the top row back to Stay rather than running off.
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	a.Update(tea.KeyMsg{Type: tea.KeyUp})
-	if rows, _ := quitCardRows(a.View(), "Save before quitting?"); !strings.Contains(strings.Join(rows, "\n"), "▸ Stay") {
+	if rows, _ := quitCardRows(a.View(), "Save before quitting?"); !strings.Contains(strings.Join(rows, "\n"), "▸ stay") {
 		t.Errorf("up from the top did not wrap to Stay:\n%s", strings.Join(rows, "\n"))
 	}
 }
@@ -182,14 +196,14 @@ func TestGuestQuitCardOffersNoDecline(t *testing.T) {
 	if strings.Contains(card, "without saving") {
 		t.Errorf("guest card offers a decline:\n%s", card)
 	}
-	for _, want := range []string{"saves automatically", "Quit", "Stay"} {
+	for _, want := range []string{"saves automatically", "quit", "stay"} {
 		if !strings.Contains(card, want) {
 			t.Errorf("guest card lacks %q:\n%s", want, card)
 		}
 	}
 	a.Update(tea.KeyMsg{Type: tea.KeyDown})
 	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if isQuitCmd(cmd) || a.quitConfirm {
+	if isQuitCmd(cmd) || cardKindUp(a, cardQuit) {
 		t.Error("guest: second row should be Stay")
 	}
 }

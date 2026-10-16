@@ -225,9 +225,11 @@ func TestModalsOwningArrowsLeaveTrimsAlone(t *testing.T) {
 		{name: "body info", enter: func(t *testing.T, a *App) { a.Update(keyRunes("i")) }},
 		{name: "porkchop", enter: func(t *testing.T, a *App) { a.active = screenPorkchop }},
 		{name: "chat input", enter: func(t *testing.T, a *App) { a.chatOpen = true }},
-		{name: "end-flight confirm", enter: func(t *testing.T, a *App) { a.endFlightConfirm = true }},
-		{name: "quickload confirm", enter: func(t *testing.T, a *App) { a.quickloadConfirm = true }, rearm: true},
-		{name: "quit confirm", enter: func(t *testing.T, a *App) { a.quitConfirm = true }},
+		{name: "end-flight confirm", enter: func(t *testing.T, a *App) { a.askEndFlight("wreck") }},
+		{name: "quickload confirm", enter: func(t *testing.T, a *App) { a.askQuickload() }},
+		{name: "transpose confirm", enter: func(t *testing.T, a *App) { a.askTranspose() }},
+		{name: "deploy confirm", enter: func(t *testing.T, a *App) { a.askDeploy("payload") }},
+		{name: "quit confirm", enter: func(t *testing.T, a *App) { a.armQuit() }},
 		{name: "boss shell", enter: func(t *testing.T, a *App) { a.Update(keyRunes("`")) }},
 	}
 	arrows := []tea.KeyMsg{keyType(tea.KeyLeft), keyType(tea.KeyRight), keyType(tea.KeyUp), keyType(tea.KeyDown),
@@ -292,7 +294,7 @@ func TestSpaceStagesInstantlyOnThePad(t *testing.T) {
 	if !strings.Contains(a.statusMsg, "dropped S-IC") || strings.Contains(a.statusMsg, "—") {
 		t.Errorf("flash = %q, want a dash-free 'dropped S-IC ...'", a.statusMsg)
 	}
-	if strings.Contains(a.View(), "[y/n]") {
+	if a.card != nil || strings.Contains(a.View(), "[y/n]") {
 		t.Error("staging raised a y/n prompt")
 	}
 }
@@ -321,8 +323,9 @@ func apolloReadyApp(t *testing.T) *App {
 	return a
 }
 
-// TestTransposeAsksBeforeActing (decision 7): D asks [y/n]; n and esc keep
-// the stack; y transposes; other keys are swallowed while asking.
+// TestTransposeAsksBeforeActing (decision 7): D raises a card; n and esc keep
+// the stack; y, y transposes (the action asks once more); other keys are
+// swallowed while asking.
 func TestTransposeAsksBeforeActing(t *testing.T) {
 	a := apolloReadyApp(t)
 	c := a.world.ActiveCraft()
@@ -333,25 +336,25 @@ func TestTransposeAsksBeforeActing(t *testing.T) {
 	if c.Stages[0].Name != "Descent" {
 		t.Fatal("D transposed on the spot, it must ask first")
 	}
-	if v := a.View(); !strings.Contains(v, "transpose") || !strings.Contains(v, "[y/n]") {
-		t.Fatalf("D raised no [y/n] transpose ask:\n%s", v)
+	if !cardKindUp(a, cardTranspose) || !strings.Contains(a.View(), "Transpose?") {
+		t.Fatalf("D raised no transpose card:\n%s", a.View())
 	}
 	// A stray flight key is swallowed, the ask stays.
 	a.Update(keyRunes("w"))
-	if v := a.View(); !strings.Contains(v, "[y/n]") {
+	if !cardKindUp(a, cardTranspose) {
 		t.Error("an unrelated key dismissed the ask")
 	}
 	a.Update(keyRunes("n"))
-	if strings.Contains(a.View(), "[y/n]") || c.Stages[0].Name != "Descent" {
+	if cardKindUp(a, cardTranspose) || c.Stages[0].Name != "Descent" {
 		t.Error("n did not cancel cleanly")
 	}
 	a.Update(keyRunes("D"))
 	a.Update(keyType(tea.KeyEsc))
-	if strings.Contains(a.View(), "[y/n]") || c.Stages[0].Name != "Descent" {
+	if cardKindUp(a, cardTranspose) || c.Stages[0].Name != "Descent" {
 		t.Error("esc did not cancel cleanly")
 	}
 	a.Update(keyRunes("D"))
-	a.Update(keyRunes("y"))
+	pressTwice(a, 'y')
 	if got := a.world.ActiveCraft().Stages[0].Name; got != "SM" {
 		t.Errorf("y: Stages[0] = %q, want SM (transposed)", got)
 	}
@@ -362,7 +365,7 @@ func TestTransposeAsksBeforeActing(t *testing.T) {
 func TestTransposeRefusesBeforeAsking(t *testing.T) {
 	a, _ := padApp(t) // Saturn V on the pad, not [Descent Ascent SM CM]
 	a.Update(keyRunes("D"))
-	if strings.Contains(a.View(), "[y/n]") {
+	if a.card != nil || strings.Contains(a.View(), "[y/n]") {
 		t.Error("D asked about a transpose that would refuse")
 	}
 	if !strings.Contains(a.statusMsg, "transpose:") {
@@ -402,15 +405,15 @@ func TestDeployAsksBeforeActing(t *testing.T) {
 	if len(a.world.Crafts) != n {
 		t.Fatal("Y deployed on the spot, it must ask first")
 	}
-	if v := a.View(); !strings.Contains(v, "deploy") || !strings.Contains(v, "[y/n]") {
-		t.Fatalf("Y raised no [y/n] deploy ask:\n%s", v)
+	if !cardKindUp(a, cardDeploy) || !strings.Contains(a.View(), "Deploy ") {
+		t.Fatalf("Y raised no deploy card:\n%s", a.View())
 	}
 	a.Update(keyRunes("n"))
-	if len(a.world.Crafts) != n || strings.Contains(a.View(), "[y/n]") {
+	if len(a.world.Crafts) != n || cardKindUp(a, cardDeploy) {
 		t.Error("n did not cancel cleanly")
 	}
 	a.Update(keyRunes("Y"))
-	a.Update(keyRunes("y"))
+	pressTwice(a, 'y')
 	if len(a.world.Crafts) != n+1 {
 		t.Errorf("y: %d vessels, want %d", len(a.world.Crafts), n+1)
 	}
@@ -420,7 +423,7 @@ func TestDeployAsksBeforeActing(t *testing.T) {
 func TestDeployRefusesBeforeAsking(t *testing.T) {
 	a, _ := padApp(t)
 	a.Update(keyRunes("Y"))
-	if strings.Contains(a.View(), "[y/n]") {
+	if a.card != nil || strings.Contains(a.View(), "[y/n]") {
 		t.Error("Y asked about a deploy that would refuse")
 	}
 	if !strings.Contains(a.statusMsg, "deploy:") {
@@ -432,11 +435,11 @@ func TestDeployRefusesBeforeAsking(t *testing.T) {
 func TestUndockAndTransferStayInstant(t *testing.T) {
 	a, _ := deployApp(t)
 	a.Update(keyRunes("U"))
-	if strings.Contains(a.View(), "[y/n]") {
+	if a.card != nil || strings.Contains(a.View(), "[y/n]") {
 		t.Error("U raised an ask")
 	}
 	a.Update(keyRunes("J"))
-	if strings.Contains(a.View(), "[y/n]") {
+	if a.card != nil || strings.Contains(a.View(), "[y/n]") {
 		t.Error("J raised an ask")
 	}
 }

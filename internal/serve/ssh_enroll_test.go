@@ -97,6 +97,9 @@ func TestSSHEnrollFlow(t *testing.T) {
 	mustWrite(t, sess, "\x03")
 	sess.waitFor(t, "saves automatically") // the guest quit card (2026-10-05)
 	mustWrite(t, sess, "y")
+	// ADR 0054 (call 1): picking the quit row asks once more on the card.
+	sess.waitFor(t, "yes, quit")
+	mustWrite(t, sess, "y")
 	deadline := time.Now().Add(10 * time.Second)
 	for !srv.store.HasPayload(fp) {
 		if time.Now().After(deadline) {

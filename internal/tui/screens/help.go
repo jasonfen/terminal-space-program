@@ -64,8 +64,9 @@ var helpSections = []helpSection{
 		{"F1 (in a box)", "inside a name or number box only F1 opens help (? is a typed character there); what you typed is kept"},
 		{"enter (any screen)", "does the highlighted or typed thing (each page says what); on the map nothing, except while [j] inspects"},
 		{"esc", "back to the screen that opened you: a screen opened from the pause menu returns to the menu, one opened by a key returns to the map (esc on the map opens the pause menu)"},
-		{"F5 / F9", "quicksave / quickload (F9 asks [y/n] first: only y loads, enter does nothing)"},
+		{"F5 / F9", "quicksave / quickload (F9 asks first: a card, enter picks the highlighted row)"},
 		{"ctrl+c", "quit: asks to save first, [esc] stays"},
+		{"a card", "a question over the dimmed map: ↑ / ↓ move the ▸, enter picks that row, y picks the first row, n or esc is the way out; an action row asks once more on the same card before it acts, and the way out acts at once"},
 	}},
 	// `q` quits only inside the pause menu; in flight it is radial+
 	// (Keymap.AttitudeRadialOut), so it gets a menu-scoped section of its
@@ -168,11 +169,11 @@ var helpSections = []helpSection{
 		{"U", "undock the active composite: the pieces come back port to port 1.5 to 3 m apart, parting at 0.15 m/s"},
 		{"U (cross-player)", "release your partner's vessel from a shared stack; theirs comes back even if they're offline"},
 		{"c", "re-arm docking: clear the local re-arm latch for the [t] target (or every latch naming the active vessel) so a just-undocked pair can dock again"},
-		{"Y", "deploy the top carried payload (keep flying the carrier); asks [y/n] first"},
-		{"D", "transpose: SM → firing core, LM → releasable nose payload; asks [y/n] first"},
+		{"Y", "deploy the top carried payload (keep flying the carrier); asks first"},
+		{"D", "transpose: SM → firing core, LM → releasable nose payload; asks first"},
 		{"t / T", "cycle / clear the target"},
 		{"space", "decouple bottom stage, instantly, pad included (the STAGES box names it; bare chute capsule: arm the chute)"},
-		{"E", "end flight: clear a crashed vessel from the slate (y/n confirm)"},
+		{"E", "end flight: clear a crashed vessel from the slate (asks first)"},
 	}},
 	{"DOCKING (port to port)", [][2]string{
 		{"ports", "on the nose of crewed modules, capsules, ascent stages, tugs, keepers, relays, stations and the Probe Sat"},

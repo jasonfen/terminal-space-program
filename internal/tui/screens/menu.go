@@ -111,7 +111,7 @@ var menuRows = []menuRow{
 // upper-case both match. Every row — including Quit — fires its action
 // directly; #474 moved quit's confirm off this screen entirely and
 // onto the single app-level quit prompt (App.applyMenuAction arms it
-// via a.quitConfirm), the same one ctrl+c raises, so there's one
+// via a.armQuit), the same card ctrl+c raises, so there's one
 // question and one wording wherever the player leaves from.
 func (m *Menu) HandleKey(s string) MenuAction {
 	switch s {

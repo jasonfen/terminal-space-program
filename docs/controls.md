@@ -150,7 +150,8 @@ On the Keyboard layout screen `←` / `→`, `Space` or `Enter` cycle the layout
 | Key | Action |
 |---|---|
 | `Esc` | Back to the screen that opened you: a screen opened from the pause menu (saves, settings, keyboard layout, help, build) returns to the menu, one opened by a key (missions, spawn, body info, session) returns to the map. On the main view, open the pause menu: a card over the dimmed map with save / load / build / settings / keyboard layout / help / quit. While the card is open the clock is stopped (the flight bar reads `PAUSED`); closing it hands the clock back as it was. `↑`/`↓` pick a row (it is highlighted) and `Enter` opens it; the letter beside each row (`s` `l` `b` `t` `k` `h` `q`) is a shortcut. A second `Esc` from the menu flies |
-| `Ctrl+C` | Quit: asks whether to save first ([y] save and quit, [n] quit without saving, [esc] stay). The pause menu's Quit row asks the same question |
+| `Ctrl+C` | Quit: a card asks whether to save first (`y` save and quit, `n` quit without saving, `esc` stay). The pause menu's Quit row asks the same question |
+| A card | A question over the dimmed map (the quit prompt, `E`, `D`, `Y`, `F9`). `↑`/`↓` move the `▸`, `Enter` picks that row, `y` picks the first row, `n` or `Esc` is the way out. An action row asks once more on the same card before it acts; the way out acts at once. A click on a row picks it; a click anywhere else does nothing. The clock keeps running under the card |
 | `F1` or `?` | Toggle the help overlay. It opens on an index: "Your first flight" first, then every section with a note on when you would want it. `1`-`9` jump to a page (from a form's own page a jump also drops the way back, so `Esc` then goes to the index), `↑`/`↓` + `Enter` reach the rest, `Esc` goes back to the index (and closes from the index), `F1` closes from anywhere. Long pages scroll with `↑`/`↓`, `PgUp`/`PgDn`, `Home`/`End`. `?` opens the same overlay as `F1` everywhere `F1` does. From a form (spawn, VAB, roster, planner, porkchop, missions, saves, settings, keyboard layout, the pause menu) it opens on that screen's own page; from body info and the map it opens the index, and `F1` or `Esc` puts you back exactly where you were: same field, any half-typed number or name kept. Inside a name or number box only `F1` opens it (`?` is a typed character there) |
 | `Enter` | Does the highlighted or typed thing; each screen's table says what. On the map it does nothing, except while `j` inspects |
 | `F2` | Declutter: hide all eight instrument boxes and the navball together for a clean look at the orbit. Press again to restore. ENGINE and PROPELLANT stay up while an engine is lit, so fuel and a live burn are never hidden mid-burn |
@@ -267,13 +268,13 @@ refuse in one phrase.
 | `[` / `]` | Switch which vessel you're flying |
 | `1`–`9` | Jump straight to vessel N (nothing happens if the slot is empty) |
 | `space` | Drop the bottom stage (only if there's more than one), instantly, on the pad too; the STAGES box names it (`▸ S-IC (1/3) [space]`) and a flash confirms what dropped. On a bare capsule with a parachute this arms the chute instead; it opens on its own in the atmosphere |
-| `Y` | Deploy the top carried payload as its own vessel (satellite, probe, station) while you keep flying the carrier. Asks `[y/n]` first (there is no undo). Press again for the next one |
-| `D` | Apollo transposition: flip the Service Module to the front to do the flying, leaving the Lunar Module as a nose payload (then `U` to release it). Asks `[y/n]` first (there is no undo) |
+| `Y` | Deploy the top carried payload as its own vessel (satellite, probe, station) while you keep flying the carrier. Asks first (there is no undo). Press again for the next one |
+| `D` | Apollo transposition: flip the Service Module to the front to do the flying, leaving the Lunar Module as a nose payload (then `U` to release it). Asks first (there is no undo) |
 | `U` | Undock a docked vessel into its parts and switch you to a released piece. Each piece comes back where its hull was drawn, port to port a row or two apart (1.5 to 3 m, by how tall the two stages at the seam are), and parts along the seam at 0.15 m/s. On a cross-player stack it releases your partner's vessel through the dock ledger, connected or not (an absent partner's vessel is parked as a **Parcel** and delivered, safed, when they next connect) |
 | `c` | Re-arm docking. After an undock a pair is held apart until you clear 100 m or ten minutes pass, even if you fly back into the docking gate. `c` clears that hold now: with a vessel targeted, just that pair; otherwise every hold on your active vessel. A pair already holding the gate starts the magnet on the next tick |
 | `J` | Transfer control of a cross-player docked stack to the guest riding in it. Multiplayer only; see [multiplayer.md](multiplayer.md#docking-across-players) |
-| `E` | End the flight: remove a crashed vessel after a `y` / `n` confirm |
-| `F5` / `F9` | Quicksave / quickload (`F9` asks `y`/`n` first; `Enter` does nothing) to a fixed quick slot, separate from named saves. See [Saves](#saves-esc--save-game--load-game) |
+| `E` | End the flight: remove a crashed vessel (asks first) |
+| `F5` / `F9` | Quicksave / quickload (`F9` asks first: a card, `Enter` picks the highlighted row) to a fixed quick slot, separate from named saves. See [Saves](#saves-esc--save-game--load-game) |
 
 #### Docking
 

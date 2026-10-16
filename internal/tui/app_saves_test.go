@@ -88,13 +88,13 @@ func TestQuickloadKeySwapsWorld(t *testing.T) {
 	if a.world != old {
 		t.Fatal("F9 replaced the world before the y/n confirm was answered")
 	}
-	if !a.quickloadConfirm {
-		t.Fatal("F9 with a quicksave present did not arm quickloadConfirm")
+	if !cardKindUp(a, cardQuickload) {
+		t.Fatal("F9 with a quicksave present did not raise the quickload card")
 	}
 
-	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
-	if a.quickloadConfirm {
-		t.Error("quickloadConfirm still armed after y")
+	pressTwice(a, 'y') // ADR 0054: an action row asks once more
+	if cardKindUp(a, cardQuickload) {
+		t.Error("quickload card still up after y, y")
 	}
 	if a.world == old {
 		t.Fatal("F9 did not replace the world after confirming")
@@ -118,7 +118,7 @@ func TestQuickloadKeySwapsWorld(t *testing.T) {
 }
 
 // TestQuickloadConfirmCancels — n/N/Esc during the F9 confirm cancels
-// without touching the world, the same shape as endFlightConfirm's
+// without touching the world, the same shape as the end-flight card's
 // cancel path.
 func TestQuickloadConfirmCancels(t *testing.T) {
 	testStateDirs(t)
@@ -132,8 +132,8 @@ func TestQuickloadConfirmCancels(t *testing.T) {
 	a.Update(tea.KeyMsg{Type: tea.KeyF9})
 	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'n'}})
 
-	if a.quickloadConfirm {
-		t.Error("quickloadConfirm still armed after n")
+	if cardKindUp(a, cardQuickload) {
+		t.Error("quickload card still up after n")
 	}
 	if a.world != old {
 		t.Fatal("F9 replaced the world despite a cancelled confirm")
@@ -159,7 +159,7 @@ func TestQuickloadGuestSkipsConfirm(t *testing.T) {
 
 	a.Update(tea.KeyMsg{Type: tea.KeyF9})
 
-	if a.quickloadConfirm {
+	if cardKindUp(a, cardQuickload) {
 		t.Fatal("F9 armed the quickload confirm for a guest, who can never actually load locally")
 	}
 	if a.world != old {
@@ -232,7 +232,7 @@ func TestQuitAutosavesToRing(t *testing.T) {
 
 	// #474: ctrl+c only arms the quit prompt now; [y] is the write.
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	pressTwice(a, 'y')
 	files := savesDirFiles(t, dir)
 	if len(files) != 1 || files[0] != "autosave-1.json" {
 		t.Fatalf("saves dir = %v, want exactly [autosave-1.json]", files)

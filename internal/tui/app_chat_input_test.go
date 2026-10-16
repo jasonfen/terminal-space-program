@@ -269,7 +269,7 @@ func TestChatDMAmbiguousHandleRefused(t *testing.T) {
 
 func TestChatTildeInertDuringEndFlightConfirm(t *testing.T) {
 	a := newChatApp(t)
-	a.endFlightConfirm = true
+	a.askEndFlight("wreck")
 	chatPress(a, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'~'}})
 	if a.capturingText() {
 		t.Fatalf("~ must not open chat over an armed END FLIGHT confirm")
@@ -281,20 +281,19 @@ func TestChatTildeInertDuringEndFlightConfirm(t *testing.T) {
 // pins for [E] existed for the new F9 confirm — ~ opened chat OVER the
 // armed prompt, hiding it, and the prompt survived the chat round-trip
 // to fire on whatever key closed chat. ~ must not open chat; it falls
-// through to quickloadConfirm's own intercept instead, which — unlike
-// endFlightConfirm's y/n/esc-only clear — cancels on ANY non-"y" key
-// (by design: it can never get stuck armed via the keyboard), so the
-// world must be left untouched.
+// swallowed by the card instead (ADR 0054: a card swallows every key
+// that is not one of its own), so the card stays up and the world is
+// left untouched.
 func TestChatTildeInertDuringQuickloadConfirm(t *testing.T) {
 	a := newChatApp(t)
-	a.quickloadConfirm = true
+	a.askQuickload()
 	old := a.world
 	chatPress(a, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'~'}})
 	if a.capturingText() {
 		t.Fatalf("~ must not open chat over an armed quickload confirm")
 	}
-	if a.quickloadConfirm {
-		t.Fatalf("~ should have fallen through and cancelled quickloadConfirm, same as any other non-y key")
+	if !cardKindUp(a, cardQuickload) {
+		t.Fatalf("~ should have been swallowed by the quickload card, which stays up")
 	}
 	if a.world != old {
 		t.Fatalf("~ must never itself trigger the quickload")

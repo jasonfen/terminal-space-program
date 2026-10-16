@@ -59,7 +59,7 @@ func TestQuitFromSavesDoesNotPersistFreeze(t *testing.T) {
 
 	// #474: ctrl+c only arms the quit prompt now; [y] is the write.
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
+	pressTwice(a, 'y')
 
 	w, err := save.LoadID("autosave-1.json")
 	if err != nil {
