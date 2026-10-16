@@ -121,3 +121,72 @@ func TestMissedTransferHUDDoesNotClaimMoonEncounter(t *testing.T) {
 			cp.Hyperbolic, closest/1e3)
 	}
 }
+
+// plannedMoonTransfer plants the default vessel's [H] Moon transfer;
+// shortMps trims the departure node so the predicted path misses.
+func plannedMoonTransfer(t *testing.T, shortMps float64) (*World, bodies.CelestialBody) {
+	t.Helper()
+	w := mustWorld(t)
+	for i, b := range w.System().Bodies {
+		if b.ID != "moon" {
+			continue
+		}
+		w.SetTargetBody(i)
+		if _, err := w.PlanTransfer(i); err != nil {
+			t.Fatalf("PlanTransfer: %v", err)
+		}
+		w.ActiveCraft().Nodes[0].DV -= shortMps
+		return w, b
+	}
+	t.Fatal("no Moon in Sol")
+	return nil, bodies.CelestialBody{}
+}
+
+// claims reports which of the three encounter sources name the body.
+func claims(w *World, id string) (plan, frame, capture bool) {
+	if _, p, ok := w.PredictedFinalOrbit(); ok && p.ID == id {
+		plan = true
+	}
+	if ft, ok := w.NextFrameTransition(); ok && ft.To == id {
+		frame = true
+	}
+	if cp, ok := w.ArrivalCapturePreview(); ok && cp.Primary.ID == id {
+		capture = true
+	}
+	return
+}
+
+// TestRealMoonEncounterStillClaimed is the positive guard for #667: the
+// gate must not pass by deleting the readouts. A planted [H] transfer
+// whose path reaches the Moon's SOI keeps all three.
+func TestRealMoonEncounterStillClaimed(t *testing.T) {
+	w, moon := plannedMoonTransfer(t, 0)
+	plan, frame, capture := claims(w, moon.ID)
+	if !plan || !frame || !capture {
+		t.Errorf("a real Moon transfer lost an encounter readout: plan=%v frame=%v capture=%v", plan, frame, capture)
+	}
+}
+
+// TestEncounterReadoutsShareOnePredicate: every source answers the same
+// question, so they cannot disagree (the 183,642 km miss showed all
+// three wrong together; a future gate on one alone would split them).
+// Sweeping the departure trim crosses from hit to miss, and at every
+// step the three must agree with each other.
+func TestEncounterReadoutsShareOnePredicate(t *testing.T) {
+	sawHit, sawMiss := false, false
+	for short := 0.0; short <= 120; short += 10 {
+		w, moon := plannedMoonTransfer(t, short)
+		plan, frame, capture := claims(w, moon.ID)
+		if plan != frame || frame != capture {
+			t.Errorf("trim -%.0f m/s: sources disagree: plan=%v frame=%v capture=%v", short, plan, frame, capture)
+		}
+		if plan {
+			sawHit = true
+		} else {
+			sawMiss = true
+		}
+	}
+	if !sawHit || !sawMiss {
+		t.Errorf("sweep never crossed hit/miss (hit=%v miss=%v); the agreement check proved nothing", sawHit, sawMiss)
+	}
+}
