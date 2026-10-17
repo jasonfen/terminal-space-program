@@ -33,6 +33,11 @@ func TestDiagFastSweep(t *testing.T) {
 	if v := os.Getenv("DIAG_LOADOUTS"); v != "" && v != "none" {
 		ids = strings.Split(v, ",")
 	}
+	tally := map[string]int{}
+	pcFrames := map[string]int{}
+	defer func() {
+		t.Logf("SWEEP TALLY outcomes %v, plane change ignited in %v", tally, pcFrames)
+	}()
 	for _, id := range ids {
 		for _, d := range []int{0, 3, 7, 11, 15, 19, 23} {
 			if id == "fresh" && d > 0 {
@@ -134,6 +139,8 @@ func TestDiagFastSweep(t *testing.T) {
 			case capPe < 0:
 				outcome = "captured, Pe BELOW surface"
 			}
+			tally[outcome]++
+			pcFrames[pcFrame]++
 			t.Logf("%-17s +%2dd %-8s dv %5.0f/%5.0f PC@%-5s %-40s HUD Pe %6.0f flown Pe %6.0f capture %+5.2fh from perilune -> Pe %6.0f km: %s",
 				id, d, strategy, need, dvHave, pcFrame, pcV, hud, flownPe, -tpCap, capPe, outcome)
 		}

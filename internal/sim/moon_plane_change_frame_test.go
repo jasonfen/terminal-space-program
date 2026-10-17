@@ -53,6 +53,8 @@ type splitPCFlight struct {
 	pcDV        float64
 	hudPeKm     float64 // Moon perilune altitude the HUD's planted chain shows after the departure
 	flownPeKm   float64 // Moon perilune altitude of the flown path, read at SOI entry after the plane change
+	pcEndAt     time.Time // sim time the plane change ended
+	entryAt     time.Time // sim time the vessel crossed into the Moon's SOI
 }
 
 func flySplitThroughPlaneChange(t *testing.T, w *World) splitPCFlight {
@@ -114,6 +116,7 @@ func flySplitThroughPlaneChange(t *testing.T, w *World) splitPCFlight {
 	f.pcVPre = pre.V.Norm()
 	finishBurn()
 	f.pcEndFrame = c.Primary.ID
+	f.pcEndAt = w.Clock.SimTime
 	f.pcVPost = c.State.V.Norm()
 	if f.pcEndFrame == f.pcBurnFrame {
 		drift, ok := physics.KeplerStep(pre, c.Primary.GravitationalParameter(), w.Clock.SimTime.Sub(start).Seconds())
@@ -122,6 +125,7 @@ func flySplitThroughPlaneChange(t *testing.T, w *World) splitPCFlight {
 		}
 	}
 	tickUntil(w, 5_000_000, func() bool { return c.Primary.ID == "moon" })
+	f.entryAt = w.Clock.SimTime
 	if c.Primary.ID != "moon" {
 		f.flownPeKm = math.Inf(1)
 		return f
@@ -192,6 +196,27 @@ func TestSplitPlaneChangeBurnsInTheFrameItWasPlannedFor(t *testing.T) {
 		if f.pcBurnFrame != f.pcPlanned || f.pcEndFrame != f.pcPlanned {
 			t.Errorf("%s: the plane change planted in %s's frame burned in %s's frame (ended in %s's)",
 				ep.name, f.pcPlanned, f.pcBurnFrame, f.pcEndFrame)
+		}
+	}
+}
+
+// TestSplitPlaneChangeEndsWellBeforeSOIEntry: the plane change finishes a
+// real margin (about PlaneChangeMargin, 15 min; the test asks for 7) before the
+// vessel crosses into the Moon's SOI, not on the boundary: a burn that ends
+// on the boundary is one tick or one ephemeris wobble from running across it
+// (#701).
+func TestSplitPlaneChangeEndsWellBeforeSOIEntry(t *testing.T) {
+	for _, ep := range moonTransferEpochs() {
+		w := mustWorld(t)
+		ep.setup(w)
+		f := flySplitThroughPlaneChange(t, w)
+		if !f.planned || f.entryAt.IsZero() || f.pcEndAt.IsZero() {
+			continue
+		}
+		gap := f.entryAt.Sub(f.pcEndAt)
+		t.Logf("%s: plane change ended %v before the SOI entry", ep.name, gap.Round(time.Second))
+		if gap < 7*time.Minute {
+			t.Errorf("%s: the plane change ended %v before the SOI entry, want at least 7m", ep.name, gap.Round(time.Second))
 		}
 	}
 }
