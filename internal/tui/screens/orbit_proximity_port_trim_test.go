@@ -78,3 +78,31 @@ func TestProximityCompactKeepsPortTrimRow(t *testing.T) {
 		t.Errorf("compact chip trim row = %q (chip %q)", got, chip)
 	}
 }
+
+// ADR 0055 slice 3: the DOCKING page carries the arrows (PORT) row with the
+// 1° / 0.25° steps the code uses, and stays at 15 rows.
+func TestHelpDockingArrowsRowQuotesTheSteps(t *testing.T) {
+	var rows [][2]string
+	for _, s := range helpSections {
+		if strings.HasPrefix(s.header, "DOCKING") {
+			rows = s.rows
+		}
+	}
+	var text string
+	for _, r := range rows {
+		if r[0] == "arrows (PORT)" {
+			text = r[1]
+		}
+	}
+	if text == "" {
+		t.Fatal("DOCKING page has no arrows (PORT) row")
+	}
+	for _, want := range []string{"1°", "0.25°", "| clears"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("arrows row %q does not quote %q", text, want)
+		}
+	}
+	if len(rows) != 15 {
+		t.Errorf("DOCKING page has %d rows, want 15", len(rows))
+	}
+}
