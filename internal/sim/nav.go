@@ -144,7 +144,7 @@ func (w *World) CycleNavMode() NavMode {
 	hasCraftTarget := w.HasRelativeTarget()
 	hasPort := w.TargetHasPort()
 	for i := 0; i < 4; i++ {
-		w.NavMode = navModeNext(w.NavMode)
+		w.setNavMode(navModeNext(w.NavMode))
 		if w.NavMode == NavTarget && !hasCraftTarget {
 			continue
 		}
@@ -182,8 +182,32 @@ func (w *World) reconcileNavMode() {
 		w.NavMode = NavOrbit
 	}
 	if w.NavMode == NavPort && !w.TargetHasPort() {
-		w.NavMode = NavOrbit
+		w.setNavMode(NavOrbit)
 		w.resetDanglingPortHold()
+	}
+}
+
+// setNavMode is the one writer of NavMode that moves between PORT and the
+// other frames, and keeps one trim pair live (ADR 0055 decision 4): stepping
+// onto PORT zeroes the active vessel's surface pair (a surface lean would go
+// on tilting the hold invisibly under a (port) row), and leaving PORT zeroes
+// the port pair. The port pair is session-only, so nothing else holds it.
+func (w *World) setNavMode(next NavMode) {
+	prev := w.NavMode
+	w.NavMode = next
+	if prev == next {
+		return
+	}
+	c := w.ActiveCraft()
+	if c == nil {
+		return
+	}
+	if next == NavPort {
+		c.PitchTrim, c.HeadingTrim = 0, 0
+		c.PortPitchTrim, c.PortYawTrim = 0, 0
+	}
+	if prev == NavPort {
+		c.PortPitchTrim, c.PortYawTrim = 0, 0
 	}
 }
 
