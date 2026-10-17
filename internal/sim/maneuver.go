@@ -1041,6 +1041,9 @@ func (w *World) IterateBurnDV(mode spacecraft.BurnMode, dvGuess float64) (float6
 	}
 
 	direction := func(r, v orbital.Vec3) orbital.Vec3 {
+		if spacecraft.HoldsInertialDirection(mode) {
+			return dirUnit // #702: held from ignition, as flown
+		}
 		return spacecraft.DirectionUnit(mode, r, v)
 	}
 	const tolMeters = 1000.0
@@ -3903,9 +3906,13 @@ func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, duration 
 		if fuelDv := w.ActiveCraft().RemainingDeltaV(); fuelDv > 0 && effectiveDv > fuelDv {
 			effectiveDv = fuelDv
 		}
+		held := spacecraft.DirectionUnit(mode, state.R, state.V)
 		direction := func(r, v orbital.Vec3) orbital.Vec3 {
 			if targetMode {
 				return spacecraft.DirectionUnitTarget(mode, r, v, rT, vT)
+			}
+			if spacecraft.HoldsInertialDirection(mode) {
+				return held // #702: a normal or radial burn holds its ignition direction
 			}
 			return spacecraft.DirectionUnit(mode, r, v)
 		}
