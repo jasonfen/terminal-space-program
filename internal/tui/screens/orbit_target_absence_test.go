@@ -238,8 +238,10 @@ func TestDockedVesselKeepsTargetBox(t *testing.T) {
 // bottom row (17, the widest-left-box carve-out composeChips' own
 // comment documents: GUIDANCE is wider than MISSION, the box actually
 // beside the bay, and now reaches deeper than NAVIGATION alone does),
-// so the budget grows from 17 to 19: two rows reclaimed is enough for
-// one fewer notice to fold (CAPTURE PREVIEW, 7 rows, now fits).
+// so the budget grows from 16 to 18 (it was 17 to 19 until PROPELLANT's
+// cargo:/hold: row, ADR 0057 S4, pushed GUIDANCE's bottom row down one;
+// the two notices' filler rows went with it): two rows reclaimed is
+// enough for one fewer notice to fold (CAPTURE PREVIEW, 6 rows, now fits).
 func TestComposeChipsBayGrowsBudgetWithTargetAbsent(t *testing.T) {
 	v := NewOrbitView(chipTestTheme())
 	w, err := sim.NewWorld()
@@ -256,8 +258,8 @@ func TestComposeChipsBayGrowsBudgetWithTargetAbsent(t *testing.T) {
 	}
 	chips = append(chips,
 		builtChip{corner: cornerBay, lines: []string{"FRAME TRANSITION", "  Earth -> Moon", "  at T-8d17h"}},
-		builtChip{corner: cornerBay, lines: []string{"CAPTURE PREVIEW", "  primary: Moon", "  arrival: 1593 m/s", "  direction: retrograde", "  extra row"}},
-		builtChip{corner: cornerBay, lines: []string{"SOI PASS", "  body: Moon", "  planned: 616.9 km", "  entry: T-7d22h", "  extra row"}},
+		builtChip{corner: cornerBay, lines: []string{"CAPTURE PREVIEW", "  primary: Moon", "  arrival: 1593 m/s", "  direction: retrograde"}},
+		builtChip{corner: cornerBay, lines: []string{"SOI PASS", "  body: Moon", "  planned: 616.9 km", "  entry: T-7d22h"}},
 		builtChip{corner: cornerBay, lines: []string{"SESSION", "  bob joined"}},
 	)
 
@@ -268,15 +270,15 @@ func TestComposeChipsBayGrowsBudgetWithTargetAbsent(t *testing.T) {
 		t.Fatalf("composed frame must not contain TARGET with no target set:\n%s", out)
 	}
 	if strings.Contains(out, "Earth -> Moon") {
-		t.Errorf("FRAME TRANSITION (oldest) should still fold, budget only grew by 2 rows (17 -> 19), not enough for all four:\n%s", out)
+		t.Errorf("FRAME TRANSITION (oldest) should still fold, budget only grew by 2 rows (16 -> 18), not enough for all four:\n%s", out)
 	}
 	for _, want := range []string{"arrival: 1593 m/s", "planned: 616.9 km", "bob joined"} {
 		if !strings.Contains(out, want) {
-			t.Errorf("%q should render in full: with TARGET's rows reclaimed the bay budget grows from 17 to 19, one more notice than TARGET-present fits:\n%s", want, out)
+			t.Errorf("%q should render in full: with TARGET's rows reclaimed the bay budget grows from 16 to 18, one more notice than TARGET-present fits:\n%s", want, out)
 		}
 	}
 	if !strings.Contains(out, "+1 more") {
-		t.Errorf("want exactly one fold (FRAME TRANSITION) with the grown 19-row budget, TARGET-present folds two:\n%s", out)
+		t.Errorf("want exactly one fold (FRAME TRANSITION) with the grown 18-row budget, TARGET-present folds two:\n%s", out)
 	}
 	if strings.Contains(out, "+2 more") {
 		t.Errorf("still folding two notices; TARGET's reclaimed rows should have let CAPTURE PREVIEW back in:\n%s", out)
