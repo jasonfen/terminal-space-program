@@ -59,7 +59,7 @@ func StackStatsSeams(stages []Stage, seamBelow []bool) VehicleStats {
 	massUpTo := func(i int) float64 {
 		m := 0.0
 		for j := i; j < top[i]; j++ {
-			m += stages[j].DryMass + stages[j].FuelMass
+			m += stages[j].DryMass + stages[j].FuelMass + stages[j].CargoKg + stages[j].HoldKg
 		}
 		return m
 	}
@@ -76,7 +76,7 @@ func StackStatsSeams(stages []Stage, seamBelow []bool) VehicleStats {
 				}
 			}
 		}
-		vs.TotalMass += s.DryMass + s.FuelMass + s.MonopropMass
+		vs.TotalMass += s.DryMass + s.FuelMass + s.MonopropMass + s.CargoKg + s.HoldKg
 	}
 	if len(stages) > 0 && vs.TotalMass > 0 {
 		vs.LiftoffTWR = stages[LitStageIdx(stages)].Thrust / (vs.TotalMass * g0)

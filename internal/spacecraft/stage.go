@@ -257,6 +257,17 @@ type Stage struct {
 	// on dock, undock, deploy and jettison, and persisted in the save
 	// (schema 15).
 	PartPorts []PartPort `json:",omitempty"`
+
+	// CargoKg / HoldKg / CargoHold (ADR 0057 decision 5): inert cargo mass.
+	// CargoKg is what this stage carries to deliver; HoldKg is what its
+	// Cargo Hold has received (a hand-over moves CargoKg into the lowest
+	// stage with CargoHold, sim.HandOverCargo); CargoHold is the flag that
+	// lets the stage receive. Cargo is its own mass term (Spacecraft.Cargo),
+	// not DryMass. Copied with the stage on dock, undock, deploy and
+	// jettison, and persisted additively inside schema 15 (omitempty).
+	CargoKg   float64 `json:",omitempty"`
+	HoldKg    float64 `json:",omitempty"`
+	CargoHold bool    `json:",omitempty"`
 }
 
 // SumDryMass returns the total dry mass across every stage in kg.
@@ -264,6 +275,16 @@ func SumDryMass(stages []Stage) float64 {
 	var s float64
 	for _, st := range stages {
 		s += st.DryMass
+	}
+	return s
+}
+
+// SumCargoMass returns the total cargo mass across every stage in kg: what the
+// stages carry to deliver plus what their holds have received (ADR 0057 5.2).
+func SumCargoMass(stages []Stage) float64 {
+	var s float64
+	for _, st := range stages {
+		s += st.CargoKg + st.HoldKg
 	}
 	return s
 }
@@ -355,6 +376,7 @@ func (s *Spacecraft) SyncFields() {
 	s.DryMass = SumDryMass(s.Stages)
 	s.Fuel = SumFuelMass(s.Stages)
 	s.Monoprop = SumMonopropMass(s.Stages)
+	s.Cargo = SumCargoMass(s.Stages)
 	s.MonopropCapacity = SumMonopropCap(s.Stages)
 	lit := s.Stages[LitStageIdx(s.Stages)]
 	s.Thrust = lit.Thrust
