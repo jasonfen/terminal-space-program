@@ -1877,6 +1877,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.active != screenOrbit {
 				return a, nil
 			}
+			if a.portTrim(0, +spacecraft.PortTrimStepRad) { // ADR 0055: PORT turns the nose across the port face
+				return a, nil
+			}
 			if c := a.world.ActiveCraft(); c != nil {
 				c.PitchTrim += spacecraft.PitchTrimStepRad
 			}
@@ -1886,6 +1889,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// and the mission ladder share this switch, and an arrow there
 			// must not steer a vessel the player cannot see.
 			if a.active != screenOrbit {
+				return a, nil
+			}
+			if a.portTrim(0, -spacecraft.PortTrimStepRad) {
 				return a, nil
 			}
 			if c := a.world.ActiveCraft(); c != nil {
@@ -1904,6 +1910,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// with HeadingTrimSouth's is exactly the risk
 			// TestHeadingArrowsReadTheCorrectCompassDirection
 			// sabotage-proves in app_same_keys_test.go.
+			if a.portTrim(+spacecraft.PortTrimStepRad, 0) { // ↑ tips the nose up across the port face
+				return a, nil
+			}
 			if c := a.world.ActiveCraft(); c != nil {
 				c.HeadingTrim -= spacecraft.HeadingTrimStepRad
 			}
@@ -1913,6 +1922,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// and the mission ladder share this switch, and an arrow there
 			// must not steer a vessel the player cannot see.
 			if a.active != screenOrbit {
+				return a, nil
+			}
+			if a.portTrim(-spacecraft.PortTrimStepRad, 0) {
 				return a, nil
 			}
 			if c := a.world.ActiveCraft(); c != nil {
@@ -1926,6 +1938,28 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the plain arrows above.
 			if a.active != screenOrbit {
 				return a, nil
+			}
+			// ADR 0055: in PORT alt is 0.25° across the port face. Only the
+			// four arrow chords reach here (alt+f / alt+b are the
+			// emacs-style aliases of alt+→ / alt+←, same keys, same effect).
+			step := spacecraft.PortTrimFineStepRad
+			switch {
+			case key.Matches(m, a.keys.PitchTrimEastFine):
+				if a.portTrim(0, +step) {
+					return a, nil
+				}
+			case key.Matches(m, a.keys.PitchTrimWestFine):
+				if a.portTrim(0, -step) {
+					return a, nil
+				}
+			case key.Matches(m, a.keys.HeadingTrimNorthFine):
+				if a.portTrim(+step, 0) {
+					return a, nil
+				}
+			case key.Matches(m, a.keys.HeadingTrimSouthFine):
+				if a.portTrim(-step, 0) {
+					return a, nil
+				}
 			}
 			if c := a.world.ActiveCraft(); c != nil {
 				switch {
@@ -1945,6 +1979,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if c := a.world.ActiveCraft(); c != nil {
 				c.PitchTrim = 0
 				c.HeadingTrim = 0
+				c.PortPitchTrim = 0 // ADR 0055: | clears whichever pair is live
+				c.PortYawTrim = 0
 			}
 			return a, nil
 		case key.Matches(m, a.keys.Stage):
@@ -2451,6 +2487,22 @@ func (a *App) maybeAutosave(now time.Time) {
 		return
 	}
 	_ = save.WriteAutosave(a.world)
+}
+
+// portTrim is the arrow keys' PORT branch (ADR 0055 decision 4): with
+// NavMode PORT the arrows tip the nose across the port face instead of
+// trimming off the local horizon. dUp / dRight are radians toward the face's
+// up / right (negative: down / left). Reports whether the key was consumed,
+// so the caller falls through to the surface trim everywhere else.
+func (a *App) portTrim(dUp, dRight float64) bool {
+	if a.world.NavMode != sim.NavPort {
+		return false
+	}
+	if c := a.world.ActiveCraft(); c != nil {
+		c.PortPitchTrim += dUp
+		c.PortYawTrim += dRight
+	}
+	return true
 }
 
 // handleAttitudeKey dispatches a w/s/a/d/q/e tap. In EngineMain mode

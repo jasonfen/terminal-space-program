@@ -492,6 +492,14 @@ func HeadingInclinationDeg(r, spinAxis orbital.Vec3, headingOffsetRad float64) (
 // ramps continuously at the terminal key-repeat rate for big pitch-overs).
 const PitchTrimStepRad = math.Pi / 36
 
+// PortTrimStepRad / PortTrimFineStepRad are the arrows' steps while NavMode
+// is PORT (ADR 0055 decision 4): 1° plain, 0.25° with alt, against the 4°
+// gate, in the port face's own frame.
+const (
+	PortTrimStepRad     = math.Pi / 180
+	PortTrimFineStepRad = math.Pi / 720
+)
+
 // HeadingTrimDueEastRad is the absolute compass bearing (000°=north,
 // 090°=east, 180°=south, 270°=west) that a zero Spacecraft.HeadingTrim
 // offset resolves to: due east. It is NOT the field's default value —

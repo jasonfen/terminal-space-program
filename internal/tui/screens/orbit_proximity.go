@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"strconv"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -967,9 +968,46 @@ func proximityTrimRow(w *sim.World) string {
 	if c == nil {
 		return chipRow("trim:", "—")
 	}
+	if w.NavMode == sim.NavPort {
+		return chipRow("trim:", portTrimText(c.PortPitchTrim, c.PortYawTrim))
+	}
 	pitchDeg := w.TrimNoseDownDeg(c)
 	headingDeg := (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi
 	return chipRow("trim:", readout.TrimAngle(pitchDeg)+"  hdg: "+readout.Heading(headingDeg))
+}
+
+// portTrimText is the PORT case of the trim: row (ADR 0055 decision 4): the
+// lean across the port face as `1° up  2° left (port)`, only the axes that
+// are set, to the quarter degree the alt step moves it. The pair is read
+// the way the arrows move it: up / down, right / left. A pair that would
+// overflow the chip's value field in quarter degrees (a lean far outside
+// the 4° gate) falls back to whole degrees rather than lose the tag.
+func portTrimText(pitchRad, yawRad float64) string {
+	text := func(places float64) string {
+		var parts []string
+		axis := func(rad float64, pos, neg string) {
+			deg := rad * 180 / math.Pi
+			d := math.Round(math.Abs(deg)*places) / places
+			if d == 0 {
+				return
+			}
+			word := pos
+			if rad < 0 {
+				word = neg
+			}
+			parts = append(parts, strconv.FormatFloat(d, 'f', -1, 64)+"° "+word)
+		}
+		axis(pitchRad, "up", "down")
+		axis(yawRad, "right", "left")
+		if len(parts) == 0 {
+			parts = []string{"0°"}
+		}
+		return strings.Join(parts, "  ") + " (port)"
+	}
+	if t := text(100); utf8.RuneCountInString(t) <= proximityChipInnerWidth-chipValueCol {
+		return t
+	}
+	return text(1)
 }
 
 // buildProximityChipCompact is PROXIMITY's Compact Form (ADR 0046 /
@@ -1019,7 +1057,7 @@ func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
 	}
 	// A trim that is on stays visible even in the Compact Form: it is the
 	// one reading that says why the vessel is not holding its attitude.
-	if c := w.ActiveCraft(); c != nil && (c.PitchTrim != 0 || c.HeadingTrim != 0) {
+	if c := w.ActiveCraft(); c != nil && (c.PitchTrim != 0 || c.HeadingTrim != 0 || (w.NavMode == sim.NavPort && (c.PortPitchTrim != 0 || c.PortYawTrim != 0))) {
 		lines = append(lines, proximityTrimRow(w))
 	}
 	if suffix := proximityOverSpeedSuffix(st); suffix != "" {
