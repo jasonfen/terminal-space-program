@@ -13,8 +13,8 @@ import (
 // same way.
 //
 // Two steps (Jason 2026-10-12, call 1): picking any action row asks once more
-// on the same card, with `yes, <verb>` over the way out and the ▸ on the way
-// out; only a second pick acts. The way-out row (cancel / stay / keep it)
+// on the same card, with `yes, <verb>` (key y) over the way out (keys n, esc) and the ▸ on
+// the way out; only a second pick acts. The way-out row (cancel / stay / keep it)
 // acts at once, from either step.
 
 // CardW is every card's width: the pause card's.
@@ -68,16 +68,19 @@ func NewCard(th Theme, title, note string, rows []CardRow, open int) *Card {
 func (c *Card) Confirming() bool { return c.asking }
 
 // visible is the rows on screen now: all of them on the first step; on the
-// second, `yes, <verb>` (carrying the picked row's letters, so a key pressed
-// twice confirms) over the way out.
+// second, `yes, <verb>` over the way out. The second step's keys are the same
+// on every card whichever row was picked: y confirms, n or esc is the way
+// out (F4: a habitual n, n must never quit without saving). A letterless
+// destructive row confirms with y too; the second step is the deliberate one.
 func (c *Card) visible() []CardRow {
 	if !c.asking {
 		return c.rows
 	}
 	p := c.rows[c.picked]
 	out := c.rows[c.wayOut()]
+	out.Key, out.Letters = "n  esc", []string{"n", "N", "esc"}
 	return []CardRow{
-		{ID: p.ID, Label: "yes, " + p.Label, Key: p.Key, Letters: p.Letters},
+		{ID: p.ID, Label: "yes, " + p.Label, Key: "y", Letters: []string{"y", "Y"}},
 		out,
 	}
 }
@@ -222,6 +225,14 @@ func (c *Card) Render() string {
 		w := cardLabelW
 		if r.Key == "" {
 			w = cardRowW
+		}
+		// A verb too long for the key column (`yes, kick and delete
+		// vessels`) keeps its words and puts the key one space after them.
+		if r.Key != "" && lipgloss.Width(r.Label) > w-1 {
+			w = lipgloss.Width(r.Label) + 1
+			if max := cardRowW - lipgloss.Width(r.Key); w > max {
+				w = max
+			}
 		}
 		label := truncWidth(r.Label, w-1)
 		if i == c.cursor {
