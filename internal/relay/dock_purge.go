@@ -129,6 +129,7 @@ func (l *DockLedger) endGuestSideLocked(r *DockRecord) bool {
 	r.endHandle = r.GuestHandle
 	r.GuestOwner, r.GuestHandle, r.GuestCraftID = "", "", 0
 	r.undockAsk, r.undockRefused, r.releaseAsk, r.releaseAsParcel = false, false, false, false
+	r.handOverAsk, r.handOverNote = false, ""
 	r.dockNotice, r.reclaimNotice = false, false
 	r.transferTo = ""
 	return false
@@ -143,6 +144,7 @@ func (l *DockLedger) endOwnerSideLocked(r *DockRecord, fp string) bool {
 		r.endHandle = name
 		r.Owner, r.OwnerHandle, r.DockerCraftID = "", "", 0
 		r.undockAsk, r.undockRefused, r.releaseAsk, r.releaseAsParcel = false, false, false, false
+		r.handOverAsk, r.handOverNote = false, ""
 		r.transferTo = ""
 		r.dockNotice, r.reclaimNotice = false, false
 	}

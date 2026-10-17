@@ -227,6 +227,22 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	// ADR 0057 conflict 2a: the Dragon's owner is riding in someone else's stack,
+	// so the composite is in the stack owner's World and the hand-over is asked
+	// of that seat through the ledger. The answer comes back as a session chip on
+	// this seat's next tick (relay.reconcileGuest).
+	if _, ok := msg.(tui.HandOverCargoMsg); ok {
+		if m.srv != nil {
+			if w := m.app.World(); w.DockGuest != nil && m.srv.dock.RequestHandOver(m.owner, w.DockGuest.GuestCraftID) {
+				// Same flush-now reasoning as RequestUndock above: the ask lives
+				// only in the in-process ledger until this lands.
+				_ = m.srv.persistDocks()
+			} else {
+				m.app.Toast(sim.CargoNotDocked)
+			}
+		}
+		return m, nil
+	}
 	if _, ok := msg.(tui.ReleaseGuestMsg); ok {
 		if m.srv != nil {
 			return m.releaseGuest()

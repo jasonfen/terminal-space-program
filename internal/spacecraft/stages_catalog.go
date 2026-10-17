@@ -95,6 +95,9 @@ type StageModule struct {
 	// ports (ADR 0056 decision 7) is the part's nose ports, carried onto
 	// the built Stage so the Stage stores its own ports.
 	ports []PartPort
+	// cargoKg / cargoHold (ADR 0057 5.1-5.2) ride to the Stage via BuildStage.
+	cargoKg   float64
+	cargoHold bool
 	// VabSeed (v0.25 / ADR 0032 §6) is the part's optional crack-open seed
 	// — the component-ID list the VAB expands this atomic block into when the
 	// player presses enter on its stage header. Carried through from
@@ -227,6 +230,8 @@ func (p Part) toStageModule() StageModule {
 		antennaRangeM:       antennaRangeOf(p),
 		VabSeed:             p.VabSeed,
 		ports:               topPorts(p.Ports),
+		cargoKg:             p.CargoKg,
+		cargoHold:           p.CargoHold,
 	}
 }
 
@@ -312,6 +317,8 @@ func BuildStage(id string) (Stage, bool) {
 		AntennaKind:          m.antennaKind,
 		AntennaRangeM:        m.antennaRangeM,
 		PartPorts:            append([]PartPort(nil), m.ports...),
+		CargoKg:              m.cargoKg,
+		CargoHold:            m.cargoHold,
 	}, true
 }
 

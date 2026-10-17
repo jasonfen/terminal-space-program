@@ -277,6 +277,14 @@
       "dry_mass_kg": 50,
       "ports": [{"end": "top"}],
       "description": "Docking port on the stage nose."
+    },
+    {
+      "id": "cargo-hold",
+      "name": "Cargo Hold",
+      "kind": "structure",
+      "dry_mass_kg": 100,
+      "cargo_hold": true,
+      "description": "Receives cargo while docked."
     }
   ]
 }

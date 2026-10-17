@@ -73,6 +73,10 @@ type Component struct {
 	// composePart unions them onto the composed Part, so a stage that holds
 	// a Docking Port component docks.
 	Ports []PartPort `json:"ports,omitempty"`
+
+	// CargoHold (ADR 0057 5.1) lets the stage that holds this component
+	// receive cargo. composePart ORs it onto the composed Part.
+	CargoHold bool `json:"cargo_hold,omitempty"`
 }
 
 // Component-kind constants (ADR 0029 §2). The five kinds that ship this
@@ -170,6 +174,7 @@ func composePart(p Part, comps map[string]Component) (Part, error) {
 	var antennaRange float64
 	var canSoftLand, hasParachute bool
 	var compPorts []PartPort
+	cargoHold := p.CargoHold
 
 	setFuel := func(ft string) error {
 		if ft == "" {
@@ -192,6 +197,7 @@ func composePart(p Part, comps map[string]Component) (Part, error) {
 		}
 		dryMass += c.DryMassKg
 		compPorts = append(compPorts, c.Ports...)
+		cargoHold = cargoHold || c.CargoHold
 		switch c.Kind {
 		case ComponentEngine:
 			if c.ThrustN > 0 && c.IspS > 0 {
@@ -246,6 +252,7 @@ func composePart(p Part, comps map[string]Component) (Part, error) {
 	// such as probe-sat-stage keeps them via out := p) plus every
 	// component's.
 	out.Ports = append(append([]PartPort(nil), p.Ports...), compPorts...)
+	out.CargoHold = cargoHold
 	if antennaKind != AntennaNone {
 		out.Antenna = &Antenna{Kind: antennaKind, RangeM: antennaRange}
 	} else {

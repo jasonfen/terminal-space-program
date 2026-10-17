@@ -95,6 +95,9 @@ import (
 // HasLaunchSite, true for a vessel with a launch pad (the launch view's
 // downrange is measured from it; #611); the migration derives it from the
 // old save (see migrateV14PayloadToV15).
+// ADR 0057 decision 5.6 adds cargo_kg, hold_kg and cargo_hold to the same
+// Stage inside v15 with no bump of their own: omitempty additions whose absent
+// value (0 / false) is the truth for every older stage, so nothing migrates.
 const SchemaVersion = 15
 
 // RendezvousPlan is spacecraft.RendezvousPlan on the wire (times as UnixNano).
@@ -393,6 +396,15 @@ type Stage struct {
 	// ports. Authoritative after load: a stage with no "ports" key has no
 	// port. Schema <15 saves are backfilled by migrateV14PayloadToV15.
 	Ports []PortWire `json:"ports,omitempty"`
+
+	// CargoKg / HoldKg / CargoHold (ADR 0057 decision 5.6, schema v15
+	// additive: NO bump, by ADR 0004's rule for omitempty additions): the
+	// stage's cargo to deliver, what its Cargo Hold has received, and the
+	// hold flag. Absent decodes to 0 / false, exactly the truth for every
+	// stage saved before cargo existed, so there is nothing to migrate.
+	CargoKg   float64 `json:"cargo_kg,omitempty"`
+	HoldKg    float64 `json:"hold_kg,omitempty"`
+	CargoHold bool    `json:"cargo_hold,omitempty"`
 }
 
 // PortWire mirrors spacecraft.PartPort on the wire.

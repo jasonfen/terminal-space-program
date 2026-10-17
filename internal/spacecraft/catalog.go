@@ -96,6 +96,12 @@ type Part struct {
 	// ADR 0056 decision 7) and the save persists them (schema 15).
 	Ports []PartPort `json:"ports,omitempty"`
 
+	// CargoKg (ADR 0057 5.2) is the inert cargo this part carries to deliver;
+	// CargoHold (5.1) marks a part whose stage can receive cargo. Neither is
+	// dry mass. ToStage copies both onto the Stage.
+	CargoKg   float64 `json:"cargo_kg,omitempty"`
+	CargoHold bool    `json:"cargo_hold,omitempty"`
+
 	// Components (v0.24 / ADR 0029 §1, the VAB cycle) optionally declares
 	// this Part a composition of finer Components by ID. Absent ⇒ the Part
 	// is atomic and its inline scalar fields above are authoritative
@@ -254,6 +260,8 @@ func (p Part) ToStage() Stage {
 		HasParachute:         p.HasParachute,
 		CommandSource:        p.CommandSource,
 		PartPorts:            topPorts(p.Ports),
+		CargoKg:              p.CargoKg,
+		CargoHold:            p.CargoHold,
 	}
 	if p.Antenna != nil {
 		st.AntennaKind = p.Antenna.Kind

@@ -173,6 +173,13 @@ const (
 	// ordinals and the existing ones must not move.
 	SessionEventDisconnectedBy
 	SessionEventKickedBy
+
+	// SessionEventHandOver (ADR 0057 conflict 2a): the stack owner's seat
+	// answered the rider's `u`. Detail is the flash verbatim, either the mass
+	// handed over or one of the three refusals. Addressed at the rider, whose
+	// own `cargo:` / `hold:` rows are the rest of the cue. Appended last:
+	// kinds are ordinals.
+	SessionEventHandOver
 )
 
 // SessionEvent is a transient session moment (join / leave / sync —
