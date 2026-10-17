@@ -544,6 +544,7 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		planeChangeOffset := plan.Arrival.OffsetTime
 		captureOffset := plan.Arrival.OffsetTime
 		pcDv, pcTheta := planeChangeDv, planeChangeTheta
+		pcDur := c.BurnTimeForDV(pcDv)
 		rFarAim := rArrival
 		aimed := false
 		if depOK {
@@ -555,7 +556,8 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 				// Whole-orbit departure slip chosen by the aim (#566).
 				splitWait += arr.DepDelay
 				plan.Departure.OffsetTime = time.Duration(splitWait * float64(time.Second))
-				planeChangeOffset = time.Duration((splitWait + arr.TEntry) * float64(time.Second))
+				planeChangeOffset = time.Duration((splitWait + arr.TPcCentre) * float64(time.Second))
+				pcDur = arr.PcDur
 				captureOffset = time.Duration((splitWait + arr.TCapture) * float64(time.Second))
 				plan.Departure.DV = math.Abs(splitRaiseDv(muShared, rPark, rFarAim))
 				// Capture Δv re-sized for the actual hyperbolic perilune
@@ -578,7 +580,9 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 						pcDv, pcTheta = planeChangeAtState(entry, nTgt)
 					}
 				}
-				planeChangeOffset = time.Duration((nodeTau + tEntry) * float64(time.Second))
+				// Finish before the SOI entry (#701), as the aimed path does.
+				pcLead := PlaneChangeMargin + c.BurnTimeForDV(pcDv)/2
+				planeChangeOffset = time.Duration((nodeTau+tEntry)*float64(time.Second)) - pcLead
 				captureOffset = time.Duration((nodeTau + tCA) * float64(time.Second))
 			}
 		}
@@ -589,7 +593,10 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		}
 
 		w.PlanNode(transferNodeToManeuver(plan.Departure, now, c))
-		if pcDv > 0 {
+		if pcDv >= minSplitPlaneChangeDv {
+			if !aimed {
+				pcDur = c.BurnTimeForDV(pcDv)
+			}
 			// Degenerate fallback (transferEncounterTimes found no encounter,
 			// or no node/departure state): planeChangeOffset still equals
 			// captureOffset, so separate them — equal BurnStarts leave the
@@ -604,7 +611,7 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 				TriggerTime:    now.Add(planeChangeOffset),
 				Mode:           spacecraft.BurnPlaneChange,
 				DV:             pcDv,
-				Duration:       c.BurnTimeForDV(pcDv),
+				Duration:       pcDur,
 				PrimaryID:      c.Primary.ID,
 				PlaneChangeRad: pcTheta,
 			})
@@ -1981,20 +1988,106 @@ func splitDeparturePost(dep physics.StateVector, mu, rPark, rFar, mass, thrust, 
 	if !ok {
 		return physics.StateVector{}, false
 	}
-	post.M = dep.M
+	post.M = fin.M
 	return post, true
+}
+
+// PlaneChangeMargin is how long before the path enters the target's SOI the
+// split's plane change must have ended (#701): the burn is planned, aimed
+// and executed in the primary's frame, and a burn that runs across the SOI
+// boundary rotates the target-relative velocity instead, a different burn.
+// It exceeds the entry-time resolution of transferEncounterTimes (the
+// horizon over 4000 samples, about a minute for a lunar transfer).
+const PlaneChangeMargin = 15 * time.Minute
+
+// minSplitPlaneChangeDv: below this (m/s) the planes already agree and the
+// split plants no plane-change node, rather than a 0.00 m/s burn that cuts
+// the transfer into an extra leg.
+const minSplitPlaneChangeDv = 0.5
+
+// splitPlaneChange is the split's plane change as planSplitPlaneChange
+// resolves it.
+type splitPlaneChange struct {
+	TCentre  float64             // s from the departure clock to the burn's centre
+	Dv       float64             // m/s; 0 when the planes already agree (no burn)
+	Theta    float64             // signed plane rotation for the node
+	Duration time.Duration       // burn duration at the mass it burns at; 0 = impulsive
+	After    physics.StateVector // post-burn state at the burn's centre epoch
+	TEntry   float64             // s from the departure clock to the path's SOI entry after the burn
+}
+
+// planSplitPlaneChange sizes and times the split's plane change as the burn
+// the executor flies and the readouts predict: a finite burn holding the
+// direction the node gives at its centre (finiteNodeState), ending
+// PlaneChangeMargin before the SOI entry of the path it leaves. The burn
+// moves the entry, so the centre is iterated against it. tEntry0 is the
+// entry of the uncorrected path (s from depClock); ok=false when the
+// corrected path no longer enters the SOI.
+func (w *World) planSplitPlaneChange(c *spacecraft.Spacecraft, target bodies.CelestialBody, post physics.StateVector, depClock time.Time, horizon, tEntry0 float64) (splitPlaneChange, bool) {
+	primary := c.Primary
+	mu := primary.GravitationalParameter()
+	_, nTgt, okN := w.craftTargetPlaneNormals(c, target)
+	if !okN {
+		return splitPlaneChange{TEntry: tEntry0, After: post}, true
+	}
+	const g0 = 9.80665
+	margin := PlaneChangeMargin.Seconds()
+	tEntry, dur := tEntry0, 0.0
+	var res splitPlaneChange
+	for it := 0; it < 8; it++ {
+		tc := tEntry - margin - dur/2
+		if tc <= 0 {
+			return splitPlaneChange{}, false
+		}
+		st, ok := physics.KeplerStep(post, mu, tc)
+		if !ok {
+			return splitPlaneChange{}, false
+		}
+		dv, theta := planeChangeAtState(st, nTgt)
+		if dv < minSplitPlaneChangeDv || math.IsNaN(dv) {
+			return splitPlaneChange{TEntry: tEntry0, After: post}, true
+		}
+		dur = 0
+		if c.Thrust > 0 && c.Isp > 0 && st.M > 0 {
+			dur = st.M * (1 - math.Exp(-dv/(c.Isp*g0))) / (c.Thrust / (c.Isp * g0))
+		}
+		n := spacecraft.ManeuverNode{
+			Mode: spacecraft.BurnPlaneChange, DV: dv, Duration: time.Duration(dur * float64(time.Second)),
+			PrimaryID: primary.ID, PlaneChangeRad: theta,
+		}
+		impulsive := applyPlaneChangeImpulse(st, theta)
+		after := finiteNodeState(st, mu, n, c.Thrust, c.Isp, impulsive)
+		te, _, found := w.transferEncounterTimes(after, primary, target, depClock.Add(time.Duration(tc*float64(time.Second))), math.Max(horizon-tc, 3600))
+		if !found {
+			return splitPlaneChange{}, false
+		}
+		newEntry := tc + te
+		res = splitPlaneChange{TCentre: tc, Dv: dv, Theta: theta, Duration: n.Duration, After: after, TEntry: newEntry}
+		settled := math.Abs(newEntry-tEntry) < 30
+		tEntry = newEntry
+		if settled {
+			break
+		}
+	}
+	// The last pass must still finish before the entry it produced.
+	if res.TCentre+res.Duration.Seconds()/2+margin/2 > res.TEntry {
+		return splitPlaneChange{}, false
+	}
+	return res, true
 }
 
 // splitArrival is the capture-safe split arrival geometry resolved by
 // splitCaptureAim (GH #159): the trimmed far-apsis aim plus the encounter
 // timing, plane-change sizing, and capture Δv measured on the trimmed arc.
 type splitArrival struct {
-	RFar      float64 // trimmed transfer far-apsis aim (m)
-	TEntry    float64 // s from departure to target-SOI entry (plane-change fire time)
-	TCapture  float64 // s from departure to the moon-frame perilune (capture fire time)
-	PcDv      float64 // plane-change Δv at SOI entry (≈0 for a coplanar arrival)
-	PcTheta   float64 // signed plane rotation for the BurnPlaneChange node
-	CaptureDV float64 // capture Δv from the actual hyperbolic perilune speed
+	RFar      float64       // trimmed transfer far-apsis aim (m)
+	TEntry    float64       // s from departure to target-SOI entry (of the path after the plane change)
+	TCapture  float64       // s from departure to the moon-frame perilune (capture fire time)
+	TPcCentre float64       // s from departure to the centre of the plane-change burn (it ends PlaneChangeMargin before TEntry, #701)
+	PcDv      float64       // plane-change Δv (≈0 for a coplanar arrival)
+	PcTheta   float64       // signed plane rotation for the BurnPlaneChange node
+	PcDur     time.Duration // plane-change burn duration at the mass it will burn at (0 = impulsive)
+	CaptureDV float64       // capture Δv from the actual hyperbolic perilune speed
 	// DepDelay is how much later (s) than the node-aligned departure the
 	// raise fires: a whole number of parking orbits, so the departure point
 	// stays on the line of nodes while the target's arrival shifts along its
@@ -2073,14 +2166,18 @@ func (w *World) splitCaptureAim(c *spacecraft.Spacecraft, target bodies.Celestia
 		if !found {
 			return measurement{}, false
 		}
-		entry, ok := physics.KeplerStep(post, muShared, tEntry)
-		if !ok {
+		// The plane change is the finite burn the executor flies (held
+		// direction, #702), finished PlaneChangeMargin before the path
+		// enters the target's SOI so it burns in the frame it was planned
+		// in (#701).
+		pc, okPC := w.planSplitPlaneChange(c, target, post, depClock, tTransfer*1.2, tEntry)
+		if !okPC {
 			return measurement{}, false
 		}
-		var pcDv, pcTheta float64
-		if _, nTgt, okN := w.craftTargetPlaneNormals(c, target); okN {
-			pcDv, pcTheta = planeChangeAtState(entry, nTgt)
-			entry = applyPlaneChangeImpulse(entry, pcTheta)
+		tEntry, pcDv, pcTheta := pc.TEntry, pc.Dv, pc.Theta
+		entry, ok := physics.KeplerStep(pc.After, muShared, tEntry-pc.TCentre)
+		if !ok {
+			return measurement{}, false
 		}
 		entryClock := depClock.Add(time.Duration(tEntry * float64(time.Second)))
 		moonR := w.BodyPositionAt(target, entryClock).Sub(w.BodyPositionAt(primary, entryClock))
@@ -2111,9 +2208,11 @@ func (w *World) splitCaptureAim(c *spacecraft.Spacecraft, target bodies.Celestia
 				RFar:      rFar,
 				TEntry:    tEntry,
 				TCapture:  tEntry + tPeri,
+				TPcCentre: pc.TCentre,
 				DepDelay:  float64(delayOrbits) * tPark,
 				PcDv:      pcDv,
 				PcTheta:   pcTheta,
+				PcDur:     pc.Duration,
 				CaptureDV: vPeri - math.Sqrt(muTarget/rp),
 			},
 			rp:       rp,
