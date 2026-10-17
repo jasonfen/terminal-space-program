@@ -501,7 +501,7 @@ func TestQuitFromThePauseMenuStillAutosaves(t *testing.T) {
 	if !cardKindUp(a, cardQuit) {
 		t.Fatal("q in the menu did not arm the quit prompt")
 	}
-	_, cmd := pressTwice(a, 'y')
+	_, cmd := a.Update(keyRunes("y"))
 	if cmd == nil {
 		t.Fatal("y did not quit")
 	}
@@ -661,7 +661,7 @@ func TestLoadFromThePauseMenuReleasesTheMenuHold(t *testing.T) {
 	if !cardKindUp(a, cardQuit) {
 		t.Fatal("ctrl+c did not arm the quit prompt")
 	}
-	_, cmd := pressTwice(a, 'y')
+	_, cmd := a.Update(keyRunes("y"))
 	if cmd == nil {
 		t.Fatal("y did not quit")
 	}

@@ -387,18 +387,18 @@ func TestQuitCardClickDoesNotReachThePauseMenu(t *testing.T) {
 	if col < 0 {
 		t.Fatalf("no quit card:\n%s", ansi.Strip(out))
 	}
-	for _, label := range []string{"save and quit", "quit without saving", "stay"} {
+	for _, label := range []string{"Yes", "No", "Back"} {
 		a = fresh()
 		mouseClick(a, col+6, rowY(a.View(), label))
 		if a.active != screenMenu && a.active != screenOrbit {
 			t.Errorf("click on %q reached the pause menu (screen %v)", label, a.active)
 		}
 	}
-	// A click on the quit card's first row is the card's: it asks again.
+	// A click on the quit card's No row is the card's: it opens Are you sure?.
 	a = fresh()
-	mouseClick(a, col+6, rowY(a.View(), "save and quit"))
-	if card, ok := cardUp(a, "Save before quitting?"); !ok || !strings.Contains(card, "yes, save and quit") {
-		t.Errorf("a click on save and quit did not open its second step:\n%s", card)
+	clickCardRow(t, a, "Save before quitting?", "No")
+	if _, ok := cardUp(a, "Are you sure?"); !ok {
+		t.Error("a click on No did not open Are you sure?")
 	}
 	// A click that misses the card swallows too.
 	a = fresh()

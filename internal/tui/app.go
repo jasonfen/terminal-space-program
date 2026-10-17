@@ -2318,9 +2318,11 @@ func (a *App) armQuit() {
 	a.raiseCard(cardQuit, screens.NewQuitCard(a.screensTheme(), a.guestSave != nil), (*App).answerQuit)
 }
 
-// answerQuit: save and quit autosaves into the ring and quits; quit without
-// saving quits writing nothing; stay returns the player to exactly where they
-// were, touching nothing.
+// answerQuit answers both quit cards (#699). Save card: Yes autosaves into the
+// ring and quits; No raises Are you sure?; Back returns the player to exactly
+// where they were, touching nothing. Are you sure?: Yes quits writing
+// nothing; No returns to the Save card; Back as above. The guest's card
+// shares the Save and Stay ids.
 func (a *App) answerQuit(id string) (tea.Model, tea.Cmd) {
 	switch id {
 	case screens.QuitRowSave:
@@ -2341,8 +2343,15 @@ func (a *App) answerQuit(id string) (tea.Model, tea.Cmd) {
 		a.autosave()
 		return a, tea.Quit
 	case screens.QuitRowNoSave:
-		return a, tea.Quit
+		// Save before quitting? No: ask once more (#699).
+		a.raiseCard(cardQuit, screens.NewQuitSureCard(a.screensTheme()), (*App).answerQuit)
+	case screens.QuitRowSure:
+		return a, tea.Quit // quit writing nothing
+	case screens.QuitRowUnsure:
+		a.armQuit()
 	}
+	// QuitRowStay (Back on either card): the card is already closed, which
+	// is the return to where the quit was opened.
 	return a, nil
 }
 

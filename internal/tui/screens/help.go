@@ -65,8 +65,8 @@ var helpSections = []helpSection{
 		{"enter (any screen)", "does the highlighted or typed thing (each page says what); on the map nothing, except while [j] inspects"},
 		{"esc", "back to the screen that opened you: a screen opened from the pause menu returns to the menu, one opened by a key returns to the map (esc on the map opens the pause menu)"},
 		{"F5 / F9", "quicksave / quickload (F9 asks first: a card, enter picks the highlighted row)"},
-		{"ctrl+c", "quit: asks to save first, [esc] stays"},
-		{"a card", "a question over the dimmed map: ↑ / ↓ move the ▸, enter picks that row, y picks the first row, n or esc is the way out; an action row asks once more on the same card before it acts, and there y says yes and n or esc says no; the way out acts at once"},
+		{"ctrl+c", "quit: Save before quitting? y saves and quits, n asks Are you sure? (y quits without saving, n goes back to the first card), esc goes back to where you were"},
+		{"a card", "a question over the dimmed map: ↑ / ↓ move the ▸, enter picks that row, y picks the first row, n or esc is the way out; an action row asks once more on the same card before it acts, and there y says yes and n or esc says no; the way out acts at once; the two quit cards act at once on every row"},
 	}},
 	// `q` quits only inside the pause menu; in flight it is radial+
 	// (Keymap.AttitudeRadialOut), so it gets a menu-scoped section of its
@@ -75,7 +75,7 @@ var helpSections = []helpSection{
 		{"esc", "fly again: the menu stops the clock while it is open (the flight bar reads PAUSED) and closing it gives the clock back as it was; esc again from a screen the menu opened returns here"},
 		{"↑ / ↓", "pick a row (it is highlighted); [enter] opens it"},
 		{"s l b t k h", "shortcuts beside each row: save / load / build (VAB) / settings / keyboard layout / help"},
-		{"q", "quit: asks to save first, same prompt as ctrl+c (menu only; in flight q is radial+)"},
+		{"q", "quit: the same two cards as ctrl+c (menu only; in flight q is radial+); esc on either returns here"},
 		{"in Settings", "↑ / ↓ pick a row; space or enter flips or cycles the highlighted setting; esc back to the menu"},
 		{"in Keyboard layout", "← / →, space or enter cycle the layout (QWERTY / QWERTZ moves letters only); esc back to the menu"},
 	}},
