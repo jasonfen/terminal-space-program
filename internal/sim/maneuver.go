@@ -3045,13 +3045,26 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				continue
 			}
 		}
+		// #702: a burn with a normal or radial part holds the inertial
+		// direction it has at ignition, resolved once here in the frame it
+		// was planned in (#701).
+		burnDir := n.BurnDirUnit
+		if spacecraft.HoldsInertialDirection(n.Mode) {
+			burnDir = w.heldIgnitionDir(c, n)
+		}
 		if n.Duration == 0 {
 			// A BurnPlaneChange or BurnVector node degrades to impulsive
 			// only when BurnTimeForDV returned 0 (Δv past the fuel budget
 			// / no engine) — both carry a direction that can't be decoded
 			// from the BurnMode alone, so resolve via NodeBurnDirection.
 			if n.Mode == spacecraft.BurnPlaneChange || n.Mode == spacecraft.BurnVector {
-				c.ApplyImpulsiveDir(spacecraft.NodeBurnDirection(n, c.State.R, c.State.V), n.DV)
+				dir := burnDir
+				if n.Mode == spacecraft.BurnPlaneChange {
+					dir = w.heldIgnitionDir(c, n)
+				}
+				c.ApplyImpulsiveDir(dir, n.DV)
+			} else if spacecraft.HoldsInertialDirection(n.Mode) {
+				c.ApplyImpulsiveDir(burnDir, n.DV)
 			} else {
 				c.ApplyImpulsiveWithTarget(n.Mode, n.DV, rT, vT)
 			}
@@ -3065,7 +3078,7 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				TargetCraftID:    n.TargetCraftID,
 				TargetGhostOwner: n.TargetGhostOwner, // v0.28 S4: carry the ghost ref onto the running burn
 				PlaneChangeRad:   n.PlaneChangeRad,
-				BurnDirUnit:      n.BurnDirUnit,
+				BurnDirUnit:      burnDir,
 				PlannedDV:        n.DV,
 				NodeIndex:        idx,
 			}
@@ -3220,6 +3233,46 @@ func (w *World) cancelGhostRefsMatching(match func(owner string, craftID uint64)
 // orbit) still converges before ignition. 1.25 = 25% slack. v0.10.0+.
 const nodeLeadSlack = 1.25
 
+// heldIgnitionDir is the inertial direction a normal/radial/plane-change
+// node holds for its whole burn (#702): NodeBurnDirection at the
+// ignition state, taken in the frame the node was planned in (#701). A node
+// planned in Earth's frame that ignites after the vessel has crossed into
+// the Moon's SOI resolves its direction from the Earth-relative state, the
+// frame the planner and the chained readouts used (computePlanChain rebases
+// the same way), instead of rotating the Moon-relative velocity, which is
+// a different burn. The frame only decides the direction; the Δv is an
+// inertial vector and lands on the vessel unchanged. When the planned
+// frame is not reachable from where the vessel is (a capture node planted
+// in a body the path has not entered) the current frame is used, as before.
+func (w *World) heldIgnitionDir(c *spacecraft.Spacecraft, n spacecraft.ManeuverNode) orbital.Vec3 {
+	st, primary := w.stateInPlannedFrame(c.State, c.Primary, n.PrimaryID, w.Clock.SimTime)
+	if dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds(); dt != 0 {
+		if at, ok := physics.KeplerStep(st, primary.GravitationalParameter(), dt); ok {
+			st = at
+		}
+	}
+	return spacecraft.NodeBurnDirection(n, st.R, st.V)
+}
+
+// stateInPlannedFrame rebases state (relative to primary) onto the body
+// named plannedID at clock, only when frameReached says the path is there
+// (a node's own frame, or an ancestor of the frame the vessel is in).
+// Otherwise state is returned unchanged with the frame it is in.
+func (w *World) stateInPlannedFrame(state physics.StateVector, primary bodies.CelestialBody, plannedID string, clock time.Time) (physics.StateVector, bodies.CelestialBody) {
+	if plannedID == "" || plannedID == primary.ID {
+		return state, primary
+	}
+	target, ok := bodies.LookupByID(w.Systems, plannedID)
+	if !ok || !w.frameReached(state, primary, target, clock) {
+		return state, primary
+	}
+	oldInertial := w.BodyPositionAt(primary, clock)
+	newInertial := w.BodyPositionAt(target, clock)
+	vOld := w.bodyInertialVelocityAt(primary, clock)
+	vNew := w.bodyInertialVelocityAt(target, clock)
+	return physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew)), target
+}
+
 // nodeLeadActive reports the upcoming node's ignition direction when
 // the craft should already be slewing toward it — i.e. BurnStart is
 // within nodeLeadSlack·angle/SlewRate sim-seconds of now. This is the
@@ -3260,6 +3313,9 @@ func (w *World) nodeLeadActive(c *spacecraft.Spacecraft) (orbital.Vec3, bool) {
 		}
 	}
 	dir := c.BurnDirectionForBurn(n.Mode, rT, vT, n.PlaneChangeRad, n.BurnDirUnit)
+	if spacecraft.HoldsInertialDirection(n.Mode) {
+		dir = w.heldIgnitionDir(c, n)
+	}
 	if dir.Norm() == 0 {
 		return orbital.Vec3{}, false
 	}

@@ -1388,7 +1388,7 @@ func TestPlaneChangeNodeCircularizesPlane(t *testing.T) {
 	if _, err := w.PlanInclinationChange(0); err != nil {
 		t.Fatalf("PlanInclinationChange: %v", err)
 	}
-	post, _ := w.PostBurnState(w.ActiveCraft().Nodes[0])
+	post, _ := postBurnImpulsive(w, w.ActiveCraft().Nodes[0])
 	el := orbital.ElementsFromStateInFrame(post.R, post.V, mu, frame)
 
 	// Plane rotated to the equatorial target.
@@ -1456,7 +1456,7 @@ func TestPlanPlaneMatchCoplanarWithMoon(t *testing.T) {
 			if _, err := w.PlanPlaneMatch(moonIdx); err != nil {
 				t.Fatalf("inc=%.1f raan=%.0f: PlanPlaneMatch: %v", incDeg, raanDeg, err)
 			}
-			post, _ := w.PostBurnState(w.ActiveCraft().Nodes[0])
+			post, _ := postBurnImpulsive(w, w.ActiveCraft().Nodes[0])
 			if ang := planeAngleDeg(post.R.Cross(post.V), moonN); ang > 0.5 {
 				t.Errorf("inc=%.1f° raan=%.0f°: post-burn plane %.2f° off the Moon's, want ~0°",
 					incDeg, raanDeg, ang)
@@ -1509,7 +1509,7 @@ func TestPlaneMatchThenHohmannEncountersMoon(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PlanPlaneMatch: %v", err)
 	}
-	post, _ := w.PostBurnState(w.ActiveCraft().Nodes[0])
+	post, _ := postBurnImpulsive(w, w.ActiveCraft().Nodes[0])
 	w.ActiveCraft().State = post
 	w.ActiveCraft().Nodes = nil
 	w.Clock.SimTime = w.Clock.SimTime.Add(pm.OffsetTime)
