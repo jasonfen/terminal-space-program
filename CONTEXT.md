@@ -265,8 +265,8 @@ _Avoid_: Save dir (that is the game-save location — the **Saves directory**,
 **Craft Category** (v0.24 / ADR 0031):
 A display-only, hash-excluded grouping label on a **Loadout** that clusters
 the spawn-form CRAFT TYPE picker under ~6 non-selectable headers: **Launch
-Vehicles**, **Crewed Mission Stacks**, **Upper Stages**, **Landers &
-Capsules**, **Tugs & Relays**, **Satellites & Payloads**. A trailing
+Vehicles**, **Mission Stacks** (crewed and uncrewed; ADR 0057), **Upper
+Stages**, **Landers & Capsules**, **Tugs & Relays**, **Satellites & Payloads**. A trailing
 **Custom & Designs** group holds the inline stack builder and saved VAB
 **Designs** and is never filtered. Distinct from **Role**, which is
 functionally overloaded (drives command-source defaulting) and must not be

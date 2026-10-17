@@ -55,3 +55,27 @@ func TestCommsBoxCrewedConnectedReadsOrdinary(t *testing.T) {
 		t.Errorf("crewed connected (1 hop) = %q, want DIRECT", line)
 	}
 }
+
+// ADR 0057 decision 2 guard 4: the LIVE box (buildCommsBox on a real world's
+// CommGraph, not the pure selector) reads DIRECT for a crewed Dragon at 500 km
+// and for a Cargo Dragon; a crewed vessel was `no signal` before it was a link
+// source.
+func TestCommsBoxLiveDragonReadsDirect(t *testing.T) {
+	for _, id := range []string{"Dragon", "Cargo-Dragon"} {
+		w, err := sim.NewWorld()
+		if err != nil {
+			t.Fatalf("NewWorld: %v", err)
+		}
+		w.Crafts = nil
+		w.ActiveCraftIdx = -1
+		if _, err := w.SpawnCraft(sim.SpawnSpec{LoadoutID: id, ParentBodyID: "earth", AltitudeM: 500_000}); err != nil {
+			t.Fatalf("spawn %s: %v", id, err)
+		}
+		w.RecomputeCommGraph()
+		v := NewOrbitView(launchThemeForTest())
+		lines := v.buildCommsBox(w)
+		if len(lines) != 2 || !strings.Contains(lines[1], "DIRECT") {
+			t.Errorf("%s COMMS box = %q, want a DIRECT row", id, lines)
+		}
+	}
+}

@@ -34,6 +34,9 @@ type StageModule struct {
 	// Tier is a one-word configurator hint: "booster", "sustainer",
 	// "transfer", "payload", "tug". Purely descriptive.
 	Tier string
+	// Description is the one-line fact the VAB inspector prints (ADR 0057
+	// decision 4); empty for almost every part.
+	Description string
 	// dry / fuel / thrust / isp / bc are the stage's physical
 	// numbers (kg, kg, N, s, m²/kg) — same units as stageWithBC.
 	dry, fuel, thrust, isp, bc float64
@@ -206,6 +209,7 @@ func (p Part) toStageModule() StageModule {
 		Glyph:               p.Glyph,
 		Color:               p.Color,
 		Tier:                p.Tier,
+		Description:         p.Description,
 		dry:                 p.DryMassKg,
 		fuel:                p.FuelMassKg,
 		thrust:              p.ThrustN,

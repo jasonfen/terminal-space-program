@@ -93,8 +93,8 @@ func TestSpawnRowTailIsDim(t *testing.T) {
 	plain, raw := catalogPlainRows(t, th, 130)
 	checked := 0
 	for i, p := range plain {
-		if !strings.Contains(p, "Falcon 9") {
-			continue
+		if !strings.Contains(p, "Falcon 9") || strings.Contains(p, "Dragon") {
+			continue // the plain Falcon 9 row; the Dragon stacks carry 4 stages
 		}
 		checked++
 		r := raw[i]

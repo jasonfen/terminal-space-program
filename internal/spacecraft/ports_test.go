@@ -15,6 +15,8 @@ var adr0053PortedParts = []string{
 	"rcs-tug", "nudge-tug", "ntr-tug", "ion-keeper",
 	"deep-space-relay", "thread-relay", "heartbeat-keeper", "uplink-relay",
 	"endpoint-station", "probe-sat-stage",
+	// ADR 0057 decision 1: the two Dragon capsules carry the nose port.
+	"dragon-crew", "dragon-cargo",
 }
 
 // The `ports` field in parts.json reaches the stage lookup: every part on
@@ -57,8 +59,9 @@ func TestPartsJSONPortsReachStageLookup(t *testing.T) {
 }
 
 // ADR 0053 decision 3: of the 36 shipped loadouts (the 35 plus the Apollo-TLI
-// default, decision 4), 17 spawn with a ported top stage, 19 do not. Names
-// the 17 so adding a loadout later fails here loudly instead of shifting a
+// default, decision 4), 17 spawn with a ported top stage, 19 do not; ADR 0057
+// adds four Dragon vessels, all ported (21 of 40). Names
+// the 21 so adding a loadout later fails here loudly instead of shifting a
 // count.
 func TestLoadoutTopStagePortsMatchADR(t *testing.T) {
 	ported := []string{
@@ -66,6 +69,8 @@ func TestLoadoutTopStagePortsMatchADR(t *testing.T) {
 		"RCS-tug", "Relay-Tug", "Station-Keeper", "Deep-Space-Relay",
 		"Thread-Relay", "Heartbeat-Keeper", "Uplink-Relay", "Nudge-Tug",
 		"Endpoint-Station", "Socket-Lander", "Token-Pod", "Probe-Sat",
+		// ADR 0057: the four Dragon vessels top out on a Dragon capsule.
+		"Dragon", "Cargo-Dragon", "Falcon-9-Dragon", "Falcon-9-Cargo-Dragon",
 	}
 	want := map[string]bool{}
 	for _, id := range ported {

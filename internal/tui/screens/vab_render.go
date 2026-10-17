@@ -744,6 +744,9 @@ func (v *VAB) renderInspector(w int) []string {
 				tier += " · " + f + " fleet"
 			}
 			addText(tier)
+			if m.Description != "" {
+				addText(m.Description)
+			}
 			addText("adds as a new opaque stage above the cursor")
 		} else {
 			add(v.theme.Primary.Render(truncWidth(it.id, inner)))
