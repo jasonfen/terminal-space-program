@@ -3,6 +3,7 @@ package sim
 import (
 	"fmt"
 	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -51,23 +52,67 @@ type splitPCFlight struct {
 	pcModelDir  orbital.Vec3
 	pcAchieved  orbital.Vec3 // flown delta-v with the gravity-only drift removed
 	pcDV        float64
-	hudPeKm     float64 // Moon perilune altitude the HUD's planted chain shows after the departure
-	flownPeKm   float64 // Moon perilune altitude of the flown path, read at SOI entry after the plane change
+	hudPeKm     float64   // Moon perilune altitude the HUD's planted chain shows after the departure
+	flownPeKm   float64   // Moon perilune altitude of the flown path, read at SOI entry after the plane change
 	pcEndAt     time.Time // sim time the plane change ended
 	entryAt     time.Time // sim time the vessel crossed into the Moon's SOI
+
+	// The rest of the flight after SOI entry, flown the way a player does
+	// (every remaining burn with G, staging a stalled one): read by
+	// TestHMoonTransferEndsInAClearLunarOrbit so it shares this flight.
+	capFlown   bool // the post-entry legs were flown
+	capCrashed bool
+	capPrimary string
+	capE       float64
+	capPeKm    float64
+	capLateH   float64 // hours from the flown perilune to the capture ignition (+ after it)
 }
 
-func flySplitThroughPlaneChange(t *testing.T, w *World) splitPCFlight {
+// splitPCCache shares one flown result per start across the four tests
+// that read it (frame, margin, velocity, HUD perilune): the flight is
+// deterministic (a fresh world, a fixed start), so flying it once per
+// start instead of once per test cuts the package's -race time by ~3
+// flights per start. The first caller flies it; a fatal from that flight
+// is replayed to every later caller.
+var splitPCCache sync.Map // epoch name -> *splitPCEntry
+
+type splitPCEntry struct {
+	once  sync.Once
+	f     splitPCFlight
+	fatal string
+}
+
+// flownSplitPC returns the shared flight for the epoch, flying it on the
+// first request.
+func flownSplitPC(t *testing.T, ep struct {
+	name  string
+	setup func(w *World)
+}) splitPCFlight {
+	t.Helper()
+	v, _ := splitPCCache.LoadOrStore(ep.name, &splitPCEntry{})
+	e := v.(*splitPCEntry)
+	e.once.Do(func() {
+		w := mustWorld(t)
+		ep.setup(w)
+		e.f, e.fatal = flySplitThroughPlaneChange(t, w)
+	})
+	if e.fatal != "" {
+		t.Fatal(e.fatal)
+	}
+	return e.f
+}
+
+func flySplitThroughPlaneChange(t *testing.T, w *World) (splitPCFlight, string) {
 	t.Helper()
 	var f splitPCFlight
 	c := w.ActiveCraft()
 	mi := moonIndex(w)
 	w.SetTargetBody(mi)
 	if _, err := w.PlanTransfer(mi); err != nil {
-		t.Fatalf("PlanTransfer: %v", err)
+		return f, fmt.Sprintf("PlanTransfer: %v", err)
 	}
 	if w.LastTransfer.Strategy != "split" {
-		return f
+		return f, ""
 	}
 	pcIdx := -1
 	for i, n := range c.Nodes {
@@ -76,14 +121,16 @@ func flySplitThroughPlaneChange(t *testing.T, w *World) splitPCFlight {
 		}
 	}
 	if pcIdx < 0 {
-		return f
+		return f, ""
 	}
 	f.planned = true
 	f.pcPlanned = c.Nodes[pcIdx].PrimaryID
+	fatal := ""
 	toNextIgnition := func() spacecraft.ManeuverNode {
 		next := c.Nodes[0]
 		if !w.EngageAutoWarp() {
-			t.Fatal("G refused to engage on a planted burn")
+			fatal = "G refused to engage on a planted burn"
+			return next
 		}
 		tickUntil(w, 5_000_000, func() bool { return w.AutoWarp == nil })
 		n := len(c.Nodes)
@@ -97,17 +144,27 @@ func flySplitThroughPlaneChange(t *testing.T, w *World) splitPCFlight {
 				return
 			}
 			if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
-				t.Fatalf("stage: %v", err)
+				fatal = fmt.Sprintf("stage: %v", err)
+				return
 			}
 		}
 	}
 	toNextIgnition()
+	if fatal != "" {
+		return f, fatal
+	}
 	finishBurn()
+	if fatal != "" {
+		return f, fatal
+	}
 	f.hudPeKm = hudMoonPerilune(w)
 
 	// The vessel is at ignition: the node popped this tick, so the state
 	// is (to one tick) the pre-burn state.
 	pc := toNextIgnition()
+	if fatal != "" {
+		return f, fatal
+	}
 	f.pcBurnFrame = c.Primary.ID
 	pre := c.State
 	start := w.Clock.SimTime
@@ -128,11 +185,48 @@ func flySplitThroughPlaneChange(t *testing.T, w *World) splitPCFlight {
 	f.entryAt = w.Clock.SimTime
 	if c.Primary.ID != "moon" {
 		f.flownPeKm = math.Inf(1)
-		return f
+		return f, fatal
 	}
 	el := orbital.ElementsFromState(c.State.R, c.State.V, c.Primary.GravitationalParameter())
 	f.flownPeKm = (el.Periapsis() - c.Primary.RadiusMeters()) / 1e3
-	return f
+
+	// Fly on through the remaining burns (the capture) for the HMoon test.
+	f.capLateH = math.NaN()
+	for leg := 0; leg < 6 && len(c.Nodes) > 0 && !c.Crashed; leg++ {
+		next := c.Nodes[0]
+		if !w.EngageAutoWarp() {
+			break
+		}
+		tickUntil(w, 5_000_000, func() bool { return w.AutoWarp == nil || c.Crashed })
+		n := len(c.Nodes)
+		tickUntil(w, 5_000_000, func() bool { return len(c.Nodes) < n || c.Crashed })
+		if c.Crashed {
+			break
+		}
+		if next.PrimaryID == "moon" && c.Primary.ID == "moon" {
+			if tp, ok := orbital.TimeToPeriapsisHyperbolic(orbital.Vec3State{R: c.State.R, V: c.State.V}, c.Primary.GravitationalParameter()); ok {
+				f.capLateH = -tp / 3600
+			}
+		}
+		for k := 0; k < 3; k++ {
+			tickUntil(w, 5_000_000, func() bool { return c.ActiveBurn == nil || c.BurnStalled() || c.Crashed })
+			if !c.BurnStalled() {
+				break
+			}
+			if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+				break
+			}
+		}
+	}
+	f.capFlown = true
+	f.capCrashed = c.Crashed
+	f.capPrimary = c.Primary.ID
+	if c.Primary.ID == "moon" {
+		e2 := orbital.ElementsFromState(c.State.R, c.State.V, c.Primary.GravitationalParameter())
+		f.capE = e2.E
+		f.capPeKm = (e2.Periapsis() - c.Primary.RadiusMeters()) / 1e3
+	}
+	return f, fatal
 }
 
 // hudMoonPerilune walks the planted chain (what the HUD reads) and returns
@@ -185,9 +279,7 @@ func moonTransferEpochs() []struct {
 // in mid-burn.
 func TestSplitPlaneChangeBurnsInTheFrameItWasPlannedFor(t *testing.T) {
 	for _, ep := range moonTransferEpochs() {
-		w := mustWorld(t)
-		ep.setup(w)
-		f := flySplitThroughPlaneChange(t, w)
+		f := flownSplitPC(t, ep)
 		if !f.planned {
 			t.Logf("%s: [H] did not plant a split plane change; nothing to check", ep.name)
 			continue
@@ -207,9 +299,7 @@ func TestSplitPlaneChangeBurnsInTheFrameItWasPlannedFor(t *testing.T) {
 // (#701).
 func TestSplitPlaneChangeEndsWellBeforeSOIEntry(t *testing.T) {
 	for _, ep := range moonTransferEpochs() {
-		w := mustWorld(t)
-		ep.setup(w)
-		f := flySplitThroughPlaneChange(t, w)
+		f := flownSplitPC(t, ep)
 		if !f.planned || f.entryAt.IsZero() || f.pcEndAt.IsZero() {
 			continue
 		}
@@ -232,9 +322,7 @@ func TestSplitPlaneChangeEndsWellBeforeSOIEntry(t *testing.T) {
 func TestPlaneChangeBurnTurnsTheVelocityInsteadOfBleedingIt(t *testing.T) {
 	checked := 0
 	for _, ep := range moonTransferEpochs() {
-		w := mustWorld(t)
-		ep.setup(w)
-		f := flySplitThroughPlaneChange(t, w)
+		f := flownSplitPC(t, ep)
 		if !f.planned || f.pcBurnFrame != f.pcEndFrame || f.pcAchieved.Norm() == 0 {
 			continue // crossed a frame mid-burn: the frame test owns that
 		}
@@ -260,9 +348,7 @@ func TestPlaneChangeBurnTurnsTheVelocityInsteadOfBleedingIt(t *testing.T) {
 // into the surface).
 func TestFlownMoonPeriluneIsTheOneTheHUDShows(t *testing.T) {
 	for _, ep := range moonTransferEpochs() {
-		w := mustWorld(t)
-		ep.setup(w)
-		f := flySplitThroughPlaneChange(t, w)
+		f := flownSplitPC(t, ep)
 		if !f.planned {
 			continue
 		}
@@ -289,59 +375,24 @@ func TestFlownMoonPeriluneIsTheOneTheHUDShows(t *testing.T) {
 // late.
 func TestHMoonTransferEndsInAClearLunarOrbit(t *testing.T) {
 	for _, ep := range moonTransferEpochs() {
-		w := mustWorld(t)
-		ep.setup(w)
-		c := w.ActiveCraft()
-		mi := moonIndex(w)
-		w.SetTargetBody(mi)
-		if _, err := w.PlanTransfer(mi); err != nil {
-			t.Fatalf("%s: PlanTransfer: %v", ep.name, err)
-		}
-		lateH := math.NaN()
-		for leg := 0; leg < 6 && len(c.Nodes) > 0 && !c.Crashed; leg++ {
-			next := c.Nodes[0]
-			if !w.EngageAutoWarp() {
-				break
-			}
-			tickUntil(w, 5_000_000, func() bool { return w.AutoWarp == nil || c.Crashed })
-			n := len(c.Nodes)
-			tickUntil(w, 5_000_000, func() bool { return len(c.Nodes) < n || c.Crashed })
-			if c.Crashed {
-				break
-			}
-			if next.PrimaryID == "moon" && c.Primary.ID == "moon" {
-				if tp, ok := orbital.TimeToPeriapsisHyperbolic(orbital.Vec3State{R: c.State.R, V: c.State.V}, c.Primary.GravitationalParameter()); ok {
-					lateH = -tp / 3600
-				}
-			}
-			for k := 0; k < 3; k++ {
-				tickUntil(w, 5_000_000, func() bool { return c.ActiveBurn == nil || c.BurnStalled() || c.Crashed })
-				if !c.BurnStalled() {
-					break
-				}
-				if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
-					break
-				}
-			}
-			if next.Mode == spacecraft.BurnPlaneChange {
-				tickUntil(w, 5_000_000, func() bool { return c.Primary.ID == "moon" || c.Crashed })
-			}
+		f := flownSplitPC(t, ep)
+		if !f.planned || !f.capFlown {
+			t.Logf("%s: [H] did not plant a split plane change; nothing to check", ep.name)
+			continue
 		}
 		switch {
-		case c.Crashed:
+		case f.capCrashed:
 			t.Errorf("%s: the vessel hit the Moon before the capture burn", ep.name)
-		case c.Primary.ID != "moon":
-			t.Errorf("%s: the flight ended in %s's frame, not the Moon's", ep.name, c.Primary.ID)
+		case f.capPrimary != "moon":
+			t.Errorf("%s: the flight ended in %s's frame, not the Moon's", ep.name, f.capPrimary)
 		default:
-			el := orbital.ElementsFromState(c.State.R, c.State.V, c.Primary.GravitationalParameter())
-			peKm := (el.Periapsis() - c.Primary.RadiusMeters()) / 1e3
-			t.Logf("%s: captured e %.3f, Pe alt %.0f km; capture ignited %.2f h after the flown perilune", ep.name, el.E, peKm, lateH)
-			if el.E >= 1 || peKm <= 0 {
+			t.Logf("%s: captured e %.3f, Pe alt %.0f km; capture ignited %.2f h after the flown perilune", ep.name, f.capE, f.capPeKm, f.capLateH)
+			if f.capE >= 1 || f.capPeKm <= 0 {
 				t.Errorf("%s: lunar orbit e %.3f with periapsis %.0f km altitude: not a clear capture (capture burned %.2f h after the perilune)",
-					ep.name, el.E, peKm, lateH)
+					ep.name, f.capE, f.capPeKm, f.capLateH)
 			}
-			if !(math.Abs(lateH) <= 0.25) {
-				t.Errorf("%s: the capture burn ignited %+.2f h from the flown perilune (+ is after it, the vessel already past the Moon)", ep.name, lateH)
+			if !(math.Abs(f.capLateH) <= 0.25) {
+				t.Errorf("%s: the capture burn ignited %+.2f h from the flown perilune (+ is after it, the vessel already past the Moon)", ep.name, f.capLateH)
 			}
 		}
 	}
