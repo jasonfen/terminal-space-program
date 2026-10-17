@@ -485,3 +485,65 @@ func TestCenterlineSplitKeepsMouseAndMapIntact(t *testing.T) {
 		t.Errorf("map canvas = %d columns after leaving Proximity, want 138", v.canvas.Cols())
 	}
 }
+
+// The clamp keeps the cross, at centre+d, inside the ring window around the
+// crosshair while keeping d's direction from the ring centre, wherever the
+// ring sits relative to the lean (found live: ring 0.8 m below the crosshair,
+// nose leaning up, the cross was mis-clamped because the clamp assumed the
+// ring was on the lean's side).
+func TestCenterlineClampKeepsLeanDirectionInsideWindow(t *testing.T) {
+	g := centerlineGeom{winHalfCols: 16, winHalfRows: 8} // 32 px x 32 px half extents
+	const scale = 10.0                                   // px per metre
+	const halfX, halfY = 32.0, 32.0
+	cases := []struct {
+		name      string
+		centre, d orbital.Vec3 // metres
+		clamped   bool
+	}{
+		{"ring below, lean up", orbital.Vec3{Y: -3}, orbital.Vec3{Y: 20}, true},
+		{"ring near the bottom edge, lean up (old clamp snapped to the centre)", orbital.Vec3{Y: -3.1}, orbital.Vec3{Y: 20}, true},
+		{"ring above, lean down", orbital.Vec3{Y: 3}, orbital.Vec3{Y: -20}, true},
+		{"ring left, lean right", orbital.Vec3{X: -3}, orbital.Vec3{X: 20}, true},
+		{"ring right, lean left", orbital.Vec3{X: 3}, orbital.Vec3{X: -20}, true},
+		{"ring same side as lean (up)", orbital.Vec3{Y: 2}, orbital.Vec3{Y: 20}, true},
+		{"ring same side as lean (right)", orbital.Vec3{X: 2}, orbital.Vec3{X: 20}, true},
+		{"ring down-left, lean up-right", orbital.Vec3{X: -2, Y: -2}, orbital.Vec3{X: 15, Y: 30}, true},
+		{"ring up-right, lean down-left", orbital.Vec3{X: 2, Y: 2}, orbital.Vec3{X: -30, Y: -15}, true},
+		{"ring up-left, lean down-right", orbital.Vec3{X: -2, Y: 2}, orbital.Vec3{X: 30, Y: -15}, true},
+		{"ring down-right, lean up-left", orbital.Vec3{X: 2, Y: -2}, orbital.Vec3{X: -15, Y: 30}, true},
+		{"no clamp, ring below, lean up", orbital.Vec3{Y: -1}, orbital.Vec3{Y: 1}, false},
+		{"no clamp, diagonal", orbital.Vec3{X: 1, Y: -1}, orbital.Vec3{X: -1, Y: 0.5}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := centerlineClampToWindow(g, scale, c.centre, c.d)
+			if !c.clamped {
+				if got != c.d {
+					t.Fatalf("unclamped lean changed: got %+v, want %+v", got, c.d)
+				}
+				return
+			}
+			// Direction kept: got is a non-zero positive multiple of d.
+			f := math.Max(math.Abs(got.X/c.d.X), math.Abs(got.Y/c.d.Y))
+			if c.d.X == 0 {
+				f = got.Y / c.d.Y
+			} else if c.d.Y == 0 {
+				f = got.X / c.d.X
+			}
+			if !(f > 0 && f < 1) {
+				t.Fatalf("cross snapped to the ring centre or was not shortened: got %+v for d %+v", got, c.d)
+			}
+			if math.Abs(got.X-f*c.d.X) > 1e-9 || math.Abs(got.Y-f*c.d.Y) > 1e-9 {
+				t.Fatalf("direction not kept: got %+v, d %+v", got, c.d)
+			}
+			// Inside the window, and touching its edge (the clamp is tight).
+			ax, ay := math.Abs((c.centre.X+got.X)*scale), math.Abs((c.centre.Y+got.Y)*scale)
+			if ax > halfX+1e-9 || ay > halfY+1e-9 {
+				t.Fatalf("cross outside the window: abs px (%.2f, %.2f)", ax, ay)
+			}
+			if math.Abs(ax-halfX) > 1e-9 && math.Abs(ay-halfY) > 1e-9 {
+				t.Fatalf("clamp not tight to the window edge: abs px (%.2f, %.2f)", ax, ay)
+			}
+		})
+	}
+}
