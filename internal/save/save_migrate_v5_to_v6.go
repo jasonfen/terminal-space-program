@@ -39,6 +39,9 @@ func wireStagesToSim(wire []Stage) []spacecraft.Stage {
 			AntennaKind:          s.AntennaKind,
 			AntennaRangeM:        s.AntennaRangeM,
 			PartPorts:            portsFromWire(s.Ports),
+			CargoKg:              s.CargoKg,
+			HoldKg:               s.HoldKg,
+			CargoHold:            s.CargoHold,
 		}
 		// The save does not carry the launch-sprite dimensions; the hull,
 		// and the docking port derived from it (ADR 0053), come back from
@@ -88,6 +91,9 @@ func simStagesToWire(stages []spacecraft.Stage) []Stage {
 			AntennaKind:          s.AntennaKind,
 			AntennaRangeM:        s.AntennaRangeM,
 			Ports:                portsToWire(s.PartPorts),
+			CargoKg:              s.CargoKg,
+			HoldKg:               s.HoldKg,
+			CargoHold:            s.CargoHold,
 		}
 	}
 	return out
