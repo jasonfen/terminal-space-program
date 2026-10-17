@@ -1,0 +1,425 @@
+{
+  "version": 3,
+  "body_catalog_hash": "9638d54efed7ea5b7a07a619b687bee3750c1efe2c99980955f8a6a26fa8e01f",
+  "roster": null,
+  "invites": null,
+  "docks": [
+    {
+      "id": 1,
+      "owner": "local",
+      "docker_craft_id": 0,
+      "guest_owner": "SHA256:gern",
+      "guest_craft_id": 0,
+      "phase": 1,
+      "return_payload": {
+        "name": "Apollo TLI",
+        "dry_mass": 26600,
+        "fuel": 98579,
+        "isp": 421,
+        "thrust": 1023000,
+        "primary_id": "earth",
+        "r": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "v": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "m": 0,
+        "monoprop": 1741.0909090909092,
+        "monoprop_capacity": 1741.0909090909092,
+        "rcs_thrust": 440,
+        "rcs_isp": 220,
+        "loadout_id": "Apollo-TLI",
+        "role": "mission-stack",
+        "glyph": "➤",
+        "color": "#FFD93D",
+        "stages": [
+          {
+            "loadout_id": "Apollo-TLI",
+            "name": "S-IVB",
+            "glyph": "➤",
+            "color": "#FFD93D",
+            "dry_mass": 11000,
+            "fuel_mass": 75000,
+            "fuel_capacity": 75000,
+            "thrust": 1023000,
+            "isp": 421,
+            "monoprop_mass": 720,
+            "monoprop_cap": 720,
+            "rcs_thrust": 440,
+            "rcs_isp": 220
+          },
+          {
+            "loadout_id": "Apollo-TLI",
+            "name": "Descent",
+            "glyph": "➤",
+            "color": "#5FFF87",
+            "dry_mass": 2500,
+            "fuel_mass": 6310,
+            "fuel_capacity": 6310,
+            "thrust": 45000,
+            "isp": 311,
+            "monoprop_mass": 163.63636363636365,
+            "monoprop_cap": 163.63636363636365,
+            "rcs_thrust": 100,
+            "rcs_isp": 220,
+            "can_soft_land": true
+          },
+          {
+            "loadout_id": "Apollo-TLI",
+            "name": "Ascent",
+            "glyph": "➤",
+            "color": "#7BFFA0",
+            "dry_mass": 1200,
+            "fuel_mass": 1269,
+            "fuel_capacity": 1269,
+            "thrust": 16000,
+            "isp": 311,
+            "monoprop_mass": 78.54545454545455,
+            "monoprop_cap": 78.54545454545455,
+            "rcs_thrust": 48,
+            "rcs_isp": 220,
+            "can_soft_land": true,
+            "command_source": "crewed"
+          },
+          {
+            "loadout_id": "Apollo-TLI",
+            "name": "SM",
+            "glyph": "➤",
+            "color": "#C0C0FF",
+            "dry_mass": 6000,
+            "fuel_mass": 16000,
+            "fuel_capacity": 16000,
+            "thrust": 91000,
+            "isp": 314,
+            "monoprop_mass": 392.72727272727275,
+            "monoprop_cap": 392.72727272727275,
+            "rcs_thrust": 240,
+            "rcs_isp": 220
+          },
+          {
+            "loadout_id": "Apollo-TLI",
+            "name": "CM",
+            "glyph": "➤",
+            "color": "#B8C8E0",
+            "dry_mass": 5900,
+            "monoprop_mass": 386.1818181818182,
+            "monoprop_cap": 386.1818181818182,
+            "rcs_thrust": 236,
+            "rcs_isp": 220,
+            "has_parachute": true,
+            "command_source": "crewed",
+            "antenna_kind": "direct",
+            "antenna_range_m": 10000000
+          }
+        ],
+        "current_attitude_dir": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "decouple_plan": [
+          1,
+          2
+        ]
+      },
+      "parcel": true
+    },
+    {
+      "id": 2,
+      "owner": "local",
+      "docker_craft_id": 0,
+      "guest_owner": "SHA256:gern",
+      "guest_craft_id": 0,
+      "phase": 1,
+      "transfer_payload": {
+        "name": "RCS Tug",
+        "dry_mass": 200,
+        "fuel": 0,
+        "isp": 0,
+        "thrust": 0,
+        "primary_id": "earth",
+        "r": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "v": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "m": 0,
+        "monoprop": 13.090909090909092,
+        "monoprop_capacity": 13.090909090909092,
+        "rcs_thrust": 8,
+        "rcs_isp": 220,
+        "loadout_id": "RCS-tug",
+        "role": "tug",
+        "glyph": "➤",
+        "color": "#FF87D7",
+        "stages": [
+          {
+            "loadout_id": "RCS-tug",
+            "name": "RCS Tug",
+            "glyph": "➤",
+            "color": "#FF87D7",
+            "dry_mass": 200,
+            "monoprop_mass": 13.090909090909092,
+            "monoprop_cap": 13.090909090909092,
+            "rcs_thrust": 8,
+            "rcs_isp": 220,
+            "command_source": "probe",
+            "antenna_kind": "direct",
+            "antenna_range_m": 10000000
+          }
+        ],
+        "current_attitude_dir": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      "transfer_to": "SHA256:gern"
+    },
+    {
+      "id": 3,
+      "owner": "local",
+      "docker_craft_id": 0,
+      "guest_owner": "SHA256:gern",
+      "guest_craft_id": 0,
+      "phase": 0,
+      "guest_payload": {
+        "name": "Probe Sat",
+        "dry_mass": 400,
+        "fuel": 1000,
+        "isp": 320,
+        "thrust": 50000,
+        "primary_id": "earth",
+        "r": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "v": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "m": 0,
+        "monoprop": 26.181818181818183,
+        "monoprop_capacity": 26.181818181818183,
+        "rcs_thrust": 16,
+        "rcs_isp": 220,
+        "loadout_id": "Probe-Sat",
+        "role": "probe",
+        "glyph": "➤",
+        "color": "#5BB3FF",
+        "stages": [
+          {
+            "loadout_id": "Probe-Sat",
+            "name": "Probe Sat",
+            "glyph": "➤",
+            "color": "#5BB3FF",
+            "dry_mass": 400,
+            "fuel_mass": 1000,
+            "fuel_capacity": 1000,
+            "thrust": 50000,
+            "isp": 320,
+            "monoprop_mass": 26.181818181818183,
+            "monoprop_cap": 26.181818181818183,
+            "rcs_thrust": 16,
+            "rcs_isp": 220,
+            "command_source": "probe",
+            "antenna_kind": "direct",
+            "antenna_range_m": 10000000
+          }
+        ],
+        "current_attitude_dir": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      }
+    },
+    {
+      "id": 4,
+      "owner": "local",
+      "docker_craft_id": 0,
+      "guest_owner": "SHA256:gern",
+      "guest_craft_id": 0,
+      "phase": 0,
+      "guest_payload": {
+        "name": "Falcon 9",
+        "dry_mass": 29500,
+        "fuel": 518500,
+        "isp": 282,
+        "thrust": 7607000,
+        "primary_id": "earth",
+        "r": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "v": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "m": 0,
+        "monoprop": 1930.909090909091,
+        "monoprop_capacity": 1930.909090909091,
+        "rcs_thrust": 1024,
+        "rcs_isp": 220,
+        "loadout_id": "Falcon-9",
+        "role": "launch-vehicle",
+        "glyph": "➤",
+        "color": "#E8E8E8",
+        "stages": [
+          {
+            "loadout_id": "Falcon-9",
+            "name": "F9-S1",
+            "glyph": "➤",
+            "color": "#E8E8E8",
+            "dry_mass": 25600,
+            "fuel_mass": 411000,
+            "fuel_capacity": 411000,
+            "thrust": 7607000,
+            "isp": 282,
+            "monoprop_mass": 1675.6363636363637,
+            "monoprop_cap": 1675.6363636363637,
+            "rcs_thrust": 1024,
+            "rcs_isp": 220,
+            "ballistic_coefficient": 0.0000074,
+            "can_soft_land": true
+          },
+          {
+            "loadout_id": "Falcon-9",
+            "name": "F9-S2",
+            "glyph": "➤",
+            "color": "#B0D8FF",
+            "dry_mass": 3900,
+            "fuel_mass": 107500,
+            "fuel_capacity": 107500,
+            "thrust": 934000,
+            "isp": 348,
+            "monoprop_mass": 255.27272727272728,
+            "monoprop_cap": 255.27272727272728,
+            "rcs_thrust": 156,
+            "rcs_isp": 220,
+            "ballistic_coefficient": 0.00005,
+            "command_source": "probe",
+            "antenna_kind": "direct",
+            "antenna_range_m": 10000000
+          }
+        ],
+        "current_attitude_dir": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "can_soft_land": true,
+        "on_pad": true
+      }
+    },
+    {
+      "id": 5,
+      "owner": "local",
+      "docker_craft_id": 0,
+      "guest_owner": "SHA256:gern",
+      "guest_craft_id": 0,
+      "phase": 0,
+      "guest_payload": {
+        "name": "Saturn V",
+        "dry_mass": 181000,
+        "fuel": 2709000,
+        "isp": 263,
+        "thrust": 35100000,
+        "primary_id": "earth",
+        "r": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "v": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "m": 0,
+        "monoprop": 11847.272727272728,
+        "monoprop_capacity": 11847.272727272728,
+        "rcs_thrust": 5200,
+        "rcs_isp": 220,
+        "loadout_id": "Saturn-V",
+        "role": "launch-vehicle",
+        "glyph": "➤",
+        "color": "#FFD93D",
+        "stages": [
+          {
+            "loadout_id": "Saturn-V",
+            "name": "S-IC",
+            "glyph": "➤",
+            "color": "#FF8C42",
+            "dry_mass": 130000,
+            "fuel_mass": 2160000,
+            "fuel_capacity": 2160000,
+            "thrust": 35100000,
+            "isp": 263,
+            "monoprop_mass": 8509.09090909091,
+            "monoprop_cap": 8509.09090909091,
+            "rcs_thrust": 5200,
+            "rcs_isp": 220,
+            "ballistic_coefficient": 0.000008
+          },
+          {
+            "loadout_id": "Saturn-V",
+            "name": "S-II",
+            "glyph": "➤",
+            "color": "#FFC042",
+            "dry_mass": 40000,
+            "fuel_mass": 440000,
+            "fuel_capacity": 440000,
+            "thrust": 5140000,
+            "isp": 421,
+            "monoprop_mass": 2618.1818181818185,
+            "monoprop_cap": 2618.1818181818185,
+            "rcs_thrust": 1600,
+            "rcs_isp": 220,
+            "ballistic_coefficient": 0.000025
+          },
+          {
+            "loadout_id": "Saturn-V",
+            "name": "S-IVB",
+            "glyph": "➤",
+            "color": "#FFD93D",
+            "dry_mass": 11000,
+            "fuel_mass": 109000,
+            "fuel_capacity": 109000,
+            "thrust": 1023000,
+            "isp": 421,
+            "monoprop_mass": 720,
+            "monoprop_cap": 720,
+            "rcs_thrust": 440,
+            "rcs_isp": 220,
+            "ballistic_coefficient": 0.0000625,
+            "command_source": "probe",
+            "antenna_kind": "direct",
+            "antenna_range_m": 10000000
+          }
+        ],
+        "current_attitude_dir": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "launch_lat_deg": 28.5,
+        "launch_lon_deg": -80.6
+      }
+    }
+  ]
+}

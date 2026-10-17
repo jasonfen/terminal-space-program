@@ -34,13 +34,26 @@ func migrateV14PayloadToV15(p *Payload) {
 		crafts = append(crafts, p.Craft)
 	}
 	for _, c := range crafts {
-		backfillWirePorts(c.Stages)
-		for j := range c.DockedComponents {
-			backfillWirePorts(c.DockedComponents[j].Stages)
-		}
-		if c.OnPad || c.LaunchLatDeg != 0 || c.LaunchLonDeg != 0 {
-			c.HasLaunchSite = true
-		}
+		MigrateWireCraftV14ToV15(c)
+	}
+}
+
+// MigrateWireCraftV14ToV15 applies the v14 -> v15 backfill (ports for every
+// stage and docked-component stage, HasLaunchSite) to one wire craft. The
+// save envelope runs it for every craft it loads; session.json's parked dock
+// payloads are bare wire crafts outside any envelope, so sessiondir's
+// MetaVersion 3 -> 4 step runs it once for each of them. Call it only on a
+// craft written before v15: a v15 stage with no ports is a stage with no port.
+func MigrateWireCraftV14ToV15(c *Craft) {
+	if c == nil {
+		return
+	}
+	backfillWirePorts(c.Stages)
+	for j := range c.DockedComponents {
+		backfillWirePorts(c.DockedComponents[j].Stages)
+	}
+	if c.OnPad || c.LaunchLatDeg != 0 || c.LaunchLonDeg != 0 {
+		c.HasLaunchSite = true
 	}
 }
 

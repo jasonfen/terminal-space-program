@@ -47,7 +47,14 @@ import (
 // a handover destroyed the craft and left the record pointing at
 // nothing. A v2 session.json migrates forward via migrateMetaV2ToV3:
 // its docks simply carry no payloads, which is exactly what they did.
-const MetaVersion = 3
+//
+// v4 (schema 15, ADR 0056): the parked payloads are bare save.Craft wire
+// structs, not a save envelope, so they never saw the save's v14 -> v15
+// port backfill. A v3 session.json migrates forward via migrateMetaV3ToV4,
+// which runs that backfill once over every parked payload. It is a version
+// step and not a backfill in craft decoding because from v15 a stage with no
+// ports has no port, whatever it is called.
+const MetaVersion = 4
 
 // Roster roles. Host is the session's root operator (ADR 0034): the
 // player whose machine runs the session, with invite/removal authority
@@ -434,7 +441,22 @@ func migrateMeta(m *Meta) {
 	if m.Version < 3 {
 		migrateMetaV2ToV3(m)
 	}
+	if m.Version < 4 {
+		migrateMetaV3ToV4(m)
+	}
 	m.Version = MetaVersion
+}
+
+// migrateMetaV3ToV4 backfills the v15 per-stage ports and the HasLaunchSite
+// flag on every parked dock payload, by the same rule as the save envelope's
+// v14 -> v15 step (save.MigrateWireCraftV14ToV15). It runs only on a file
+// still at v3, so a v4 file's port-less stages are never given ports by name.
+func migrateMetaV3ToV4(m *Meta) {
+	for i := range m.Docks {
+		save.MigrateWireCraftV14ToV15(m.Docks[i].GuestPayload)
+		save.MigrateWireCraftV14ToV15(m.Docks[i].ReturnPayload)
+		save.MigrateWireCraftV14ToV15(m.Docks[i].TransferPayload)
+	}
 }
 
 // migrateMetaV1ToV2 carries a v0.27 session (roster/invites, no docks)
