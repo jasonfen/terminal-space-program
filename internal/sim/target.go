@@ -104,6 +104,10 @@ func (w *World) mirrorTargetToActiveCraft() {
 		return
 	}
 	if c := w.Crafts[w.ActiveCraftIdx]; c != nil {
+		if c.Target != w.Target {
+			// ADR 0055: a lean across one port face means nothing on another.
+			c.PortPitchTrim, c.PortYawTrim = 0, 0
+		}
 		c.Target = w.Target
 	}
 }

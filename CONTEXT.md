@@ -699,7 +699,8 @@ the Target changes or loses its port, and a `Port` hold resets to Prograde
 when it does). `Port+` is the hold that puts your nose on the port axis, the
 docking attitude. Reaching PORT turns nothing on any vessel; the flash reads
 `nav: PORT`. In PORT the navball's text row reads `pitch` / `yaw` to the port
-axis (see **Misalign**) instead of the surface `pitch` / `hdg`.
+axis (see **Misalign**) instead of the surface `pitch` / `hdg`, and the arrow
+keys trim the nose across the port face (see **Pitch Trim**).
 Unlike Focus and Target, NavMode lives on `World`, not on the Vessel — it's
 a known scope cap (each Vessel does not yet remember its own NavMode across
 active-Vessel switches); revisit if that asymmetry starts to bite.
@@ -1117,6 +1118,15 @@ _Avoid_: East / west (true only at a due-east heading; Jason trimmed to a
 7-cell value and moved the left boxes), prograde / retrograde (those name
 holds, and `→` moves the nose *away* from a prograde marker), a signed
 `+15°` (read as contradicting the navball's `pitch -15°`, #548).
+
+**Pitch Trim in PORT** (ADR 0055 slice 3; amends the entry above):
+With NavMode PORT the arrows are port-face trims instead: `PortPitchTrim` /
+`PortYawTrim`, `↑` / `↓` up / down and `←` / `→` left / right, 1° a press
+(`alt` 0.25°), applied after the hold as a vector lean in the port face's
+basis, and read on the `trim:` row as `1° up  2° left (port)`. `|` clears
+them. Session-only (never saved); one trim pair is live at a time: entering
+PORT zeroes the surface pair, leaving PORT or changing target zeroes the
+port pair. The **Magnet** ignores the pair.
 
 **Launch Window** (grilled 2026-10-03, G6, #460): While Landed with a
 target set, the next time the rotating pad sweeps through the target's
@@ -1652,7 +1662,10 @@ two **Docking Ports** of a pair in the same SOI, neither Landed, not two
 debris stages, not latched. Three terms, all required on the same tick:
 
 - **Port range**: port to port within 0.5 m.
-- **Docking Velocity**: relative speed under 0.1 m/s.
+- **Docking Velocity**: relative speed under 0.1 m/s, read at the ports: the
+  velocity of each port point (the stack bottom's velocity plus the
+  attitude-rate term, since a stack pivots about its bottom), the same
+  number as the chip's `rel speed:` and `closing:` and the Proximity ring.
 - **Alignment**: the two noses within 4° of pointing at each other, read on
   the chip as `misalign:` (see **Misalign**); the lateral miss across the
   port face is `lateral:` (see **Lateral**).

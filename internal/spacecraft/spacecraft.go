@@ -342,6 +342,14 @@ type Spacecraft struct {
 	// player's heading.
 	HeadingTrim float64
 
+	// PortPitchTrim / PortYawTrim (ADR 0055 decision 4) are the arrows' trim
+	// while NavMode is PORT: radians the nose is tipped toward the port
+	// face's up / right (negative: down / left), applied after the hold by
+	// PortLean. Session-only: not in the save envelope, zeroed on entering
+	// or leaving PORT. One pair (this or PitchTrim/HeadingTrim) is live.
+	PortPitchTrim float64
+	PortYawTrim   float64
+
 	// Stages (v0.9.1+) is the source of truth for dry mass /
 	// propellant / engine numbers. Stages[0] is the BOTTOM stage
 	// (the currently-firing engine + the next to be jettisoned by

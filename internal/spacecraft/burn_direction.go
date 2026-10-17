@@ -61,7 +61,51 @@ func (s *Spacecraft) BurnDirectionWithTargetAtt(mode BurnMode, rT, vT, aT orbita
 	if dir.Norm() == 0 {
 		return dir
 	}
-	return s.applyTrims(dir)
+	return s.PortLean(s.applyTrims(dir), rT, vT, aT)
+}
+
+// PortLean tips dir across the port face by the port trim pair (ADR 0055
+// decision 4): toward the face's up by PortPitchTrim, then toward its right
+// by PortYawTrim, in PortFaceBasis(aT) of the frame portDirection reads for
+// the PORT pulses. A vector lean, so a combined up+left lean reads right on
+// both axes. No-op when both trims are zero or there is no port axis.
+func (s *Spacecraft) PortLean(dir, rT, vT, aT orbital.Vec3) orbital.Vec3 {
+	return PortLean(dir, rT, vT, aT, s.PortPitchTrim, s.PortYawTrim)
+}
+
+// PortLean is the free-function form (the InstantSAS closure captures the
+// pair and the target snapshot).
+func PortLean(dir, rT, vT, aT orbital.Vec3, pitchRad, yawRad float64) orbital.Vec3 {
+	if (pitchRad == 0 && yawRad == 0) || dir.Norm() == 0 || aT.Norm() == 0 {
+		return dir
+	}
+	frame, ok := orbital.LVLHBasis(rT, vT)
+	if !ok {
+		return dir
+	}
+	up, right, ok := orbital.PortFaceBasis(aT.Unit(), frame)
+	if !ok {
+		return dir
+	}
+	d := dir.Unit()
+	if pitchRad != 0 {
+		d = leanToward(d, up, pitchRad)
+	}
+	if yawRad != 0 {
+		d = leanToward(d, right, yawRad)
+	}
+	return d
+}
+
+// leanToward rotates unit d toward unit t by ang (negative: away), in the
+// plane they span. No-op when t is parallel to d (no plane).
+func leanToward(d, t orbital.Vec3, ang float64) orbital.Vec3 {
+	perp := t.Sub(d.Scale(t.Dot(d)))
+	n := perp.Norm()
+	if n < 1e-12 {
+		return d
+	}
+	return d.Scale(math.Cos(ang)).Add(perp.Scale(math.Sin(ang) / n)).Unit()
 }
 
 // BurnDirectionUntrimmedWithTarget is BurnDirectionWithTarget before the
@@ -447,6 +491,14 @@ func HeadingInclinationDeg(r, spinAxis orbital.Vec3, headingOffsetRad float64) (
 // Lumen vehicles steer better with finer granularity, and held →
 // ramps continuously at the terminal key-repeat rate for big pitch-overs).
 const PitchTrimStepRad = math.Pi / 36
+
+// PortTrimStepRad / PortTrimFineStepRad are the arrows' steps while NavMode
+// is PORT (ADR 0055 decision 4): 1° plain, 0.25° with alt, against the 4°
+// gate, in the port face's own frame.
+const (
+	PortTrimStepRad     = math.Pi / 180
+	PortTrimFineStepRad = math.Pi / 720
+)
 
 // HeadingTrimDueEastRad is the absolute compass bearing (000°=north,
 // 090°=east, 180°=south, 270°=west) that a zero Spacecraft.HeadingTrim

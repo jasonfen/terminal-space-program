@@ -204,14 +204,14 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 | `a` / `d` | Point normal+ / normal- (perpendicular to your orbit) |
 | `q` / `e` | Point radial+ / radial- (away from / toward the body) |
 | `W` / `S` | Point along / against your ground speed (velocity relative to the spinning atmosphere). Use this for the launch gravity turn |
-| `→` / `←` | Tip the nose 5° toward / back from your heading on top of whatever the autopilot is doing (hold to ramp). Works the same in the map, the `V` launch view, the Proximity view (its PROXIMITY chip shows the trim) and every projection. A menu, the mission ladder, body info or the Rendezvous Planner picker takes the arrows while it is open |
-| `↑` / `↓` | Nudge your commanded launch heading 5° toward north / south off due east (hold to ramp), on the pad or mid-ascent |
-| `alt+←` / `alt+→` | Fine pitch trim: 1° back from / toward your heading (alt makes any trim fine) |
+| `→` / `←` | Tip the nose 5° toward / back from your heading on top of whatever the autopilot is doing (hold to ramp); in the Port frame, 1° right / left across the port face instead (see [Docking](#docking)). Works the same in the map, the `V` launch view, the Proximity view (its PROXIMITY chip shows the trim) and every projection. A menu, the mission ladder, body info or the Rendezvous Planner picker takes the arrows while it is open |
+| `↑` / `↓` | Nudge your commanded launch heading 5° toward north / south off due east (hold to ramp), on the pad or mid-ascent; in the Port frame, tip the nose 1° up / down across the port face instead |
+| `alt+←` / `alt+→` | Fine pitch trim: 1° back from / toward your heading (alt makes any trim fine); in the Port frame 0.25° left / right across the port face |
 | `alt+b` / `alt+f` | The same fine pitch trim, for Terminal.app and Ghostty, which send Option+← / Option+→ as these two keys |
-| `alt+↑` / `alt+↓` | Fine heading trim: 1° toward north / south, so you can command the exact heading the pad window names on NAVIGATION's `plan:` row |
+| `alt+↑` / `alt+↓` | Fine heading trim: 1° toward north / south, so you can command the exact heading the pad window names on NAVIGATION's `plan:` row; in the Port frame 0.25° up / down across the port face |
 | `alt` | The Alt key on Windows and Linux (WezTerm and most terminals send it as-is); Option on a Mac, see the next row |
 | `alt` on a Mac | Ghostty sends Option as alt as-is. Terminal.app and iTerm2 need Option sent as Meta: Terminal.app, Profiles > Keyboard > "Use Option as Meta key"; iTerm2, Profiles > Keys > Left Option key = Esc+ |
-| `\|` | Clear the manual tip and the commanded heading (both trims back to 0) |
+| `\|` | Clear the manual tip and the commanded heading (both trims back to 0); in the Port frame, clear the port-face trims |
 | `;` | Autopilot reference: Surface → Orbit → Target → Port (Target needs a targeted vessel; Port needs that vessel, yours or a friend's, to have a docking port; reaching Port turns nothing, the flash reads `nav: PORT`). It also switches itself: Surface → Orbit climbing through the upper atmosphere (Earth 51 km), Orbit → Surface coming back down. Press `;` to override; it is kept until the next crossing. Target and Port are only ever chosen by hand: they never switch themselves, even right beside a target vessel |
 | `k` | Steering style: smooth turning (default) or instant snap |
 | `r` | Switch between the main engine and RCS thrusters |
@@ -230,8 +230,12 @@ vessel's port instead of your orbit: with RCS armed `q` pushes you in toward
 the port along its axis and `e` pushes you out; `w` / `s` push up / down
 across the port's face and `a` / `d` push left / right. With the main engine
 selected `q` holds your nose on the port axis (`hold: Port+ (PORT)`, the
-docking attitude) and `e` holds it away. The frame drops back to Orbit if you
-change target or the target loses its port; XPrograde with it.
+docking attitude) and `e` holds it away. The arrow keys turn the nose across
+the port face on top of that hold: `↑` / `↓` tip it up / down and `←` / `→`
+left / right, 1° a press (`alt` 0.25°), and `|` clears them; the PROXIMITY
+chip's `trim:` row reads the lean, `trim: 1° up  2° left (port)`. The frame
+drops back to Orbit if you change target or the target loses its port;
+XPrograde with it.
 
 ### Targets and the map cursor
 
@@ -334,6 +338,12 @@ slowly and straight, and the last half metre closes by itself.
   vessel; the flash reads `nav: PORT`. The navball's text row reads
   `pitch` / `yaw`: how far your nose is above or below, and right or left of,
   parallel to their port axis (the same two components `misalign:` combines).
+  The arrow keys act on that same pair: `↑` / `↓` tip your nose 1° up / down
+  across the port face and `←` / `→` 1° left / right (`alt` makes it 0.25°),
+  on top of the hold and while the letters keep sliding you; the standoff
+  cross moves with them and `|` clears them. Only one trim pair is live at a
+  time: reaching `[PORT]` clears the surface trims, leaving it (or changing
+  target) clears the port-face trims, and the port-face trims are not saved.
   The speed readout is then relative to the target and tagged `(port)`.
   `p` steps the pulse down to 0.01 or 0.001 m/s for the last metres.
 - **A bad approach bumps.** Hulls that touch outside the gate (too fast, too

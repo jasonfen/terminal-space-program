@@ -749,6 +749,7 @@ func (s *Spacecraft) ThrustAccelFnAtWithTargetAtt(mode BurnMode, mu, throttle fl
 	spinAxis := orbital.Vec3{X: axisR.X, Y: axisR.Y, Z: axisR.Z}
 	pitchTrim := s.PitchTrim
 	headingTrim := s.HeadingTrim
+	portPitch, portYaw := s.PortPitchTrim, s.PortYawTrim
 	return func(r, v orbital.Vec3, _ float64) orbital.Vec3 {
 		gravity := physics.Accel(r, mu)
 		if thrust == 0 || mass == 0 {
@@ -773,6 +774,7 @@ func (s *Spacecraft) ThrustAccelFnAtWithTargetAtt(mode BurnMode, mu, throttle fl
 			dir = DirectionUnit(mode, r, v)
 		}
 		dir = ApplyTrims(dir, r, spinAxis, pitchTrim, headingTrim)
+		dir = PortLean(dir, rT, vT, aT, portPitch, portYaw) // ADR 0055: after the hold, like BurnDirection
 		if dir.Norm() == 0 {
 			return gravity
 		}
