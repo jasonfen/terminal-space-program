@@ -2,6 +2,14 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.57.1
+
+Moon transfers capture where the HUD says, and quitting asks the plain question (PRs `#700`, `#703`; issues `#699`, `#701`, `#702`; tag `v0.57.1`).
+
+- **`H` to the Moon captures clear.** The mid-course plane change used to fire after you had already crossed into the Moon's sphere of influence, and it chased your velocity while it burned, so a 209 m/s turn delivered about 136 m/s: you hit the Moon or captured into an orbit whose low point was underground, and the capture fired after you had passed. Now `H` plans the plane change to finish about 15 minutes before the Moon's sphere of influence, and the flight flies the encounter the HUD shows (`#701`).
+- **Sideways burns hold their direction.** A planted burn with a normal or radial part (a plane change, a radial correction, yours or `H`'s) holds the direction it was planned in for its whole length, as Apollo's planned burns did. Prograde and retrograde burns still follow your velocity as they turn, which keeps long departures efficient. The predictions model the same rule (`#702`).
+- **Quitting asks "Save before quitting?"** with Yes / No / Back. Yes saves and quits; No asks "Are you sure?" with No selected, where Yes quits without saving and No goes back; Back returns to where you opened it. A multiplayer guest, whose flight saves automatically, keeps the single Quit? card (`#699`).
+
 ### v0.57.0
 
 Every question is a card, the VAB builds anything, docking gets a Centerline view, SpaceX Dragon flies with cargo, and slow-engine Moon transfers arrive (ADRs 0054-0057; PRs `#657`-`#665`, `#669`-`#672`, `#674`-`#682`, `#697`, `#698`; issues `#611`, `#616`, `#633`, `#645`, `#648`, `#655`, `#656`, `#666`, `#667`, `#685`-`#689`; two batch reviews in the planning vault, 1 blocking and 1 should-fix finding fixed before release; save schema 15; tag `v0.57.0`).
