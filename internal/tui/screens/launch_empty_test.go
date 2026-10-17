@@ -37,6 +37,10 @@ func TestLaunchViewRendersNavballBottomRight(t *testing.T) {
 // the only vessel), the LaunchView renders a centered dim "no
 // active vessel" message inside the canvas instead of a blank
 // scene + a `LAUNCH — ` title. v0.11.4+ sub-scope 5.
+//
+// Rendered at the 140x40 Design Size (ADR 0057 S4): at 120 wide the
+// centred message sits under the left instrument column, and PROPELLANT's
+// fourth row (cargo:/hold:) moved GUIDANCE onto the message's row.
 func TestLaunchViewShowsNoActiveVesselMessage(t *testing.T) {
 	th := launchThemeForTest()
 	v := NewLaunchView(th, NewOrbitView(th))
@@ -49,7 +53,7 @@ func TestLaunchViewShowsNoActiveVesselMessage(t *testing.T) {
 	// isolate the render-path behaviour.
 	w.Crafts = nil
 	w.ActiveCraftIdx = -1
-	out := v.Render(w, 120, 40)
+	out := v.Render(w, 140, 40)
 	if !strings.Contains(out, "no active vessel") {
 		t.Errorf("expected 'no active vessel' in render with nil active; got:\n%s", out)
 	}

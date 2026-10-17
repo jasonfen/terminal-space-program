@@ -93,6 +93,13 @@ func tierReadings(t *testing.T) []tierReading {
 		add(&steady, chipTierBottomLeft, "STAGES/loadout "+id, v.buildStagesBox(w))
 	}
 
+	// PROPELLANT's cargo:/hold: row (ADR 0057 5.3, S4): a Cargo Dragon, a
+	// station before and after u, and an absurdly heavy hold, so the pin
+	// is measured against the row's widest real values.
+	for _, r := range cargoRowFixtures(t) {
+		add(&steady, chipTierTopLeft, "PROPELLANT/"+r.source, r.lines)
+	}
+
 	// ENGINE's node row and title, every branch at its worst (F1).
 	for _, r := range engineWorstCaseFixtures(t) {
 		add(&steady, chipTierTopLeft, "ENGINE/"+r.source, r.lines)
@@ -441,4 +448,30 @@ func TestChipTierWidthsStableUnderTrim(t *testing.T) {
 		}
 		c.PitchTrim = 0
 	}
+}
+
+// cargoRowFixtures builds PROPELLANT for the cargo-bearing vessels: a Cargo
+// Dragon, a docked Dragon + station before and after u, and a hold whose
+// mass climbs the ladder to a nine-digit tonnage.
+func cargoRowFixtures(t *testing.T) []vabStagesFixture {
+	t.Helper()
+	v := NewOrbitView(launchThemeForTest())
+	out := []vabStagesFixture{{"cargo dragon", v.buildPropellantBox(cargoDragonWorld(t))}}
+	docked := dockedDragonAtStation(t)
+	out = append(out, vabStagesFixture{"docked before u", v.buildPropellantBox(docked)})
+	docked.HandOverCargo(docked.ActiveCraftIdx)
+	out = append(out, vabStagesFixture{"docked after u", v.buildPropellantBox(docked)})
+	heavy := dockedDragonAtStation(t)
+	for i := range heavy.ActiveCraft().Stages {
+		st := &heavy.ActiveCraft().Stages[i]
+		if st.CargoHold {
+			st.HoldKg = 123456789
+		}
+		if st.CargoKg > 0 {
+			st.CargoKg = 987654321
+		}
+	}
+	heavy.ActiveCraft().SyncFields()
+	out = append(out, vabStagesFixture{"heavy cargo and hold", v.buildPropellantBox(heavy)})
+	return out
 }

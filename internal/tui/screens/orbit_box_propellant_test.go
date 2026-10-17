@@ -104,8 +104,8 @@ func TestPropellantBoxMonopropDashWithNoRCSTank(t *testing.T) {
 	c := w.ActiveCraft()
 	c.MonopropCapacity = 0
 	lines := v.buildPropellantBox(w)
-	if len(lines) != 4 {
-		t.Fatalf("buildPropellantBox returned %d lines, want 4 (title, fuel/mass, Δv, monoprop/rcs)", len(lines))
+	if len(lines) != 5 {
+		t.Fatalf("buildPropellantBox returned %d lines, want 5 (title, fuel/mass, Δv, monoprop/rcs, cargo/hold)", len(lines))
 	}
 	if !strings.Contains(lines[3], "monoprop:") || !strings.Contains(lines[3], "—") {
 		t.Errorf("monoprop row with no RCS tank = %q, want a dash cell, not a dropped row", lines[3])
