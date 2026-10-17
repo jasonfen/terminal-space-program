@@ -2,6 +2,21 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.57.0
+
+Every question is a card, the VAB builds anything, docking gets a Centerline view, SpaceX Dragon flies with cargo, and slow-engine Moon transfers arrive (ADRs 0054-0057; PRs `#657`-`#665`, `#669`-`#672`, `#674`-`#682`, `#697`, `#698`; issues `#611`, `#616`, `#633`, `#645`, `#648`, `#655`, `#656`, `#666`, `#667`, `#685`-`#689`; two batch reviews in the planning vault, 1 blocking and 1 should-fix finding fixed before release; save schema 15; tag `v0.57.0`).
+
+- **Every question is a card.** The quit prompt, `E` end flight, `D` transpose, `Y` deploy, `F9` quickload, the saves screen's load / delete / overwrite and the VAB's delete design all ask on a centred card instead of a `[y/n]` line. `↑`/`↓` move the `▸`, `Enter` picks, a click picks a row. Every action asks once more on the same card before it acts: `y` confirms, `n` or `Esc` is the way out (to quit without saving: `n`, then `y`). Cards that destroy or discard data open on the way out (`#633`).
+- **The roster drops a friend.** `d` disconnects (they can reconnect), `x` kicks (a new invite to return), and the kick card's `kick and delete vessels` backs up their save byte for byte, deletes it, hands any friend's vessel docked to them back, and leaves their vessel in someone else's stack with that stack's owner. Stop hosting, restart, the host quitting and SIGTERM now drop every guest cleanly with a line saying why; chips read `was kicked by` / `was disconnected by`, and a kicked player's ghost keeps its name (`#616`).
+- **The VAB builds anything.** Every catalog part sits in tier sections, the list fills its box, `PgUp`/`PgDn` step sections and `/` finds a part by name. `a` inserts above the cursor's stage, `y` keeps a stage's marks, per-stage Δv stops at a payload seam and Σ names the `(carrier)`. Subassemblies: the Comsat, LM and CSM+LM blocks, `S` saves your own from the cursor up, and a deployed payload is named after its block (`Comsat-1`). A `Docking Port` component puts a port on any stage, and `o` lists `BUILT IN` vessels to start from (they open unsaved and can't be deleted) (`#645`).
+- **Saves keep ports per stage (schema 15).** Older saves and vessels parked on a server mid-handover are backfilled from the catalog on load, so nothing loses its port. A vessel that never launched shows no `downrange:` (`#611`).
+- **Docking: the Centerline view.** With a port to dock to, Proximity splits: the side view (now with a dotted corridor out along their port axis) and the Centerline view down your own port: your port is the crosshair, theirs the ring, and the standoff cross inside the ring reaches its edge at the 4° gate. The chip reads `misalign:`, `lateral:` and a new `hold:` row; the navball reads `pitch` / `yaw` in PORT. `;` into PORT turns nothing by itself on any vessel (`q` with the main engine holds `Port+`). In PORT the arrows tip the nose 1° across the port face (`alt` 0.25°) and `trim:` reads `(port)` (`#655`).
+- **Docking speed is read at the ports.** `rel speed:`, `closing:` and the dock gate include each stack's swing about its tail, so two parked Apollo stacks read about 0.12 m/s and must null it to dock, and a nose still slewing is not dock-ready.
+- **SpaceX Dragon, crew and cargo.** Four `Mission Stacks` vessels with the trunk as a stage under the capsule (`space` drops it first); an engineless bottom stage passes thrust up to the first engine above it. Dragon's antenna reaches from anywhere to the Moon, and crewed craft now link through their built-in antenna too (`#656`).
+- **Cargo.** A `Cargo Hold` component lets a vessel receive cargo; docked, `u` hands it over (either seat in a cross-player dock), mass moves with it, and PROPELLANT reads `cargo:` / `hold:` on every vessel.
+- **Slow-engine Moon transfers arrive.** `H` plans a long burn as a finite burn instead of falling back to the instant-burn figure: the Comsat Carrier's 10-minute departure now reaches the Moon (it missed by 152,000 km). The HUD claims a Moon encounter only when the path reaches the Moon (`#666`, `#667`).
+- **ENGINE's TWR row shows the figures only**, no `will not lift` verdict (`#648`).
+
 ### v0.56.1
 
 A planned burn's path stays around its planet (PR `#654`; issue `#653`; tag `v0.56.1`).
