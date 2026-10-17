@@ -353,3 +353,37 @@ func TestSavesAndVABCardRowsAreClickTargets(t *testing.T) {
 		}
 	}
 }
+
+// Every card swallows every key but its own (ADR 0054): the boss key and
+// F1 / ? must not fire over a roster, saves or VAB card.
+func TestScreenCardsSwallowBossAndHelpKeys(t *testing.T) {
+	keys := []tea.KeyMsg{keyRunes("`"), keyRunes("?"), {Type: tea.KeyF1}}
+	type scr struct {
+		name, title string
+		raise       func(t *testing.T) *App
+	}
+	scrs := []scr{{"roster", "Kick pilot2?", func(t *testing.T) *App {
+		a := rosterApp(t)
+		a.Update(keyRunes("x"))
+		return a
+	}}}
+	for _, c := range slotAsks() {
+		c := c
+		scrs = append(scrs, scr{c.name, c.title, func(t *testing.T) *App { a, _ := c.raised(t); return a }})
+	}
+	for _, sc := range scrs {
+		for _, k := range keys {
+			t.Run(sc.name+"/"+k.String(), func(t *testing.T) {
+				a := sc.raise(t)
+				before := a.active
+				a.Update(k)
+				if a.active != before {
+					t.Errorf("%q moved the screen %v -> %v under a card", k.String(), before, a.active)
+				}
+				if _, ok := cardUp(a, sc.title); !ok {
+					t.Errorf("%q dropped the card", k.String())
+				}
+			})
+		}
+	}
+}
