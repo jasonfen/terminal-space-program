@@ -1,6 +1,9 @@
 package sim
 
-import "github.com/jasonfen/terminal-space-program/internal/spacecraft"
+import (
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
+)
 
 // Cargo hand-over (ADR 0057 decision 5.4). While docked, `u` moves every cargo
 // load aboard the stack into the stack's lowest Cargo Hold. One way, at once.
@@ -10,6 +13,11 @@ const (
 	CargoNoHold     = "no hold aboard"
 	CargoNoCargoAbd = "no cargo aboard"
 )
+
+// CargoHandedOverText is the flash for a successful hand-over: the mass in the
+// readout contract's words (ADR 0049), so the flash and the hold row agree. Both
+// the owner seat's key and the ledger's answer to the rider's key print it.
+func CargoHandedOverText(kg float64) string { return readout.Mass(kg) + " cargo handed over" }
 
 // HandOverCargo hands over the cargo THIS seat's hardware carries on the vessel
 // at idx: every stage whose component is not tagged as another player's (all of
