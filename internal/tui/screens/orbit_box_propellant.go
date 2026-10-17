@@ -15,6 +15,8 @@ import (
 // time, monoprop with RCS Δv. Replaces buildVesselChip's fuel/mass/Δv/
 // monoprop rows and buildLaunchChip's Δv→circ/burn: rows.
 //
+// The fourth row, cargo:/hold:, is permanent too (ADR 0057 5.3).
+//
 // Every row is always present (decision 2): with no active craft, or no
 // monoprop capacity, the cell reads a dash rather than the row dropping,
 // a change from the retired buildVesselChip, which omitted the
@@ -28,6 +30,7 @@ func (v *OrbitView) buildPropellantBox(w *sim.World) []string {
 			chipRow2(propellantCols, "fuel:", "—", "mass:", "—"),
 			chipRow2(propellantCols, readout.LabelDeltaV, "—", "Δv→circ:", "—"),
 			chipRow2(propellantCols, "monoprop:", "—", "rcs:", "—"),
+			chipRow2(propellantCols, "cargo:", "—", "hold:", "—"),
 		}
 	}
 	fuelLabel := readout.Mass(c.Fuel)
@@ -42,6 +45,7 @@ func (v *OrbitView) buildPropellantBox(w *sim.World) []string {
 		monopropLabel = readout.Mass(c.Monoprop)
 		rcsLabel = readout.DeltaV(c.RCSDeltaV())
 	}
+	cargoLabel, holdLabel := cargoHoldLabels(c)
 	return []string{
 		title,
 		chipRow2(propellantCols, "fuel:", fuelLabel, "mass:", readout.Mass(c.TotalMass())),
@@ -51,7 +55,32 @@ func (v *OrbitView) buildPropellantBox(w *sim.World) []string {
 		// row's own Δv drop. monoprop: stays spelled out, it names a
 		// real substance.
 		chipRow2(propellantCols, "monoprop:", monopropLabel, "rcs:", rcsLabel),
+		chipRow2(propellantCols, "cargo:", cargoLabel, "hold:", holdLabel),
 	}
+}
+
+// cargoHoldLabels renders PROPELLANT's cargo: and hold: cells (ADR 0057
+// decision 5.3), read live from the stages. cargo: is what the vessel
+// carries to deliver; a dash when no stage has cargo capacity (nothing to
+// tell "empty" from "none"). hold: is what its Cargo Hold has received; an
+// empty hold reads 0 kg (this vessel can receive), a dash when no stage
+// has a hold.
+func cargoHoldLabels(c *spacecraft.Spacecraft) (cargoLabel, holdLabel string) {
+	var cargoKg, holdKg float64
+	hasHold := false
+	for _, st := range c.Stages {
+		cargoKg += st.CargoKg
+		holdKg += st.HoldKg
+		hasHold = hasHold || st.CargoHold
+	}
+	cargoLabel, holdLabel = "—", "—"
+	if cargoKg > 0 {
+		cargoLabel = readout.Mass(cargoKg)
+	}
+	if hasHold {
+		holdLabel = readout.Mass(holdKg)
+	}
+	return cargoLabel, holdLabel
 }
 
 // deltaVToCircLabel renders PROPELLANT's Δv→circ cell: the Δv a
