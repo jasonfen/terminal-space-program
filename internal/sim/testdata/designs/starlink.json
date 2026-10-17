@@ -1,0 +1,38 @@
+{
+  "loadouts": [
+    {
+      "id": "starlink",
+      "name": "starlink",
+      "role": "custom",
+      "glyph": "➤",
+      "color": "#FFD93D",
+      "parts": [
+        {
+          "part_id": "f9-s1"
+        },
+        {
+          "part_id": "f9-s2"
+        },
+        {
+          "part_id": "relay-comsat"
+        },
+        {
+          "part_id": "relay-comsat"
+        },
+        {
+          "part_id": "relay-comsat"
+        }
+      ],
+      "nose_payload_plan": [
+        1,
+        1,
+        1
+      ],
+      "nose_payload_names": [
+        "Comsat",
+        "Comsat",
+        "Comsat"
+      ]
+    }
+  ]
+}
