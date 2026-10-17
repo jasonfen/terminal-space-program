@@ -48,6 +48,7 @@ type DockSnapshot struct {
 	TransferPayload *save.Craft
 	UndockAsk       bool
 	UndockRefused   bool
+	HandOverAsk     bool // ADR 0057 conflict 2a: the rider's pending cargo hand-over
 	TransferTo      string
 	Aborted         bool
 	ReleaseAsk      bool
@@ -91,6 +92,7 @@ func (l *DockLedger) FullRecords() []DockSnapshot {
 			TransferPayload: craftToWireTransfer(r.transferPayload),
 			UndockAsk:       r.undockAsk,
 			UndockRefused:   r.undockRefused,
+			HandOverAsk:     r.handOverAsk,
 			TransferTo:      r.transferTo,
 			Aborted:         r.aborted,
 			ReleaseAsk:      r.releaseAsk,
@@ -128,6 +130,7 @@ func (l *DockLedger) SeedFull(snaps []DockSnapshot, systems []bodies.System) {
 			transferPayload: craftFromWire(s.TransferPayload, systems),
 			undockAsk:       s.UndockAsk,
 			undockRefused:   s.UndockRefused,
+			handOverAsk:     s.HandOverAsk,
 			transferTo:      s.TransferTo,
 			aborted:         s.Aborted,
 			releaseAsk:      s.ReleaseAsk,

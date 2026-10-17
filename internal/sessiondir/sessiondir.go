@@ -167,6 +167,11 @@ type DockLink struct {
 	// every ordinary record, ignored by a build that predates them.
 	End       string `json:"end,omitempty"`
 	EndHandle string `json:"end_handle,omitempty"`
+	// HandOverAsk (ADR 0057 conflict 2a) is the rider's pending cargo
+	// hand-over, durable like every other ledger ask so a restart between the
+	// press and the stack owner's tick cannot eat it. Additive: absent on every
+	// ordinary record, ignored by a build that predates it.
+	HandOverAsk bool `json:"hand_over_ask,omitempty"`
 }
 
 // Meta is the session.json shape.

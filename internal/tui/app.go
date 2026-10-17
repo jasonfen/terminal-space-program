@@ -85,6 +85,12 @@ type TransferControlMsg struct{}
 // or not the guest is connected: an absent guest's component becomes a Parcel.
 type ReleaseGuestMsg struct{}
 
+// HandOverCargoMsg is the rider's `u` (ADR 0057 conflict 2a): the Dragon's
+// owner is riding in someone else's stack, so the composite lives in the stack
+// owner's World and the hand-over has to be asked of that seat through the dock
+// ledger. Like the other cross-player intents it is inert in solo play.
+type HandOverCargoMsg struct{}
+
 // ChatSendMsg is a chat line on its way up to the serve wrapper, which
 // owns the chat ring (ADR 0035). To/ToHandle address a DM at one player
 // (resolved against the online roster before sending); both empty means
@@ -1778,6 +1784,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else if a.world.Undock(a.world.ActiveCraftIdx) {
 				a.flash(fmt.Sprintf("undocked into %d components", len(a.world.Crafts)))
 				a.world.RecordAction(missions.ActionUndock) // ADR 0025 §7
+			}
+			return a, nil
+		case key.Matches(m, a.keys.HandOverCargo):
+			// ADR 0057 decision 5.4: u hands every cargo load aboard into the
+			// stack's hold. Riding in another player's stack (conflict 2a) the
+			// composite is not in this World: the ask goes up to the serve
+			// wrapper, and the answer comes back as a session chip. Otherwise
+			// the sim states the outcome in three facts or the mass moved.
+			if a.world.DockGuest != nil {
+				return a, func() tea.Msg { return HandOverCargoMsg{} }
+			}
+			if kg, refusal := a.world.HandOverCargo(a.world.ActiveCraftIdx); refusal != "" {
+				a.flash(refusal)
+			} else {
+				a.flash(sim.CargoHandedOverText(kg))
 			}
 			return a, nil
 		case key.Matches(m, a.keys.ReArmDock):

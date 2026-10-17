@@ -171,6 +171,11 @@ type Keymap struct {
 	// into its docked components.
 	Undock key.Binding
 
+	// HandOverCargo (ADR 0057 decision 5.4): lowercase `u`, beside Undock's
+	// `U`. While docked to a stack with a Cargo Hold, moves every cargo load
+	// the player's own hardware carries into the hold, at once, one way.
+	HandOverCargo key.Binding
+
 	// ReArmDock (#372): the flight-view "yes, I meant it" for a same-World
 	// docking pair held apart by the localReArm latch (ADR 0038 §5 amended)
 	// — clears the latch for the Target (when one is a vessel) or every
@@ -457,6 +462,7 @@ func DefaultKeymap() Keymap {
 		PrevCraft:           key.NewBinding(key.WithKeys("["), key.WithHelp("[", "prev vessel")),
 		CraftSlot:           key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"), key.WithHelp("1-9", "jump to vessel N")),
 		Undock:              key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "undock active composite")),
+		HandOverCargo:       key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "hand over cargo")),
 		ReArmDock:           key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "re-arm docking (clear the local re-arm latch)")),
 		Transpose:           key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "transpose (SM → firing core, LM → nose payload)")),
 		Deploy:              key.NewBinding(key.WithKeys("Y"), key.WithHelp("Y", "deploy top payload (keep carrier)")),

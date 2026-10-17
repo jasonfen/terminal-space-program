@@ -83,7 +83,11 @@ type Spacecraft struct {
 	// All four are zero on legacy v3 saves; the loader populates
 	// defaults from DryMass so old saves inherit RCS without a
 	// schema bump.
-	Monoprop         float64
+	Monoprop float64
+	// Cargo (ADR 0057 5.2) is the flat mirror of every stage's CargoKg +
+	// HoldKg, summed by SyncFields. Its own mass term: TotalMass adds it, but
+	// DryMass does not (the derived RCS pool scales with DryMass).
+	Cargo            float64
 	MonopropCapacity float64
 	RCSThrust        float64
 	RCSIsp           float64
@@ -125,9 +129,9 @@ type Spacecraft struct {
 	// exclusive — a planted finite burn or a held manual burn, not
 	// both. AttitudeMode + EngineMode are the live manual-flight
 	// state.
-	Nodes        []ManeuverNode
-	ActiveBurn   *ActiveBurn
-	ManualBurn   *ManualBurn
+	Nodes      []ManeuverNode
+	ActiveBurn *ActiveBurn
+	ManualBurn *ManualBurn
 
 	// RendezvousPlan is the last Rendezvous Burn planted from the picker,
 	// kept after the node fires (see RendezvousPlan).
@@ -140,7 +144,7 @@ type Spacecraft struct {
 	// (AnyCraftThrusting / StackMidBurn): a dry vessel must not pin warp
 	// at 10x. Transient: neither ManualBurn nor Throttle is persisted, so
 	// a reloaded vessel comes up with cold engines and no order.
-	DryOrder bool
+	DryOrder     bool
 	AttitudeMode BurnMode
 	EngineMode   EngineMode
 
@@ -503,8 +507,8 @@ func (s *Spacecraft) EffectiveThrottle() float64 {
 	return t
 }
 
-// TotalMass returns dry + fuel + monoprop.
-func (s *Spacecraft) TotalMass() float64 { return s.DryMass + s.Fuel + s.Monoprop }
+// TotalMass returns dry + fuel + monoprop + cargo.
+func (s *Spacecraft) TotalMass() float64 { return s.DryMass + s.Fuel + s.Monoprop + s.Cargo }
 
 // SurfaceLatLon returns the craft's body-fixed surface coordinates in
 // degrees (north-positive, east-positive): the soft-touchdown coords when
@@ -558,7 +562,7 @@ func (s *Spacecraft) RCSDeltaV() float64 {
 	if s.RCSIsp <= 0 || s.Monoprop <= 0 {
 		return 0
 	}
-	mDry := s.DryMass + s.Fuel
+	mDry := s.DryMass + s.Fuel + s.Cargo
 	if mDry <= 0 {
 		return 0
 	}

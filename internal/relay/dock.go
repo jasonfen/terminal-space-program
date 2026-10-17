@@ -72,10 +72,18 @@ type DockRecord struct {
 	transferPayload *spacecraft.Spacecraft // old owner→new owner: the whole migrating stack
 	undockAsk       bool                   // guest→docker: split my component
 	undockRefused   bool                   // docker→guest: your undock was refused, you're still docked (#307)
-	transferTo      string                 // owner→recipient: pending control transfer target
-	aborted         bool                   // docker couldn't fuse / the stack is gone — the dock ends
-	releaseAsk      bool                   // owner→own tick: release the guest's component (ADR 0040 §3)
-	releaseAsParcel bool                   // that release is going to a guest who isn't there
+	// handOverAsk is the rider's `u` (ADR 0057 conflict 2a): the guest asks
+	// the stack owner's tick to move the cargo THEIR hardware carries into the
+	// stack's hold. Durable like every other ask. handOverNote is the owner's
+	// answer owed to the rider (the flash text, a mass or a refusal): cosmetic,
+	// so deliberately NOT durable, a restart between the owner's tick and the
+	// rider's costs one chip while the rows already show the new state.
+	handOverAsk     bool
+	handOverNote    string
+	transferTo      string // owner→recipient: pending control transfer target
+	aborted         bool   // docker couldn't fuse / the stack is gone — the dock ends
+	releaseAsk      bool   // owner→own tick: release the guest's component (ADR 0040 §3)
+	releaseAsParcel bool   // that release is going to a guest who isn't there
 	// dockNotice is owed to the ABSORBED guest at fuse (ADR 0038 S1, #301):
 	// the docker's own reconcile chips itself the instant it fuses the
 	// stack, but the guest's craft left ITS World on an earlier tick with no
@@ -268,6 +276,24 @@ func (l *DockLedger) RequestUndock(guestOwner string, guestCraftID uint64) bool 
 	for _, r := range l.records {
 		if r.GuestOwner == guestOwner && r.GuestCraftID == guestCraftID && r.Phase == DockActive {
 			r.undockAsk = true
+			return true
+		}
+	}
+	return false
+}
+
+// RequestHandOver flags the rider's active dock for a cargo hand-over (ADR 0057
+// conflict 2a). Only the Dragon's owner presses `u`, and when that is the rider
+// the composite exists only in the stack owner's World, so the owner's next
+// reconcile performs it (World.HandOverGuestCargo) and answers with a chip. ok
+// is false when fp has no active dock as guest of that craft: the stack owner
+// presses `u` locally and has nothing to ask.
+func (l *DockLedger) RequestHandOver(guestOwner string, guestCraftID uint64) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, r := range l.records {
+		if r.GuestOwner == guestOwner && r.GuestCraftID == guestCraftID && r.Phase == DockActive && r.end == "" {
+			r.handOverAsk = true
 			return true
 		}
 	}
@@ -783,6 +809,17 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 			// that isn't in this World.
 			return false
 		}
+		// Hand-over request (ADR 0057 conflict 2a): the rider pressed u. The
+		// composite is here, so the move happens here, and the answer, a mass
+		// or one of the three state refusals, is owed to the rider's tick.
+		if r.handOverAsk {
+			r.handOverAsk = false
+			if kg, refusal := w.HandOverGuestCargo(cidx, r.GuestOwner, r.GuestCraftID); refusal != "" {
+				r.handOverNote = refusal
+			} else {
+				r.handOverNote = sim.CargoHandedOverText(kg)
+			}
+		}
 		// Undock request: split the guest's component and hand it back.
 		if r.undockAsk {
 			r.undockAsk = false
@@ -991,6 +1028,11 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 		if r.undockRefused {
 			r.undockRefused = false
 			*chips = append(*chips, DockChip{Kind: sim.SessionEventUndockRefused, Handle: r.OwnerHandle})
+		}
+		// ADR 0057 conflict 2a: the owner seat's answer to my u.
+		if r.handOverNote != "" {
+			*chips = append(*chips, DockChip{Kind: sim.SessionEventHandOver, Handle: r.OwnerHandle, Detail: r.handOverNote})
+			r.handOverNote = ""
 		}
 		l.setDockGuest(w, r, reports)
 		return false

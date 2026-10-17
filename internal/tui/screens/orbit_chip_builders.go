@@ -382,6 +382,10 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			plain("◇ undocked from " + e.Handle)
 		case sim.SessionEventTransfer:
 			plain("◇ control handed to " + e.Handle)
+		case sim.SessionEventHandOver:
+			// ADR 0057 conflict 2a: the owner seat's answer to the rider's u,
+			// carried verbatim (a mass handed over or a state refusal).
+			plain("◇ " + e.Detail)
 		case sim.SessionEventUndockRefused:
 			// #307: two rows because the second one is the way out — the
 			// refusal alone would leave the player stuck with no next move.
