@@ -90,7 +90,7 @@ func TestQuitPromptIsACardOverTheScreen(t *testing.T) {
 				t.Fatalf("%dx%d %s: no quit card on screen:\n%s", sz[0], sz[1], from, ansi.Strip(out))
 			}
 			card := strings.Join(rows, "\n")
-			for _, want := range []string{"save and quit", "quit without saving", "stay", "▸"} {
+			for _, want := range []string{"Yes", "No", "Back", "▸"} {
 				if !strings.Contains(card, want) {
 					t.Errorf("%dx%d %s: quit card lacks %q:\n%s", sz[0], sz[1], from, want, card)
 				}
@@ -114,54 +114,43 @@ func abs(n int) int {
 }
 
 // TestQuitCardArrowsAndEnterPick: ↑/↓ move the ▸ and enter picks, the same
-// way the pause card works; y / n / esc keep working directly (the existing
-// quit-prompt tests pin those).
+// way the pause card works (the one-step flow's paths are pinned in
+// app_quit_flow_test.go).
 func TestQuitCardArrowsAndEnterPick(t *testing.T) {
-	// Default row is Save and quit: enter writes an autosave and quits.
+	// Opens on Yes: enter saves and quits at once.
 	dir := testStateDirs(t)
 	a, _ := New(nil)
 	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	a.Update(tea.KeyMsg{Type: tea.KeyEnter}) // an action row asks once more (ADR 0054, call 1)
-	if files := savesDirFiles(t, dir); len(files) != 0 {
-		t.Fatalf("the first enter on save and quit wrote %v before the confirm", files)
-	}
-	// The second step opens on its way out (stay): enter there leaves.
 	_, cmd := a.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if isQuitCmd(cmd) || cardKindUp(a, cardQuit) {
-		t.Fatal("enter on the second step's open row (stay) quit or left the card up")
-	}
-	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	a.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	a.Update(tea.KeyMsg{Type: tea.KeyUp})
-	_, cmd = a.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if !isQuitCmd(cmd) {
-		t.Fatal("enter, up, enter on save and quit did not quit")
+		t.Fatal("enter on Yes did not quit")
 	}
 	if files := savesDirFiles(t, dir); len(files) != 1 {
-		t.Fatalf("enter on Save and quit: saves dir = %v, want one autosave", files)
+		t.Fatalf("enter on Yes: saves dir = %v, want one autosave", files)
 	}
 
-	// Down once: Quit without saving, writes nothing.
+	// Down once: No opens Are you sure? (no write, no quit).
 	dir = testStateDirs(t)
 	a, _ = New(nil)
 	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	a.Update(tea.KeyMsg{Type: tea.KeyDown})
-	if rows, _ := quitCardRows(a.View(), "Save before quitting?"); rows == nil || !strings.Contains(strings.Join(rows, "\n"), "▸ quit without saving") {
-		t.Fatalf("down did not move the cursor to Quit without saving:\n%s", strings.Join(rows, "\n"))
+	if got := cursorRow(t, a, "Save before quitting?"); got != "No" {
+		t.Fatalf("down moved the cursor to %q, want No", got)
 	}
-	a.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	a.Update(tea.KeyMsg{Type: tea.KeyUp})
 	_, cmd = a.Update(tea.KeyMsg{Type: tea.KeyEnter})
-	if !isQuitCmd(cmd) {
-		t.Fatal("enter, up, enter on quit without saving did not quit")
+	if isQuitCmd(cmd) {
+		t.Fatal("enter on No quit")
+	}
+	if _, ok := cardUp(a, "Are you sure?"); !ok {
+		t.Fatal("enter on No did not open Are you sure?")
 	}
 	if files := savesDirFiles(t, dir); len(files) != 0 {
-		t.Fatalf("Quit without saving wrote %v", files)
+		t.Fatalf("No wrote %v", files)
 	}
 
-	// Down twice: Stay, which closes the card and keeps playing.
+	// Down twice: Back closes the card and keeps playing.
 	testStateDirs(t)
 	a, _ = New(nil)
 	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
@@ -170,13 +159,13 @@ func TestQuitCardArrowsAndEnterPick(t *testing.T) {
 	a.Update(tea.KeyMsg{Type: tea.KeyDown})
 	_, cmd = a.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	if isQuitCmd(cmd) || cardKindUp(a, cardQuit) {
-		t.Fatal("enter on Stay quit or left the card open")
+		t.Fatal("enter on Back quit or left the card open")
 	}
-	// Up wraps from the top row back to Stay rather than running off.
+	// Up wraps from the top row to Back rather than running off.
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	a.Update(tea.KeyMsg{Type: tea.KeyUp})
-	if rows, _ := quitCardRows(a.View(), "Save before quitting?"); !strings.Contains(strings.Join(rows, "\n"), "▸ stay") {
-		t.Errorf("up from the top did not wrap to Stay:\n%s", strings.Join(rows, "\n"))
+	if got := cursorRow(t, a, "Save before quitting?"); got != "Back" {
+		t.Errorf("up from the top landed on %q, want Back", got)
 	}
 }
 

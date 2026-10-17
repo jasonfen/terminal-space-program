@@ -55,7 +55,7 @@ func TestQuitPromptNoWritesNothing(t *testing.T) {
 	before := savesDirFiles(t, dir)
 
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	a.Update(keyRunes("n")) // pick quit without saving, which asks once more
+	a.Update(keyRunes("n")) // Save before quitting? No: Are you sure? (#699)
 	_, cmd := a.Update(keyRunes("y"))
 
 	if !isQuitCmd(cmd) {
@@ -81,7 +81,7 @@ func TestQuitPromptYesWritesAutosave(t *testing.T) {
 	}
 
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	_, cmd := pressTwice(a, 'y')
+	_, cmd := a.Update(keyRunes("y"))
 
 	if !isQuitCmd(cmd) {
 		t.Fatal("[y] did not quit")
@@ -141,7 +141,7 @@ func TestQuitPromptYesSkipsPausedWorld(t *testing.T) {
 	a.world.Clock.Paused = true
 
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	_, cmd := pressTwice(a, 'y')
+	_, cmd := a.Update(keyRunes("y"))
 
 	if !isQuitCmd(cmd) {
 		t.Fatal("[y] did not quit")
@@ -200,7 +200,7 @@ func TestMenuQuitRowRaisesSameQuitPrompt(t *testing.T) {
 	}
 
 	// The same y/n/esc handling answers it — y from here writes.
-	_, cmd = pressTwice(a, 'y')
+	_, cmd = a.Update(keyRunes("y"))
 	if !isQuitCmd(cmd) {
 		t.Fatal("y at the menu-raised prompt did not quit")
 	}
@@ -249,22 +249,22 @@ func TestGuestQuitPromptHasNoDecline(t *testing.T) {
 
 
 
-// F4: on the confirm step only y confirms and n is the way out, so a
-// habitual double n never quits without saving. To quit without saving the
-// player presses n, then y.
+// #699: on Are you sure? the default is No, so a habitual n, n lands back on
+// Save before quitting? and never quits; n, y quits without saving.
 func TestQuitCardDoubleNStaysAndNYQuitsWithoutSaving(t *testing.T) {
 	testStateDirs(t)
 	a, err := New(nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
 	_, cmd := pressTwice(a, 'n')
 	if isQuitCmd(cmd) {
-		t.Fatal("n, n quit the game: the second n must be the way out (stay)")
+		t.Fatal("n, n quit the game: the second n is No on Are you sure?")
 	}
-	if cardKindUp(a, cardQuit) {
-		t.Error("n, n left the quit card up: the way out should close it")
+	if _, ok := cardUp(a, "Save before quitting?"); !ok {
+		t.Error("n, n did not return to Save before quitting?")
 	}
 
 	a, _ = New(nil)

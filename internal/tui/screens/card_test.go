@@ -224,9 +224,15 @@ func TestQuitCardRows(t *testing.T) {
 	th := sessionTheme()
 	host := NewQuitCard(th, false)
 	out := ansi.Strip(host.Render())
-	for _, w := range []string{"Save before quitting?", "save and quit", "quit without saving", "stay", "▸ save and quit"} {
+	for _, w := range []string{"Save before quitting?", "Yes", "No", "Back", "▸ Yes"} {
 		if !strings.Contains(out, w) {
 			t.Errorf("host quit card lacks %q:\n%s", w, out)
+		}
+	}
+	sure := ansi.Strip(NewQuitSureCard(th).Render())
+	for _, w := range []string{"Are you sure?", "Yes", "No", "Back", "▸ No"} {
+		if !strings.Contains(sure, w) {
+			t.Errorf("sure card lacks %q:\n%s", w, sure)
 		}
 	}
 	guest := ansi.Strip(NewQuitCard(th, true).Render())
