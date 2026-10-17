@@ -246,6 +246,11 @@ type Keymap struct {
 	// due-east heading; spacecraft.ApplyTrims). Used by ascent gravity-turn flight to initiate
 	// the pitch-over from vertical. Held → continuous trim ramp at the
 	// terminal's key-repeat rate. Reset via PitchTrimReset.
+	// ADR 0055 (PORT): with NavMode PORT the arrows (these four, and the
+	// alt fine ones below) are not surface trims but port-face trims
+	// (App.portTrim): 1° plain, 0.25° alt, up/down/left/right across the
+	// port face. One key, one meaning: lean the nose off the hold, in the
+	// hold's own frame (ADR 0052 decision 2).
 	PitchTrimEast  key.Binding
 	PitchTrimWest  key.Binding
 	PitchTrimReset key.Binding
