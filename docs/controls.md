@@ -435,6 +435,7 @@ overlay carries, so you can look one up without leaving the game.
 | `[MAN]` / `[AUT]` | The navball's attitude tag: MAN turns the nose at a rate-limited slew; AUT (amber) snaps it instantly. Click it to switch |
 | `RCS` | The navball's toggle: amber when the RCS thrusters, not the main engine, are armed (`r` does the same) |
 | `rcs` | Monoprop's own delta-v, from the RCS thrusters rather than the main engine |
+| `cargo / hold` | cargo is what the vessel carries to deliver; hold is what its Cargo Hold has received (`u` hands cargo over while docked). A dash means none; 0 kg is an empty hold that can receive |
 | `◉ ● ○ ◇` | STAGES pips, bottom stage first: `◉` lit (burns next), `●` fuelled and waiting, `○` spent, `◇` no tank (a pod or payload) |
 | `speed` | Speed in the navball frame, named (surface) / (orbit) / (target) / (port), alongside `vert:` and `horiz:` |
 | `(max N)` | The same figure at full throttle, when it differs from the current one |
