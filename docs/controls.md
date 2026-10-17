@@ -631,7 +631,7 @@ for a tank, `+` / `-` for the count, done.
 | `t` | **Δv goal**: set a session **Σ Δv target**. The stats strip reads `current / target (delta)`, and with a tank row selected a hint shows how many of that tank close the gap (`+2 → Σ ≈ 9280 ✓`) or that it's unreachable |
 | `s` | Name and save the design |
 | `S` | Save from here up: the cursor's stage and everything above it, named, as a **subassembly**. The card shows the name, the role (`←` / `→` flips payload or stage; payload when the bottom stage was marked `d`) and the stages saved with their marks. It joins the palette's `· subassembly ·` section; `Comsat`, `LM` and `CSM+LM` ship there |
-| `o` | Open a saved design or subassembly to edit. In the list `Enter` loads the highlighted row and `x` opens a card, `Delete design 'name'?` or `Delete subassembly 'name'?`, on `keep it` (`delete` asks once more before it acts) |
+| `o` | Open a saved design, one of your subassemblies, or a built-in vessel to start from. The list has three groups, `YOUR DESIGNS`, `SUBASSEMBLIES` and `BUILT IN` (every catalog vessel, in catalog order), and scrolls with the cursor. `Enter` loads the highlighted row; a built-in opens unsaved (the design line reads `(unsaved)`, payload seams in place) and `s` saves it under a new name. `x` opens a card, `Delete design 'name'?` or `Delete subassembly 'name'?`, on `keep it` (`delete` asks once more before it acts); on a built-in it says `built-in vessels can't be deleted` |
 | `Enter` in a box | Name box: keep the typed name and save. Δv goal box: keep the typed Σ Δv. S card: keep the typed name and save the subassembly; a name already taken asks first (`replace "name"?`), and asks once more. `Esc` cancels any of them |
 | `Esc` | Back to the map |
 

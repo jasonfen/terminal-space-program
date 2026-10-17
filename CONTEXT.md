@@ -262,6 +262,14 @@ overlay to publish it as a mod.
 _Avoid_: Save dir (that is the game-save location — the **Saves directory**,
 `saves/`), Catalog (the embedded / built-in set).
 
+**BUILT IN** (ADR 0056):
+The VAB `o` list's third group, after `YOUR DESIGNS` and `SUBASSEMBLIES`: every
+catalog **Loadout**, in catalog order, opened as a starting point. It loads
+unsaved (the design line reads `(unsaved)`, payload seams in place), `s` saves
+it as a **Design** under a new name, and `x` on it is refused (`built-in
+vessels can't be deleted`). The list scrolls with the cursor.
+_Avoid_: Template, Preset, Stock design.
+
 **Craft Category** (v0.24 / ADR 0031):
 A display-only, hash-excluded grouping label on a **Loadout** that clusters
 the spawn-form CRAFT TYPE picker under ~6 non-selectable headers: **Launch
