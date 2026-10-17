@@ -143,16 +143,21 @@ func (w *World) CycleNavMode() NavMode {
 	// to the vessel. The gated attitude command is SetAttitudeMode.
 	hasCraftTarget := w.HasRelativeTarget()
 	hasPort := w.TargetHasPort()
+	// Walk the candidates without writing NavMode: a skipped mode must
+	// have no side effects (setNavMode zeroes trims on PORT entry/exit), so
+	// only the mode the cycle lands on goes through setNavMode (#689).
+	next := w.NavMode
 	for i := 0; i < 4; i++ {
-		w.setNavMode(navModeNext(w.NavMode))
-		if w.NavMode == NavTarget && !hasCraftTarget {
+		next = navModeNext(next)
+		if next == NavTarget && !hasCraftTarget {
 			continue
 		}
-		if w.NavMode == NavPort && !hasPort {
+		if next == NavPort && !hasPort {
 			continue
 		}
-		return w.NavMode
+		break
 	}
+	w.setNavMode(next)
 	return w.NavMode
 }
 

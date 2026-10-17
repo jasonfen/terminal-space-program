@@ -107,3 +107,54 @@ func TestDockMagnetIgnoresPortTrimPair(t *testing.T) {
 		t.Errorf("slate = %d, want the dock to complete with the trim pair set", len(p.w.Crafts))
 	}
 }
+
+// #689: a candidate the cycle skips must have no side effects. ORBIT with no
+// ported target skips PORT and lands on SURF; the surface trims stay.
+func TestCycleSkippingPortKeepsSurfaceTrims(t *testing.T) {
+	w := portPairWorld(t)
+	c := w.ActiveCraft()
+	w.ClearTarget() // no craft target: TARGET and PORT both skipped
+	w.NavMode = NavOrbit
+	c.PitchTrim, c.HeadingTrim = 0.1, -0.2
+	if got := w.CycleNavMode(); got != NavSurface {
+		t.Fatalf("ORBIT without a ported target -> %v, want SURF", got)
+	}
+	if c.PitchTrim != 0.1 || c.HeadingTrim != -0.2 {
+		t.Errorf("skipped PORT zeroed the surface trims: (%v, %v)", c.PitchTrim, c.HeadingTrim)
+	}
+}
+
+// #689: ORBIT with a ported target walks through TARGET (trims kept) and
+// then reaches PORT (surface pair zeroed as designed).
+func TestCycleReachingPortStillZeroesSurfacePair(t *testing.T) {
+	w := portPairWorld(t)
+	c := w.ActiveCraft()
+	w.NavMode = NavOrbit
+	c.PitchTrim, c.HeadingTrim = 0.1, -0.2
+	if got := w.CycleNavMode(); got != NavTarget {
+		t.Fatalf("ORBIT -> %v, want TARGET", got)
+	}
+	if c.PitchTrim != 0.1 || c.HeadingTrim != -0.2 {
+		t.Errorf("TARGET entry zeroed trims: (%v, %v)", c.PitchTrim, c.HeadingTrim)
+	}
+	if got := w.CycleNavMode(); got != NavPort {
+		t.Fatalf("TARGET -> %v, want PORT", got)
+	}
+	if c.PitchTrim != 0 || c.HeadingTrim != 0 {
+		t.Errorf("entering PORT left surface pair: (%v, %v)", c.PitchTrim, c.HeadingTrim)
+	}
+}
+
+// Leaving PORT through a skipped TARGET-less cycle still zeroes the port pair.
+func TestCycleLeavingPortWithSkipsZeroesPortPair(t *testing.T) {
+	w := portPairWorld(t)
+	c := w.ActiveCraft()
+	w.NavMode = NavPort
+	c.PortPitchTrim, c.PortYawTrim = 0.05, -0.03
+	if got := w.CycleNavMode(); got != NavSurface {
+		t.Fatalf("PORT -> %v, want SURF", got)
+	}
+	if c.PortPitchTrim != 0 || c.PortYawTrim != 0 {
+		t.Errorf("port pair survived leaving PORT: (%v, %v)", c.PortPitchTrim, c.PortYawTrim)
+	}
+}
