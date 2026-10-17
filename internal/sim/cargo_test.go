@@ -308,3 +308,26 @@ func TestHandOverCargoNeedsSignal(t *testing.T) {
 		t.Errorf("a refused hand-over moved cargo: %g / %g", cargo, hold)
 	}
 }
+
+// ADR 0057 5.2: cargo not handed over before `space` goes down with the trunk.
+func TestDroppedTrunkKeepsItsCargo(t *testing.T) {
+	w := mustWorld(t)
+	w.Crafts = nil
+	w.ActiveCraftIdx = -1
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Cargo-Dragon", ParentBodyID: "earth", AltitudeM: 500_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.RecomputeCommGraph()
+	_, jet, err := w.StageActive(w.ActiveCraftIdx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trunk := w.Crafts[jet]
+	if trunk.Cargo != 800 {
+		t.Errorf("dropped trunk Cargo = %g, want its 800", trunk.Cargo)
+	}
+	if c.Cargo != 2507 {
+		t.Errorf("capsule Cargo after the drop = %g, want 2507", c.Cargo)
+	}
+}
