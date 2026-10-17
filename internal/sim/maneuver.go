@@ -544,6 +544,7 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		planeChangeOffset := plan.Arrival.OffsetTime
 		captureOffset := plan.Arrival.OffsetTime
 		pcDv, pcTheta := planeChangeDv, planeChangeTheta
+		pcDur := c.BurnTimeForDV(pcDv)
 		rFarAim := rArrival
 		aimed := false
 		if depOK {
@@ -555,7 +556,8 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 				// Whole-orbit departure slip chosen by the aim (#566).
 				splitWait += arr.DepDelay
 				plan.Departure.OffsetTime = time.Duration(splitWait * float64(time.Second))
-				planeChangeOffset = time.Duration((splitWait + arr.TEntry) * float64(time.Second))
+				planeChangeOffset = time.Duration((splitWait + arr.TPcCentre) * float64(time.Second))
+				pcDur = arr.PcDur
 				captureOffset = time.Duration((splitWait + arr.TCapture) * float64(time.Second))
 				plan.Departure.DV = math.Abs(splitRaiseDv(muShared, rPark, rFarAim))
 				// Capture Δv re-sized for the actual hyperbolic perilune
@@ -578,7 +580,9 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 						pcDv, pcTheta = planeChangeAtState(entry, nTgt)
 					}
 				}
-				planeChangeOffset = time.Duration((nodeTau + tEntry) * float64(time.Second))
+				// Finish before the SOI entry (#701), as the aimed path does.
+				pcLead := PlaneChangeMargin + c.BurnTimeForDV(pcDv)/2
+				planeChangeOffset = time.Duration((nodeTau+tEntry)*float64(time.Second)) - pcLead
 				captureOffset = time.Duration((nodeTau + tCA) * float64(time.Second))
 			}
 		}
@@ -589,7 +593,10 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		}
 
 		w.PlanNode(transferNodeToManeuver(plan.Departure, now, c))
-		if pcDv > 0 {
+		if pcDv >= minSplitPlaneChangeDv {
+			if !aimed {
+				pcDur = c.BurnTimeForDV(pcDv)
+			}
 			// Degenerate fallback (transferEncounterTimes found no encounter,
 			// or no node/departure state): planeChangeOffset still equals
 			// captureOffset, so separate them — equal BurnStarts leave the
@@ -604,7 +611,7 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 				TriggerTime:    now.Add(planeChangeOffset),
 				Mode:           spacecraft.BurnPlaneChange,
 				DV:             pcDv,
-				Duration:       c.BurnTimeForDV(pcDv),
+				Duration:       pcDur,
 				PrimaryID:      c.Primary.ID,
 				PlaneChangeRad: pcTheta,
 			})
@@ -1034,6 +1041,9 @@ func (w *World) IterateBurnDV(mode spacecraft.BurnMode, dvGuess float64) (float6
 	}
 
 	direction := func(r, v orbital.Vec3) orbital.Vec3 {
+		if spacecraft.HoldsInertialDirection(mode) {
+			return dirUnit // #702: held from ignition, as flown
+		}
 		return spacecraft.DirectionUnit(mode, r, v)
 	}
 	const tolMeters = 1000.0
@@ -1981,20 +1991,106 @@ func splitDeparturePost(dep physics.StateVector, mu, rPark, rFar, mass, thrust, 
 	if !ok {
 		return physics.StateVector{}, false
 	}
-	post.M = dep.M
+	post.M = fin.M
 	return post, true
+}
+
+// PlaneChangeMargin is how long before the path enters the target's SOI the
+// split's plane change must have ended (#701): the burn is planned, aimed
+// and executed in the primary's frame, and a burn that runs across the SOI
+// boundary rotates the target-relative velocity instead, a different burn.
+// It exceeds the entry-time resolution of transferEncounterTimes (the
+// horizon over 4000 samples, about a minute for a lunar transfer).
+const PlaneChangeMargin = 15 * time.Minute
+
+// minSplitPlaneChangeDv: below this (m/s) the planes already agree and the
+// split plants no plane-change node, rather than a 0.00 m/s burn that cuts
+// the transfer into an extra leg.
+const minSplitPlaneChangeDv = 0.5
+
+// splitPlaneChange is the split's plane change as planSplitPlaneChange
+// resolves it.
+type splitPlaneChange struct {
+	TCentre  float64             // s from the departure clock to the burn's centre
+	Dv       float64             // m/s; 0 when the planes already agree (no burn)
+	Theta    float64             // signed plane rotation for the node
+	Duration time.Duration       // burn duration at the mass it burns at; 0 = impulsive
+	After    physics.StateVector // post-burn state at the burn's centre epoch
+	TEntry   float64             // s from the departure clock to the path's SOI entry after the burn
+}
+
+// planSplitPlaneChange sizes and times the split's plane change as the burn
+// the executor flies and the readouts predict: a finite burn holding the
+// direction the node gives at its centre (finiteNodeState), ending
+// PlaneChangeMargin before the SOI entry of the path it leaves. The burn
+// moves the entry, so the centre is iterated against it. tEntry0 is the
+// entry of the uncorrected path (s from depClock); ok=false when the
+// corrected path no longer enters the SOI.
+func (w *World) planSplitPlaneChange(c *spacecraft.Spacecraft, target bodies.CelestialBody, post physics.StateVector, depClock time.Time, horizon, tEntry0 float64) (splitPlaneChange, bool) {
+	primary := c.Primary
+	mu := primary.GravitationalParameter()
+	_, nTgt, okN := w.craftTargetPlaneNormals(c, target)
+	if !okN {
+		return splitPlaneChange{TEntry: tEntry0, After: post}, true
+	}
+	const g0 = 9.80665
+	margin := PlaneChangeMargin.Seconds()
+	tEntry, dur := tEntry0, 0.0
+	var res splitPlaneChange
+	for it := 0; it < 8; it++ {
+		tc := tEntry - margin - dur/2
+		if tc <= 0 {
+			return splitPlaneChange{}, false
+		}
+		st, ok := physics.KeplerStep(post, mu, tc)
+		if !ok {
+			return splitPlaneChange{}, false
+		}
+		dv, theta := planeChangeAtState(st, nTgt)
+		if dv < minSplitPlaneChangeDv || math.IsNaN(dv) {
+			return splitPlaneChange{TEntry: tEntry0, After: post}, true
+		}
+		dur = 0
+		if c.Thrust > 0 && c.Isp > 0 && st.M > 0 {
+			dur = st.M * (1 - math.Exp(-dv/(c.Isp*g0))) / (c.Thrust / (c.Isp * g0))
+		}
+		n := spacecraft.ManeuverNode{
+			Mode: spacecraft.BurnPlaneChange, DV: dv, Duration: time.Duration(dur * float64(time.Second)),
+			PrimaryID: primary.ID, PlaneChangeRad: theta,
+		}
+		impulsive := applyPlaneChangeImpulse(st, theta)
+		after := finiteNodeState(st, mu, n, c.Thrust, c.Isp, impulsive)
+		te, _, found := w.transferEncounterTimes(after, primary, target, depClock.Add(time.Duration(tc*float64(time.Second))), math.Max(horizon-tc, 3600))
+		if !found {
+			return splitPlaneChange{}, false
+		}
+		newEntry := tc + te
+		res = splitPlaneChange{TCentre: tc, Dv: dv, Theta: theta, Duration: n.Duration, After: after, TEntry: newEntry}
+		settled := math.Abs(newEntry-tEntry) < 30
+		tEntry = newEntry
+		if settled {
+			break
+		}
+	}
+	// The last pass must still finish before the entry it produced.
+	if res.TCentre+res.Duration.Seconds()/2+margin/2 > res.TEntry {
+		return splitPlaneChange{}, false
+	}
+	return res, true
 }
 
 // splitArrival is the capture-safe split arrival geometry resolved by
 // splitCaptureAim (GH #159): the trimmed far-apsis aim plus the encounter
 // timing, plane-change sizing, and capture Δv measured on the trimmed arc.
 type splitArrival struct {
-	RFar      float64 // trimmed transfer far-apsis aim (m)
-	TEntry    float64 // s from departure to target-SOI entry (plane-change fire time)
-	TCapture  float64 // s from departure to the moon-frame perilune (capture fire time)
-	PcDv      float64 // plane-change Δv at SOI entry (≈0 for a coplanar arrival)
-	PcTheta   float64 // signed plane rotation for the BurnPlaneChange node
-	CaptureDV float64 // capture Δv from the actual hyperbolic perilune speed
+	RFar      float64       // trimmed transfer far-apsis aim (m)
+	TEntry    float64       // s from departure to target-SOI entry (of the path after the plane change)
+	TCapture  float64       // s from departure to the moon-frame perilune (capture fire time)
+	TPcCentre float64       // s from departure to the centre of the plane-change burn (it ends PlaneChangeMargin before TEntry, #701)
+	PcDv      float64       // plane-change Δv (≈0 for a coplanar arrival)
+	PcTheta   float64       // signed plane rotation for the BurnPlaneChange node
+	PcDur     time.Duration // plane-change burn duration at the mass it will burn at (0 = impulsive)
+	CaptureDV float64       // capture Δv from the actual hyperbolic perilune speed
 	// DepDelay is how much later (s) than the node-aligned departure the
 	// raise fires: a whole number of parking orbits, so the departure point
 	// stays on the line of nodes while the target's arrival shifts along its
@@ -2073,14 +2169,18 @@ func (w *World) splitCaptureAim(c *spacecraft.Spacecraft, target bodies.Celestia
 		if !found {
 			return measurement{}, false
 		}
-		entry, ok := physics.KeplerStep(post, muShared, tEntry)
-		if !ok {
+		// The plane change is the finite burn the executor flies (held
+		// direction, #702), finished PlaneChangeMargin before the path
+		// enters the target's SOI so it burns in the frame it was planned
+		// in (#701).
+		pc, okPC := w.planSplitPlaneChange(c, target, post, depClock, tTransfer*1.2, tEntry)
+		if !okPC {
 			return measurement{}, false
 		}
-		var pcDv, pcTheta float64
-		if _, nTgt, okN := w.craftTargetPlaneNormals(c, target); okN {
-			pcDv, pcTheta = planeChangeAtState(entry, nTgt)
-			entry = applyPlaneChangeImpulse(entry, pcTheta)
+		tEntry, pcDv, pcTheta := pc.TEntry, pc.Dv, pc.Theta
+		entry, ok := physics.KeplerStep(pc.After, muShared, tEntry-pc.TCentre)
+		if !ok {
+			return measurement{}, false
 		}
 		entryClock := depClock.Add(time.Duration(tEntry * float64(time.Second)))
 		moonR := w.BodyPositionAt(target, entryClock).Sub(w.BodyPositionAt(primary, entryClock))
@@ -2111,9 +2211,11 @@ func (w *World) splitCaptureAim(c *spacecraft.Spacecraft, target bodies.Celestia
 				RFar:      rFar,
 				TEntry:    tEntry,
 				TCapture:  tEntry + tPeri,
+				TPcCentre: pc.TCentre,
 				DepDelay:  float64(delayOrbits) * tPark,
 				PcDv:      pcDv,
 				PcTheta:   pcTheta,
+				PcDur:     pc.Duration,
 				CaptureDV: vPeri - math.Sqrt(muTarget/rp),
 			},
 			rp:       rp,
@@ -3045,13 +3147,26 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				continue
 			}
 		}
+		// #702: a burn with a normal or radial part holds the inertial
+		// direction it has at ignition, resolved once here in the frame it
+		// was planned in (#701).
+		burnDir := n.BurnDirUnit
+		if spacecraft.HoldsInertialDirection(n.Mode) {
+			burnDir = w.heldIgnitionDir(c, n)
+		}
 		if n.Duration == 0 {
 			// A BurnPlaneChange or BurnVector node degrades to impulsive
 			// only when BurnTimeForDV returned 0 (Δv past the fuel budget
 			// / no engine) — both carry a direction that can't be decoded
 			// from the BurnMode alone, so resolve via NodeBurnDirection.
 			if n.Mode == spacecraft.BurnPlaneChange || n.Mode == spacecraft.BurnVector {
-				c.ApplyImpulsiveDir(spacecraft.NodeBurnDirection(n, c.State.R, c.State.V), n.DV)
+				dir := burnDir
+				if n.Mode == spacecraft.BurnPlaneChange {
+					dir = w.heldIgnitionDir(c, n)
+				}
+				c.ApplyImpulsiveDir(dir, n.DV)
+			} else if spacecraft.HoldsInertialDirection(n.Mode) {
+				c.ApplyImpulsiveDir(burnDir, n.DV)
 			} else {
 				c.ApplyImpulsiveWithTarget(n.Mode, n.DV, rT, vT)
 			}
@@ -3065,7 +3180,7 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				TargetCraftID:    n.TargetCraftID,
 				TargetGhostOwner: n.TargetGhostOwner, // v0.28 S4: carry the ghost ref onto the running burn
 				PlaneChangeRad:   n.PlaneChangeRad,
-				BurnDirUnit:      n.BurnDirUnit,
+				BurnDirUnit:      burnDir,
 				PlannedDV:        n.DV,
 				NodeIndex:        idx,
 			}
@@ -3220,6 +3335,46 @@ func (w *World) cancelGhostRefsMatching(match func(owner string, craftID uint64)
 // orbit) still converges before ignition. 1.25 = 25% slack. v0.10.0+.
 const nodeLeadSlack = 1.25
 
+// heldIgnitionDir is the inertial direction a normal/radial/plane-change
+// node holds for its whole burn (#702): NodeBurnDirection at the
+// ignition state, taken in the frame the node was planned in (#701). A node
+// planned in Earth's frame that ignites after the vessel has crossed into
+// the Moon's SOI resolves its direction from the Earth-relative state, the
+// frame the planner and the chained readouts used (computePlanChain rebases
+// the same way), instead of rotating the Moon-relative velocity, which is
+// a different burn. The frame only decides the direction; the Δv is an
+// inertial vector and lands on the vessel unchanged. When the planned
+// frame is not reachable from where the vessel is (a capture node planted
+// in a body the path has not entered) the current frame is used, as before.
+func (w *World) heldIgnitionDir(c *spacecraft.Spacecraft, n spacecraft.ManeuverNode) orbital.Vec3 {
+	st, primary := w.stateInPlannedFrame(c.State, c.Primary, n.PrimaryID, w.Clock.SimTime)
+	if dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds(); dt != 0 {
+		if at, ok := physics.KeplerStep(st, primary.GravitationalParameter(), dt); ok {
+			st = at
+		}
+	}
+	return spacecraft.NodeBurnDirection(n, st.R, st.V)
+}
+
+// stateInPlannedFrame rebases state (relative to primary) onto the body
+// named plannedID at clock, only when frameReached says the path is there
+// (a node's own frame, or an ancestor of the frame the vessel is in).
+// Otherwise state is returned unchanged with the frame it is in.
+func (w *World) stateInPlannedFrame(state physics.StateVector, primary bodies.CelestialBody, plannedID string, clock time.Time) (physics.StateVector, bodies.CelestialBody) {
+	if plannedID == "" || plannedID == primary.ID {
+		return state, primary
+	}
+	target, ok := bodies.LookupByID(w.Systems, plannedID)
+	if !ok || !w.frameReached(state, primary, target, clock) {
+		return state, primary
+	}
+	oldInertial := w.BodyPositionAt(primary, clock)
+	newInertial := w.BodyPositionAt(target, clock)
+	vOld := w.bodyInertialVelocityAt(primary, clock)
+	vNew := w.bodyInertialVelocityAt(target, clock)
+	return physics.Rebase(state, oldInertial, newInertial, vOld.Sub(vNew)), target
+}
+
 // nodeLeadActive reports the upcoming node's ignition direction when
 // the craft should already be slewing toward it — i.e. BurnStart is
 // within nodeLeadSlack·angle/SlewRate sim-seconds of now. This is the
@@ -3260,6 +3415,9 @@ func (w *World) nodeLeadActive(c *spacecraft.Spacecraft) (orbital.Vec3, bool) {
 		}
 	}
 	dir := c.BurnDirectionForBurn(n.Mode, rT, vT, n.PlaneChangeRad, n.BurnDirUnit)
+	if spacecraft.HoldsInertialDirection(n.Mode) {
+		dir = w.heldIgnitionDir(c, n)
+	}
 	if dir.Norm() == 0 {
 		return orbital.Vec3{}, false
 	}
@@ -3748,9 +3906,13 @@ func (w *World) PreviewBurnState(mode spacecraft.BurnMode, dv float64, duration 
 		if fuelDv := w.ActiveCraft().RemainingDeltaV(); fuelDv > 0 && effectiveDv > fuelDv {
 			effectiveDv = fuelDv
 		}
+		held := spacecraft.DirectionUnit(mode, state.R, state.V)
 		direction := func(r, v orbital.Vec3) orbital.Vec3 {
 			if targetMode {
 				return spacecraft.DirectionUnitTarget(mode, r, v, rT, vT)
+			}
+			if spacecraft.HoldsInertialDirection(mode) {
+				return held // #702: a normal or radial burn holds its ignition direction
 			}
 			return spacecraft.DirectionUnit(mode, r, v)
 		}

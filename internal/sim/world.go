@@ -2131,6 +2131,12 @@ func (w *World) attitudeContext(c *spacecraft.Spacecraft) (mode spacecraft.BurnM
 		mode = c.ActiveBurn.Mode
 		planeRad = c.ActiveBurn.PlaneChangeRad
 		burnDir = c.ActiveBurn.BurnDirUnit
+		// #702: a planted burn with a normal or radial part holds the
+		// inertial direction resolved at ignition (executeDueNodesFor
+		// stamped it on BurnDirUnit), exactly like a BurnVector burn.
+		if spacecraft.HoldsInertialDirection(mode) && burnDir.Norm() != 0 {
+			mode = spacecraft.BurnVector
+		}
 	}
 	var ok bool
 	if c.ActiveBurn != nil && c.ActiveBurn.TargetCraftID != 0 {

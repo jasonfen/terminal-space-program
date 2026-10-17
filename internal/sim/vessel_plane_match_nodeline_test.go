@@ -48,7 +48,7 @@ func TestPlanVesselPlaneMatchOnNodeLine(t *testing.T) {
 			}
 			continue
 		}
-		post, _ := w.PostBurnState(active.Nodes[0])
+		post, _ := postBurnImpulsive(w, active.Nodes[0])
 		if a := planeAngleDeg(post.R.Cross(post.V), target.State.R.Cross(target.State.V)); a > 0.5 {
 			t.Errorf("off=%g°: post-burn plane %.2f° off target (offset %v dv %.0f)", offDeg, a, plan.OffsetTime, plan.DV)
 		}

@@ -37,31 +37,56 @@ func (w *World) nodeBurnState(state physics.StateVector, primary bodies.Celestia
 		impulsive.V = state.V.Add(dir.Scale(n.DV))
 	}
 	c := w.ActiveCraft()
-	if c == nil || n.DV <= 0 || n.Duration <= 0 || c.Thrust <= 0 || c.Isp <= 0 || state.M <= 0 {
+	if c == nil {
+		return impulsive
+	}
+	return finiteNodeState(state, primary.GravitationalParameter(), n, c.Thrust, c.Isp, impulsive)
+}
+
+// finiteNodeState is nodeBurnState's burn model with the engine passed in,
+// so the Moon-transfer planner (splitCaptureAim) measures the plane change
+// with the very model the chained readouts and the executor use. impulsive
+// is the answer for nodes that stay impulsive.
+//
+// The burn runs from half the node's Duration before its trigger time (the
+// executor's BurnStart) until the Δv is delivered, then the result is
+// carried to the node epoch along its own orbit. Prograde and retrograde
+// follow the velocity (the burn re-aims every sub-step, as the nose follows
+// it in flight); a mode with a normal or radial component holds, for the
+// whole burn, the direction the node gives at its own epoch
+// (spacecraft.HoldsInertialDirection, #702; the executor resolves it once
+// at ignition from the state it will have at that epoch, heldIgnitionDir),
+// and a BurnVector node its captured direction.
+func finiteNodeState(state physics.StateVector, mu float64, n spacecraft.ManeuverNode, thrust, isp float64, impulsive physics.StateVector) physics.StateVector {
+	if n.DV <= 0 || n.Duration <= 0 || thrust <= 0 || isp <= 0 || state.M <= 0 {
+		return impulsive
+	}
+	const g0 = 9.80665
+	half := n.Duration.Seconds() / 2
+	start, ok := physics.KeplerStep(state, mu, -half)
+	if !ok {
 		return impulsive
 	}
 	var direction planner.DirectionFn
-	switch n.Mode {
-	case spacecraft.BurnPrograde, spacecraft.BurnRetrograde,
-		spacecraft.BurnNormalPlus, spacecraft.BurnNormalMinus,
-		spacecraft.BurnRadialOut, spacecraft.BurnRadialIn:
+	switch {
+	case spacecraft.HoldsInertialDirection(n.Mode):
+		fixed := spacecraft.NodeBurnDirection(n, state.R, state.V)
+		if fixed.Norm() == 0 {
+			return impulsive
+		}
+		direction = func(_, _ orbital.Vec3) orbital.Vec3 { return fixed }
+	case n.Mode == spacecraft.BurnPrograde, n.Mode == spacecraft.BurnRetrograde:
 		mode := n.Mode
 		direction = func(r, v orbital.Vec3) orbital.Vec3 { return spacecraft.DirectionUnit(mode, r, v) }
-	case spacecraft.BurnVector:
+	case n.Mode == spacecraft.BurnVector:
 		fixed := n.BurnDirUnit.Unit()
 		direction = func(_, _ orbital.Vec3) orbital.Vec3 { return fixed }
 	default:
 		return impulsive
 	}
-	mu := primary.GravitationalParameter()
-	const g0 = 9.80665
-	half := state.M * (1 - math.Exp(-n.DV/(c.Isp*g0))) / (c.Thrust / (c.Isp * g0)) / 2
-	start, ok := physics.KeplerStep(state, mu, -half)
-	if !ok {
-		return impulsive
-	}
-	fin := planner.SimulateFiniteBurn(start, mu, c.Thrust, c.Isp, n.DV, direction)
-	post, ok := physics.KeplerStep(fin, mu, -half)
+	fin := planner.SimulateFiniteBurn(start, mu, thrust, isp, n.DV, direction)
+	burnSecs := start.M * (1 - math.Exp(-n.DV/(isp*g0))) / (thrust / (isp * g0))
+	post, ok := physics.KeplerStep(fin, mu, half-burnSecs)
 	if !ok {
 		return impulsive
 	}

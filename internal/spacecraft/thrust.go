@@ -338,6 +338,24 @@ func DirectionUnit(mode BurnMode, r, v orbital.Vec3) orbital.Vec3 {
 	return orbital.Vec3{}
 }
 
+// HoldsInertialDirection reports whether a planted burn in this mode keeps
+// the inertial direction it has at ignition for its whole length (#702).
+// Prograde and retrograde follow the velocity round the orbit (the early
+// choice for a long in-plane burn, and what a long ejection burn wants);
+// every mode with a normal or radial component, the split's plane change
+// included, is a burn about a fixed attitude: following the velocity turns
+// a plane change into a deceleration (a 57 degree rotation of a 200 m/s
+// velocity re-aimed every tick delivered 136 m/s of the 209 it started
+// with). BurnVector already is a fixed inertial direction. Target-relative
+// modes keep tracking their target.
+func HoldsInertialDirection(m BurnMode) bool {
+	switch m {
+	case BurnNormalPlus, BurnNormalMinus, BurnRadialOut, BurnRadialIn, BurnPlaneChange:
+		return true
+	}
+	return false
+}
+
 // planeChangeDirection returns the unit thrust direction for a pure
 // orbital-plane rotation of signed angle thetaRad about the radial
 // axis, given the craft state (r, v). The burn rotates the horizontal

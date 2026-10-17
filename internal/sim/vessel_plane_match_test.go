@@ -95,7 +95,7 @@ func TestPlanVesselPlaneMatchLocalCraftSameInclinationDifferentRAAN(t *testing.T
 		t.Fatalf("expected 1 planted node, got %d", len(active.Nodes))
 	}
 
-	post, _ := w.PostBurnState(active.Nodes[0])
+	post, _ := postBurnImpulsive(w, active.Nodes[0])
 	// The target's own orbital plane is time-invariant (Keplerian, no
 	// perturbations), so target.State's normal is still valid at the
 	// burn's later trigger time.
@@ -147,7 +147,7 @@ func TestPlanVesselPlaneMatchGhostTarget(t *testing.T) {
 		t.Fatalf("expected 1 planted node, got %d", len(active.Nodes))
 	}
 
-	post, _ := w.PostBurnState(active.Nodes[0])
+	post, _ := postBurnImpulsive(w, active.Nodes[0])
 	if ang := planeAngleDeg(post.R.Cross(post.V), nGhost); ang > 0.5 {
 		t.Errorf("post-burn plane %.2f° off the ghost's, want ~0° (dv=%.1f m/s)", ang, plan.DV)
 	}
