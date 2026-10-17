@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"os"
 	"reflect"
 	"sort"
 	"strings"
@@ -169,5 +170,24 @@ func TestHelpGlossaryCoversReadoutCodes(t *testing.T) {
 		if !tokens[code] {
 			t.Errorf("F1 glossary missing a line naming %q (ADR 0049 readout contract)", code)
 		}
+	}
+}
+
+// TestHelpGlossaryNamesCargoAndHoldRow (ADR 0057 S4): PROPELLANT's cargo:
+// and hold: cells are new words on the HUD, so the F1 glossary names both
+// and docs/controls.md carries the same row.
+func TestHelpGlossaryNamesCargoAndHoldRow(t *testing.T) {
+	tokens := screens.HelpKeyTokens()
+	for _, code := range []string{"cargo", "hold"} {
+		if !tokens[code] {
+			t.Errorf("F1 glossary missing a line naming %q (ADR 0057 5.3)", code)
+		}
+	}
+	doc, err := os.ReadFile("../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(doc), "| `cargo / hold` |") {
+		t.Error("docs/controls.md glossary lacks the `cargo / hold` row")
 	}
 }
