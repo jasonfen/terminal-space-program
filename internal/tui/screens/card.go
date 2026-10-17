@@ -52,6 +52,9 @@ type Card struct {
 	cursor int  // index into visible()
 	asking bool // the second step is showing
 	picked int  // the action row (an index into rows) the second step confirms
+	// oneStep makes every row act at once, with no `yes, <verb>` step: the
+	// quit flow's two cards (#699) are each their own question.
+	oneStep bool
 }
 
 // NewCard returns a card on its first step with the ▸ on rows[open]. title is
@@ -62,6 +65,13 @@ func NewCard(th Theme, title, note string, rows []CardRow, open int) *Card {
 		open = 0
 	}
 	return &Card{theme: th, title: title, note: note, rows: rows, cursor: open}
+}
+
+// OneStep makes the card's rows act at once (no second step) and returns it.
+// Only the quit flow uses it (#699); every other card keeps the confirm.
+func (c *Card) OneStep() *Card {
+	c.oneStep = true
+	return c
 }
 
 // Confirming reports whether the second step is showing.
@@ -131,7 +141,7 @@ func (c *Card) Pick(vis int) (row int, done bool) {
 		return -1, false
 	}
 	idx := c.original(vis)
-	if c.rows[idx].Out || c.asking {
+	if c.rows[idx].Out || c.asking || c.oneStep {
 		return idx, true
 	}
 	c.asking, c.picked = true, idx
