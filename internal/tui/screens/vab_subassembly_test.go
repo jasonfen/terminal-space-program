@@ -521,3 +521,30 @@ func TestVABSubassemblyRowsInF1AndDocs(t *testing.T) {
 		}
 	}
 }
+
+// The o / enter / x F1 rows and docs/controls.md name the built-in group and
+// the refusal (ADR 0056 decision 8).
+func TestVABBuiltInRowsInF1AndDocs(t *testing.T) {
+	rows := map[string]string{}
+	for _, sec := range helpSections {
+		if sec.header == "VEHICLE ASSEMBLY (VAB)" {
+			for _, r := range sec.rows {
+				rows[r[0]] = r[1]
+			}
+		}
+	}
+	for tok, want := range map[string]string{"s / o": "built-in vessel", "enter (design list)": "built-in", "x (design list)": "built-in vessels can't be deleted"} {
+		if !strings.Contains(rows[tok], want) {
+			t.Errorf("F1 row %q = %q, want it to say %q", tok, rows[tok], want)
+		}
+	}
+	raw, err := os.ReadFile("../../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"`BUILT IN`", "`built-in vessels can't be deleted`"} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("docs/controls.md lacks %q", want)
+		}
+	}
+}

@@ -230,17 +230,33 @@ func (v *VAB) handleLoadKey(key string) VABAction {
 		} else if sa, ok := v.loadedSubRow(); ok {
 			v.loadSubassembly(sa)
 			v.flash = fmt.Sprintf("loaded %q", sa.Name())
+		} else if d, ok := v.loadedBuiltInRow(); ok {
+			v.loadBuiltIn(d)
+			v.flash = fmt.Sprintf("loaded %q", d.Name())
 		}
 	case "x":
-		if v.loadIdx >= 0 && v.loadIdx < n {
+		if _, builtIn := v.loadedBuiltInRow(); builtIn {
+			v.flash = "built-in vessels can't be deleted"
+		} else if v.loadIdx >= 0 && v.loadIdx < n {
 			v.raiseDelete()
 		}
 	}
 	return VABActionNone
 }
 
-// loadCount is the rows `o` lists: the designs, then the player's subassemblies.
-func (v *VAB) loadCount() int { return len(v.designs) + len(v.userSubs) }
+// loadCount is the rows `o` lists: the designs, the player's subassemblies,
+// then the built-in vessels.
+func (v *VAB) loadCount() int { return len(v.designs) + len(v.userSubs) + len(v.builtIns) }
+
+// loadedBuiltInRow is the built-in vessel under the `o` cursor, when it is on
+// one.
+func (v *VAB) loadedBuiltInRow() (spacecraft.Design, bool) {
+	i := v.loadIdx - len(v.designs) - len(v.userSubs)
+	if i < 0 || i >= len(v.builtIns) {
+		return spacecraft.Design{}, false
+	}
+	return v.builtIns[i], true
+}
 
 // loadedSubRow is the subassembly under the `o` cursor, when it is on one.
 func (v *VAB) loadedSubRow() (spacecraft.Subassembly, bool) {
@@ -355,10 +371,33 @@ func (v *VAB) cardKey(key string) VABAction {
 
 func (v *VAB) enterLoadMode() {
 	v.refreshDesigns()
+	v.builtIns = builtInDesigns()
 	v.loadIdx = 0
 	v.confirmDelete, v.card = false, nil
 	v.mode = vabModeLoad
 	v.flash = ""
+}
+
+// builtInDesigns is every catalog Loadout as a Design, in LoadoutOrder (the
+// embedded fleet in file order, then overlay loadouts). The VAB has no
+// Scale Class filter here (ADR 0056 open question 8): the list is the whole
+// catalog, as the palette is.
+func builtInDesigns() []spacecraft.Design {
+	_, defs, err := spacecraft.LoadCatalog()
+	if err != nil {
+		return nil
+	}
+	byID := make(map[string]spacecraft.LoadoutDef, len(defs))
+	for _, d := range defs {
+		byID[d.ID] = d
+	}
+	out := make([]spacecraft.Design, 0, len(spacecraft.LoadoutOrder))
+	for _, id := range spacecraft.LoadoutOrder {
+		if d, ok := byID[id]; ok {
+			out = append(out, spacecraft.Design{Loadout: d})
+		}
+	}
+	return out
 }
 
 func (v *VAB) refreshDesigns() {
@@ -1304,11 +1343,13 @@ func (v *VAB) renderTarget(width, height int) string {
 
 func (v *VAB) renderLoad(width, height int) string {
 	var lines []string
+	cursorLine := 0
 	row := func(i int, text string) {
 		marker := "  "
 		if i == v.loadIdx {
 			marker = v.theme.Primary.Render("▸") + " "
 			text = v.theme.Warning.Render(text)
+			cursorLine = len(lines)
 		} else {
 			text = v.theme.Dim.Render(text)
 		}
@@ -1328,9 +1369,21 @@ func (v *VAB) renderLoad(width, height int) string {
 	for i, sa := range v.userSubs {
 		row(len(v.designs)+i, fmt.Sprintf("%s  (%s · %s)", sa.Name(), sa.Role(), stageCount(len(sa.Loadout.Parts))))
 	}
-	if v.flash != "" {
-		lines = append(lines, "", "  "+v.theme.Warning.Render(v.flash))
+	lines = append(lines, "  "+v.theme.Primary.Render("BUILT IN"))
+	base := len(v.designs) + len(v.userSubs)
+	for i, d := range v.builtIns {
+		row(base+i, fmt.Sprintf("%s  (%s)", d.Name(), stageCount(len(d.Loadout.Parts))))
 	}
+	// The card has height-5 body rows (frame, box edges and title take the
+	// rest); the flash sits under the window, so it is reserved first.
+	var tail []string
+	if v.flash != "" {
+		tail = []string{"", "  " + v.theme.Warning.Render(v.flash)}
+	}
+	if height > 0 {
+		lines = v.windowRows(lines, nil, cursorLine, height-5-len(tail), clampI(width-2*frameInset, 30, 100)-2)
+	}
+	lines = append(lines, tail...)
 	return v.vabModalBox("LOAD DESIGN", lines, width, height, "[↑/↓] pick · [enter] load · [x] delete · [esc] back")
 }
 
