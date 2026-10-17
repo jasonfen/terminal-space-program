@@ -83,6 +83,27 @@ func proximityFitRadius(st sim.ProximityState) float64 {
 func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) string {
 	st, sceneOK := w.ProximityState()
 
+	// The Centerline split (ADR 0055 decision 1): at Design Size and above,
+	// with a port to look at, v.canvas becomes the left pane and the
+	// Centerline pane draws on v.cl; below it the left pane keeps the whole
+	// width (Compact Form drops the right pane first).
+	fullCols := v.fullCanvasCols()
+	rows := v.canvas.Rows()
+	geom, canSplit := centerlineLayout(fullCols, rows)
+	split := sceneOK && st.HasPort && canSplit
+	if split {
+		if !v.proxSplit {
+			v.proxFullCols = fullCols
+			v.proxSplit = true
+		}
+		if v.canvas.Cols() != geom.leftCols {
+			v.canvas.Resize(geom.leftCols, rows)
+			v.fitted = false
+		}
+	} else {
+		v.endProximitySplit()
+	}
+
 	// Framing Event resolution (ADR 0021 A), Proximity's own context:
 	// entering the view, changing system, or retargeting. Range closing is
 	// pointedly NOT in this list — the fit is written once, on entry, and
@@ -109,6 +130,9 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 		if sceneOK {
 			v.canvas.FitTo(proximityFitRadius(st))
 			v.baseScale = v.canvas.Scale()
+			if split {
+				v.clBaseScale = centerlineFitScale(st, geom)
+			}
 		}
 		if contextChanged {
 			v.userZoom = v.zoomMemoryFor(slot)
@@ -136,6 +160,7 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 		v.drawProximityAxes(w, st)
 		v.drawProximityRangeRings(w, st)
 		v.drawProximityDockGate(w, st)
+		v.drawProximityCorridor(st)
 		v.drawProximityDriftPath(w, st)
 		v.drawProximityVessels(w, st)
 		v.drawProximityVelocityVector(st)
@@ -171,12 +196,20 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 	}
 
 	canvasStr := v.canvas.String()
+	if split {
+		// The bottom row's label and Hint Strip run on across the seam: the
+		// left pane clipped them at its edge, so paint the rest on the right
+		// pane, shifted by the left pane's width.
+		v.drawCenterline(w, st, geom)
+		v.spillBottomRow(label, geom)
+		canvasStr = joinCanvasRows(canvasStr, v.cl.String())
+	}
 
 	// The shared overlay tail, identical to the map's: same navball, same
 	// chips, same click routing. This is what "it's a view, not a screen"
 	// means in code.
 	v.navballControls = v.navballControls[:0]
-	cCols, cRows := v.canvas.Cols(), v.canvas.Rows()
+	cCols, cRows := fullCols, rows
 	if !v.declutter {
 		canvasStr = v.composeNavballOverlay(w, canvasStr, cCols, cRows, true)
 	}

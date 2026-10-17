@@ -81,7 +81,43 @@ func TestHelpDockingPageQuotesTheSimConstants(t *testing.T) {
 	if want := fmt.Sprintf("%.2f m/s", sim.UndockSpringMS); !strings.Contains(row("U"), want) {
 		t.Errorf("U row %q does not quote the Spring Release %s", row("U"), want)
 	}
-	if want := fmt.Sprintf("re-approach under %.2f m/s", sim.DockingVMS); !strings.Contains(row("bump (caption)"), want) {
-		t.Errorf("bump caption row %q does not quote %q", row("bump (caption)"), want)
+	if want := fmt.Sprintf("re-approach under %.2f m/s", sim.DockingVMS); !strings.Contains(row("bump"), want) {
+		t.Errorf("bump row %q does not quote %q", row("bump"), want)
+	}
+}
+
+// ADR 0055 slice 2: the DOCKING page holds 15 rows (the box's limit at 140x40,
+// ADR 0053 "As built" 9) with the centerline row on it, and every row shows in
+// the page as rendered at the Design Size.
+func TestHelpDockingPageIsFifteenRowsWithCenterline(t *testing.T) {
+	h := NewHelp(chipTestTheme())
+	var page helpSection
+	for _, s := range helpSections {
+		if strings.HasPrefix(s.header, "DOCKING") {
+			page = s
+		}
+	}
+	if len(page.rows) != 15 {
+		t.Errorf("DOCKING page has %d rows, want 15", len(page.rows))
+	}
+	found := false
+	for _, r := range page.rows {
+		found = found || r[0] == "centerline"
+	}
+	if !found {
+		t.Error("DOCKING page has no centerline row")
+	}
+	for n := 0; n < helpPageCount(); n++ {
+		if pageTitle(n) == helpIndexTitle(page.header) {
+			h.OpenPage(n)
+		}
+	}
+	out := ansi.Strip(h.Render(140, 40, keylayout.QWERTY))
+	last := page.rows[len(page.rows)-1][0]
+	if !strings.Contains(out, "  "+last+" ") && !strings.Contains(out, last) {
+		t.Errorf("last DOCKING row %q is not on the page at 140x40:\n%s", last, out)
+	}
+	if strings.Contains(out, "…") {
+		t.Errorf("a DOCKING row is ellipsised at 140x40:\n%s", out)
 	}
 }
