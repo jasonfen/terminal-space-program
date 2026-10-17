@@ -902,7 +902,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The boss key opens from any screen — EXCEPT while a screen is
 		// capturing literal text (a Saves name input), where a backtick is
 		// a character the player is typing, not the boss hotkey (finding 9).
-		if key.Matches(m, a.keys.BossKey) && !a.capturingText() {
+		// A screen-owned card (roster, saves, VAB) swallows it too: every card
+		// takes every key but its own (ADR 0054), and the screen's cardKey
+		// only sees keys that get past the globals below.
+		if key.Matches(m, a.keys.BossKey) && !a.capturingText() && a.screenCard() == nil {
 			a.bossReturnScreen = a.active
 			a.bossPrevPaused = a.world.Clock.Paused
 			a.world.Clock.Paused = true // freeze the sim while "away"
@@ -940,7 +943,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// can swallow it. Inside a free-text box only F1 opens it: `?` is
 		// a character there. Screens keep their state because the key is
 		// never forwarded to them.
-		if key.Matches(m, a.keys.Help) && a.active != screenHelp && (m.String() != "?" || !a.capturingText()) {
+		if key.Matches(m, a.keys.Help) && a.active != screenHelp && a.screenCard() == nil && (m.String() != "?" || !a.capturingText()) {
 			a.openHelpHere()
 			return a, nil
 		}

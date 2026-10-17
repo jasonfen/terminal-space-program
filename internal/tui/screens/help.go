@@ -66,7 +66,7 @@ var helpSections = []helpSection{
 		{"esc", "back to the screen that opened you: a screen opened from the pause menu returns to the menu, one opened by a key returns to the map (esc on the map opens the pause menu)"},
 		{"F5 / F9", "quicksave / quickload (F9 asks first: a card, enter picks the highlighted row)"},
 		{"ctrl+c", "quit: asks to save first, [esc] stays"},
-		{"a card", "a question over the dimmed map: ↑ / ↓ move the ▸, enter picks that row, y picks the first row, n or esc is the way out; an action row asks once more on the same card before it acts, and the way out acts at once"},
+		{"a card", "a question over the dimmed map: ↑ / ↓ move the ▸, enter picks that row, y picks the first row, n or esc is the way out; an action row asks once more on the same card before it acts, and there y says yes and n or esc says no; the way out acts at once"},
 	}},
 	// `q` quits only inside the pause menu; in flight it is radial+
 	// (Keymap.AttitudeRadialOut), so it gets a menu-scoped section of its

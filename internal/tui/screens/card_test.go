@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -102,18 +103,49 @@ func TestCardTwoStepPick(t *testing.T) {
 		t.Errorf("enter on the way out: row %d done %v, want 2 true", row, done)
 	}
 
-	// A letterless row stays letterless in its second step.
+	// A letterless row has no letter on the first step, but its second step is
+	// the deliberate one: y confirms it, like every card (F4).
 	c = NewCard(sessionTheme(), "T?", "", testRows(), 0)
 	c.Down()
 	if _, done := c.Enter(); done {
 		t.Fatal("the letterless action row acted at once")
 	}
-	if _, _, ok := c.Letter("y"); ok {
-		t.Error("y confirmed a row that has no letter")
+	if row, done, ok := c.Letter("y"); !ok || !done || row != 1 {
+		t.Errorf("y on the letterless row's confirm step: row %d done %v ok %v, want 1 true true", row, done, ok)
 	}
+	c = NewCard(sessionTheme(), "T?", "", testRows(), 0)
+	c.Down()
+	c.Enter()
 	c.Up()
 	if row, done := c.Enter(); !done || row != 1 {
 		t.Errorf("enter on 'yes, do it hard': row %d done %v, want 1 true", row, done)
+	}
+
+	// F4: the second step's keys do not depend on the row picked. After an n
+	// pick, n is the way out and y confirms.
+	for _, pick := range []string{"y", "n"} {
+		rows := []CardRow{
+			{ID: "a", Label: "save", Key: "y", Letters: []string{"y", "Y"}},
+			{ID: "b", Label: "discard", Key: "n", Letters: []string{"n", "N"}},
+			{ID: "out", Label: "stay", Key: "esc", Letters: []string{"esc"}, Out: true},
+		}
+		c = NewCard(sessionTheme(), "T?", "", rows, 0)
+		want := map[string]int{"y": 0, "n": 1}[pick]
+		if row, done, ok := c.Letter(pick); !ok || done || row != want {
+			t.Fatalf("first %s: row %d done %v ok %v", pick, row, done, ok)
+		}
+		out := ansi.Strip(c.Render())
+		if !strings.Contains(out, "yes, "+rows[want].Label) || !strings.Contains(out, "n  esc") || !regexp.MustCompile(`yes, \w+ +y\b`).MatchString(out) {
+			t.Errorf("confirm step after %s lacks the y / n  esc key column:\n%s", pick, out)
+		}
+		if row, done, ok := c.Letter("n"); !ok || !done || row != 2 {
+			t.Errorf("%s then n: row %d done %v ok %v, want the way out (2) at once", pick, row, done, ok)
+		}
+		c = NewCard(sessionTheme(), "T?", "", rows, 0)
+		c.Letter(pick)
+		if row, done, ok := c.Letter("y"); !ok || !done || row != want {
+			t.Errorf("%s then y: row %d done %v ok %v, want %d true true", pick, row, done, ok, want)
+		}
 	}
 
 	// The way out acts at once by letter, from the first step.

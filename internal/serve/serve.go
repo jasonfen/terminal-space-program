@@ -136,7 +136,10 @@ type Server struct {
 	reprieveWindow time.Duration
 	reclaimWait    time.Duration
 	awayAfter      time.Duration
-	dropWait       time.Duration // ADR 0054: how long a dropped session unwinds before its conn is closed
+	// purgeBeforeDelete, when set, runs in finishPurge at the last moment
+	// before the payload is deleted: the crash point the F5 test inspects.
+	purgeBeforeDelete func()
+	dropWait          time.Duration // ADR 0054: how long a dropped session unwinds before its conn is closed
 
 	// after is the clock the drop's waits use (time.After in production), a
 	// field so a test can drive the 1.5 s restart grace and the 2 s dropWait

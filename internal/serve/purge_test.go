@@ -12,6 +12,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
@@ -436,5 +437,45 @@ func TestPurgeMidDockHandsBackFromDiskWhenTheirSessionNeverTicks(t *testing.T) {
 	}
 	if n := namedInLedger(t, d.srv, d.gfp, "gern"); len(n) != 0 {
 		t.Errorf("a record still names the purged player: %v", n)
+	}
+}
+
+// A crash between any two steps of the purge must never leave a friend's
+// vessel only in backup/ (review 1, F5). The crash point is the moment the
+// delete is about to run: everything the delete would orphan must already be
+// durable in session.json, and their payload must still be on disk.
+func TestPurgeParksFriendsVesselsBeforeTheDelete(t *testing.T) {
+	d := newMidDock(t, true, false) // gern owns the stack, host's vessel rides in it
+	gw := d.gernApp.World()
+	if err := d.srv.store.SavePlayer(d.gfp, gw); err != nil {
+		t.Fatal(err)
+	}
+	var reached bool
+	d.srv.purgeBeforeDelete = func() {
+		reached = true
+		if !d.srv.store.HasPayload(d.gfp) {
+			t.Error("the payload was already deleted at the crash point")
+		}
+		m, err := d.srv.store.Meta()
+		if err != nil {
+			t.Fatalf("Meta: %v", err)
+		}
+		parked := false
+		for _, dl := range m.Docks {
+			for _, p := range []*save.Craft{dl.ReturnPayload, dl.TransferPayload} {
+				if p != nil {
+					parked = true
+				}
+			}
+		}
+		if !parked {
+			t.Error("crash before the delete would leave the friend's vessel only in backup/: session.json holds no parked vessel")
+		}
+	}
+	if done := d.purgeFromHost()().(purgeDoneMsg); done.err != nil {
+		t.Fatal(done.err)
+	}
+	if !reached {
+		t.Fatal("the crash point was never reached: the check proves nothing")
 	}
 }

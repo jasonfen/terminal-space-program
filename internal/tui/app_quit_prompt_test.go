@@ -55,10 +55,11 @@ func TestQuitPromptNoWritesNothing(t *testing.T) {
 	before := savesDirFiles(t, dir)
 
 	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
-	_, cmd := pressTwice(a, 'n')
+	a.Update(keyRunes("n")) // pick quit without saving, which asks once more
+	_, cmd := a.Update(keyRunes("y"))
 
 	if !isQuitCmd(cmd) {
-		t.Fatal("[n] did not quit")
+		t.Fatal("n, y did not quit")
 	}
 	if cardKindUp(a, cardQuit) {
 		t.Error("quit card still up after n")
@@ -247,3 +248,29 @@ func TestGuestQuitPromptHasNoDecline(t *testing.T) {
 }
 
 
+
+// F4: on the confirm step only y confirms and n is the way out, so a
+// habitual double n never quits without saving. To quit without saving the
+// player presses n, then y.
+func TestQuitCardDoubleNStaysAndNYQuitsWithoutSaving(t *testing.T) {
+	testStateDirs(t)
+	a, err := New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	_, cmd := pressTwice(a, 'n')
+	if isQuitCmd(cmd) {
+		t.Fatal("n, n quit the game: the second n must be the way out (stay)")
+	}
+	if cardKindUp(a, cardQuit) {
+		t.Error("n, n left the quit card up: the way out should close it")
+	}
+
+	a, _ = New(nil)
+	a.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+	a.Update(keyRunes("n"))
+	if _, cmd = a.Update(keyRunes("y")); !isQuitCmd(cmd) {
+		t.Fatal("n, y did not quit without saving")
+	}
+}

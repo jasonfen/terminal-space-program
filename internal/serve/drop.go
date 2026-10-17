@@ -249,21 +249,37 @@ func (s *Server) finishPurge(fp, handle string, ls *liveSession) purgeDoneMsg {
 		}
 	}
 
-	res, err := s.store.PurgePlayer(fp)
-	if err != nil && done.err == nil {
-		done.err = err
-	}
-	done.backup = res.BackupPath
-
-	// Ledger and ghost are cleaned whatever happened to the file: a kicked
-	// player must not stay named by a record or drawn on a map.
+	// Friends' vessels first, the delete last (review 1, F5). Everything the
+	// delete would orphan is handed back and flushed to session.json before
+	// the payload goes, so a crash in between leaves their program intact and
+	// the purge simply runs again; it can never leave a friend's vessel only
+	// in backup/. The ledger and ghost are cleaned whatever happens to the
+	// file: a kicked player must not stay named by a record or drawn on a map.
 	if offline != nil {
 		s.dock.ReleaseGuestsOf(offline, fp, s.presence.isOnline)
 	}
 	s.dock.DropRecordsNaming(fp)
 	s.relay.Forget(fp)
-	if err := s.persistDocks(); err != nil {
-		s.markDockFlushFailed(err)
+	flushErr := s.persistDocks()
+	if flushErr != nil {
+		s.markDockFlushFailed(flushErr)
 	}
+	if flushErr != nil && offline != nil {
+		// The released vessels are not durable: deleting the payload now
+		// would leave them only in backup/. Keep it; the purge reports why.
+		if done.err == nil {
+			done.err = fmt.Errorf("the dock ledger could not be saved, so their saved program was kept: %w", flushErr)
+		}
+		return done
+	}
+
+	if s.purgeBeforeDelete != nil {
+		s.purgeBeforeDelete()
+	}
+	res, err := s.store.PurgePlayer(fp)
+	if err != nil && done.err == nil {
+		done.err = err
+	}
+	done.backup = res.BackupPath
 	return done
 }
