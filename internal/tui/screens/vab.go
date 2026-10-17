@@ -72,6 +72,9 @@ type VAB struct {
 	// cursor (loadIdx) over both.
 	designs  []spacecraft.Design
 	userSubs []spacecraft.Subassembly
+	// builtIns is the o list's BUILT IN group: every catalog Loadout as a
+	// Design to open as a starting point (ADR 0056 decision 8), catalog order.
+	builtIns []spacecraft.Design
 	loadIdx  int
 	// confirmDelete: the open-design list is asking before it deletes the
 	// highlighted design (GK Q2, #589); card is that ask (ADR 0054, #633),
@@ -832,6 +835,14 @@ func (v *VAB) loadDesign(d spacecraft.Design) {
 	v.focus = focusStack // a loaded vehicle becomes the active column
 	v.focusStageInStack(v.stageIdx)
 	v.mode = vabModeBuild
+}
+
+// loadBuiltIn opens a catalog loadout as an unsaved starting point: its stages
+// and payload seams load as for a design, and the name is cleared so s asks
+// for a new one instead of overwriting anything (ADR 0056 decision 8).
+func (v *VAB) loadBuiltIn(d spacecraft.Design) {
+	v.loadDesign(d)
+	v.name = ""
 }
 
 // slugifyDesign turns a free-form design name into a filesystem- and
