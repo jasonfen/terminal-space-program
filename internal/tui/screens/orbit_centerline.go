@@ -198,7 +198,8 @@ func centerlineClampToWindow(g centerlineGeom, scale float64, centre, d orbital.
 		if offPx == 0 {
 			return
 		}
-		room := halfPx - math.Copysign(centrePx, offPx)
+		// Room from the ring centre to the window edge on the lean's side.
+		room := halfPx - math.Copysign(1, offPx)*centrePx
 		if room < 0 {
 			room = 0
 		}
