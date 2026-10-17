@@ -142,7 +142,8 @@ Five **Component Kinds** ship: **engine** (thrust / Isp / fuel type), **tank**
 probe — plus optional soft-land / parachute), **antenna** (direct / relay +
 range), and **structure** (inert dry mass: adapters, fairings, ballast; this
 kind includes the **Docking Port** component, 50 kg, whose port rides
-**Aggregation** onto the Stage). The **VAB** composes vehicles from Components. **NB:** this is a *different* noun
+**Aggregation** onto the Stage, and the **Cargo Hold** component, 100 kg, whose
+flag rides it the same way). The **VAB** composes vehicles from Components. **NB:** this is a *different* noun
 from a **Docked Component** (an element of a **Composite**) — see Flagged
 ambiguities.
 _Avoid_: Part (a Component is finer — many compose one Part), Docked Component
@@ -1806,8 +1807,33 @@ a **Ground Station**, a probe core makes it an uncrewed probe. There is
 **no Deployable/IsPayload flag** on the Docked Component; the player's
 choice of verb (Deploy vs Undock) determines behaviour (ADR 0028
 decision 4).
-_Avoid_: Satellite (ambiguous with passive Vessels), Cargo (reserved for
-inert cargo tonnage, which is deferred).
+_Avoid_: Satellite (ambiguous with passive Vessels), Cargo (inert tonnage
+handed over while docked, its own entry).
+
+**Cargo** (ADR 0057):
+Inert tonnage a Stage carries to deliver (`cargo_kg` on a Part, `CargoKg` on the
+Stage), with no content this cycle. Part of the Vessel's mass (`Spacecraft.Cargo`
+joins `TotalMass`), not its dry mass. Handed over with `u` while docked into a
+**Cargo Hold**. A Cargo Dragon carries 2,507 kg in the capsule and 800 kg in the
+trunk; the crewed Dragon carries the trunk's 800 kg.
+_Avoid_: Payload (a Vessel released by `Y`), Manifest, Supplies, Downmass.
+
+**Cargo Hold** (ADR 0057):
+The flag (`cargo_hold` on a Component or Part, `CargoHold` on the Stage) that
+lets a Stage receive **Cargo**; the `Cargo Hold` structure component (100 kg)
+is the way to build one. What a hold has received is its `HoldKg`. A stage with
+one reads `· hold` on its VAB header and `hold: yes` in INSPECT. No capacity.
+Endpoint Station is not one.
+_Avoid_: Station (a role word; nothing is keyed on it), Bay, Container.
+
+**Hand Over** (verb, ADR 0057):
+`u` while docked: every **Cargo** load the pressing player's hardware carries
+moves into the stack's lowest **Cargo Hold** at once; the flash states the
+mass, or one of three facts (`not docked`, `no hold aboard`, `no cargo
+aboard`). One way. Across players it is the Dragon's owner's key whoever
+approached: a rider's `u` is asked of the stack owner's seat through the dock
+ledger.
+_Avoid_: Transfer (the `[J]` control transfer), Unload, Deliver.
 
 **Deploy** (verb / action):
 The player action that releases the **topmost** nose payload from a
