@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.57.2
+
+Undocking after staging keeps every piece's parts, and Falcon 9 stages talk to the ground (PR `#708`; issues `#707`, `#683`; tag `v0.57.2`).
+
+- **`U` after staging keeps each piece's real core and antenna.** A Falcon 9 carrying three comsats, staged off its first stage and undocked near the Moon, came apart with every piece stripped to the basic 10,000 km antenna and no relay, so all of them read `⚠ NO SIGNAL: needs a stronger antenna`. The vessel's record of its parts now shrinks with the stack whenever a bottom stage leaves (staging, a decouple group, a dropped Dragon trunk), and saves made before the fix are repaired on load. Each comsat keeps its relay antenna and the second stage reaches the ground through them (`#707`, `#683`).
+- **Falcon 9 stages carry a flight computer and a near-Earth antenna**, as the real stages do. A bare first or second stage is controllable and reaches the ground near Earth, and needs a relay at the Moon. Their masses are unchanged: the published empty weights already include that hardware.
+
 ### v0.57.1
 
 Moon transfers capture where the HUD says, and quitting asks the plain question (PRs `#700`, `#703`; issues `#699`, `#701`, `#702`; tag `v0.57.1`).
