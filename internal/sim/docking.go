@@ -52,6 +52,11 @@ type localReArm struct {
 // AttitudeMode / EngineMode are dropped — they were tied to the
 // composite, which no longer exists.
 func (w *World) Undock(idx int) bool {
+	// A stack that lost bottom stages without its breakdown following (a
+	// state a pre-#707 build could produce) is repaired first, so it tiles.
+	if idx >= 0 && idx < len(w.Crafts) {
+		w.Crafts[idx].ReconcileDockedComponents()
+	}
 	if w.UndockRefusal(idx) != "" {
 		return false
 	}
@@ -126,20 +131,32 @@ func (w *World) Undock(idx int) bool {
 			if totalCapMono > 0 {
 				monoShare = c.Monoprop * (comp.MonopropCapacity / totalCapMono)
 			}
+			// The rebuild must not strip the component's hardware: carry the
+			// command source, antenna and ports of whatever stages it recorded
+			// (#707), else the catalog ports of its loadout for a pre-breakdown
+			// flat record (#683; the Stage.Ports() name lookup is gone).
+			cmd, antKind, antRange, ports := spacecraft.PartsOfStages(comp.Stages)
+			if len(comp.Stages) == 0 {
+				ports = spacecraft.LookupCatalogPorts(comp.LoadoutID, comp.Name)
+			}
 			stages = []spacecraft.Stage{{
-				LoadoutID:    comp.LoadoutID,
-				Name:         comp.Name,
-				Glyph:        comp.Glyph,
-				Color:        comp.Color,
-				DryMass:      comp.DryMass,
-				FuelMass:     fuelShare,
-				FuelCapacity: comp.FuelCapacity,
-				Thrust:       comp.Thrust,
-				Isp:          comp.Isp,
-				MonopropMass: monoShare,
-				MonopropCap:  comp.MonopropCapacity,
-				RCSThrust:    comp.RCSThrust,
-				RCSIsp:       comp.RCSIsp,
+				CommandSource: cmd,
+				AntennaKind:   antKind,
+				AntennaRangeM: antRange,
+				PartPorts:     ports,
+				LoadoutID:     comp.LoadoutID,
+				Name:          comp.Name,
+				Glyph:         comp.Glyph,
+				Color:         comp.Color,
+				DryMass:       comp.DryMass,
+				FuelMass:      fuelShare,
+				FuelCapacity:  comp.FuelCapacity,
+				Thrust:        comp.Thrust,
+				Isp:           comp.Isp,
+				MonopropMass:  monoShare,
+				MonopropCap:   comp.MonopropCapacity,
+				RCSThrust:     comp.RCSThrust,
+				RCSIsp:        comp.RCSIsp,
 				// v0.12 Slice 3 (ADR 0008): restore the surface-arrival
 				// capabilities so an undocked lander / chute capsule keeps
 				// its soft-land / parachute qualification. SyncFields below
