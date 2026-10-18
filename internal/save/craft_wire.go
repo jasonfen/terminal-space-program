@@ -382,6 +382,10 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			CraftID:          dc.CraftID,
 		})
 	}
+	// A save written after a stage was dropped from the bottom (before #707's
+	// fix) records components that still claim the dropped stages; trim them
+	// so the loaded composite tiles its stack.
+	c.ReconcileDockedComponents()
 	// v0.8.1+: per-craft Nodes / ActiveBurn loaded directly from each Craft
 	// entry.
 	for _, n := range wc.Nodes {

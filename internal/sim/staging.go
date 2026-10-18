@@ -110,6 +110,9 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 	if len(c.DecouplePlan) > 0 {
 		c.DecouplePlan = c.DecouplePlan[1:]
 	}
+	// The docked-component breakdown records the dropped stages too; trim it
+	// so it still tiles the live stack and Undock keeps every piece's parts (#707).
+	c.ReconcileDockedComponents()
 	c.SyncFields() // re-derives DryMass / Fuel / Thrust / Isp / etc.
 	// Mass field on the integrator state needs the new total too.
 	c.State.M = c.TotalMass()
