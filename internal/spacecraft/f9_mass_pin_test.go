@@ -73,3 +73,34 @@ func TestF9ControlAndAntennaAddNoMass(t *testing.T) {
 		}
 	}
 }
+
+// The F9 stages are control points with the basic near-Earth antenna, so a
+// bare F9 is commandable in LEO and needs a relay at the Moon, and the
+// default-core backfill has nothing left to add to a stack that has them.
+func TestF9StagesCarryProbeCoreAndBasicAntenna(t *testing.T) {
+	for _, id := range []string{"f9-s1", "f9-s2"} {
+		st, ok := BuildStage(id)
+		if !ok {
+			t.Fatalf("no stage %s", id)
+		}
+		if st.CommandSource != CommandProbe {
+			t.Errorf("%s command source = %q, want probe", id, st.CommandSource)
+		}
+		if st.AntennaKind != AntennaDirect || st.AntennaRangeM != AntennaRangeDirectBasic {
+			t.Errorf("%s antenna = %s/%.0e m, want direct/%.0e m", id, st.AntennaKind, st.AntennaRangeM, AntennaRangeDirectBasic)
+		}
+	}
+	// The backfill adds nothing: no stage other than the F9's own gains a source.
+	before := NewFromLoadout("Falcon-9")
+	for i, st := range before.Stages {
+		if st.Name == "F9-S1" || st.Name == "F9-S2" {
+			continue
+		}
+		if st.CommandSource != "" || st.AntennaKind != AntennaNone {
+			t.Errorf("Falcon-9 stage %d (%s) was backfilled with %q / %s", i, st.Name, st.CommandSource, st.AntennaKind)
+		}
+	}
+	if !before.Controllable || before.AntennaKind != AntennaDirect {
+		t.Errorf("Falcon-9: controllable=%v antenna=%s, want controllable with a direct antenna", before.Controllable, before.AntennaKind)
+	}
+}
