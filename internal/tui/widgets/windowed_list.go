@@ -120,14 +120,3 @@ func ownerHeaderIndex(lines []WindowLine, i int) int {
 	}
 	return -1
 }
-
-// Texts extracts the rendered text of each line, in order — for a caller
-// (like a plain list with no click targets) that only needs the finished
-// lines and not the Kind/Index detail Window otherwise carries.
-func Texts(rendered []RenderedLine) []string {
-	out := make([]string, len(rendered))
-	for i, r := range rendered {
-		out[i] = r.Text
-	}
-	return out
-}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
 // TestApplyRCSPulseDeliversQuantumDV: a single pulse should change
@@ -15,8 +16,8 @@ func TestApplyRCSPulseDeliversQuantumDV(t *testing.T) {
 	sc := NewInLEO(*earth)
 	v0 := sc.OrbitalSpeed()
 
-	if !sc.ApplyRCSPulse(BurnPrograde) {
-		t.Fatalf("ApplyRCSPulse(prograde) returned false on a fully-fueled craft")
+	if !sc.ApplyRCSPulseWithTarget(BurnPrograde, orbital.Vec3{}, orbital.Vec3{}) {
+		t.Fatalf("ApplyRCSPulseWithTarget(prograde) returned false on a fully-fueled craft")
 	}
 	got := sc.OrbitalSpeed()
 	if math.Abs(got-(v0+RCSDvQuantum)) > 1e-9 {
@@ -48,8 +49,8 @@ func TestApplyRCSPulseFineLevelScalesDV(t *testing.T) {
 			t.Errorf("level %d: RCSPulseDV() = %g, want %g", c.level, got, c.wantDV)
 		}
 		v0 := sc.OrbitalSpeed()
-		if !sc.ApplyRCSPulse(BurnPrograde) {
-			t.Fatalf("level %d: ApplyRCSPulse returned false on a fueled craft", c.level)
+		if !sc.ApplyRCSPulseWithTarget(BurnPrograde, orbital.Vec3{}, orbital.Vec3{}) {
+			t.Fatalf("level %d: ApplyRCSPulseWithTarget returned false on a fueled craft", c.level)
 		}
 		if got := sc.OrbitalSpeed(); math.Abs(got-(v0+c.wantDV)) > 1e-9 {
 			t.Errorf("level %d: Δ|v| = %g, want %g", c.level, got-v0, c.wantDV)
@@ -66,7 +67,7 @@ func TestApplyRCSPulseConsumesMonoprop(t *testing.T) {
 	m0 := sc.Monoprop
 
 	for i := 0; i < 10; i++ {
-		if !sc.ApplyRCSPulse(BurnPrograde) {
+		if !sc.ApplyRCSPulseWithTarget(BurnPrograde, orbital.Vec3{}, orbital.Vec3{}) {
 			t.Fatalf("pulse %d returned false unexpectedly", i)
 		}
 	}
@@ -87,8 +88,8 @@ func TestApplyRCSPulseExhaustionStops(t *testing.T) {
 	sc.Monoprop = 0
 
 	v0 := sc.OrbitalSpeed()
-	if sc.ApplyRCSPulse(BurnPrograde) {
-		t.Error("ApplyRCSPulse on empty tank returned true")
+	if sc.ApplyRCSPulseWithTarget(BurnPrograde, orbital.Vec3{}, orbital.Vec3{}) {
+		t.Error("ApplyRCSPulseWithTarget on empty tank returned true")
 	}
 	if sc.OrbitalSpeed() != v0 {
 		t.Errorf("|v| changed on no-op pulse: %v → %v", v0, sc.OrbitalSpeed())

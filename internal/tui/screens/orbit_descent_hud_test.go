@@ -59,119 +59,6 @@ func placeLanderOnMoon(t *testing.T, w *sim.World, altM, vx, vy, vz float64) *sp
 	return c
 }
 
-// TestShouldShowDescentHUDAirlessLowAltitude — a Lander at 5 km
-// altitude above the Moon (airless, well below the 50 km threshold)
-// is exactly the regime the predicate exists for.
-func TestShouldShowDescentHUDAirlessLowAltitude(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c := placeLanderOnMoon(t, w, 5_000, 0, 100, 0)
-	if !shouldShowDescentHUD(c) {
-		t.Errorf("shouldShowDescentHUD = false at 5 km Moon altitude; want true")
-	}
-}
-
-// TestShouldShowDescentHUDImpactorAtHighAltitude — a Lander on a
-// bound orbit around the Moon with periapsis below the surface (an
-// impactor trajectory) still benefits from the descent readout even
-// while transiently above the 50 km altitude threshold. Pins the
-// peri-sub-surface arm of the predicate.
-func TestShouldShowDescentHUDImpactorAtHighAltitude(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	sys := w.System()
-	moon := sys.FindBody("Moon")
-	if moon == nil {
-		t.Fatal("Moon not in default system")
-	}
-	c := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
-	c.Primary = *moon
-	mu := moon.GravitationalParameter()
-	primaryR := moon.RadiusMeters()
-	// Bound impactor: apo at +150 km altitude, peri at -50 km. At
-	// apoapsis the current altitude is well above the 50 km
-	// straight-altitude threshold, so the test isolates the
-	// impactor-periapsis predicate arm.
-	rApo := primaryR + 150_000
-	rPeri := primaryR - 50_000
-	a := (rPeri + rApo) / 2
-	vAtApo := math.Sqrt(mu * (2/rApo - 1/a))
-	c.State = physics.StateVector{
-		R: orbital.Vec3{X: rApo, Y: 0, Z: 0},
-		V: orbital.Vec3{X: 0, Y: vAtApo, Z: 0},
-		M: c.TotalMass(),
-	}
-	w.Crafts = []*spacecraft.Spacecraft{c}
-	w.ActiveCraftIdx = 0
-	if c.Altitude() < descentHUDAltitudeM {
-		t.Fatalf("setup: expected altitude > %.0f m, got %.0f", descentHUDAltitudeM, c.Altitude())
-	}
-	if !shouldShowDescentHUD(c) {
-		t.Errorf("shouldShowDescentHUD = false for impactor orbit at high altitude; want true")
-	}
-}
-
-// TestShouldShowDescentHUDHighStableOrbit — a Lander parked in a
-// stable 200 km circular Moon orbit isn't approaching the surface;
-// the descent block should stay quiet.
-func TestShouldShowDescentHUDHighStableOrbit(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	sys := w.System()
-	moon := sys.FindBody("Moon")
-	if moon == nil {
-		t.Fatal("Moon not in default system")
-	}
-	c := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
-	c.Primary = *moon
-	mu := moon.GravitationalParameter()
-	r := moon.RadiusMeters() + 200_000
-	vCirc := math.Sqrt(mu / r)
-	c.State = physics.StateVector{
-		R: orbital.Vec3{X: r, Y: 0, Z: 0},
-		V: orbital.Vec3{X: 0, Y: vCirc, Z: 0},
-		M: c.TotalMass(),
-	}
-	w.Crafts = []*spacecraft.Spacecraft{c}
-	w.ActiveCraftIdx = 0
-	if shouldShowDescentHUD(c) {
-		t.Errorf("shouldShowDescentHUD = true at 200 km stable circular orbit; want false")
-	}
-}
-
-// TestShouldShowDescentHUDAtmospheric — atmospheric bodies route
-// through the LAUNCH HUD instead. DESCENT must stay quiet on Earth
-// approaches so the two blocks don't double-up.
-func TestShouldShowDescentHUDAtmospheric(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c := w.ActiveCraft()
-	if c == nil {
-		t.Fatal("expected default active craft on Earth")
-	}
-	if c.Primary.Atmosphere == nil {
-		t.Fatalf("expected default Earth primary with atmosphere; got nil atmosphere")
-	}
-	// Push the craft to 5 km altitude above Earth — atmospheric, so
-	// LAUNCH owns this regime even at low altitude.
-	c.State.R.X = c.Primary.RadiusMeters() + 5_000
-	c.State.R.Y = 0
-	c.State.R.Z = 0
-	c.State.V = orbital.Vec3{X: 0, Y: 100, Z: 0}
-	c.Landed = false
-	if shouldShowDescentHUD(c) {
-		t.Errorf("shouldShowDescentHUD = true for atmospheric primary; want false (LAUNCH owns this)")
-	}
-}
-
 // TestDescentHUDRendersVHorizAlertOnImpactorApproach — drives the
 // HUD into the playtest-report scenario: standalone Lander at 5 km
 // Moon altitude, falling (10 m/s down) with residual orbital lateral
@@ -197,11 +84,6 @@ func TestDescentHUDRendersVHorizAlertOnImpactorApproach(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	c := placeLanderOnMoon(t, w, 5_000, -10, 1500, 0)
-	// Sanity: the predicate must fire for this state, otherwise the
-	// render assertion below would be vacuously satisfied.
-	if !shouldShowDescentHUD(c) {
-		t.Fatalf("predicate gate didn't fire for 5 km / 1.5 km/s lateral; can't drive render path")
-	}
 	if _, descending := sim.DescentCorridorFor(c, sim.DescentPredictHorizon); !descending {
 		t.Fatalf("setup: the descent corridor must be live for this fixture, or the CRASH alert assertion below is vacuous under item 1's C3 gate")
 	}

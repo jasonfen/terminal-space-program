@@ -229,20 +229,6 @@ func TestWindowPinFollowsSectionCrossing(t *testing.T) {
 	}
 }
 
-func TestTextsExtractsRenderedText(t *testing.T) {
-	rendered := Window(plainLines(5), 2, 50)
-	texts := Texts(rendered)
-	want := []string{"0", "1", "2", "3", "4"}
-	if len(texts) != len(want) {
-		t.Fatalf("len(texts) = %d, want %d", len(texts), len(want))
-	}
-	for i := range want {
-		if texts[i] != want[i] {
-			t.Fatalf("texts[%d] = %q, want %q", i, texts[i], want[i])
-		}
-	}
-}
-
 func TestWindowEmptyInput(t *testing.T) {
 	if rendered := Window(nil, 0, 5); rendered != nil {
 		t.Fatalf("Window(nil, ...) = %+v, want nil", rendered)

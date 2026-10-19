@@ -299,16 +299,6 @@ func SumFuelMass(stages []Stage) float64 {
 	return s
 }
 
-// SumFuelCapacity returns the total main-engine fuel-tank capacity
-// across every stage in kg.
-func SumFuelCapacity(stages []Stage) float64 {
-	var s float64
-	for _, st := range stages {
-		s += st.FuelCapacity
-	}
-	return s
-}
-
 // SumMonopropMass returns the total RCS propellant across every
 // stage in kg.
 func SumMonopropMass(stages []Stage) float64 {

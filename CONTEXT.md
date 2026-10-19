@@ -1647,11 +1647,6 @@ partner's stages stack on **top** of the lead's. Two consequences:
   Undocking flow: the partner's stages, appended on top, peel off as
   a unit when Undocking fires.
 
-The composite-as-a-whole pooled engine view (sum-thrust, mass-weighted
-Isp across every stage with thrust) is exposed by
-`CompositeEngineSummary` for consumers that want the aggregate rather
-than the bottom-stage value. Bottom-stage values stay the default for
-back-compat with pre-v0.9.1 readers.
 _Avoid_: Composite Vessel (acceptable long form when ambiguity
 threatens), Stack (collides with the **Stage** stack — the propulsion
 ordering), Docked Vessel (emphasises the act, not the state).

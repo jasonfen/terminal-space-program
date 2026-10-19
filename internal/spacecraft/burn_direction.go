@@ -108,18 +108,13 @@ func leanToward(d, t orbital.Vec3, ang float64) orbital.Vec3 {
 	return d.Scale(math.Cos(ang)).Add(perp.Scale(math.Sin(ang) / n)).Unit()
 }
 
-// BurnDirectionUntrimmedWithTarget is BurnDirectionWithTarget before the
-// player's PitchTrim / HeadingTrim are folded in: the pure hold direction
+// BurnDirectionUntrimmedWithTargetAtt is BurnDirectionWithTargetAtt before
+// the player's PitchTrim / HeadingTrim are folded in: the pure hold direction
 // ("where prograde IS"). The navball's hold glyphs mark these (G8 Q6, #507,
 // KSP style) while the nose carries the trim, so the gap between the nose
 // and a glyph reads the trim against the pitch rungs. Zero vector when the
-// mode has no defined direction (e.g. surface-prograde on the pad).
-func (s *Spacecraft) BurnDirectionUntrimmedWithTarget(mode BurnMode, rT, vT orbital.Vec3) orbital.Vec3 {
-	return s.BurnDirectionUntrimmedWithTargetAtt(mode, rT, vT, orbital.Vec3{})
-}
-
-// BurnDirectionUntrimmedWithTargetAtt is BurnDirectionUntrimmedWithTarget
-// with the target's attitude for the PORT-frame modes.
+// mode has no defined direction (e.g. surface-prograde on the pad). Takes the
+// target's attitude for the PORT-frame modes.
 func (s *Spacecraft) BurnDirectionUntrimmedWithTargetAtt(mode BurnMode, rT, vT, aT orbital.Vec3) orbital.Vec3 {
 	// Body's tilted spin axis — shared with the launchpad spawn
 	// frame, the landed integrator, and physics.AtmosphereOmega

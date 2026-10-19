@@ -110,8 +110,8 @@ func TestLaunchChipSteadyOnPad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SpawnCraft: %v", err)
 	}
-	if !c.Landed || !shouldShowLaunchHUD(c) {
-		t.Fatalf("setup: want a Landed craft with the LAUNCH chip up (landed=%v, show=%v)", c.Landed, shouldShowLaunchHUD(c))
+	if !c.Landed {
+		t.Fatalf("setup: want a Landed craft (landed=%v)", c.Landed)
 	}
 	row := func(lines []string, prefix string) string {
 		for _, l := range lines {

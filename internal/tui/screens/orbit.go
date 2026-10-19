@@ -2696,59 +2696,6 @@ func (v *OrbitView) ComposeNavballOverlay(w *sim.World, canvasStr string, cCols,
 	return v.composeNavballOverlay(w, canvasStr, cCols, cRows, false)
 }
 
-// shouldShowLaunchHUD returns true when the active craft is in
-// "ascent" mode — defined v0.9.4+ as "periapsis below the
-// circularize-from-pad mission floor" (200 km, altitude). Visible
-// for the whole pad → coast → circularise journey, vanishing only
-// once the mission-floor periapsis is achieved (= LEO is captured).
-// v0.9.2+ originally hid the HUD as soon as periapsis cleared the
-// surface or the craft left the atmosphere; that hid the very
-// signals (ap, pe, Δv→circ, ORBIT READY) the player needs during
-// coast and circularisation, so v0.9.4+ keeps it up through the
-// whole ascent phase. Hyperbolic / degenerate states keep the HUD
-// up too (they read "—" rather than misleading numbers).
-func shouldShowLaunchHUD(c *spacecraft.Spacecraft) bool {
-	if c == nil {
-		return false
-	}
-	if c.Primary.Atmosphere == nil {
-		// No atmosphere → no launch profile to display. (Also
-		// covers most moons, where ground launch is reachable but
-		// the manual loop is short enough to not need a dedicated
-		// HUD block.)
-		return false
-	}
-	mu := c.Primary.GravitationalParameter()
-	if mu == 0 {
-		return false
-	}
-	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
-	if el.E >= 1 || el.A <= 0 {
-		// Hyperbolic or degenerate. This counts as an ascent only while
-		// the craft is still LOW — a straight-up pad climb reads as a
-		// radial/degenerate orbit, and an over-burned ascent can flicker
-		// hyperbolic. But a hyperbolic trajectory HIGH above the body is
-		// a departure (an over-energetic TLI escaping Earth) or a
-		// flyby/approach to another atmosphered body (a hyperbolic Mars
-		// arrival) — not a launch. Gate on altitude so the ascent HUD
-		// doesn't pop back far from any launch; show the `—` placeholders
-		// only while genuinely near the surface.
-		return c.Altitude() < c.Primary.Atmosphere.CutoffAltitude
-	}
-	primaryR := c.Primary.RadiusMeters()
-	periAlt := el.Periapsis() - primaryR
-	// Hide once the orbit is stable — the periapsis has climbed clear of
-	// the atmosphere, so the ascent is finished and drag can no longer
-	// decay the orbit. The ascent instruments (TWR, FPA, downrange) are
-	// done; the orbit-relative HUD takes over. The old gate compared
-	// against the 200 km mission floor, which kept the launch HUD pinned
-	// over a perfectly good sub-200 km parking orbit (e.g. a 186 × 186 km
-	// circular orbit reads periAlt 186 km < 200 km and never cleared).
-	// The mission floor stays the threshold for the ORBIT READY callout
-	// + progress row above; this is only the show/hide gate.
-	return periAlt < c.Primary.Atmosphere.CutoffAltitude
-}
-
 // craftHasOrbit is the single "does this vessel have a real orbit"
 // predicate (issue #375). integrateLanded (internal/sim/landed.go)
 // deliberately feeds a parked craft V = ω × R — surface co-rotation
@@ -2770,38 +2717,6 @@ func craftHasOrbit(c *spacecraft.Spacecraft) bool {
 	return c != nil && !c.Landed
 }
 
-// descentHUDAltitudeM is the altitude threshold (above the airless
-// primary's mean radius) below which the DESCENT block lights up.
-// 50 km gives the player a full warp-10× tick worth of warning at
-// orbital-class lateral speeds before reaching the surface; smaller
-// values would let an impactor approach pass the surface inside one
-// readout-update without giving the horiz row time to register.
-const descentHUDAltitudeM = 50_000.0
-
-// shouldShowDescentHUD returns true when the active craft is in
-// surface-proximity flight on an airless body — the regime where
-// the vert / horiz split (not the scalar orbital velocity) is
-// what determines whether the next surface contact is a soft
-// touchdown or a high-|V| Crashed. Counterpart to shouldShowLaunchHUD
-// for airless bodies; the two are mutually exclusive via the
-// Atmosphere == nil gate (LAUNCH is atmospheric, DESCENT is airless).
-//
-// v0.11.4-followup: added after the playtest report of "vessel
-// suddenly crashed during controlled moon descent" — the always-on
-// VESSEL block renders altitude and scalar `velocity` only, so a
-// craft with ~1 km/s residual orbital lateral velocity at 5–10 km
-// altitude reads "low and slow" by altitude alone but flips to
-// Crashed (|V| ≫ CrashVCritMps) on the next surface contact. The
-// new block surfaces vert / horiz / fpa / TWR so the lateral
-// component is legible while there's still room to bleed it.
-//
-// Trigger: airless primary AND (current altitude < descentHUDAltitudeM
-// OR the bound orbit's periapsis sits below the surface — an impactor
-// trajectory still 100 km up benefits from the readout as much as
-// one at 5 km).
-//
-// Crashed / Landed crafts never reach the surrounding HUD path so the
-// predicate doesn't need to gate on them.
 // shouldShowChuteHUD gates the v0.12 Slice 3 CHUTE block: shown for any
 // chute-bearing vessel (HasParachute mirror true) that is still in
 // flight — not Landed (the descent is over) and not Crashed (no chute
@@ -2813,33 +2728,6 @@ func shouldShowChuteHUD(c *spacecraft.Spacecraft) bool {
 		return false
 	}
 	return c.HasParachute && !c.Landed && !c.Crashed
-}
-
-func shouldShowDescentHUD(c *spacecraft.Spacecraft) bool {
-	if c == nil {
-		return false
-	}
-	if c.Primary.Atmosphere != nil {
-		return false
-	}
-	if c.Primary.RadiusMeters() <= 0 {
-		return false
-	}
-	if c.Altitude() < descentHUDAltitudeM {
-		return true
-	}
-	mu := c.Primary.GravitationalParameter()
-	if mu == 0 {
-		return false
-	}
-	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
-	if el.E < 1 && el.A > 0 {
-		periAlt := el.Periapsis() - c.Primary.RadiusMeters()
-		if periAlt < 0 {
-			return true
-		}
-	}
-	return false
 }
 
 // isSubOrbitalClimb reports whether the active craft is climbing away from
@@ -2892,114 +2780,6 @@ func isSubOrbitalClimb(c *spacecraft.Spacecraft) bool {
 	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
 	periAlt := el.Periapsis() - c.Primary.RadiusMeters()
 	return periAlt < 0
-}
-
-// FlightPhase is a coarse classification of where a vessel is in its
-// flight — pad / ascent / cruise / transfer / approach / descent / landed.
-// It consolidates the signals the chip-relevance predicates above already
-// read (atmosphere, altitude bands, orbit eccentricity, radial-velocity
-// sign, the Landed flag) into one named vocabulary.
-//
-// v0.16.1 scaffolding (consolidation only): nothing renders against this
-// yet, so deriving it changes no on-screen behaviour. It exists so a later
-// chip timing+content slice can gate chips on a single phase value instead
-// of re-deriving the regime per chip. To stay a true consolidation rather
-// than a second source of truth, the atmospheric-ascent and airless-descent
-// branches defer to the authoritative shouldShowLaunchHUD /
-// shouldShowDescentHUD predicates rather than re-implementing their (subtle,
-// well-commented) gates.
-type FlightPhase int
-
-const (
-	// PhaseCoast is the zero value: a near-circular bound parking / cruise
-	// orbit, and the safe fallback for nil / degenerate state.
-	PhaseCoast FlightPhase = iota
-	PhasePrelaunch
-	PhaseAscent
-	PhaseTransfer
-	PhaseApproach
-	PhaseDescent
-	PhaseLanded
-)
-
-func (p FlightPhase) String() string {
-	switch p {
-	case PhasePrelaunch:
-		return "prelaunch"
-	case PhaseAscent:
-		return "ascent"
-	case PhaseTransfer:
-		return "transfer"
-	case PhaseApproach:
-		return "approach"
-	case PhaseDescent:
-		return "descent"
-	case PhaseLanded:
-		return "landed"
-	default:
-		return "coast"
-	}
-}
-
-// transferEccThreshold is the eccentricity above which a bound orbit reads
-// as a transfer/encounter arc rather than a parking-orbit Coast. 0.2 keeps
-// a slightly-elliptical LEO classed as Coast while a Hohmann transfer
-// ellipse (e ≈ 0.7 LEO→GEO, higher for lunar) reads as Transfer/Approach.
-const transferEccThreshold = 0.2
-
-// prelaunchAltM is the altitude below which an ascending atmospheric vessel
-// reads as just off the pad (Prelaunch) rather than in active climb
-// (Ascent). Matches the tower-clear scale used by the ascent guidance. Note
-// a vessel actually *on* the ground is PhaseLanded (the Landed flag wins);
-// Prelaunch is the brief airborne, below-tower-clear window right after
-// release. The on-ground state can't be told apart from a post-mission
-// landing by state alone, so both collapse to Landed.
-const prelaunchAltM = 1000.0
-
-// deriveFlightPhase classifies a vessel's current flight phase from its own
-// state. Pure (no World dependency) so it can be unit-tested in isolation.
-// See FlightPhase for the consolidation-only intent.
-func deriveFlightPhase(c *spacecraft.Spacecraft) FlightPhase {
-	if c == nil {
-		return PhaseCoast
-	}
-	if c.Landed {
-		return PhaseLanded
-	}
-	// Radial velocity sign separates outbound (climbing) from inbound
-	// (falling toward periapsis / an encounter).
-	var vUp float64
-	if r := c.State.R; r.Norm() > 0 {
-		vUp = c.State.V.Dot(r.Unit())
-	}
-	// Atmospheric ascent — defer to the authoritative launch predicate, then
-	// split pad-bound Prelaunch from active Ascent. A descending vessel low
-	// in the atmosphere (re-entry) is suborbital and would also satisfy the
-	// launch predicate, so require non-descending to count as ascent.
-	if shouldShowLaunchHUD(c) && vUp >= 0 {
-		if c.Altitude() < prelaunchAltM {
-			return PhasePrelaunch
-		}
-		return PhaseAscent
-	}
-	// Airless surface-proximity — defer to the authoritative descent predicate.
-	if shouldShowDescentHUD(c) {
-		return PhaseDescent
-	}
-	// Otherwise we're on an orbit / transfer arc; classify by shape + direction.
-	mu := c.Primary.GravitationalParameter()
-	if mu == 0 {
-		return PhaseCoast
-	}
-	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
-	bound := el.E < 1 && el.A > 0
-	if !bound || el.E >= transferEccThreshold {
-		if vUp < 0 {
-			return PhaseApproach // inbound — falling toward periapsis / encounter
-		}
-		return PhaseTransfer // outbound — climbing toward apoapsis
-	}
-	return PhaseCoast // near-circular parking / cruise orbit
 }
 
 // viewBasis returns the canvas projection basis for the world's

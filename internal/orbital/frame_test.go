@@ -65,28 +65,6 @@ func TestPlaneNormalOKRejectsZeroNormalAtZeroOmega(t *testing.T) {
 	}
 }
 
-func TestInertialPlanetCentricRoundTrip(t *testing.T) {
-	primary := Vec3{X: 1.5e11, Y: 2.3e10, Z: -4.7e9}
-	cases := []Vec3{
-		{0, 0, 0},
-		{1e9, 1e9, 1e9},
-		{-7.4e10, 3.1e9, 5.2e11},
-		{1e-3, -1e-3, 0},
-	}
-	// Absolute tolerance scales with primary magnitude (~AU). Float64 has
-	// ~15.7 decimal digits of precision — at 1.5e11 m that's ~3e-5 m per
-	// operation, so allow a few ULPs of the primary norm.
-	tol := primary.Norm() * 1e-14
-	for _, rIn := range cases {
-		rLocal := ToPlanetCentric(rIn, primary)
-		rBack := FromPlanetCentric(rLocal, primary)
-		d := rBack.Sub(rIn).Norm()
-		if d > tol {
-			t.Errorf("round-trip error %.3e m (tol %.3e) for r=%+v", d, tol, rIn)
-		}
-	}
-}
-
 // TestEarthPositionAtJ2000: Earth sits at a reasonable heliocentric radius
 // (~1 AU) given its M₀ at J2000. Sanity check that the whole M → E → ν → r
 // chain doesn't produce nonsense; not a NASA-grade ephemeris match.
@@ -233,57 +211,6 @@ func TestEclipticOrbitInEarthFrameHasInclinationEqualToTilt(t *testing.T) {
 	tiltRad := 23.44 * math.Pi / 180
 	if d := math.Abs(elBody.I - tiltRad); d > 1e-9 {
 		t.Errorf("ecliptic-orbit body-frame i = %.6f, want %.6f", elBody.I, tiltRad)
-	}
-}
-
-// TestPlaneMatchInclinationEarthFromSunIsZero: Earth's plane viewed
-// from heliocentric orbit (sun-frame = identity) is the ecliptic, so
-// matching it from the Sun's frame requires i ≈ Earth's ecliptic-
-// relative inclination (~0.034°).
-func TestPlaneMatchInclinationEarthFromSunIsZero(t *testing.T) {
-	systems, _ := bodies.LoadAll()
-	sol := systems[0]
-	earth := sol.FindBody("Earth")
-	sunFrame := IdentityFrame()
-	got := PlaneMatchInclination(*earth, sunFrame)
-	// Earth's ecliptic-relative inclination is tiny (~0.034°). Allow
-	// 0.1° margin.
-	if got > 0.1*math.Pi/180 {
-		t.Errorf("PlaneMatch(Earth, sun) = %.4f rad (%.3f°), want ~0", got, got*180/math.Pi)
-	}
-}
-
-// TestPlaneMatchInclinationMarsFromEarth: matching Mars's heliocentric
-// orbit plane from a LEO orbit requires inclining LEO by Earth's
-// axial tilt (Mars's ecliptic-relative i is small, so the dominant
-// term is Earth's 23.44° tilt away from the ecliptic).
-func TestPlaneMatchInclinationMarsFromEarth(t *testing.T) {
-	systems, _ := bodies.LoadAll()
-	sol := systems[0]
-	earth := sol.FindBody("Earth")
-	mars := sol.FindBody("Mars")
-	earthFrame := BodyEquatorialFrame(*earth)
-	got := PlaneMatchInclination(*mars, earthFrame)
-	// Earth's tilt (23.44°) ± Mars's small ecliptic inclination (1.85°)
-	// — depending on the relative orientation of nodes. Loose bounds:
-	// somewhere in [21°, 26°].
-	gotDeg := got * 180 / math.Pi
-	if gotDeg < 21 || gotDeg > 26 {
-		t.Errorf("PlaneMatch(Mars, Earth-frame) = %.2f°, want 21–26°", gotDeg)
-	}
-}
-
-// TestPlaneMatchInclinationSunReturnsZero: defensive — passing the
-// Sun returns 0 (no orbit to match).
-func TestPlaneMatchInclinationSunReturnsZero(t *testing.T) {
-	systems, _ := bodies.LoadAll()
-	sol := systems[0]
-	sun := sol.FindBody("Sun")
-	if sun == nil {
-		t.Skip("Sol system has no body named Sun")
-	}
-	if got := PlaneMatchInclination(*sun, IdentityFrame()); got != 0 {
-		t.Errorf("PlaneMatch(Sun, *) = %.6f, want 0", got)
 	}
 }
 

@@ -20,7 +20,7 @@ func TestEarthSurfaceGravity(t *testing.T) {
 	if earth == nil {
 		t.Fatal("Earth not found")
 	}
-	g := SurfaceGravity(*earth)
+	g := earth.GravitationalParameter() / (earth.RadiusMeters() * earth.RadiusMeters())
 	if math.Abs(g-9.81) > 0.02 {
 		t.Errorf("Earth surface g = %.4f, expected 9.81 ± 0.02", g)
 	}

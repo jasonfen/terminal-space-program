@@ -9,10 +9,9 @@ import (
 )
 
 // TestScaleHintNamesTheSystemFigure: scaleHint is the spawn list HEADER's
-// system-level line (#504; it used to be appended to every row via
-// propulsionSummary). Real reads ~9.4 km/s, stripped-back ~3.4 km/s, and an
-// unset ScaleClass normalizes to real. propulsionSummary itself carries no
-// system figure.
+// system-level line (#504; it used to be appended to every row). Real
+// reads ~9.4 km/s, stripped-back ~3.4 km/s, and an unset ScaleClass
+// normalizes to real.
 func TestScaleHintNamesTheSystemFigure(t *testing.T) {
 	if got := scaleHint(bodies.ScaleReal); !strings.Contains(got, "9.4 km/s") {
 		t.Errorf("real hint: %q", got)
@@ -22,9 +21,6 @@ func TestScaleHintNamesTheSystemFigure(t *testing.T) {
 	}
 	if got := scaleHint(""); !strings.Contains(got, "9.4 km/s") || strings.Contains(got, "stripped-back") {
 		t.Errorf("unset ScaleClass should read real-scale: %q", got)
-	}
-	if got := propulsionSummary(spacecraft.Loadout{ScaleClass: bodies.ScaleReal}); strings.Contains(got, "km/s") {
-		t.Errorf("propulsionSummary still carries the system figure: %q", got)
 	}
 }
 

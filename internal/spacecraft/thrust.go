@@ -58,20 +58,10 @@ func (s *Spacecraft) RCSPulseDV() float64 {
 	return RCSDvQuantum / math.Pow(10, float64(s.RCSFineLevel))
 }
 
-// ApplyRCSPulse delivers one RCSDvQuantum of Δv in the given burn
-// direction, debiting monoprop via the rocket equation against the
-// RCSIsp engine. No-op if monoprop is empty or RCSThrust / RCSIsp are
-// unconfigured (legacy save with zero RCS fields, mid-load before the
-// loader populates defaults). v0.8.0+.
-//
-// Target-relative modes degrade to no-op (zero direction) without a
-// resolved target snapshot — callers with a target use
-// ApplyRCSPulseWithTarget. v0.9.3+.
-func (s *Spacecraft) ApplyRCSPulse(mode BurnMode) bool {
-	return s.ApplyRCSPulseWithTarget(mode, orbital.Vec3{}, orbital.Vec3{})
-}
-
-// ApplyRCSPulseWithTarget is ApplyRCSPulse with a resolved target
+// ApplyRCSPulseWithTarget delivers one RCSDvQuantum of Δv in the given
+// burn direction (debiting monoprop via the rocket equation against the
+// RCSIsp engine; no-op if monoprop is empty or RCSThrust / RCSIsp are
+// unconfigured) with a resolved target
 // snapshot in the same frame as Spacecraft.State (primary-relative
 // when both share a primary, fully inertial otherwise — caller
 // resolves via World.targetStateRelativeToActivePrimary). The four
@@ -683,24 +673,12 @@ func (s *Spacecraft) BurnTimeForDV(dv float64) time.Duration {
 	return time.Duration(secs * float64(time.Second))
 }
 
-// ThrustAccelFn returns an RK4-compatible accel closure that adds
-// engine thrust along the given burn-mode direction on top of
-// two-body gravity, using the spacecraft's live throttle. Routed
-// through ThrustAccelFnAt so the manual-burn integrator path picks
-// up live throttle adjustments. Direction is recomputed each
-// sub-step from live (r, v), so prograde follows the rotating
-// velocity frame — the expected UX for held-prograde burns.
-//
-// Mass is held constant for the closure (the integrator treats the
-// sub-step as ~constant-mass); the caller updates fuel via
-// MassFlowRate after the StepRK4 call. Thrust is gated to zero if
-// fuel is empty.
-func (s *Spacecraft) ThrustAccelFn(mode BurnMode, mu float64) func(r, v orbital.Vec3, t float64) orbital.Vec3 {
-	return s.ThrustAccelFnAt(mode, mu, s.EffectiveThrottle())
-}
-
-// ThrustAccelFnAt is ThrustAccelFn but uses an explicit throttle —
-// used by the active-burn path in sim/world.go to honour the
+// ThrustAccelFnAt returns an RK4-compatible accel closure that adds
+// engine thrust along the given burn-mode direction on top of two-body
+// gravity, using an explicit throttle. Direction is recomputed each
+// sub-step from live (r, v). Mass is held constant for the closure; the
+// caller updates fuel via MassFlowRate after the StepRK4 call, and thrust
+// is gated to zero if fuel is empty. Used by the active-burn path in sim/world.go to honour the
 // per-node throttle captured on the ActiveBurn struct at fire-time.
 // Decoupling from `Spacecraft.Throttle` means adjusting the live
 // throttle knob mid-coast doesn't slow a planted burn. v0.7.6+.

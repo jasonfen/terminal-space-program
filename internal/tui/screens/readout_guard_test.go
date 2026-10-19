@@ -140,17 +140,15 @@ func TestReadoutDialectGuard(t *testing.T) {
 // ispExceptionLines is the exhaustive allowlist of source lines where
 // `%.0fs` is specific impulse, keyed "basename.go:line", not a
 // trailing comment, which any line could carry regardless of what it
-// prints. Four real sites as of this PR: vab_render.go's stage header
+// prints. Three real sites as of this PR: vab_render.go's stage header
 // and spawn.go's two per-stage engine summaries pass a `.Isp` struct
-// field as the format argument on the same line; spawn.go's scale-hint
-// summary spells "Isp" directly in the format string. Update this map,
+// field as the format argument on the same line. Update this map,
 // not isIspException, when a real Isp call site moves or a new one is
 // added.
 var ispExceptionLines = map[string]bool{
 	"vab_render.go:1083": true,
 	"spawn.go:1386":      true,
 	"spawn.go:1406":      true,
-	"spawn.go:1816":      true,
 }
 
 // isIspException reports whether a `%.0fs` hit at path:lineNo is

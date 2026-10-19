@@ -1778,47 +1778,6 @@ func crewTag(l spacecraft.Loadout) string {
 	return "uncrewed"
 }
 
-// propulsionSummary one-lines a loadout's main-engine + RCS shape
-// for the form preview. Pure-RCS craft (Thrust=0) call it out
-// explicitly so the player knows `b` won't fire on that loadout.
-//
-// v0.9.1+ multi-stage loadouts list a stage count next to the dry
-// mass so the player can see at a glance that the Saturn-V is a
-// 3-stage chain instead of a single tank.
-//
-// ADR 0014 Slice D appends a Scale Class hint — the Δv-to-orbit /
-// "best for" line — branching on the loadout's Scale() tag. It is a
-// display hint only: the craft list is never filtered by scale, so a
-// real-fleet craft can still be spawned in a stripped-back System (it
-// will simply be over-powered) and vice-versa.
-func propulsionSummary(l spacecraft.Loadout) string {
-	return stagesSummary(l.Stages)
-}
-
-// stagesSummary is propulsionSummary over a bare stage stack, so a saved
-// design's row (whose stages are resolved and cached at Reset) reads in
-// the same style as a catalog row (#504).
-func stagesSummary(stages []spacecraft.Stage) string {
-	dry := spacecraft.SumDryMass(stages)
-	fuel := spacecraft.SumFuelMass(stages)
-	var bottomThrust, bottomIsp float64
-	if len(stages) > 0 {
-		bottomThrust, bottomIsp = spacecraft.LitStageOf(stages).Thrust, spacecraft.LitStageOf(stages).Isp
-	}
-	stageNote := ""
-	if len(stages) > 1 {
-		stageNote = fmt.Sprintf(" (%d stages)", len(stages))
-	}
-	var summary string
-	if bottomThrust == 0 {
-		summary = fmt.Sprintf("dry %s%s, RCS-only", readout.Mass(dry), stageNote)
-	} else {
-		summary = fmt.Sprintf("dry %s, fuel %s%s, %.0fkN @ Isp %.0fs",
-			readout.Mass(dry), readout.Mass(fuel), stageNote, bottomThrust/1000, bottomIsp)
-	}
-	return summary
-}
-
 // designStagesAt returns the cached resolved stages of saved design i.
 func (s *SpawnCraft) designStagesAt(i int) []spacecraft.Stage {
 	if i < 0 || i >= len(s.designStages) {

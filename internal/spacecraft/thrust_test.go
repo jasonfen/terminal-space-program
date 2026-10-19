@@ -171,7 +171,7 @@ func TestThrustAccelFnAddsThrustOnTopOfGravity(t *testing.T) {
 	v := sc.State.V
 	mass := sc.TotalMass()
 
-	accelFn := sc.ThrustAccelFn(BurnPrograde, mu)
+	accelFn := sc.ThrustAccelFnAt(BurnPrograde, mu, sc.EffectiveThrottle())
 	got := accelFn(r, v, 0)
 
 	// Expected = gravity + (Thrust/mass) along v_hat.
@@ -185,7 +185,7 @@ func TestThrustAccelFnAddsThrustOnTopOfGravity(t *testing.T) {
 	want := gravity.Add(vHat.Scale(sc.Thrust / mass))
 
 	if got.Sub(want).Norm()/want.Norm() > 1e-9 {
-		t.Errorf("ThrustAccelFn: got %+v, want %+v", got, want)
+		t.Errorf("ThrustAccelFnAt: got %+v, want %+v", got, want)
 	}
 }
 
@@ -286,7 +286,7 @@ func TestThrustAccelFnNoThrustWhenFuelEmpty(t *testing.T) {
 	sc.BurnFuel(sc.Stages[0].FuelMass) // drain the firing stage
 	mu := earth.GravitationalParameter()
 
-	accelFn := sc.ThrustAccelFn(BurnPrograde, mu)
+	accelFn := sc.ThrustAccelFnAt(BurnPrograde, mu, sc.EffectiveThrottle())
 	got := accelFn(sc.State.R, sc.State.V, 0)
 
 	rMag := sc.State.R.Norm()
@@ -322,7 +322,7 @@ func TestThrustAccelFnNoThrustWhenBottomStageEmpty(t *testing.T) {
 		t.Fatalf("setup: summed fuel = %.0f, want > 0 (S-II + S-IVB still full)", sc.Fuel)
 	}
 
-	accelFn := sc.ThrustAccelFn(BurnPrograde, mu)
+	accelFn := sc.ThrustAccelFnAt(BurnPrograde, mu, sc.EffectiveThrottle())
 	got := accelFn(sc.State.R, sc.State.V, 0)
 
 	rMag := sc.State.R.Norm()

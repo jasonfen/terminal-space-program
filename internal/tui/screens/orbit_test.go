@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
-	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
@@ -152,7 +151,7 @@ func TestNavigationBoxShowsApPeInAscentAndOrbit(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	// Force a sub-orbital ascent arc (periapsis below the atmosphere) so
-	// shouldShowLaunchHUD fires.
+	// the ascent readouts show.
 	c := w.ActiveCraft()
 	c.Landed = false
 	mu := c.Primary.GravitationalParameter()
@@ -235,107 +234,6 @@ func TestNavigationBoxShowsApCountdownAndPeriod(t *testing.T) {
 	// placement can be tuned to a target period (e.g. synchronous).
 	if !strings.Contains(out, "period:") {
 		t.Errorf("expected NAVIGATION's period: row.\nrender:\n%s", out)
-	}
-}
-
-// TestLaunchHUDHidesOnStableSubMissionFloorOrbit — regression for the
-// "186×186 km orbit but the launch display is still active" playtest
-// report. The launch HUD must hide once the orbit is stable (periapsis
-// clear of the atmosphere), not require periapsis above the 200 km
-// mission floor — a 186 km circular parking orbit is finished ascending
-// even though it's under 200 km.
-func TestLaunchHUDHidesOnStableSubMissionFloorOrbit(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c := w.ActiveCraft()
-	c.Landed = false
-	mu := c.Primary.GravitationalParameter()
-	primaryR := c.Primary.RadiusMeters()
-	atmTop := c.Primary.Atmosphere.CutoffAltitude // 150 km on Earth
-
-	circularAt := func(altM float64) {
-		r := primaryR + altM
-		v := math.Sqrt(mu / r)
-		c.State.R.X, c.State.R.Y, c.State.R.Z = r, 0, 0
-		c.State.V.X, c.State.V.Y, c.State.V.Z = 0, v, 0
-		c.State.M = c.TotalMass()
-	}
-
-	// 186 km circular: periapsis 186 km > 150 km atmosphere but < 200 km
-	// mission floor. Ascent is done → HUD must hide.
-	circularAt(186e3)
-	if 186e3 <= atmTop || 186e3 >= 200e3 {
-		t.Fatalf("test premise broken: 186 km must sit between atmosphere %.0f and floor 200km", atmTop)
-	}
-	if shouldShowLaunchHUD(c) {
-		t.Error("186 km circular orbit: launch HUD still shown, want hidden (orbit is stable, above the atmosphere)")
-	}
-
-	// 140 km circular: periapsis still inside the 150 km atmosphere →
-	// HUD stays up (orbit would decay; not a real parking orbit yet).
-	circularAt(140e3)
-	if !shouldShowLaunchHUD(c) {
-		t.Error("140 km circular orbit (periapsis inside atmosphere): launch HUD hidden, want shown")
-	}
-
-	// Ascent arc: periapsis below the surface (deep sub-orbital) → shown.
-	rApo := primaryR + 250e3
-	rPeri := primaryR - 100e3
-	a := (rPeri + rApo) / 2
-	c.State.R.X, c.State.R.Y, c.State.R.Z = rPeri, 0, 0
-	c.State.V.X, c.State.V.Y, c.State.V.Z = 0, math.Sqrt(mu*(2/rPeri-1/a)), 0
-	c.State.M = c.TotalMass()
-	if !shouldShowLaunchHUD(c) {
-		t.Error("sub-orbital ascent arc: launch HUD hidden, want shown")
-	}
-}
-
-// TestLaunchHUDHidesOnHighHyperbolicTrajectory — the hyperbolic /
-// degenerate branch must be gated on altitude. A hyperbolic trajectory
-// HIGH above the body is a departure (an over-energetic TLI escaping
-// Earth) or a flyby/approach to another atmosphered body — NOT a launch,
-// so the ascent panel must stay hidden. Only a hyperbolic state near the
-// surface (a straight-up / over-burned pad climb) counts as a launch.
-func TestLaunchHUDHidesOnHighHyperbolicTrajectory(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c := w.ActiveCraft()
-	c.Landed = false
-	mu := c.Primary.GravitationalParameter()
-	primaryR := c.Primary.RadiusMeters()
-	atmTop := c.Primary.Atmosphere.CutoffAltitude
-
-	hyperbolicAt := func(altM float64) {
-		r := primaryR + altM
-		vEsc := math.Sqrt(2 * mu / r)
-		c.State.R.X, c.State.R.Y, c.State.R.Z = r, 0, 0
-		c.State.V.X, c.State.V.Y, c.State.V.Z = 0, 1.4*vEsc, 0 // e > 1
-		c.State.M = c.TotalMass()
-		el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
-		if el.E < 1 {
-			t.Fatalf("setup: orbit not hyperbolic at %.0f km (e=%.3f)", altM/1e3, el.E)
-		}
-	}
-
-	// High + hyperbolic (escaping Earth, well above the atmosphere) →
-	// hidden: this is a departure, not a launch.
-	hyperbolicAt(100_000e3) // 100,000 km, far above the 150 km cutoff
-	if shouldShowLaunchHUD(c) {
-		t.Error("high hyperbolic departure: launch HUD shown, want hidden (not a launch)")
-	}
-
-	// Low + hyperbolic (an over-burned pad ascent still near the surface)
-	// → shown.
-	hyperbolicAt(5e3) // 5 km, below the cutoff
-	if 5e3 >= atmTop {
-		t.Fatalf("test premise broken: 5 km must be below the atmosphere cutoff %.0f", atmTop)
-	}
-	if !shouldShowLaunchHUD(c) {
-		t.Error("low hyperbolic ascent (near surface): launch HUD hidden, want shown")
 	}
 }
 

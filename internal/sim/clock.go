@@ -68,22 +68,3 @@ func (c *Clock) WarpDown() {
 
 // TogglePause flips the paused state.
 func (c *Clock) TogglePause() { c.Paused = !c.Paused }
-
-// Advance moves SimTime forward by BaseStep × warp, and
-// RotationTime forward by BaseStep × min(warp, RotationCapWarp)
-// — capping the visible rotation rate so planets don't blur into
-// solid stripes at extreme warp. Called once per tick.
-func (c *Clock) Advance() {
-	if c.Paused {
-		return
-	}
-	w := c.Warp()
-	simDelta := time.Duration(float64(c.BaseStep) * w)
-	c.SimTime = c.SimTime.Add(simDelta)
-	rotW := w
-	if rotW > RotationCapWarp {
-		rotW = RotationCapWarp
-	}
-	rotDelta := time.Duration(float64(c.BaseStep) * rotW)
-	c.RotationTime = c.RotationTime.Add(rotDelta)
-}
