@@ -1011,18 +1011,6 @@ func (c *Canvas) plotDensePolylineTagged(pts []orbital.Vec3, tag CellTag, step i
 	}
 }
 
-// plotDensePolylineDashedColored is PlotDensePolylineColored's dashed
-// sibling (ADR 0041 §2 / issue #346's LineClass vocabulary): instead of a
-// single lit pixel every `step` px, it inks a contiguous run of `onPx`
-// pixels followed by a gap of `offPx` pixels, repeating — a genuine dash
-// pattern rather than sparse dots. Phase carries across the whole
-// polyline exactly like PlotDensePolylineColored, so the dash/gap cadence
-// holds across joins instead of restarting (and therefore looking solid)
-// at every sample.
-func (c *Canvas) plotDensePolylineDashedColored(pts []orbital.Vec3, color lipgloss.Color, onPx, offPx int) {
-	c.plotDensePolylineDashedTagged(pts, CellTag{Color: color}, onPx, offPx)
-}
-
 // plotDensePolylineDashedTagged is plotDensePolylineDashedColored carrying
 // the full CellTag (colour + Inspect Owner) — the Planned-class sibling of
 // plotDensePolylineTagged.

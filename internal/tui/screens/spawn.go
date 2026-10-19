@@ -335,19 +335,6 @@ func (s *SpawnCraft) orderedLoadoutIDs() []string {
 	return ids
 }
 
-// selectedDesign returns the saved design under the cursor, or nil when a
-// design row is not selected. v0.24 / ADR 0029.
-func (s *SpawnCraft) selectedDesign() *spacecraft.Design {
-	if !s.IsDesignSelected() {
-		return nil
-	}
-	i := s.loadoutIdx - s.visibleCatalogCount() - 1
-	if i < 0 || i >= len(s.designs) {
-		return nil
-	}
-	return &s.designs[i]
-}
-
 // craftLiftsOff reports whether a craft with the given bottom-stage thrust (N)
 // and total wet mass (kg) can lift off body — its surface TWR ≥ 1, i.e. thrust
 // ≥ weight = m·g with g = μ/R² (ADR 0031 / S9, the physics surface-launch

@@ -445,52 +445,6 @@ func displayWidth(s string) int {
 	return utf8.RuneCountInString(ansiEscapeRE.ReplaceAllString(s, ""))
 }
 
-// joinHorizontalLines glues two multi-line blocks side-by-side, one
-// line at a time, separated by `gap`. Pads the shorter block's rows
-// with empty strings so the result is rectangular at the longer
-// block's row count. v0.11.0 used lipgloss.JoinHorizontal but on the
-// densely-coloured launch canvas (thousands of per-cell ANSI escape
-// sequences from FillProjectedSphere) lipgloss mis-measured the
-// canvas width and inflated each row to ~22× its intended cell
-// count, pushing the HUD column off the right of any terminal.
-func joinHorizontalLines(left, right, gap string) string {
-	ls := strings.Split(left, "\n")
-	rs := strings.Split(right, "\n")
-	n := len(ls)
-	if len(rs) > n {
-		n = len(rs)
-	}
-	leftPad := visibleWidth(ls)
-	out := make([]string, n)
-	for i := 0; i < n; i++ {
-		var l, r string
-		if i < len(ls) {
-			l = ls[i]
-		}
-		if i < len(rs) {
-			r = rs[i]
-		}
-		pad := leftPad - displayWidth(l)
-		if pad < 0 {
-			pad = 0
-		}
-		out[i] = l + strings.Repeat(" ", pad) + gap + r
-	}
-	return strings.Join(out, "\n")
-}
-
-// visibleWidth returns the widest display-cell width across the given
-// lines after stripping ANSI escapes (see displayWidth).
-func visibleWidth(lines []string) int {
-	w := 0
-	for _, line := range lines {
-		if lw := displayWidth(line); lw > w {
-			w = lw
-		}
-	}
-	return w
-}
-
 // HitBurnButton reports whether (col, row) lands on this screen's own
 // [»Burn] button (#456 fix). Row-0 only, mirroring OrbitView's
 // HitBurnButton — this screen's title bar is the only row-0 content it

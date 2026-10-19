@@ -3002,15 +3002,6 @@ func deriveFlightPhase(c *spacecraft.Spacecraft) FlightPhase {
 	return PhaseCoast // near-circular parking / cruise orbit
 }
 
-// normalizeDeg wraps an angle in degrees into [0, 360).
-func normalizeDeg(d float64) float64 {
-	d = math.Mod(d, 360)
-	if d < 0 {
-		d += 360
-	}
-	return d
-}
-
 // viewBasis returns the canvas projection basis for the world's
 // current ViewMode. Six cases — ViewTilted (v0.10.6+ default;
 // perifocal tilt with TiltedWorldBasis fallback), four cardinals

@@ -28,11 +28,6 @@ var kindColor = map[string]string{
 	spacecraft.ComponentStructure:   "#9E9E9E", // gray
 }
 
-// catalogColor tints an opaque atomic catalog block in the vehicle column
-// (matches the yellow of spacecraft.VesselGlyph) so it reads distinctly from
-// the kind-colored composed components.
-const catalogColor = "#FFD93D"
-
 func glyphForKind(kind string) string {
 	if g, ok := kindGlyph[kind]; ok {
 		return g

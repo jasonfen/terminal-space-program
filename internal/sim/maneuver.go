@@ -1482,44 +1482,6 @@ func (w *World) PorkchopGrid(targetIdx int, depDays, tofDays []float64, opts Tra
 	return grid, nil
 }
 
-// compensateFiniteBurn inflates an ideal-impulsive Δv to account for
-// gravity-rotation loss during a centered finite burn at the parking
-// orbit's periapsis. Without compensation, a 4% loss on Hohmann TLI
-// drops apoapsis from Luna distance to ~165k km — nowhere near the
-// moon.
-//
-// Math: a centered burn over half-arc α sweeps the prograde direction
-// from -α to +α relative to periapsis tangent. The along-track
-// component of the integrated Δv is Δv_ideal × sin(α)/α (perpendicular
-// components sum to zero by symmetry). To deliver Δv_target we request
-// Δv such that Δv × sin(α(Δv))/α(Δv) = Δv_target, where
-//
-//	α(Δv) = (Δv·m / F) × n_craft / 2 = k · Δv,  k = m·n/(2F)
-//
-// Substituting: sin(k·Δv) = k·Δv_target → Δv = asin(k·Δv_target)/k.
-//
-// Returns the ideal Δv unchanged if k·Δv_target ≥ 1 (geometrically
-// impossible — burn arc would exceed half the orbit), or if any input
-// is degenerate.
-func compensateFiniteBurn(dvIdeal, mass, thrust, mu, rPark float64) float64 {
-	if dvIdeal <= 0 || mass <= 0 || thrust <= 0 || mu <= 0 || rPark <= 0 {
-		return dvIdeal
-	}
-	nCraft := math.Sqrt(mu / (rPark * rPark * rPark))
-	k := mass * nCraft / (2 * thrust)
-	if k <= 0 {
-		return dvIdeal
-	}
-	arg := k * dvIdeal
-	if arg >= 1 {
-		// Geometrically can't deliver this Δv with a centered burn —
-		// the half-arc would exceed π/2. Fall back to ideal; the burn
-		// will under-deliver but at least won't panic the planner.
-		return dvIdeal
-	}
-	return math.Asin(arg) / k
-}
-
 // refineFiniteDeparture replaces plan.Departure.DV with the value the
 // finite-burn-aware iterator says will actually deliver the target
 // apoapsis. v0.6.2 — for S-IVB-1's short LEO burn the impulsive
