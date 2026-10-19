@@ -49,11 +49,12 @@ func PlanIntraPrimaryFused(
 	if mu <= 0 || tof <= 0 {
 		return TransferPlan{}, errors.New("planfused: mu and tof must be > 0")
 	}
-	// Prograde short-way single-rev solve, matching PlanLambertTransfer's
-	// convention for the heliocentric path. The Hohmann-seeded tof keeps
+	// Short-way single-rev solve in the parking orbit's own sense (Lambert's
+	// branch rule reads world-frame Z, so a world-frame i > 90 orbit needs
+	// retrograde=true to take the short arc). The Hohmann-seeded tof keeps
 	// the transfer angle near a half-ellipse, where the short branch is
 	// the intended trans-target arc.
-	v1, v2, err := LambertSolve(rDep, rArr, tof, mu, false)
+	v1, v2, err := LambertSolve(rDep, rArr, tof, mu, rDep.Cross(vDep).Z < 0)
 	if err != nil {
 		return TransferPlan{}, err
 	}
