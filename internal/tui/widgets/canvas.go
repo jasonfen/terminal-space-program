@@ -525,24 +525,6 @@ func (c *Canvas) FillColoredDiskTagged(center orbital.Vec3, pxRadius int, tag Ce
 	}
 }
 
-// pickDominantColor returns the highest-count color in counts. Ties
-// break deterministically on the lexicographically smaller color
-// string so the chosen color is stable frame-to-frame regardless of
-// Go's randomized map iteration order. Without this tie-break,
-// textured-body cells with mixed-color pixel sets (v0.7.2.1+)
-// flicker as a different "first" color wins each render.
-func pickDominantColor(counts map[lipgloss.Color]int) lipgloss.Color {
-	var best lipgloss.Color
-	bestN := 0
-	for color, n := range counts {
-		if n > bestN || (n == bestN && string(color) < string(best)) {
-			bestN = n
-			best = color
-		}
-	}
-	return best
-}
-
 // FillTexturedDiskTagged fills a disk like FillColoredDiskTagged but
 // asks `texture` for the per-pixel color instead of using a single
 // uniform value from the supplied tag. The tag's BodyID / NodeIdx /

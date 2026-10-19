@@ -193,16 +193,6 @@ func primMerDirNonzero(v Vec3) bool {
 	return v.X*v.X+v.Y*v.Y+v.Z*v.Z > 1e-12
 }
 
-// SubObserverLongitudeDeg is the v0.8.5 entry point — lon at the
-// visible centre for an equator-on view. Retained as a thin wrapper
-// over SubObserverPointDeg(camDir = CameraDirRight) so callers that
-// only care about longitude (tests, simple debug paths) keep
-// working. New view-aware code should call SubObserverPointDeg.
-func SubObserverLongitudeDeg(b bodies.CelestialBody, simTime time.Time) float64 {
-	_, lon := SubObserverPointDeg(b, simTime, CameraDirRight, Vec3{})
-	return lon
-}
-
 // BodyRotationAxisWorld returns the body's spin axis as a unit
 // vector in the world inertial frame, derived from AxialTilt and
 // AxialAzimuth. The axis is

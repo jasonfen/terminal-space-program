@@ -1376,3 +1376,47 @@ func TestLaunchStripDownrangeFollowsHasLaunchSite(t *testing.T) {
 		t.Errorf("strip with a launch site = %q, want a downrange field", hud)
 	}
 }
+
+// chaseHorizontalAxis computes the projection-plane horizontal axis
+// STATELESSLY: the surface-relative velocity's horizontal component,
+// normalised, falling back to surface-frame east at the craft's
+// surface point when that horizontal speed is near zero (rocket on
+// the pad / a pure vertical climb or drop).
+//
+// Issue #378: this used to derive X from CurrentAttitudeDir — the
+// *commanded* attitude — projected onto the local horizontal. That is
+// the same instruction as "align with travel" during an ascent's
+// gravity turn (nose and velocity point the same way), but on a
+// braking descent the pilot points surface-retrograde, so the old
+// rule pointed screen-right *against* travel: an exact -1.000 dot
+// product between the old axis and horizontal velocity, i.e. the
+// whole surface view mirrored rather than merely skewed. Orienting by
+// velocity instead gives one rule for both halves of the surface view
+// and makes screen-right "the way the vessel is going," always — the
+// nose can then draw pointing left during a braking burn instead of
+// the world flipping to keep it pointing right.
+//
+// Uses physics.AirRelativeVelocity (not the raw inertial V) to match
+// descentKinematics — the surface view is a ground-relative
+// instrument, and a fast-rotating primary would otherwise reintroduce
+// a smaller version of the same disagreement between the camera axis
+// and what the ground actually does underneath the craft.
+//
+// Speed floor: chaseHorizSpeedFloorMps. Below it the horizontal
+// velocity is noise (numerical residue at rest on the pad, or the
+// per-tick integrator wobble during a near-vertical climb — the same
+// class of noise v0.11.1's chaseHorizEpsilon threshold used to guard
+// against on the attitude vector) rather than a meaningful direction
+// of travel, so the axis falls back to surface-frame east.
+//
+// Test-only reference: the stateless rule the production scene used to
+// call directly, composed from chaseHorizVelocityAxis and
+// chaseSurfaceEastAxis, which the dot-product tests pin. The render path
+// goes through the stateful LaunchView.chaseHAxis in launch.go, which
+// latches so this fallback isn't reached at every touchdown (#380).
+func chaseHorizontalAxis(c *spacecraft.Spacecraft, body bodies.CelestialBody, camFromBody, localUp orbital.Vec3) orbital.Vec3 {
+	if axis, ok := chaseHorizVelocityAxis(c, body, camFromBody, localUp); ok {
+		return axis
+	}
+	return chaseSurfaceEastAxis(body, camFromBody)
+}

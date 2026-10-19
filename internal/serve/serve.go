@@ -615,13 +615,3 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 		_ = s.store.SavePlayer(fp, app.World())
 	}
 }
-
-// newSessionApp is the S1-era ephemeral factory, kept for the
-// headless World-independence test.
-func newSessionApp() (tea.Model, []tea.ProgramOption, error) {
-	app, err := tui.New(nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	return app, []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseAllMotion()}, nil
-}

@@ -241,3 +241,20 @@ func TestPixelTagGridEachVisitsExactlySetPixels(t *testing.T) {
 		}
 	}
 }
+
+// each visits every currently-tagged pixel — the touched list, not a full
+// w×h sweep. Mirrors `for coord, tag := range pixelTags` over the old map;
+// map iteration order was never something callers could rely on anyway
+// (String()'s per-cell color aggregation already tie-breaks
+// deterministically for exactly that reason), so touched's write-order
+// walk is a strictly more predictable replacement, not a looser one.
+func (g *pixelTagGrid) each(fn func(px, py int, tag CellTag)) {
+	for _, idx := range g.touched {
+		i := int(idx)
+		oneBased := g.tagIdx[i]
+		if oneBased == 0 { // defensive; touched and tagIdx should stay in sync
+			continue
+		}
+		fn(i%g.w, i/g.w, g.tags[oneBased-1])
+	}
+}

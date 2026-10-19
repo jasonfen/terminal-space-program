@@ -323,3 +323,14 @@ func TestTrivialAwayIntervalIsNotAnnounced(t *testing.T) {
 		t.Error("\"resumed — 5s ran while you were away\" is noise about nothing")
 	}
 }
+
+// peek reads a bank without emptying it (tests, and nothing else).
+func (a *awayMail) peek(fp string) ([]sim.SessionEvent, time.Time, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	b, ok := a.banks[fp]
+	if !ok {
+		return nil, time.Time{}, false
+	}
+	return b.moments, b.since, true
+}
