@@ -26,5 +26,10 @@ jobs:
       - name: go vet
         run: go vet ./...
 
-      - name: go test
-        run: go test ./... -race -count=1 -timeout 20m
+      # internal/sim has no goroutines or sync in production code, so -race
+      # finds nothing there and costs ~8x; every other package keeps it.
+      - name: go test (race)
+        run: go test -race -count=1 $(go list ./... | grep -v '/internal/sim$')
+
+      - name: go test (internal/sim)
+        run: go test -count=1 ./internal/sim

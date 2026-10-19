@@ -827,6 +827,45 @@ func (w *World) BodyPositionAt(b bodies.CelestialBody, t time.Time) orbital.Vec3
 	return w.BodyPositionAt(*parent, t).Add(rRel)
 }
 
+// bodyPosRelTo returns b's position relative to primary at t. When primary
+// is b's parent that is b's own Kepler position (one solve); otherwise it
+// is the difference of the two heliocentric positions.
+func (w *World) bodyPosRelTo(b, primary bodies.CelestialBody, t time.Time) orbital.Vec3 {
+	if b.ParentID != primary.ID {
+		return w.BodyPositionAt(b, t).Sub(w.BodyPositionAt(primary, t))
+	}
+	M := w.Calculator.CalculateMeanAnomaly(b, t)
+	E := orbital.SolveKepler(M, b.Eccentricity)
+	return orbital.PositionAtTrueAnomaly(orbital.ElementsFromBody(b), orbital.TrueAnomaly(E, b.Eccentricity))
+}
+
+// stillInPrimary reports whether a craft at r (relative to cur) is inside
+// cur's SOI and in none of cur's children's, i.e. FindPrimary would return
+// cur. shortcut: assumes sibling SOIs do not overlap (true for shipped
+// systems), upgrade if a system ships overlapping sibling SOIs.
+func (w *World) stillInPrimary(sys *bodies.System, cur bodies.CelestialBody, r orbital.Vec3, t time.Time) bool {
+	root := sys.Bodies[0]
+	if cur.ID != root.ID {
+		parent := sys.ParentOf(cur)
+		if parent == nil {
+			parent = &root
+		}
+		if r.Norm() > physics.SOIRadius(cur, *parent) {
+			return false
+		}
+	}
+	for _, b := range sys.Bodies[1:] {
+		p := sys.ParentOf(b)
+		if p == nil || p.ID != cur.ID {
+			continue
+		}
+		if r.Sub(w.bodyPosRelTo(b, cur, t)).Norm() <= physics.SOIRadius(b, cur) {
+			return false
+		}
+	}
+	return true
+}
+
 // BodySOIRadius returns b's parent-relative sphere-of-influence radius in
 // the viewed system — a moon's SOI against its planet, a planet's against
 // the system root — falling back to the root when ParentID doesn't

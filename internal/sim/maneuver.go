@@ -1885,7 +1885,7 @@ func (w *World) transferEncounterTimes(post physics.StateVector, primary, target
 			continue
 		}
 		tt := startClock.Add(time.Duration(dt * float64(time.Second)))
-		rel := st.R.Sub(w.BodyPositionAt(target, tt).Sub(w.BodyPositionAt(primary, tt)))
+		rel := st.R.Sub(w.bodyPosRelTo(target, primary, tt))
 		d := rel.Norm()
 		if d < minD {
 			minD = d
@@ -2595,7 +2595,7 @@ func (w *World) scanTargetEncounter(state physics.StateVector, primary, target b
 		}
 		propagable = true
 		tt := fromClock.Add(time.Duration(dt * float64(time.Second)))
-		rel := st.R.Sub(w.BodyPositionAt(target, tt).Sub(w.BodyPositionAt(primary, tt)))
+		rel := st.R.Sub(w.bodyPosRelTo(target, primary, tt))
 		d := rel.Norm()
 		if d < minD {
 			minD = d
@@ -4093,6 +4093,13 @@ func (w *World) propagateStateWithPrimaryTuned(startState physics.StateVector, s
 			return clamped, current, entries
 		}
 		clock = clock.Add(stepDur)
+
+		// Fast path: still inside the current primary's SOI and in no
+		// child's, so FindPrimary would return current. Skips the
+		// all-bodies ephemeris refresh below.
+		if w.stillInPrimary(&sys, current, state.R, clock) {
+			continue
+		}
 
 		for _, b := range sys.Bodies {
 			positions[b.ID] = w.BodyPositionAt(b, clock)
