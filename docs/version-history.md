@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.57.3
+
+A planted Moon transfer no longer costs a full CPU core (PR `#711`; issues `#673`, `#706`; tag `v0.57.3`).
+
+- **The game idles cool with a Moon transfer planted.** The HUD's plan readouts re-walked the whole transfer every frame and recomputed every planet and moon's position at each step of it, about 19 ms a frame, so the game used a full CPU core while you waited for the burn. The walk now checks only the body you are near and its moons, and looks up everything else only when you actually cross into another sphere of influence: about 1.8 ms a frame (`#673`).
+- **The simulation tests take under two minutes on CI**, down from about twelve, so fixes ship faster (`#706`).
+
 ### v0.57.2
 
 Undocking after staging keeps every piece's parts, and Falcon 9 stages talk to the ground (PR `#708`; issues `#707`, `#683`; tag `v0.57.2`).
