@@ -2,6 +2,16 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.57.5
+
+Two crashes and three burn and planner bugs fixed (PR `#715`; tag `v0.57.5`).
+
+- **Attitude keys no longer crash the game when you have no vessel.** They now say there is no vessel to point.
+- **alt+d and alt+delete no longer crash the game** in the planner's Δv and throttle boxes or the save-name box.
+- **Transfers and rendezvous from orbits inclined past 90° take the short way.** The planner used to solve them the long way round, quoting thousands of m/s for a burn that should cost almost nothing.
+- **Touching down or crashing ends the burn.** A burn that outlived the landing used to pin warp at 10× and block the next ignition.
+- **Staging to a weaker engine mid-burn keeps the burn going** until its Δv is delivered, instead of ending it early and calling it complete.
+
 ### v0.57.4
 
 A security update for multiplayer hosts (PR `#712`; tag `v0.57.4`).
