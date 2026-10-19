@@ -103,6 +103,9 @@ func NewSavesScreen(th Theme) *SavesScreen {
 	in := textinput.New()
 	in.CharLimit = 48
 	in.Width = 40
+	// bubbles deleteWordForward indexes out of range on the last rune and
+	// crashes the game; nothing here needs it.
+	in.KeyMap.DeleteWordForward.SetEnabled(false)
 	return &SavesScreen{theme: th, input: in}
 }
 

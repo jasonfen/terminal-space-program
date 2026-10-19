@@ -253,12 +253,16 @@ func NewManeuver(th Theme) *Maneuver {
 	dv.CharLimit = 8
 	dv.Width = 10
 	dv.SetValue("100")
+	// bubbles deleteWordForward indexes out of range on the last rune and
+	// crashes the game; nothing here needs it.
+	dv.KeyMap.DeleteWordForward.SetEnabled(false)
 
 	throttle := textinput.New()
 	throttle.Placeholder = "100"
 	throttle.CharLimit = 3
 	throttle.Width = 5
 	throttle.SetValue("100")
+	throttle.KeyMap.DeleteWordForward.SetEnabled(false)
 
 	m := &Maneuver{
 		theme:         th,
