@@ -415,3 +415,26 @@ func TestTiltWorksInTiltedView(t *testing.T) {
 		t.Errorf("statusMsg = %q, want a %q-prefixed tilt readout", a.statusMsg, "view: Tilted")
 	}
 }
+
+// Audit 2026-10-18 #2: the w/s/a/d/q/e and W/S attitude keys dereferenced
+// ActiveCraft() with no nil check, so any of them on an empty slate (after
+// end-flight removed the last vessel) crashed the process.
+func TestAttitudeKeysRefuseNoVessel(t *testing.T) {
+	for _, r := range []rune{'w', 's', 'a', 'd', 'q', 'e', 'W', 'S'} {
+		a, err := New(nil)
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		a.world.Crafts = nil
+		a.world.ActiveCraftIdx = 0
+
+		func() {
+			defer func() {
+				if p := recover(); p != nil {
+					t.Errorf("key %q panicked on an empty slate: %v", r, p)
+				}
+			}()
+			pressKey(a, r)
+		}()
+	}
+}

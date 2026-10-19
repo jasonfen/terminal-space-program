@@ -2547,7 +2547,12 @@ func (a *App) portTrim(dUp, dRight float64) bool {
 // sustained pulse train at the terminal's key-repeat rate.
 // v0.8.0+.
 func (a *App) handleAttitudeKey(mode spacecraft.BurnMode) {
-	if a.world.ActiveCraft().EngineMode == spacecraft.EngineRCS {
+	c := a.world.ActiveCraft()
+	if c == nil {
+		a.refuse("attitude", "no vessel")
+		return
+	}
+	if c.EngineMode == spacecraft.EngineRCS {
 		a.world.FireRCSPulse(mode)
 		return
 	}
