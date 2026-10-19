@@ -139,13 +139,18 @@ func TestFlightSchoolLiftOffRungKeyIgnitesEngine(t *testing.T) {
 	a.world.Tick() // the spawn credits while the vessel is still on the pad
 	pressKey(a, 'z')
 	pressKey(a, []rune(k)[0])
+	// Read the ignition before the tick: this synthetic pad-spawned Saturn
+	// touches the surface on its first sub-step and is classified Crashed,
+	// which (correctly) ends the burn, so ManualBurn after the tick is not
+	// evidence the key lit the engine.
+	lit := a.world.ActiveCraft().ManualBurn != nil
 	a.world.Tick()
 
 	c := a.world.ActiveCraft()
 	if len(c.Stages) != stagesBefore {
 		t.Errorf("rung text %q: pressing [%s] on the pad dropped a stage (%d -> %d)", rung.Description, toks[1], stagesBefore, len(c.Stages))
 	}
-	if c.ManualBurn == nil {
+	if !lit {
 		t.Errorf("rung text %q: pressing [%s] did not light the engine", rung.Description, toks[1])
 	}
 	if strings.Contains(rung.Description, "clamps") {

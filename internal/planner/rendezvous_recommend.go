@@ -210,7 +210,7 @@ func RecommendRendezvousNudge(
 			continue
 		}
 		stateBatT := propagateStateVerlet(stateB, mu, T)
-		v1, _, err := LambertSolve(stateA.R, stateBatT.R, T, mu, false)
+		v1, _, err := LambertSolve(stateA.R, stateBatT.R, T, mu, stateA.R.Cross(stateA.V).Z < 0)
 		if err != nil {
 			continue
 		}

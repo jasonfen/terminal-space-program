@@ -2375,7 +2375,7 @@ func (w *World) fusedIntraPrimaryDeparture(seed planner.TransferPlan, muShared f
 func (w *World) captureAimPoint(depState physics.StateVector, rArr, vArr orbital.Vec3, primary, target bodies.CelestialBody, muShared, muTarget, rCapture float64, waitTime time.Duration, tof float64) orbital.Vec3 {
 	depClock := w.Clock.SimTime.Add(waitTime)
 	// Centre-aimed solve to read the approach v∞ and its direction.
-	_, v2, err := planner.LambertSolve(depState.R, rArr, tof, muShared, false)
+	_, v2, err := planner.LambertSolve(depState.R, rArr, tof, muShared, depState.R.Cross(depState.V).Z < 0)
 	if err != nil {
 		return rArr
 	}
@@ -2422,7 +2422,7 @@ func (w *World) captureAimPoint(depState physics.StateVector, rArr, vArr orbital
 // Lambert is degenerate or the arc misses the target's SOI). Shares
 // scanTargetEncounter with the live readout and the capture-time refinement.
 func (w *World) aimPerilune(depState physics.StateVector, aim orbital.Vec3, primary, target bodies.CelestialBody, muShared float64, depClock time.Time, tof float64) (float64, bool) {
-	v1, _, err := planner.LambertSolve(depState.R, aim, tof, muShared, false)
+	v1, _, err := planner.LambertSolve(depState.R, aim, tof, muShared, depState.R.Cross(depState.V).Z < 0)
 	if err != nil {
 		return 0, false
 	}
