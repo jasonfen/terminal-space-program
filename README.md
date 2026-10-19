@@ -130,7 +130,7 @@ go build ./cmd/terminal-space-program
 ./terminal-space-program
 ```
 
-Requires Go 1.25 or newer.
+Requires Go 1.26 or newer.
 
 ## Command-line flags
 
