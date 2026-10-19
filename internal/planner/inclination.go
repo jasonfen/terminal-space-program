@@ -34,11 +34,6 @@ type InclinationPlan struct {
 }
 
 var (
-	// ErrEquatorialOrbit is retained for callers that want to detect
-	// the equatorial case explicitly. v0.8.2.x: PlanInclinationChange
-	// no longer returns this — instead it fires at the current state
-	// (any point on an equatorial orbit can host a plane-tilt burn).
-	ErrEquatorialOrbit  = errors.New("planinclination: source orbit is equatorial — no defined node line")
 	ErrHyperbolicOrbit  = errors.New("planinclination: source orbit is hyperbolic / degenerate")
 	ErrInclinationRange = errors.New("planinclination: target inclination must be in [0, π] radians")
 	ErrInclinationNoOp  = errors.New("planinclination: source already at target inclination")
@@ -66,8 +61,6 @@ var (
 // the chosen side.
 //
 // Errors:
-//   - ErrEquatorialOrbit when |i| or |π−i| < 1 mrad — line of nodes
-//     undefined, no AN/DN to fire at.
 //   - ErrHyperbolicOrbit when e ≥ 1 or a ≤ 0.
 //   - ErrInclinationRange when targetIncl is outside [0, π].
 //   - ErrInclinationNoOp when |Δi| < 1 µrad.

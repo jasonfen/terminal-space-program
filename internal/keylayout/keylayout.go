@@ -92,9 +92,6 @@ func Label(l Layout) string {
 	return string(l)
 }
 
-// All returns the layouts in cycle order. The caller must not mutate it.
-func All() []Layout { return ordered }
-
 // Next returns the layout after l in cycle order, wrapping around. An
 // unknown l restarts the cycle at the first layout.
 func Next(l Layout) Layout {

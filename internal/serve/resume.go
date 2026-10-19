@@ -81,17 +81,6 @@ func (a *awayMail) take(fp string) ([]sim.SessionEvent, time.Time, bool) {
 	return b.moments, b.since, true
 }
 
-// peek reads a bank without emptying it (tests, and nothing else).
-func (a *awayMail) peek(fp string) ([]sim.SessionEvent, time.Time, bool) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	b, ok := a.banks[fp]
-	if !ok {
-		return nil, time.Time{}, false
-	}
-	return b.moments, b.since, true
-}
-
 // drop discards fp's bank. Called when a session ends for real rather
 // than being displaced: the player's next connection is an ordinary
 // reconnect into a saved world, not the far end of an interval they were

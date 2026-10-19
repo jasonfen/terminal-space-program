@@ -23,9 +23,9 @@ func testVABComps() map[string]spacecraft.Component {
 	}
 }
 
-// TestVABAddRemoveComponentUpdatesStats — adding a tank to a stage raises its
-// Δv (more propellant); removing it restores the prior value.
-func TestVABAddRemoveComponentUpdatesStats(t *testing.T) {
+// TestVABAddComponentUpdatesStats — adding a tank to a stage raises its
+// Δv (more propellant).
+func TestVABAddComponentUpdatesStats(t *testing.T) {
 	v := NewVAB(Theme{})
 	v.Reset(testVABComps())
 	v.addComponentToCurrent("eng")
@@ -39,15 +39,10 @@ func TestVABAddRemoveComponentUpdatesStats(t *testing.T) {
 	if dv2 <= dv1 {
 		t.Errorf("adding a tank did not raise Δv: %g → %g", dv1, dv2)
 	}
-	v.removeFromCurrent() // pop the second tank
-	if dv := v.Stats().StageDV[0]; math.Abs(dv-dv1) > 1e-6 {
-		t.Errorf("remove did not restore Δv: %g, want %g", dv, dv1)
-	}
 }
 
-// TestVABAddRemoveStageUpdatesTotals — a second stage raises total Δv and
-// mass; removing it restores them.
-func TestVABAddRemoveStageUpdatesTotals(t *testing.T) {
+// TestVABAddStageUpdatesTotals — a second stage raises total Δv and mass.
+func TestVABAddStageUpdatesTotals(t *testing.T) {
 	v := NewVAB(Theme{})
 	v.Reset(testVABComps())
 	v.addComponentToCurrent("eng")
@@ -62,13 +57,6 @@ func TestVABAddRemoveStageUpdatesTotals(t *testing.T) {
 	}
 	if two.TotalMass <= one.TotalMass {
 		t.Errorf("second stage did not raise total mass: %g → %g", one.TotalMass, two.TotalMass)
-	}
-	v.stageIdx = 1
-	v.removeFromCurrent() // removes tank2
-	v.removeFromCurrent() // removes eng2
-	v.removeFromCurrent() // removes the now-empty stage
-	if got := v.Stats(); math.Abs(got.TotalDV-one.TotalDV) > 1e-6 || len(v.stages) != 1 {
-		t.Errorf("removing the second stage did not restore totals: %+v (stages=%d)", got, len(v.stages))
 	}
 }
 
@@ -237,12 +225,12 @@ func TestVABDecouplePlanRoundTrip(t *testing.T) {
 	}
 	v.stageIdx = 1
 	v.toggleDecoupleFuse() // stages 0+1 drop together
-	plan := v.decouplePlan()
+	plan := fusePlanOf(v.stages)
 	if plan == nil {
-		t.Fatal("decouplePlan nil after fusing a boundary")
+		t.Fatal("fusePlanOf nil after fusing a boundary")
 	}
 	v.applyDecouplePlan(plan)
-	if got := v.decouplePlan(); !reflect.DeepEqual(got, plan) {
+	if got := fusePlanOf(v.stages); !reflect.DeepEqual(got, plan) {
 		t.Errorf("decouple plan round-trip: %v → %v", plan, got)
 	}
 }

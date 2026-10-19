@@ -120,8 +120,7 @@ func TestPlanInclinationIncreaseAtDNUsesNormalMinus(t *testing.T) {
 // equatorial sources have no defined node line, but every point on
 // the orbit is in the equatorial plane, so the planner can pick
 // the current state as the burn point and rotate the plane there.
-// Replaces the pre-v0.8.2.x rejection that returned
-// ErrEquatorialOrbit.
+// Replaces the pre-v0.8.2.x rejection of equatorial sources.
 func TestPlanInclinationFromEquatorialFiresAtCurrentState(t *testing.T) {
 	v := math.Sqrt(muEarth / rLEO)
 	state := orbital.Vec3State{

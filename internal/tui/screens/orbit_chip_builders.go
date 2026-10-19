@@ -12,7 +12,6 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
-	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -991,33 +990,6 @@ func (v *OrbitView) buildDockGuestChip(w *sim.World) []string {
 	return lines
 }
 
-// buildDockGuestChipCompact is DOCKED's Compact Form (ADR 0046 / #422):
-// the ride plus a single combined exits row, dropping the OwnerAway
-// line. DOCKED is chipPriorityForced — the rider's only surviving route
-// to [J]/[U] once absorbed into another player's stack (#328) — so even
-// its Compact Form must keep both exit keys legible, just on one row
-// instead of two.
-func (v *OrbitView) buildDockGuestChipCompact(w *sim.World) []string {
-	dg := w.DockGuest
-	if dg == nil {
-		return nil
-	}
-	handle := dg.OwnerHandle
-	if handle == "" {
-		handle = "their"
-	}
-	if w.DockOwnerOnline() {
-		return []string{
-			v.theme.Primary.Render("DOCKED") + "  " + v.theme.Dim.Render("riding in "+handle+"'s stack"),
-			v.theme.Dim.Render("  [J] control · [U] undock"),
-		}
-	}
-	return []string{
-		v.theme.Primary.Render("DOCKED") + "  " + v.theme.Dim.Render("riding in "+handle+"'s stack"),
-		v.theme.Warning.Render("  [J] take the stick (pilot's gone)"),
-	}
-}
-
 // sendoffChipLines renders the MISSION chip's whole-Program-complete state
 // (#426 item F, decision 9) — the same one line the ladder screen's
 // active-card slot shows, plus the Challenge-ladder offer when
@@ -1527,30 +1499,6 @@ func targetLeadLabel(angleDeg float64, ok bool) string {
 	}
 }
 
-// closestApproachRows computes the TCA/CA rows against the current
-// relative target (craft or ghost) — shared by both TARGET chip
-// branches so the approach math lives once.
-func (v *OrbitView) closestApproachRows(w *sim.World, c *spacecraft.Spacecraft) []string {
-	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
-	if !ok {
-		return nil
-	}
-	active := orbital.Vec3State{R: c.State.R, V: c.State.V}
-	target := orbital.Vec3State{R: rT, V: vT}
-	mu := c.Primary.GravitationalParameter()
-	// closestApproachHorizonSec (orbit_target_markers.go) — shared with
-	// the map's ✕ marker so the chip's numbers and the marker's position
-	// always describe the same encounter.
-	tCA, distCA, _, err := planner.NextClosestApproach(active, target, c.Primary, mu, closestApproachHorizonSec)
-	if err != nil {
-		return nil
-	}
-	return []string{
-		chipRow(readout.LabelTCA, readout.Countdown(time.Duration(tCA*float64(time.Second)))),
-		chipRow(readout.LabelApproach, readout.Distance(distCA)),
-	}
-}
-
 // buildSOIPassChip surfaces the always-on SOI Pass readout (ADR 0019): the
 // upcoming foreign-SOI encounter of the live trajectory — independent of the
 // Target slot. With no node planted it shows the single live pass (body,
@@ -1658,15 +1606,6 @@ func (v *OrbitView) orbitDirectionTag(incRad float64) string {
 	}
 	return " pro"
 }
-
-// launchChipValueCol is buildLaunchChip's own value column, one wider
-// than chipValueCol: every hand-formatted row in that chip (altitude:/
-// vert:/horiz:/fpa:/orbit fpa:/TWR:/hold:/trim:/Ap:/Pe:/apo:/Δv→circ:/
-// burn:) lands its value at column 14, not chipValueCol's 13 (item4-B
-// review finding 5: the pad's heading:/incl:/Δincl: rows used plain
-// chipRow and sat one column left of every sibling row in the same
-// chip).
-const launchChipValueCol = 14
 
 // chipRow formats a "  label   value" telemetry row with the value pinned
 // to chipValueCol regardless of label width, so a chip's values share one

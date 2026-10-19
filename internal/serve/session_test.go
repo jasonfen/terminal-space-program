@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/tui"
 )
 
 // ansiRE strips CSI, OSC, charset-select, and lone Fe escape sequences
@@ -65,4 +66,14 @@ func firstLines(s string, n int) string {
 		lines = lines[:n]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// newSessionApp is the S1-era ephemeral factory, kept for the
+// headless World-independence test.
+func newSessionApp() (tea.Model, []tea.ProgramOption, error) {
+	app, err := tui.New(nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	return app, []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseAllMotion()}, nil
 }

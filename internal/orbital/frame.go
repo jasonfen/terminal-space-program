@@ -145,19 +145,6 @@ func VelocityAtTrueAnomaly(el Elements, nu, mu float64) Vec3 {
 	return PerifocalToInertial(vp, vq, el)
 }
 
-// ToPlanetCentric rebases an inertial position r_inertial into a frame
-// centered on the primary. This is subtraction in the same inertial basis
-// (no rotation) — our planets are on fixed Keplerian tracks and don't
-// define their own rotating frames in v0.1.
-func ToPlanetCentric(rInertial, primaryInertial Vec3) Vec3 {
-	return rInertial.Sub(primaryInertial)
-}
-
-// FromPlanetCentric is the inverse of ToPlanetCentric.
-func FromPlanetCentric(rLocal, primaryInertial Vec3) Vec3 {
-	return rLocal.Add(primaryInertial)
-}
-
 // BodyFrame is an orthonormal basis (Ex, Ey, Ez) expressed in world
 // inertial coordinates. Ez is the body's spin axis; (Ex, Ey) span the
 // equatorial plane. ToWorld rotates a vector from the body-equatorial
@@ -251,42 +238,6 @@ func (f BodyFrame) FromWorld(v Vec3) Vec3 {
 		Y: f.Ey.X*v.X + f.Ey.Y*v.Y + f.Ey.Z*v.Z,
 		Z: f.Ez.X*v.X + f.Ez.Y*v.Y + f.Ez.Z*v.Z,
 	}
-}
-
-// PlaneMatchInclination returns the inclination (radians, in [0, π])
-// an orbit must have — measured in primaryFrame — to lie parallel to
-// target's heliocentric orbit plane. Useful for "match this planet's
-// plane" planning from a body-bound orbit, e.g. tilting LEO so its
-// plane is coplanar with Mars's ecliptic-relative orbit before TMI.
-//
-// Geometry: target's orbit normal is built from its ecliptic-relative
-// elements (i, Ω) and expressed in world coords, then rotated into
-// primaryFrame; the angle between that normal and primaryFrame's
-// Z-axis is the inclination an orbit in the target's plane would
-// have when read in primaryFrame.
-//
-// Caveats:
-//   - Only matches the plane *orientation* (inclination magnitude).
-//     The target's longitude of ascending node is not matched —
-//     PlanInclinationChange preserves the source orbit's Ω. A full
-//     plane match would need a combined-axis burn that also rotates
-//     Ω, which v0.8.6 doesn't model.
-//   - For target = Sun (no orbit), returns 0.
-//
-// v0.8.6+.
-func PlaneMatchInclination(target bodies.CelestialBody, primaryFrame BodyFrame) float64 {
-	nWorld := OrbitNormalWorld(target)
-	if nWorld.Norm() == 0 {
-		return 0
-	}
-	nFrame := primaryFrame.FromWorld(nWorld)
-	cosIncl := nFrame.Z
-	if cosIncl > 1 {
-		cosIncl = 1
-	} else if cosIncl < -1 {
-		cosIncl = -1
-	}
-	return math.Acos(cosIncl)
 }
 
 // OrbitNormalWorld returns the unit normal of body b's orbital plane in

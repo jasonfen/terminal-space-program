@@ -67,10 +67,6 @@ func (c chipCorner) side() chipSide {
 	return sideLeft
 }
 
-func (c chipCorner) topGroup() bool {
-	return c == cornerTopLeft || c == cornerTopRight
-}
-
 // builtChip is one composited overlay: its Settings id (empty = always-on,
 // non-toggleable — the safety-critical ● BURNS readout and the ORBIT
 // metrics chip), the corner it anchors to, its already-styled full-form
@@ -883,31 +879,6 @@ func activeStageFuel(c *spacecraft.Spacecraft) (pct, massKg float64, ok bool) {
 		return 0, 0, false
 	}
 	return 100 * st.FuelMass / st.FuelCapacity, st.FuelMass, true
-}
-
-// throttleRow renders VESSEL's "throttle:" row (decision 1, grilled
-// 2026-09-06: "the throttle row carries the engine state, both ways").
-// The number itself is always the throttle *setting*
-// (c.EffectiveThrottle()), never gated — only the trailing suffix names
-// whether an engine is actually lit: "(idle)" in Dim while neither
-// ActiveBurn nor ManualBurn is live on this craft, "● FIRING" in Warning
-// the instant either is. Mirrors the same live/idle gate
-// PredictedFinalOrbit (internal/sim/maneuver.go) and buildTargetChip use
-// for "is this craft actually thrusting right now".
-func (v *OrbitView) throttleRow(c *spacecraft.Spacecraft) string {
-	base := fmt.Sprintf("  throttle:  %.0f%%", c.EffectiveThrottle()*100)
-	// Code-review finding 5: reuse sim.StackMidBurn's exact "is this craft
-	// actively thrusting" predicate (ActiveBurn != nil || ManualBurn !=
-	// nil) rather than an inline copy, so this row's notion of thrusting
-	// can't silently drift from the rest of the codebase's (it already
-	// gates Transfer Control refusal, ADR 0034 addendum).
-	if sim.StackDryArmed(c) {
-		return base + " " + v.theme.Warning.Render("✕ DRY")
-	}
-	if !sim.StackMidBurn(c) {
-		return base + v.theme.Dim.Render(" (idle)")
-	}
-	return base + v.theme.Warning.Render(" ● FIRING")
 }
 
 // vesselBurnBadge is the VESSEL chip header's `● BURN` badge (decision

@@ -21,7 +21,7 @@ func TestRK4VerletParity(t *testing.T) {
 	dt := period / float64(steps)
 
 	sV, sR := start, start
-	accel := GravityOnly(mu)
+	accel := func(r, _ orbital.Vec3, _ float64) orbital.Vec3 { return Accel(r, mu) }
 	for i := 0; i < steps; i++ {
 		sV = StepVerlet(sV, mu, dt)
 		sR = StepRK4(sR, dt, accel, float64(i)*dt)

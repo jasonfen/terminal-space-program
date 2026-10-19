@@ -525,24 +525,6 @@ func (c *Canvas) FillColoredDiskTagged(center orbital.Vec3, pxRadius int, tag Ce
 	}
 }
 
-// pickDominantColor returns the highest-count color in counts. Ties
-// break deterministically on the lexicographically smaller color
-// string so the chosen color is stable frame-to-frame regardless of
-// Go's randomized map iteration order. Without this tie-break,
-// textured-body cells with mixed-color pixel sets (v0.7.2.1+)
-// flicker as a different "first" color wins each render.
-func pickDominantColor(counts map[lipgloss.Color]int) lipgloss.Color {
-	var best lipgloss.Color
-	bestN := 0
-	for color, n := range counts {
-		if n > bestN || (n == bestN && string(color) < string(best)) {
-			bestN = n
-			best = color
-		}
-	}
-	return best
-}
-
 // FillTexturedDiskTagged fills a disk like FillColoredDiskTagged but
 // asks `texture` for the per-pixel color instead of using a single
 // uniform value from the supplied tag. The tag's BodyID / NodeIdx /
@@ -1009,18 +991,6 @@ func (c *Canvas) plotDensePolylineTagged(pts []orbital.Vec3, tag CellTag, step i
 		phase = c.walkPixelSegment(ax, ay, bx, by, tag, step, phase, 0, 0, 0, nil)
 		ax, ay = bx, by
 	}
-}
-
-// plotDensePolylineDashedColored is PlotDensePolylineColored's dashed
-// sibling (ADR 0041 §2 / issue #346's LineClass vocabulary): instead of a
-// single lit pixel every `step` px, it inks a contiguous run of `onPx`
-// pixels followed by a gap of `offPx` pixels, repeating — a genuine dash
-// pattern rather than sparse dots. Phase carries across the whole
-// polyline exactly like PlotDensePolylineColored, so the dash/gap cadence
-// holds across joins instead of restarting (and therefore looking solid)
-// at every sample.
-func (c *Canvas) plotDensePolylineDashedColored(pts []orbital.Vec3, color lipgloss.Color, onPx, offPx int) {
-	c.plotDensePolylineDashedTagged(pts, CellTag{Color: color}, onPx, offPx)
 }
 
 // plotDensePolylineDashedTagged is plotDensePolylineDashedColored carrying

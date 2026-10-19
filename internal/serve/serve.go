@@ -498,28 +498,6 @@ func (s *Server) newGuestApp(fp string) (*tui.App, error) {
 	return app, nil
 }
 
-// frontier combines the live store's max subspace time with the
-// persisted payloads' — offline players hold the frontier too. This
-// is the epoch --reset-fleet aligns every clock forward to
-// (ResetFleet, resetfleet.go); it is NOT where a new player joins —
-// see joinTime for that.
-func (s *Server) frontier() (time.Time, bool) {
-	live, okLive := s.relay.Frontier()
-	stored, okStored := s.store.LatestSimTime()
-	switch {
-	case okLive && okStored:
-		if stored.After(live) {
-			return stored, true
-		}
-		return live, true
-	case okLive:
-		return live, true
-	case okStored:
-		return stored, true
-	}
-	return time.Time{}, false
-}
-
 // joinTime is where a NEW player's clock starts (ADR 0034 §7
 // amendment / ADR 0045 S3, closing #247/#396): the earliest subspace
 // time among live sessions, or — with nobody online — the
@@ -636,14 +614,4 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 		}
 		_ = s.store.SavePlayer(fp, app.World())
 	}
-}
-
-// newSessionApp is the S1-era ephemeral factory, kept for the
-// headless World-independence test.
-func newSessionApp() (tea.Model, []tea.ProgramOption, error) {
-	app, err := tui.New(nil)
-	if err != nil {
-		return nil, nil, err
-	}
-	return app, []tea.ProgramOption{tea.WithAltScreen(), tea.WithMouseAllMotion()}, nil
 }

@@ -181,14 +181,6 @@ func TestVABPaletteWindowFloorIsNine(t *testing.T) {
 
 // --- find ---
 
-func findRows(v *VAB) []string {
-	var out []string
-	for _, ln := range v.renderPalette(50, 80) {
-		out = append(out, ln)
-	}
-	return out
-}
-
 func typeFind(v *VAB, s string) {
 	for _, r := range s {
 		v.HandleKey(string(r))

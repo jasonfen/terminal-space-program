@@ -7,10 +7,6 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// maxWarpFactor is the top discrete warp factor — the value Auto-Warp
-// seeds clampedWarp's "selected" baseline to while engaged.
-var maxWarpFactor = WarpFactors[len(WarpFactors)-1]
-
 // plantOn plants an impulsive prograde node on the craft at slate idx,
 // dt out from now, and returns its stable ID.
 func plantOn(t *testing.T, w *World, idx int, dt time.Duration) uint64 {

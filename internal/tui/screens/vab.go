@@ -499,29 +499,6 @@ func (v *VAB) isEmptyComposed(i int) bool {
 	return i >= 0 && i < len(v.stages) && !v.stages[i].isCatalog() && len(v.stages[i].components) == 0
 }
 
-// removeFromCurrent pops the last component off the current composed stage,
-// or removes the whole stage when it is empty or an atomic catalog block.
-func (v *VAB) removeFromCurrent() {
-	if len(v.stages) == 0 {
-		return
-	}
-	if v.stageIdx < 0 || v.stageIdx >= len(v.stages) {
-		v.stageIdx = len(v.stages) - 1
-	}
-	st := &v.stages[v.stageIdx]
-	if !st.isCatalog() && len(st.components) > 0 {
-		st.components = st.components[:len(st.components)-1]
-		return
-	}
-	v.stages = append(v.stages[:v.stageIdx], v.stages[v.stageIdx+1:]...)
-	if v.stageIdx >= len(v.stages) {
-		v.stageIdx = len(v.stages) - 1
-	}
-	if v.stageIdx < 0 {
-		v.stageIdx = 0
-	}
-}
-
 // toggleDockSeam flips the dock seam below the current stage (the N-seam
 // generalization of the spawn `d`-key; closes ADR 0028 §8). A seam below the
 // bottom stage is meaningless, so stage 0 is a no-op.
@@ -574,13 +551,10 @@ func nosePlanOf(stages []vabStage) []int {
 	return plan
 }
 
-// decouplePlan derives the bottom-up staging group sizes from the
+// fusePlanOf derives the bottom-up staging group sizes from the
 // decouple-fuse flags (catalog.go convention: how many contiguous bottom
 // stages each staging press releases; the surviving top core is excluded).
 // Nil when every stage decouples singly (the all-ones default).
-func (v *VAB) decouplePlan() []int { return fusePlanOf(v.stages) }
-
-// fusePlanOf is decouplePlan over any run of stages.
 func fusePlanOf(stages []vabStage) []int {
 	n := len(stages)
 	if n <= 1 {
@@ -625,7 +599,7 @@ func applyNosePlan(stages []vabStage, plan []int) {
 }
 
 // applyDecouplePlan sets the decouple-fuse flags from a bottom-up plan (the
-// inverse of decouplePlan), used when loading a design.
+// inverse of fusePlanOf), used when loading a design.
 func (v *VAB) applyDecouplePlan(plan []int) { applyFusePlan(v.stages, plan) }
 
 // applyFusePlan is applyDecouplePlan over any run of stages.

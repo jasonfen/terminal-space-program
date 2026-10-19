@@ -57,13 +57,10 @@ func TestActiveStageFuelReadsLitTank(t *testing.T) {
 	}
 }
 
-// The spawn form's engine figures (grid row, summary line) and the
+// The spawn form's engine figures (grid row) and the
 // lift-off gate read the lit stage.
 func TestSpawnFormEngineReadsLitStage(t *testing.T) {
 	stages := inertUnderEngine()
-	if got := stagesSummary(stages); !strings.Contains(got, "100kN @ Isp 300s") || strings.Contains(got, "RCS-only") {
-		t.Errorf("stagesSummary = %q, want the lit engine 100kN @ Isp 300s", got)
-	}
 	rows := layoutCatalog([]catalogRow{{name: "Stack", stages: stages}}, 0)
 	if len(rows) != 1 || !strings.Contains(rows[0].head, "100kN @ Isp 300s") || strings.Contains(rows[0].head, "RCS-only") {
 		t.Errorf("grid row = %+v, want the lit engine", rows)

@@ -45,10 +45,3 @@ func StepRK4(
 		M: s.M,
 	}
 }
-
-// GravityOnly wraps Accel as an RK4-compatible accelFn closure.
-func GravityOnly(mu float64) func(r, v orbital.Vec3, t float64) orbital.Vec3 {
-	return func(r, _ orbital.Vec3, _ float64) orbital.Vec3 {
-		return Accel(r, mu)
-	}
-}

@@ -363,16 +363,6 @@ func (w *World) rendezvousUnplanned() bool {
 // RendezvousWarpEngaged in the switch (buildRendezvousChip).
 func (w *World) RendezvousUnplanned() bool { return w.rendezvousUnplanned() }
 
-// rendezvousRateGoverned reports whether the agreement itself is setting
-// the pair's rate — the shared coast pre-τ (τ-derived on both sides) or
-// the initiator's clock in the terminal phase (ADR 0037 §2). Either way
-// the partner's relayed Effective warp must NOT feed the co-warp min:
-// that is the #248 stale-report ratchet, and both phases derive the rate
-// from inputs neither side reads back off the other.
-func (w *World) rendezvousRateGoverned() bool {
-	return w.rendezvousWarpEngaged() || w.rendezvousApproachPhase()
-}
-
 // EndRendezvousOnDock releases a standing agreement with partner because
 // the pair have docked — one of ADR 0037 §1's exactly two end conditions
 // (the other being an explicit cancel). Reports whether it ended one, so

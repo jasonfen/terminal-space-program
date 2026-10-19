@@ -650,3 +650,13 @@ func rodriguesRotate(v, k Vec3, angle float64) Vec3 {
 		Z: v.Z*c + kCrossV.Z*s + k.Z*vDotK*(1-c),
 	}
 }
+
+// SubObserverLongitudeDeg is the v0.8.5 entry point — lon at the
+// visible centre for an equator-on view. Retained as a thin wrapper
+// over SubObserverPointDeg(camDir = CameraDirRight) so callers that
+// only care about longitude (tests, simple debug paths) keep
+// working. New view-aware code should call SubObserverPointDeg.
+func SubObserverLongitudeDeg(b bodies.CelestialBody, simTime time.Time) float64 {
+	_, lon := SubObserverPointDeg(b, simTime, CameraDirRight, Vec3{})
+	return lon
+}

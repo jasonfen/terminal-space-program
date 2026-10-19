@@ -224,13 +224,6 @@ func StellarTint(tempK float64) lipgloss.Color {
 	}
 }
 
-// Style returns a lipgloss.Style with the body's color as the
-// foreground. Convenience wrapper for HUD / body-info text — call
-// Style(b).Render("Earth") to print a colored label.
-func Style(b bodies.CelestialBody) lipgloss.Style {
-	return lipgloss.NewStyle().Foreground(ColorFor(b))
-}
-
 // GlyphFor returns the body-identity Unicode glyph for the given
 // body. Used as a single-cell overlay on top of the body's drawille
 // disk so different body types read distinctly even at small pixel-

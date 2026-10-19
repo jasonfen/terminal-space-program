@@ -5,10 +5,6 @@ import (
 	"math"
 )
 
-// ErrNotImplemented is returned by planner entry points that are still
-// stubbed (e.g. Lambert in v0.2).
-var ErrNotImplemented = errors.New("planner: not implemented")
-
 // ErrInvalidOrbit is returned when HohmannTransfer is asked to solve for a
 // non-physical input (non-positive radius or mu).
 var ErrInvalidOrbit = errors.New("planner: invalid orbit (r1, r2, mu must be > 0)")

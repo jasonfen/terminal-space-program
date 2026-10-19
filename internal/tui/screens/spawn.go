@@ -335,19 +335,6 @@ func (s *SpawnCraft) orderedLoadoutIDs() []string {
 	return ids
 }
 
-// selectedDesign returns the saved design under the cursor, or nil when a
-// design row is not selected. v0.24 / ADR 0029.
-func (s *SpawnCraft) selectedDesign() *spacecraft.Design {
-	if !s.IsDesignSelected() {
-		return nil
-	}
-	i := s.loadoutIdx - s.visibleCatalogCount() - 1
-	if i < 0 || i >= len(s.designs) {
-		return nil
-	}
-	return &s.designs[i]
-}
-
 // craftLiftsOff reports whether a craft with the given bottom-stage thrust (N)
 // and total wet mass (kg) can lift off body — its surface TWR ≥ 1, i.e. thrust
 // ≥ weight = m·g with g = μ/R² (ADR 0031 / S9, the physics surface-launch
@@ -1789,47 +1776,6 @@ func crewTag(l spacecraft.Loadout) string {
 		return "crewed"
 	}
 	return "uncrewed"
-}
-
-// propulsionSummary one-lines a loadout's main-engine + RCS shape
-// for the form preview. Pure-RCS craft (Thrust=0) call it out
-// explicitly so the player knows `b` won't fire on that loadout.
-//
-// v0.9.1+ multi-stage loadouts list a stage count next to the dry
-// mass so the player can see at a glance that the Saturn-V is a
-// 3-stage chain instead of a single tank.
-//
-// ADR 0014 Slice D appends a Scale Class hint — the Δv-to-orbit /
-// "best for" line — branching on the loadout's Scale() tag. It is a
-// display hint only: the craft list is never filtered by scale, so a
-// real-fleet craft can still be spawned in a stripped-back System (it
-// will simply be over-powered) and vice-versa.
-func propulsionSummary(l spacecraft.Loadout) string {
-	return stagesSummary(l.Stages)
-}
-
-// stagesSummary is propulsionSummary over a bare stage stack, so a saved
-// design's row (whose stages are resolved and cached at Reset) reads in
-// the same style as a catalog row (#504).
-func stagesSummary(stages []spacecraft.Stage) string {
-	dry := spacecraft.SumDryMass(stages)
-	fuel := spacecraft.SumFuelMass(stages)
-	var bottomThrust, bottomIsp float64
-	if len(stages) > 0 {
-		bottomThrust, bottomIsp = spacecraft.LitStageOf(stages).Thrust, spacecraft.LitStageOf(stages).Isp
-	}
-	stageNote := ""
-	if len(stages) > 1 {
-		stageNote = fmt.Sprintf(" (%d stages)", len(stages))
-	}
-	var summary string
-	if bottomThrust == 0 {
-		summary = fmt.Sprintf("dry %s%s, RCS-only", readout.Mass(dry), stageNote)
-	} else {
-		summary = fmt.Sprintf("dry %s, fuel %s%s, %.0fkN @ Isp %.0fs",
-			readout.Mass(dry), readout.Mass(fuel), stageNote, bottomThrust/1000, bottomIsp)
-	}
-	return summary
 }
 
 // designStagesAt returns the cached resolved stages of saved design i.

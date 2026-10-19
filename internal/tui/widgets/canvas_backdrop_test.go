@@ -397,3 +397,15 @@ func TestStyledRunMatchesLipgloss(t *testing.T) {
 		t.Fatal("setup: nothing was cached, the fast path never ran")
 	}
 }
+
+// styledRun is lipgloss.NewStyle().Foreground(fg).Render(text) for a run of
+// cells, without rebuilding the style and re-scanning the text for every run
+// of a frame. A textured planet is a run per cell, and the style build and
+// width scan were the largest single cost of Canvas.String (#364); this
+// renders each foreground once as a sentinel, learns its escape prefix and
+// suffix, and wraps every later run with them. Output is byte-identical
+// (TestStyledRunMatchesLipgloss). Only plain lipgloss.Color goes through the
+// cache; anything adaptive renders the long way.
+func (s *inkScratch) styledRun(fg lipgloss.TerminalColor, text string) string {
+	return s.styledRunBG(fg, "", text)
+}

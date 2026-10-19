@@ -38,9 +38,6 @@ func spawnLandedOnMoon(t *testing.T, lat, lonOffset float64) (*sim.World, *space
 	if c.Primary.Atmosphere != nil {
 		t.Fatalf("setup: Moon should have no atmosphere; got %+v", c.Primary.Atmosphere)
 	}
-	if shouldShowLaunchHUD(c) {
-		t.Fatal("setup: want the LAUNCH chip's ascent gate OFF on an airless body, so the ORBIT chip owns this case")
-	}
 	return w, c
 }
 

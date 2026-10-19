@@ -33,14 +33,6 @@ func normalizeKey(layout keylayout.Layout, m tea.KeyMsg) tea.KeyMsg {
 // that need additional keys define them locally.
 type Keymap struct {
 	Quit key.Binding
-	// QuitAsk used to live on `q` (then `Q` after v0.7.3 freed `q`
-	// for AttitudeRadialOut). v0.7.3.1 dropped the binding entirely:
-	// quit-confirm now lives on Esc when the home (orbit) view is
-	// active, since Esc is otherwise unused there. The field stays
-	// in the struct (and keeps a no-key binding) so callers that
-	// reference a.keys.QuitAsk continue to compile during the
-	// transition; remove in v0.8 cleanup.
-	QuitAsk    key.Binding
 	Help       key.Binding
 	BodyInfo   key.Binding
 	Maneuver   key.Binding
@@ -391,11 +383,6 @@ type Keymap struct {
 func DefaultKeymap() Keymap {
 	return Keymap{
 		Quit: key.NewBinding(key.WithKeys("ctrl+c"), key.WithHelp("ctrl+c", "quit (asks to save)")),
-		// v0.7.3.1: QuitAsk no longer has a dedicated key — Esc on
-		// the home view opens the confirm prompt instead. Binding
-		// kept with no keys so the struct field stays stable; remove
-		// in v0.8 cleanup.
-		QuitAsk:  key.NewBinding(),
 		// #425: `?` is the reflex key everyone tries first, so it opens
 		// the same overlay as F1 everywhere F1 does. Help text stays
 		// "F1" — the overlay itself is what teaches the `?` alias.

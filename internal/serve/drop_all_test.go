@@ -62,11 +62,9 @@ func TestHostQuitDropsEveryGuest(t *testing.T) {
 // restartDrop drives a restart through trigger with a controllable clock,
 // and reports what was true at the instant the process would have exited.
 type restartObs struct {
-	code        int
-	guestGone   bool
-	waits       []time.Duration
-	chipBefore  bool
-	aliveBefore bool
+	code      int
+	guestGone bool
+	waits     []time.Duration
 }
 
 func observeRestart(t *testing.T, trigger func(f *dropFixture)) (*dropFixture, restartObs) {

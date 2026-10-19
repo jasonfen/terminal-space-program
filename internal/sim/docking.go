@@ -413,36 +413,6 @@ func (w *World) Deploy(idx int) bool {
 	return true
 }
 
-// CompositeEngineSummary returns the pooled-engine view of a craft
-// that may have multiple thrusting stages: sum-thrust across every
-// stage with main thrust, mass-weighted-Isp by `Σ(Isp · thrust) /
-// Σ thrust`. Resolves the v0.9 plan scoping decision #4 ("default:
-// sum thrust, mass-weighted average Isp") for downstream consumers
-// that want the composite-as-a-whole view rather than the bottom-
-// stage view. v0.9.1+.
-//
-// Returns (totalThrust=0, weightedIsp=0) when no stage has thrust
-// (RCS-tug class composites). For single-stage craft and composites
-// where only one stage has thrust, this returns the same numbers as
-// reading c.Thrust + c.Isp directly — the helper degenerates
-// correctly for the common case.
-func CompositeEngineSummary(c *spacecraft.Spacecraft) (totalThrust, weightedIsp float64) {
-	if c == nil {
-		return 0, 0
-	}
-	for _, s := range c.Stages {
-		if s.Thrust <= 0 {
-			continue
-		}
-		totalThrust += s.Thrust
-		weightedIsp += s.Isp * s.Thrust
-	}
-	if totalThrust > 0 {
-		weightedIsp /= totalThrust
-	}
-	return totalThrust, weightedIsp
-}
-
 // Docking distances and speeds. Since ADR 0053 these no longer fuse anything
 // by themselves: docking is the port gate (dockGateHolds, docking_magnet.go).
 // DockingDistM (50 m) is "clear of the pair": the Proximity ring, the fit

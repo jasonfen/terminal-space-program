@@ -5,7 +5,6 @@ package physics
 import (
 	"math"
 
-	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
@@ -28,16 +27,6 @@ func Accel(r orbital.Vec3, mu float64) orbital.Vec3 {
 	}
 	f := -mu / (rMag * rMag * rMag)
 	return orbital.Vec3{X: r.X * f, Y: r.Y * f, Z: r.Z * f}
-}
-
-// SurfaceGravity returns the magnitude of gravitational acceleration
-// at the body's mean radius (m/s²). Diagnostic helper for tests.
-func SurfaceGravity(b bodies.CelestialBody) float64 {
-	r := b.RadiusMeters()
-	if r == 0 {
-		return 0
-	}
-	return b.GravitationalParameter() / (r * r)
 }
 
 // SpecificEnergy returns the two-body orbital specific energy

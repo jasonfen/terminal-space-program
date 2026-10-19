@@ -33,17 +33,6 @@ func placeOnConic(w *sim.World, rPeri, rApo, nu float64) float64 {
 	return 2 * math.Pi * math.Sqrt(a*a*a/mu)
 }
 
-// apsisRow pulls the value of the named ORBIT chip row out of a render.
-func apsisRow(t *testing.T, out, label string) string {
-	t.Helper()
-	re := regexp.MustCompile(regexp.QuoteMeta(label) + `\s*(\S+)`)
-	m := re.FindStringSubmatch(out)
-	if m == nil {
-		t.Fatalf("no %s row in the render:\n%s", label, out)
-	}
-	return m[1]
-}
-
 // navigationApCell pulls NAVIGATION's whole Ap: cell (altitude, plus an
 // optional trend glyph and T- countdown, all on one cell since ADR 0051
 // decision 10 folds the retired ORBIT chip's separate apo: row into it)
