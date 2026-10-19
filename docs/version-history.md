@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.57.4
+
+A security update for multiplayer hosts (PR `#712`; tag `v0.57.4`).
+
+- **The `--serve` host is patched against three SSH flaws.** Two let any client that could reach the port hang the server; the third skipped a source-address restriction for non-key logins. The SSH library is updated to the fixed release.
+- **Building from source now needs Go 1.26 or newer.** Release binaries are unaffected.
+
 ### v0.57.3
 
 A planted Moon transfer no longer costs a full CPU core (PR `#711`; issues `#673`, `#706`; tag `v0.57.3`).
