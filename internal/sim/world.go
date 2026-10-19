@@ -1990,6 +1990,11 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 		if clamped, hit := physics.ClampToSurface(c.State, c.Primary); hit {
 			outcome, lat, lon := classifySurfaceArrival(c, c.State.R, c.State.V, clock)
 			applySurfaceArrival(c, clamped, outcome, lat, lon)
+			// The Landed/Crashed early returns above skip the burn
+			// teardown below, so end any burn here or it pins warp at
+			// 10x and blocks the next ignition for good.
+			w.stopFiringBurn(c)
+			c.ManualBurn = nil
 			break
 		}
 		clock = clock.Add(stepDur)
