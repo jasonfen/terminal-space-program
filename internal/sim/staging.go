@@ -116,6 +116,14 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 	c.SyncFields() // re-derives DryMass / Fuel / Thrust / Isp / etc.
 	// Mass field on the integrator state needs the new total too.
 	c.State.M = c.TotalMass()
+	// A running planted burn's EndTime was sized for the engine that was
+	// lit; a weaker new bottom stage needs a longer window or the burn is
+	// reaped on duration with Δv still owed. Extend only, never shorten.
+	if ab := c.ActiveBurn; ab != nil {
+		if end := w.Clock.SimTime.Add(c.BurnTimeForDV(ab.DVRemaining)); end.After(ab.EndTime) {
+			ab.EndTime = end
+		}
+	}
 	// Rename the active craft to reflect the new bottom stage. A
 	// Saturn V whose S-IC has dropped is effectively an S-II/S-IVB
 	// stack; after S-II drops it's just an S-IVB. The loadout-level
