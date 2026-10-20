@@ -2,6 +2,14 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.57.6
+
+Three fixes for vessels in other systems, multiplayer reclaims and custom systems (PRs `#717`, `#718`, `#719`; tag `v0.57.6`).
+
+- **A vessel in a system you are not viewing now sees its moons where they are.** It used to place them as if they belonged to the viewed system, so it could fly straight through a moon's sphere of influence.
+- **Taking control of a stack that is still in transit to another player is refused** until it arrives. The reclaim used to lift an unrelated vessel from their save and lose the real stack.
+- **A custom system file with no bodies is skipped at load, with a warning.** Spawning in one used to write a save that could never load again.
+
 ### v0.57.5
 
 Two crashes and three burn and planner bugs fixed (PR `#715`; tag `v0.57.5`).
