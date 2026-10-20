@@ -748,14 +748,9 @@ func (w *World) System() bodies.System { return w.Systems[w.SystemIdx] }
 // 0015). The integrator resolves the body LIST and SOI table against this
 // rather than the currently-viewed System, so a Vessel's primary can only
 // switch to a body in its own System — never get yanked onto a Sol body by
-// a view-/Sol-hardcoded check. Body POSITIONS in these paths still come
-// from w.BodyPosition (the viewed System's Calculator + ParentOf), which is
-// exact when the craft's System is the viewed one — always true for the
-// Active Vessel, since the camera follows it (SetActiveCraftIdx). A passive
-// Vessel in a non-viewed System still coasts correctly on two-body
-// propagation (mu is taken from c.Primary directly, not from body
-// positions); only its every-20-tick SOI backstop reads positions, and a
-// parked Vessel in a stable orbit won't cross an SOI boundary there.
+// a view-/Sol-hardcoded check. Body POSITIONS and VELOCITIES in those
+// paths resolve through ephemerisFor (the Vessel's own System + Calculator),
+// so they are exact whether or not that System is the viewed one.
 // Clamps to Sol (index 0) for a nil craft or an out-of-range SystemIdx (a
 // corrupt binding) rather than panicking.
 func (w *World) systemForCraft(c *spacecraft.Spacecraft) bodies.System {
@@ -807,10 +802,17 @@ func (w *World) BodyPosition(b bodies.CelestialBody) orbital.Vec3 {
 // using SimTime body positions misplaces the arrival rebase by
 // the same amount).
 func (w *World) BodyPositionAt(b bodies.CelestialBody, t time.Time) orbital.Vec3 {
+	return bodyPositionIn(w.System(), w.Calculator, b, t)
+}
+
+// bodyPositionIn is BodyPositionAt against an explicit System and its
+// Calculator, so a Vessel in a non-viewed System resolves parents and
+// mean anomalies in its own System (audit 2026-10-18 item 7).
+func bodyPositionIn(sys bodies.System, calc orbital.Calculator, b bodies.CelestialBody, t time.Time) orbital.Vec3 {
 	if b.SemimajorAxis == 0 {
 		return orbital.Vec3{}
 	}
-	M := w.Calculator.CalculateMeanAnomaly(b, t)
+	M := calc.CalculateMeanAnomaly(b, t)
 	E := orbital.SolveKepler(M, b.Eccentricity)
 	nu := orbital.TrueAnomaly(E, b.Eccentricity)
 	el := orbital.ElementsFromBody(b)
@@ -818,13 +820,22 @@ func (w *World) BodyPositionAt(b bodies.CelestialBody, t time.Time) orbital.Vec3
 	if b.ParentID == "" {
 		return rRel
 	}
-	sys := w.System()
 	parent := sys.ParentOf(b)
 	if parent == nil {
 		// Malformed ParentID — fall back to top-level treatment.
 		return rRel
 	}
-	return w.BodyPositionAt(*parent, t).Add(rRel)
+	return bodyPositionIn(sys, calc, *parent, t).Add(rRel)
+}
+
+// ephemerisFor returns the System and Calculator a Vessel's body
+// positions must be resolved with: its own, not the viewed one.
+func (w *World) ephemerisFor(c *spacecraft.Spacecraft) (bodies.System, orbital.Calculator) {
+	sys := w.systemForCraft(c)
+	if sys.Name == w.System().Name {
+		return sys, w.Calculator
+	}
+	return sys, orbital.ForSystem(sys)
 }
 
 // bodyPosRelTo returns b's position relative to primary at t. When primary
@@ -1933,7 +1944,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	tickStart := w.Clock.SimTime.Add(-simDelta)
 	stepDur := time.Duration(dt * float64(time.Second))
 
-	sys := w.systemForCraft(c) // v0.16 / ADR 0015: integrate against the Vessel's own System.
+	sys, calc := w.ephemerisFor(c) // v0.16 / ADR 0015: integrate against the Vessel's own System and its ephemeris.
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
 	clock := tickStart
 	// v0.12 Slice 3 (ADR 0008): a descending chute craft always takes
@@ -2005,13 +2016,13 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 		// also time-aware. Without this an Earth→Mars Hohmann at high
 		// warp diverges from the dashed predictor line.
 		for _, b := range sys.Bodies {
-			positions[b.ID] = w.BodyPositionAt(b, clock)
+			positions[b.ID] = bodyPositionIn(sys, calc, b, clock)
 		}
 		inertial := positions[c.Primary.ID].Add(c.State.R)
 		cand := physics.FindPrimary(sys, inertial, positions)
 		if cand.Body.ID != c.Primary.ID {
-			vOld := w.bodyInertialVelocityAt(c.Primary, clock)
-			vNew := w.bodyInertialVelocityAt(cand.Body, clock)
+			vOld := bodyVelocityIn(sys, calc, c.Primary, clock)
+			vNew := bodyVelocityIn(sys, calc, cand.Body, clock)
 			c.State = physics.Rebase(c.State, positions[c.Primary.ID], cand.Inertial, vOld.Sub(vNew))
 			c.Primary = cand.Body
 			mu = c.Primary.GravitationalParameter()
@@ -2462,10 +2473,10 @@ func canKeplerStepState(s physics.StateVector, mu float64, primary bodies.Celest
 // crossed into hyperbolic mid-propagation due to a primary switch);
 // caller then falls back to Verlet for the remaining time.
 func (w *World) keplerStepWithSOICheck(c *spacecraft.Spacecraft, simDelta time.Duration) bool {
-	sys := w.systemForCraft(c) // v0.16 / ADR 0015: SOI checks against the Vessel's own System.
+	sys, calc := w.ephemerisFor(c) // v0.16 / ADR 0015: SOI checks against the Vessel's own System and its ephemeris.
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
 	for _, b := range sys.Bodies {
-		positions[b.ID] = w.BodyPosition(b)
+		positions[b.ID] = bodyPositionIn(sys, calc, b, w.Clock.SimTime)
 	}
 	// v0.11.4-followup: snapshot the entry state + primary so a mid-
 	// loop bail (KeplerStep failure or surface-impact predicate)
@@ -2532,8 +2543,8 @@ func (w *World) keplerStepWithSOICheck(c *spacecraft.Spacecraft, simDelta time.D
 		inertial := positions[c.Primary.ID].Add(c.State.R)
 		cand := physics.FindPrimary(sys, inertial, positions)
 		if cand.Body.ID != c.Primary.ID {
-			vOld := w.bodyInertialVelocity(c.Primary)
-			vNew := w.bodyInertialVelocity(cand.Body)
+			vOld := bodyVelocityIn(sys, calc, c.Primary, w.Clock.SimTime)
+			vNew := bodyVelocityIn(sys, calc, cand.Body, w.Clock.SimTime)
 			c.State = physics.Rebase(c.State, positions[c.Primary.ID], cand.Inertial, vOld.Sub(vNew))
 			c.Primary = cand.Body
 			mu = c.Primary.GravitationalParameter()
@@ -2608,12 +2619,12 @@ func orbitalPeriod(s physics.StateVector, mu float64) float64 {
 // throttle still applies (the sub-step path inside integrateOneCraft
 // catches mid-tick crossings; this is a backstop).
 func (w *World) maybeSwitchPrimaryFor(c *spacecraft.Spacecraft) {
-	sys := w.systemForCraft(c) // v0.16 / ADR 0015: resolve SOI against the Vessel's own System, not Sol.
+	sys, calc := w.ephemerisFor(c) // v0.16 / ADR 0015: resolve SOI against the Vessel's own System, not Sol.
 
 	// Build body-position map in system-inertial.
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
 	for _, b := range sys.Bodies {
-		positions[b.ID] = w.BodyPosition(b)
+		positions[b.ID] = bodyPositionIn(sys, calc, b, w.Clock.SimTime)
 	}
 
 	// Craft inertial position needs the *current* primary offset.
@@ -2627,8 +2638,8 @@ func (w *World) maybeSwitchPrimaryFor(c *spacecraft.Spacecraft) {
 	// Compute relative velocity between old and new primary so Rebase
 	// gets the velocity delta correct. Planet velocities come from
 	// orbital.VelocityAtTrueAnomaly evaluated at current sim time.
-	vOld := w.bodyInertialVelocity(c.Primary)
-	vNew := w.bodyInertialVelocity(newPrimary.Body)
+	vOld := bodyVelocityIn(sys, calc, c.Primary, w.Clock.SimTime)
+	vNew := bodyVelocityIn(sys, calc, newPrimary.Body, w.Clock.SimTime)
 	dv := vOld.Sub(vNew)
 
 	oldPos := positions[c.Primary.ID]
@@ -2647,15 +2658,20 @@ func (w *World) bodyInertialVelocity(b bodies.CelestialBody) orbital.Vec3 {
 // inertial frame at an arbitrary sim time. Mirrors BodyPositionAt
 // for the chained-prediction-rebase use case. v0.8.2.x.
 func (w *World) bodyInertialVelocityAt(b bodies.CelestialBody, t time.Time) orbital.Vec3 {
+	return bodyVelocityIn(w.System(), w.Calculator, b, t)
+}
+
+// bodyVelocityIn is bodyInertialVelocityAt against an explicit System and
+// Calculator (see bodyPositionIn).
+func bodyVelocityIn(sys bodies.System, calc orbital.Calculator, b bodies.CelestialBody, t time.Time) orbital.Vec3 {
 	if b.SemimajorAxis == 0 {
 		return orbital.Vec3{}
 	}
-	M := w.Calculator.CalculateMeanAnomaly(b, t)
+	M := calc.CalculateMeanAnomaly(b, t)
 	E := orbital.SolveKepler(M, b.Eccentricity)
 	nu := orbital.TrueAnomaly(E, b.Eccentricity)
 	el := orbital.ElementsFromBody(b)
 
-	sys := w.System()
 	parent := sys.ParentOf(b)
 	if parent == nil {
 		// Malformed ParentID — treat as top-level around system primary.
@@ -2666,5 +2682,5 @@ func (w *World) bodyInertialVelocityAt(b bodies.CelestialBody, t time.Time) orbi
 	if b.ParentID == "" {
 		return vRel
 	}
-	return w.bodyInertialVelocityAt(*parent, t).Add(vRel)
+	return bodyVelocityIn(sys, calc, *parent, t).Add(vRel)
 }
