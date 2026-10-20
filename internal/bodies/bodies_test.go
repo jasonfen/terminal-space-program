@@ -188,3 +188,32 @@ func TestLoadAllMalformedUserFileWarns(t *testing.T) {
 		t.Errorf("embedded systems still loaded: got %d, want >= 4", len(systems))
 	}
 }
+
+// A body-less overlay system would let the player spawn a vessel whose
+// primary is not in its SystemIdx system, and every later save then
+// fails to load (audit 2026-10-18 item 9). Reject it at load instead.
+func TestLoadAllZeroBodyUserSystemRejected(t *testing.T) {
+	dir := withUserOverlay(t)
+	if err := os.WriteFile(filepath.Join(dir, "broken.json"), []byte(`{"systemName":"Broken","bodies":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Same name as an embedded system: the embedded one must survive.
+	if err := os.WriteFile(filepath.Join(dir, "sol.json"), []byte(`{"systemName":"Sol","bodies":[]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	systems, warnings, err := LoadAllWithWarnings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 2 {
+		t.Errorf("warnings = %d, want 2 (one per body-less file)", len(warnings))
+	}
+	for _, s := range systems {
+		if len(s.Bodies) == 0 {
+			t.Errorf("system %q loaded with zero bodies", s.Name)
+		}
+		if s.Name == "Sol" && s.Source != "embedded" {
+			t.Errorf("Sol source = %q, want embedded", s.Source)
+		}
+	}
+}

@@ -177,6 +177,12 @@ func mergeUserOverlay(systems []System, dir string) ([]System, []LoadWarning) {
 			warnings = append(warnings, LoadWarning{Path: path, Err: err})
 			continue
 		}
+		// A body-less system has no primary to spawn at; a vessel bound
+		// to it saves but can never load again. Keep the existing system.
+		if len(s.Bodies) == 0 {
+			warnings = append(warnings, LoadWarning{Path: path, Err: fmt.Errorf("system %q has no bodies (skipped)", s.Name)})
+			continue
+		}
 		s.Source = "user"
 		// Fail-soft on broken/partial texture specs (ADR 0024): a
 		// cosmetic texture problem must never reject a user system.
