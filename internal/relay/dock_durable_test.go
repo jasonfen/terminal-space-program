@@ -6,6 +6,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // loadedSystems is the body catalog a restored dock payload rehydrates
@@ -173,5 +174,54 @@ func TestRequestFlagsSurviveRestart(t *testing.T) {
 
 	if _, _, ok := wB.CraftByID(guestID); !ok {
 		t.Errorf("the undock ask was lost across the restart — B never got craft %d back", guestID)
+	}
+}
+
+// TestReclaimRefusedWhileTransferParked is audit item 8. A hands control to B
+// while B is offline, so the stack is parked on the record and A is now the
+// guest. A presses [J] before B's tick adopts it. The record's CompositeID is
+// still the id the stack had in A's OLD world, so a reclaim would lift whatever
+// unrelated vessel of B's carries that id and park it over the real stack.
+// Neither ReclaimTarget nor GrantReclaim may touch a record whose stack is
+// still in flight.
+func TestReclaimRefusedWhileTransferParked(t *testing.T) {
+	store := NewStore()
+	ledger := NewDockLedger()
+	const guestID = 700
+	wA, wB := alignedPair(t, guestID)
+	ledger.Claim(fpA, "alice", wA.ActiveCraft().ID, fpB, "bob", guestID)
+	reports := reportMap(store, wA, wB, time.Now())
+	ledger.Reconcile(wB, fpB, reports)
+	ledger.Reconcile(wA, fpA, reports)
+	if ok, _ := ledger.RequestTransfer(fpA, allOnline); !ok {
+		t.Fatalf("RequestTransfer refused")
+	}
+	ledger.Reconcile(wA, fpA, reports)
+	if len(wA.Crafts) != 0 {
+		t.Fatalf("A still holds %d craft after handing control over", len(wA.Crafts))
+	}
+
+	offline := func(string) bool { return false }
+	if rec, why := ledger.ReclaimTarget(fpA, offline); why == "" {
+		t.Fatalf("reclaim allowed with the stack in flight (CompositeID=%d)", rec.CompositeID)
+	}
+
+	// The serve layer's lifted vessel must not replace the parked stack.
+	var parked *spacecraft.Spacecraft
+	for _, r := range ledger.records {
+		parked = r.transferPayload
+	}
+	other := &spacecraft.Spacecraft{Name: "unrelated"}
+	var id uint64
+	for _, r := range ledger.records {
+		id = r.ID
+	}
+	if ledger.GrantReclaim(id, fpA, other, 1) {
+		t.Errorf("GrantReclaim accepted a stack over a parked transfer")
+	}
+	for _, r := range ledger.records {
+		if r.transferPayload != parked {
+			t.Errorf("parked stack was replaced by %q", r.transferPayload.Name)
+		}
 	}
 }

@@ -421,6 +421,11 @@ func (l *DockLedger) ReclaimTarget(guestOwner string, live func(string) bool) (D
 			}
 			return DockRecord{}, "take control: " + who + " is at the controls — ask them to hand it over"
 		}
+		// A transfer parked in flight leaves CompositeID at the id the stack
+		// had in the OLD owner's World; it names nothing in the seat's payload.
+		if r.transferPayload != nil {
+			return DockRecord{}, "take control: the stack is still on its way to them"
+		}
 		if r.CompositeID == 0 {
 			return DockRecord{}, "take control: this dock has no stack to take"
 		}
@@ -448,7 +453,7 @@ func (l *DockLedger) GrantReclaim(recordID uint64, guestOwner string, stack *spa
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	r, ok := l.records[recordID]
-	if !ok || stack == nil || r.GuestOwner != guestOwner || r.Phase != DockActive {
+	if !ok || stack == nil || r.GuestOwner != guestOwner || r.Phase != DockActive || r.transferPayload != nil {
 		return false
 	}
 	oldOwner, oldOwnerHandle := r.Owner, r.OwnerHandle
