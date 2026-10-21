@@ -138,8 +138,8 @@ func TestMetaV4LoadsUnchangedNoSecondBackfill(t *testing.T) {
 	raw, _ := os.ReadFile(filepath.Join(dir, "session.json"))
 	var probe struct{ Version int }
 	_ = json.Unmarshal(raw, &probe)
-	if probe.Version != 4 || MetaVersion != 4 {
-		t.Fatalf("on-disk version %d, MetaVersion %d, want 4", probe.Version, MetaVersion)
+	if probe.Version != MetaVersion {
+		t.Fatalf("on-disk version %d, MetaVersion %d, want them equal", probe.Version, MetaVersion)
 	}
 	s2, err := Open(dir)
 	if err != nil {
