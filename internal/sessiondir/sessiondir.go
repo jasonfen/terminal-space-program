@@ -179,6 +179,19 @@ type DockLink struct {
 	// press and the stack owner's tick cannot eat it. Additive: absent on every
 	// ordinary record, ignored by a build that predates it.
 	HandOverAsk bool `json:"hand_over_ask,omitempty"`
+
+	// v5 (ADR 0040 amendment, 10a): the per-seat acknowledgement state. A
+	// zero value on every field means "both seats acknowledged", which is all
+	// a v4 file could express. OwnerCopy / GuestCopy are the Vessel last
+	// delivered into that seat's World, kept until the seat saves.
+	OwnerDirty      bool        `json:"owner_dirty,omitempty"`
+	GuestDirty      bool        `json:"guest_dirty,omitempty"`
+	OwnerCopy       *save.Craft `json:"owner_copy,omitempty"`
+	GuestCopy       *save.Craft `json:"guest_copy,omitempty"`
+	FromCompositeID uint64      `json:"from_composite_id,omitempty"`
+	// Done marks a settled record: the dock's work is finished and it lingers
+	// only until both seats have acknowledged.
+	Done bool `json:"done,omitempty"`
 }
 
 // Meta is the session.json shape.
