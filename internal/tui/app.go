@@ -111,6 +111,8 @@ type App struct {
 	keys   Keymap
 	active screenID
 
+	resumed bool // the World came from durable storage, not tui.New's default
+
 	selectedBody int
 
 	width, height int
@@ -214,6 +216,10 @@ type App struct {
 	// through this per-player sink instead of the host's local saves,
 	// and the local Saves surface (F5/F9, menu Save/Load) is disabled.
 	guestSave func(*sim.World) error
+	// onPersisted is called with the World after persistNow wrote it
+	// successfully (ADR 0040 amendment 3: the hosting App's autosaves
+	// acknowledge to the dock ledger).
+	onPersisted func(*sim.World)
 
 	// Chat input overlay (ADR 0035 S3). App-level rather than a screen
 	// so the capturingText obligation is one unconditional check — not
@@ -320,6 +326,35 @@ func (a *App) World() *sim.World { return a.world }
 // refused with a toast. v0.27 S3 (ADR 0034).
 func (a *App) SetGuestPersistence(sink func(*sim.World) error) { a.guestSave = sink }
 
+// SetOnPersisted installs the hook persistNow calls after a successful write.
+func (a *App) SetOnPersisted(fn func(*sim.World)) { a.onPersisted = fn }
+
+// ResumeNewestAutosave swaps in the newest readable autosave-ring slot as the
+// live World and says so in the footer. It is the inverse of the ring's
+// rotation, for a `--serve` start (ADR 0040 amendment 3). With no readable
+// slot it returns an error and leaves the fresh World alone.
+func (a *App) ResumeNewestAutosave() (string, error) {
+	infos, err := save.List() // newest first
+	if err != nil {
+		return "", err
+	}
+	for _, in := range infos {
+		if in.Lane != save.LaneAutosave || in.Unreadable {
+			continue
+		}
+		if err := a.loadWorldByID(in.ID); err != nil {
+			continue // a slot that will not load (catalog changed) is skipped, not fatal
+		}
+		a.flash("resumed autosave " + in.ID)
+		return in.ID, nil
+	}
+	return "", errors.New("no readable autosave to resume")
+}
+
+// ResumedFromSave reports whether the World came from durable storage. A New
+// App's default World did not, so the ledger cannot match its Vessel IDs.
+func (a *App) ResumedFromSave() bool { return a.resumed }
+
 // NewWithWorld builds an App around an existing world — the
 // multiplayer reconnect path, where the player's persisted world is
 // restored instead of a fresh default start.
@@ -328,7 +363,7 @@ func NewWithWorld(w *sim.World) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.world = w
+	a.world, a.resumed = w, true
 	a.world.SetEnabledMissionPrograms(enabledProgramsFromSettings(a.orbitView.Settings()))
 	return a, nil
 }
@@ -2198,7 +2233,7 @@ func (a *App) loadWorldByID(id string) error {
 	if err != nil {
 		return err
 	}
-	a.world = w
+	a.world, a.resumed = w, true
 	// The loaded world starts with the nil ("all enabled") default; re-apply
 	// the player's program toggles so a load respects them. v0.21 Slice 7.
 	a.world.SetEnabledMissionPrograms(enabledProgramsFromSettings(a.orbitView.Settings()))
@@ -2469,11 +2504,21 @@ func (a *App) persistNow() error {
 		a.world.Clock.Paused = a.menuPrevPaused
 		defer func() { a.world.Clock.Paused = held }()
 	}
+	write := save.WriteAutosave
 	if a.guestSave != nil {
-		return a.guestSave(a.world)
+		write = a.guestSave
 	}
-	return save.WriteAutosave(a.world)
+	if err := write(a.world); err != nil {
+		return err
+	}
+	if a.onPersisted != nil {
+		a.onPersisted(a.world)
+	}
+	return nil
 }
+
+// fixedAutosaveInterval is the guests' cadence and the hosting floor.
+const fixedAutosaveInterval = 5 * time.Minute
 
 // maybeAutosave fires the periodic autosave (v0.26 S4 / ADR 0033 §E)
 // when the player's wall-clock interval has elapsed since the last
@@ -2491,7 +2536,12 @@ func (a *App) maybeAutosave(now time.Time) {
 	// autosave off must not silently disable every guest's periodic
 	// persistence, leaving only the disconnect-time write.
 	if a.guestSave != nil {
-		interval = 5 * time.Minute
+		interval = fixedAutosaveInterval
+	}
+	// A hosting App (onPersisted is the ledger ack) never goes quieter than
+	// the guests: its acks are what retire dock marks and copies (F6).
+	if a.onPersisted != nil && (interval <= 0 || interval > fixedAutosaveInterval) {
+		interval = fixedAutosaveInterval
 	}
 	if interval <= 0 {
 		return
@@ -2518,7 +2568,7 @@ func (a *App) maybeAutosave(now time.Time) {
 		_ = a.guestSave(a.world)
 		return
 	}
-	_ = save.WriteAutosave(a.world)
+	_ = a.persistNow()
 }
 
 // portTrim is the arrow keys' PORT branch (ADR 0055 decision 4): with

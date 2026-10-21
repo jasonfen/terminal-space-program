@@ -54,7 +54,12 @@ import (
 // which runs that backfill once over every parked payload. It is a version
 // step and not a backfill in craft decoding because from v15 a stage with no
 // ports has no port, whatever it is called.
-const MetaVersion = 4
+//
+// v5 (ADR 0040 amendment, 10a): each DockLink gains the per-seat
+// acknowledgement state (dirty marks, delivered copies, FromCompositeID,
+// Done). A v4 record carries none, and zero means both seats acknowledged,
+// which is all v4 could express; migrateMetaV4ToV5 states that explicitly.
+const MetaVersion = 5
 
 // Roster roles. Host is the session's root operator (ADR 0034): the
 // player whose machine runs the session, with invite/removal authority
@@ -179,6 +184,19 @@ type DockLink struct {
 	// press and the stack owner's tick cannot eat it. Additive: absent on every
 	// ordinary record, ignored by a build that predates it.
 	HandOverAsk bool `json:"hand_over_ask,omitempty"`
+
+	// v5 (ADR 0040 amendment, 10a): the per-seat acknowledgement state. A
+	// zero value on every field means "both seats acknowledged", which is all
+	// a v4 file could express. OwnerCopy / GuestCopy are the Vessel last
+	// delivered into that seat's World, kept until the seat saves.
+	OwnerDirty      bool        `json:"owner_dirty,omitempty"`
+	GuestDirty      bool        `json:"guest_dirty,omitempty"`
+	OwnerCopy       *save.Craft `json:"owner_copy,omitempty"`
+	GuestCopy       *save.Craft `json:"guest_copy,omitempty"`
+	FromCompositeID uint64      `json:"from_composite_id,omitempty"`
+	// Done marks a settled record: the dock's work is finished and it lingers
+	// only until both seats have acknowledged.
+	Done bool `json:"done,omitempty"`
 }
 
 // Meta is the session.json shape.
@@ -444,7 +462,21 @@ func migrateMeta(m *Meta) {
 	if m.Version < 4 {
 		migrateMetaV3ToV4(m)
 	}
+	if m.Version < 5 {
+		migrateMetaV4ToV5(m)
+	}
 	m.Version = MetaVersion
+}
+
+// migrateMetaV4ToV5 reads every v4 dock as fully acknowledged: no seat dirty,
+// no copy held, not settled. A v4 file cannot carry those fields, so this only
+// fixes the meaning of the zero value.
+func migrateMetaV4ToV5(m *Meta) {
+	for i := range m.Docks {
+		d := &m.Docks[i]
+		d.OwnerDirty, d.GuestDirty, d.Done = false, false, false
+		d.OwnerCopy, d.GuestCopy, d.FromCompositeID = nil, nil, 0
+	}
 }
 
 // migrateMetaV3ToV4 backfills the v15 per-stage ports and the HasLaunchSite

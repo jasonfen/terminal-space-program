@@ -173,6 +173,9 @@ func main() {
 			fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", err)
 			os.Exit(1)
 		}
+		if msg := resumeHostAutosave(app, true, resetFleet); msg != "" {
+			fmt.Fprintf(os.Stderr, "terminal-space-program: %s\n", msg)
+		}
 		// --reset-fleet: one-shot startup reset, before the listener
 		// starts accepting sessions. The flag persists nothing — the
 		// next restart without it changes nothing. The host's world
@@ -184,7 +187,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "terminal-space-program: reset-fleet: %v\n", err)
 				os.Exit(1)
 			}
-			app.World().Clock.SimTime = epoch
+			alignHostAfterReset(app, epoch)
 			fmt.Fprintf(os.Stderr, "terminal-space-program: fleet reset — %d player(s) on the shared 500x500 km ring, subspace epoch %s\n",
 				len(entries), epoch.UTC().Format(time.RFC3339))
 			for _, e := range entries {
@@ -295,4 +298,30 @@ func printLists(systems []bodies.System, systemFilter string, sys, bodiesL, load
 			fmt.Printf("  %-12s %-28s %7.3f°N  %8.3f°E\n", s.Key, s.Name, s.LatitudeDeg, s.LongitudeEastDeg)
 		}
 	}
+}
+
+// alignHostAfterReset puts the fresh host World on the reset epoch and writes
+// it to the autosave ring, so it is the newest slot: a plain restart before the
+// first autosave would otherwise resume the pre-reset host beside a reset fleet.
+func alignHostAfterReset(app *tui.App, epoch time.Time) {
+	app.World().Clock.SimTime = epoch
+	if err := app.PersistNow(); err != nil {
+		fmt.Fprintf(os.Stderr, "terminal-space-program: reset-fleet: could not save the fresh host World: %v\n", err)
+	}
+}
+
+// resumeHostAutosave is the --serve start-up resume (ADR 0040 amendment 3).
+// The host's World is its durable store, so a server restart resumes it. A
+// --reset-fleet start stays fresh (the reset aligns that fresh World, ring
+// slot 0), and with no readable slot the fresh World stands. Returns the line
+// to print, or "" when nothing was resumed.
+func resumeHostAutosave(app *tui.App, serveMode, resetFleet bool) string {
+	if !serveMode || resetFleet {
+		return ""
+	}
+	id, err := app.ResumeNewestAutosave()
+	if err != nil {
+		return ""
+	}
+	return "host resumed autosave " + id
 }

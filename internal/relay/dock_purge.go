@@ -80,6 +80,7 @@ func (l *DockLedger) ReleaseGuestsOf(w *sim.World, fp string, live func(string) 
 		r.Owner, r.OwnerHandle, r.GuestOwner, r.GuestHandle =
 			r.GuestOwner, r.GuestHandle, r.Owner, r.OwnerHandle
 		r.DockerCraftID, r.GuestCraftID = r.GuestCraftID, r.DockerCraftID
+		r.swapSeatMarks()
 	}
 }
 
@@ -96,18 +97,40 @@ func (l *DockLedger) DropRecordsNaming(fp string) int {
 			continue
 		}
 		n++
+		// The purged player's payload is deleted, so their seat counts as
+		// acknowledged (a blank seat is clean).
+		if r.GuestOwner == fp {
+			r.GuestDirty, r.guestCopy = false, nil
+		} else {
+			r.OwnerDirty, r.ownerCopy = false, nil
+		}
 		if r.Phase == DockCooldown {
-			delete(l.records, id)
+			l.finishLocked(id)
 			continue
 		}
 		if r.GuestOwner == fp {
 			if l.endGuestSideLocked(r) {
-				delete(l.records, id)
+				l.finishLocked(id)
 			}
 			continue
 		}
 		if l.endOwnerSideLocked(r, fp) {
-			delete(l.records, id)
+			l.finishLocked(id)
+		}
+	}
+	// Settled records waiting on the purged player's acknowledgement will
+	// never get it: blank that seat and let the survivor's decide.
+	for id, r := range l.settled {
+		switch fp {
+		case r.GuestOwner:
+			r.GuestOwner, r.GuestHandle, r.GuestDirty, r.guestCopy = "", "", false, nil
+		case r.Owner:
+			r.Owner, r.OwnerHandle, r.OwnerDirty, r.ownerCopy = "", "", false, nil
+		default:
+			continue
+		}
+		if !r.OwnerDirty && !r.GuestDirty {
+			delete(l.settled, id)
 		}
 	}
 	return n
@@ -168,6 +191,7 @@ func (l *DockLedger) endOwnerSideLocked(r *DockRecord, fp string) bool {
 		r.Owner, r.OwnerHandle, r.GuestOwner, r.GuestHandle =
 			r.GuestOwner, r.GuestHandle, r.Owner, r.OwnerHandle
 		r.DockerCraftID, r.GuestCraftID = r.GuestCraftID, r.DockerCraftID
+		r.swapSeatMarks()
 		return l.endGuestSideLocked(r)
 	case r.returnPayload != nil:
 		// The friend's component was already peeled for them: it arrives,

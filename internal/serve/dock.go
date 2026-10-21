@@ -27,6 +27,21 @@ import (
 func (m *reportingModel) reconcileDocking(w *sim.World, coupled map[string]bool, reports map[string]relay.CraftReport, handles map[string]string, now time.Time) {
 	changed := false
 
+	// A World that has just come from durable storage is made to agree with
+	// the ledger before its first reconcile, then saved at once: the save is
+	// the acknowledgement (ADR 0040 amendment, 10a). Silent by design.
+	if m.repairedFor != w {
+		m.repairedFor = w
+		repair := m.srv.dock.Repair
+		if m.owner == sessiondir.HostFingerprint && !m.app.ResumedFromSave() {
+			repair = m.srv.dock.RepairFresh
+		}
+		if repair(w, m.owner) {
+			_ = m.app.PersistNow()
+			changed = true
+		}
+	}
+
 	// Cross-player capture (ADR 0053 decision 9): the active craft's port
 	// against a co-warp-coupled ghost's reported port, the same gate and
 	// five-second magnet a local dock uses. The Claim (docker owns) is filed
@@ -258,6 +273,17 @@ func (s *Server) persistDocks() error {
 	return err
 }
 
+// ackPersisted tells the dock ledger that fp's World was just written
+// successfully (ADR 0040 amendment, 10a) and flushes the ledger if that
+// cleared anything. Call it only after a write that returned nil. A failed
+// flush is harmless: the marks are cleared in memory and the next flush
+// carries them, and a crash before it only leaves a mark set (repair reruns).
+func (s *Server) ackPersisted(fp string, w *sim.World) {
+	if s.dock.AckPersisted(fp, w) {
+		_ = s.persistDocks()
+	}
+}
+
 // dockLinksToSnapshots adapts the persisted cross-ref into live ledger
 // records. ADR 0040: the in-flight half rides along, so a handover parked
 // when the server went down completes on the recipient's next connect.
@@ -279,6 +305,9 @@ func dockLinksToSnapshots(links []sessiondir.DockLink) []relay.DockSnapshot {
 			DockNotice: l.DockNotice, ReturnAtNano: l.ReturnAtNano,
 			End: l.End, EndHandle: l.EndHandle,
 			HandOverAsk: l.HandOverAsk,
+			OwnerDirty:  l.OwnerDirty, GuestDirty: l.GuestDirty,
+			OwnerCopy: l.OwnerCopy, GuestCopy: l.GuestCopy,
+			FromCompositeID: l.FromCompositeID, Done: l.Done,
 		})
 	}
 	return out
@@ -304,6 +333,9 @@ func snapshotsToDockLinks(snaps []relay.DockSnapshot) []sessiondir.DockLink {
 			DockNotice: r.DockNotice, ReturnAtNano: r.ReturnAtNano,
 			End: r.End, EndHandle: r.EndHandle,
 			HandOverAsk: r.HandOverAsk,
+			OwnerDirty:  r.OwnerDirty, GuestDirty: r.GuestDirty,
+			OwnerCopy: r.OwnerCopy, GuestCopy: r.GuestCopy,
+			FromCompositeID: r.FromCompositeID, Done: r.Done,
 		})
 	}
 	return out

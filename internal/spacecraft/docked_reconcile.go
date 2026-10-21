@@ -16,7 +16,7 @@ package spacecraft
 // claim MORE than the live stack (fewer, or a component without a breakdown,
 // is not a bottom drop and cannot be repaired from here). Once fewer than two
 // components remain the vessel is no longer a composite and the list is
-// cleared, as Deploy does. Reports whether it changed anything. Idempotent.
+// cleared, as Deploy does (unless the one left is a cross-player guest's). Reports whether it changed anything. Idempotent.
 func (c *Spacecraft) ReconcileDockedComponents() bool {
 	if c == nil || len(c.DockedComponents) == 0 {
 		return false
@@ -43,7 +43,9 @@ func (c *Spacecraft) ReconcileDockedComponents() bool {
 		comps[0] = rebuildComponentAround(comps[0], comps[0].Stages[excess:])
 		excess = 0
 	}
-	if len(comps) < 2 {
+	// A lone survivor tagged with a cross-player Owner stays: it is the only
+	// record that the stack is now a guest's alone (the ledger hands it back).
+	if len(comps) < 2 && !(len(comps) == 1 && comps[0].Owner != "") {
 		comps = nil
 	}
 	c.DockedComponents = comps

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -53,7 +54,8 @@ const (
 // durable now — FullRecords/SeedFull round-trip the payloads and request flags
 // through the session directory, so a handover in flight when the server
 // restarts completes on the recipient's next connect instead of destroying the
-// craft (#311). Nothing on a record is transient any more.
+// craft (#311). Nothing in flight is transient, and nothing delivered is
+// forgotten until the receiving seat has saved it (10a, ack.go).
 type DockRecord struct {
 	ID            uint64
 	Owner         string // current stack owner fingerprint (flips on transfer)
@@ -145,6 +147,13 @@ type DockRecord struct {
 	//     the friend has their craft back, with no re-arm latch.
 	end       string
 	endHandle string
+
+	// ADR 0040 amendment (10a): the per-seat acknowledgement state. See
+	// ack.go. Role-keyed like Owner/Guest: a role swap swaps the flags.
+	OwnerDirty, GuestDirty bool        // that seat's durable World may disagree with this record
+	ownerCopy, guestCopy   *save.Craft // the Vessel last delivered into that seat's World
+	FromCompositeID        uint64      // the Composite's ID in the sender's World at a transfer or reclaim
+	Done                   bool        // the dock's work is finished; the record lingers only for acknowledgements
 }
 
 const (
@@ -190,12 +199,16 @@ type DockLedger struct {
 
 	mu      sync.Mutex
 	records map[uint64]*DockRecord
+	// settled holds finished records until both seats have acknowledged
+	// (ack.go). Every verb and query reads records only, so a settled record
+	// is invisible to them without a check.
+	settled map[uint64]*DockRecord
 	nextID  uint64
 }
 
 // NewDockLedger builds an empty ledger.
 func NewDockLedger() *DockLedger {
-	return &DockLedger{records: map[uint64]*DockRecord{}}
+	return &DockLedger{records: map[uint64]*DockRecord{}, settled: map[uint64]*DockRecord{}}
 }
 
 // Claim opens a cross-player dock: the docker (owner) claims a guest craft it
@@ -471,27 +484,13 @@ func (l *DockLedger) GrantReclaim(recordID uint64, guestOwner string, stack *spa
 	r.transferPayload = stack
 	r.transferTo = ""
 	r.reclaimAtNano = capturedAtNano
+	r.FromCompositeID = r.CompositeID
 	r.Owner, r.OwnerHandle = r.GuestOwner, r.GuestHandle
 	r.DockerCraftID = r.GuestCraftID
 	r.GuestOwner, r.GuestHandle = oldOwner, oldOwnerHandle
 	r.GuestCraftID = oldDockerCraftID
+	r.swapSeatMarks()
 	r.reclaimNotice = true
-	return true
-}
-
-// RestoreRecord overwrites the record at recordID with snapshot verbatim —
-// the undo side of GrantReclaim, used when the migration's persist fails
-// after the grant already landed in memory (ADR 0040 §4 review). ok is false
-// when the record is no longer there to restore (it moved or ended under the
-// caller); the caller owns deciding what that means.
-func (l *DockLedger) RestoreRecord(recordID uint64, snapshot DockRecord) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	r, ok := l.records[recordID]
-	if !ok {
-		return false
-	}
-	*r = snapshot
 	return true
 }
 
@@ -551,6 +550,14 @@ func (l *DockLedger) RecordCount() int {
 	return len(l.records)
 }
 
+// Clear forgets every record, live and settled (--reset-fleet: the fleet the
+// records name is gone).
+func (l *DockLedger) Clear() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.records, l.settled = map[uint64]*DockRecord{}, map[uint64]*DockRecord{}
+}
+
 // Seed installs durable records (from the session directory on server start)
 // so a dock that outlived a restart resumes. Only the durable fields are
 // carried; the in-flight payload handoffs were transient and are gone.
@@ -598,7 +605,7 @@ func (l *DockLedger) Reconcile(w *sim.World, owner string, reports map[string]Cr
 		// while a deleted vessel is not.
 		if r.Phase != DockPending && r.Phase != DockActive && r.Phase != DockCooldown {
 			if !r.hasParkedPayload() {
-				delete(l.records, id)
+				l.finishLocked(id)
 			}
 			continue
 		}
@@ -610,7 +617,7 @@ func (l *DockLedger) Reconcile(w *sim.World, owner string, reports map[string]Cr
 			if r.Owner == owner || r.GuestOwner == owner {
 				r.raiseReArmNotice(owner, &chips)
 				if l.reconcileCooldown(w, r, owner, reports) {
-					delete(l.records, id)
+					l.finishLocked(id)
 				}
 			}
 			continue
@@ -618,11 +625,11 @@ func (l *DockLedger) Reconcile(w *sim.World, owner string, reports map[string]Cr
 		switch {
 		case r.Owner == owner:
 			if l.reconcileOwner(w, r, &chips) {
-				delete(l.records, id)
+				l.finishLocked(id)
 			}
 		case r.GuestOwner == owner:
 			if l.reconcileGuest(w, r, reports, &chips) {
-				delete(l.records, id)
+				l.finishLocked(id)
 			}
 		}
 	}
@@ -743,6 +750,12 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 		// and fire a real burn at it. Strip with the exact same logic
 		// the persistence path uses, so the two can't drift.
 		payload := spacecraft.StripCrossOwnerTargetRefs(r.transferPayload)
+		// 10a: keep the Composite as delivered until this seat saves. A purge
+		// ending (endTransfer) has no use for it: nothing is re-adopted.
+		if r.end != endTransfer {
+			r.ownerCopy = craftToWireTransfer(payload)
+		}
+		r.OwnerDirty = true
 		w.AdoptCraft(payload, true)
 		r.CompositeID = payload.ID
 		r.transferPayload = nil
@@ -761,6 +774,7 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 	if r.end == endTransfer {
 		if c, _, ok := w.CraftByID(r.CompositeID); ok {
 			adoptGuestComponents(c)
+			r.OwnerDirty = true
 			return true
 		}
 		// The stack is not in this World. If it is on its way (a payload
@@ -782,11 +796,13 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 			r.returnPayload, r.aborted = guest, true
 			return false
 		}
+		guestCopy := craftToWireTransfer(guest) // before the fuse mutates it
 		comp, _, ok := w.DockGuestCraft(idx, guest, r.GuestOwner)
 		if !ok {
 			r.returnPayload, r.aborted = guest, true
 			return false
 		}
+		r.ownerCopy, r.OwnerDirty = guestCopy, true
 		r.CompositeID = comp.ID
 		r.Phase = DockActive
 		// ADR 0038 S1 (#301): the guest's own chip can't be raised HERE —
@@ -812,7 +828,29 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 		// handover parks the ONLY copy of the stack on the record, which from
 		// this seat is indistinguishable from a phantom — and reaping there
 		// would destroy the craft durability exists to save.
-		_, cidx, live := w.CraftByID(r.CompositeID)
+		comp, cidx, live := w.CraftByID(r.CompositeID)
+		// The owner staged away all of their own components: what is left of
+		// the stack is the guest's Vessel. Hand it back as a Parcel (the
+		// release path below), safed by the same separation push; the owner
+		// keeps nothing of it.
+		if live && r.returnPayload == nil && sim.StackIsGuestOnly(comp) {
+			if restored, ok := w.ReleaseGuestOnlyStack(cidx, r.GuestCraftID); ok {
+				sim.SeparationPush(restored)
+				r.returnPayload = restored
+				r.OwnerDirty = true
+				r.returnAtNano = w.Clock.SimTime.UnixNano()
+				r.parcel, r.parcelAtNano = true, r.returnAtNano
+				*chips = append(*chips, DockChip{Kind: sim.SessionEventUndocked, Handle: r.GuestHandle})
+				return false
+			}
+		}
+		// 10a: the Composite keeps its lead's ID and IDs are per World, so a
+		// fresh World's ID 1 can answer to a record that named another stack.
+		// A Vessel carrying none of the guest's parts is not the dock (unless
+		// the parts are leaving: returnPayload is set the tick they peel off).
+		if live && r.returnPayload == nil && !sim.StackHasGuest(comp) {
+			live = false
+		}
 		if !live {
 			if !r.hasParkedPayload() {
 				r.aborted = true
@@ -856,6 +894,7 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 			// than adopting verbatim.
 			sim.SeparationPush(restored)
 			r.returnPayload = restored
+			r.OwnerDirty = true
 			r.returnAtNano = w.Clock.SimTime.UnixNano()
 			// ADR 0038 §6: the docker undocks already targeting the guest's
 			// departing craft.
@@ -886,6 +925,7 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 			// left, computed against the composite's current state.
 			sim.SeparationPush(restored)
 			r.returnPayload = restored
+			r.OwnerDirty = true
 			r.returnAtNano = w.Clock.SimTime.UnixNano()
 			if asParcel {
 				// Nobody is at the other seat: mark it so delivery knows to
@@ -913,10 +953,13 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 			// Swap roles: the old owner becomes the guest of the new owner.
 			r.transferPayload = removed
 			r.transferTo = ""
+			r.FromCompositeID = r.CompositeID
 			r.Owner, r.OwnerHandle = newOwner, r.GuestHandle
 			r.DockerCraftID = r.GuestCraftID
 			r.GuestOwner, r.GuestHandle = oldOwner, oldOwnerHandle
 			r.GuestCraftID = oldDockerCraftID
+			r.swapSeatMarks()
+			r.GuestDirty = true // the old owner's World still holds the stack
 			*chips = append(*chips, DockChip{Kind: sim.SessionEventTransfer, Handle: r.OwnerHandle})
 			return false
 		}
@@ -932,6 +975,7 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 	if r.aborted {
 		if r.returnPayload != nil {
 			// The docker couldn't fuse — reclaim the handed-over craft.
+			r.guestCopy, r.GuestDirty = craftToWireSameOwner(r.returnPayload), true
 			w.AdoptCraft(r.returnPayload, true)
 			if r.end == endHandback {
 				*chips = append(*chips, DockChip{Kind: sim.SessionEventParcelReturned, Handle: r.endHandle})
@@ -954,6 +998,7 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 				return true // my craft is gone — abandon the dock
 			}
 			r.guestPayload = c
+			r.GuestDirty = true
 		}
 		l.setDockGuest(w, r, reports)
 		return false
@@ -1000,6 +1045,7 @@ func (l *DockLedger) reconcileGuest(w *sim.World, r *DockRecord, reports map[str
 			if terminal {
 				kind = sim.SessionEventParcelReturned
 			}
+			r.guestCopy, r.GuestDirty = craftToWireSameOwner(r.returnPayload), true
 			w.AdoptCraft(r.returnPayload, true)
 			if !terminal {
 				// ADR 0038 §6: I undock already targeting the stack I just
