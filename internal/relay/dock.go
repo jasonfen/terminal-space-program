@@ -550,6 +550,14 @@ func (l *DockLedger) RecordCount() int {
 	return len(l.records)
 }
 
+// Clear forgets every record, live and settled (--reset-fleet: the fleet the
+// records name is gone).
+func (l *DockLedger) Clear() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.records, l.settled = map[uint64]*DockRecord{}, map[uint64]*DockRecord{}
+}
+
 // Seed installs durable records (from the session directory on server start)
 // so a dock that outlived a restart resumes. Only the durable fields are
 // carried; the in-flight payload handoffs were transient and are gone.

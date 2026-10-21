@@ -173,6 +173,9 @@ func main() {
 			fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", err)
 			os.Exit(1)
 		}
+		if msg := resumeHostAutosave(app, true, resetFleet); msg != "" {
+			fmt.Fprintf(os.Stderr, "terminal-space-program: %s\n", msg)
+		}
 		// --reset-fleet: one-shot startup reset, before the listener
 		// starts accepting sessions. The flag persists nothing — the
 		// next restart without it changes nothing. The host's world
@@ -298,6 +301,17 @@ func printLists(systems []bodies.System, systemFilter string, sys, bodiesL, load
 }
 
 // resumeHostAutosave is the --serve start-up resume (ADR 0040 amendment 3).
+// The host's World is its durable store, so a server restart resumes it. A
+// --reset-fleet start stays fresh (the reset aligns that fresh World, ring
+// slot 0), and with no readable slot the fresh World stands. Returns the line
+// to print, or "" when nothing was resumed.
 func resumeHostAutosave(app *tui.App, serveMode, resetFleet bool) string {
-	return ""
+	if !serveMode || resetFleet {
+		return ""
+	}
+	id, err := app.ResumeNewestAutosave()
+	if err != nil {
+		return ""
+	}
+	return "host resumed autosave " + id
 }

@@ -837,8 +837,14 @@ func WrapHost(app *tui.App, srv *Server, port int) tea.Model {
 		m.srv = srv
 		m.owner = sessiondir.HostFingerprint
 		m.rep = relay.NewReporter(srv.relay, m.owner)
+		app.SetOnPersisted(hostAck(srv))
 	}
 	return m
+}
+
+// hostAck is the host's autosave acknowledging its seat in the dock ledger.
+func hostAck(srv *Server) func(*sim.World) {
+	return func(w *sim.World) { srv.ackPersisted(sessiondir.HostFingerprint, w) }
 }
 
 // HostServer returns the live listener when this wrapper is hosting,
@@ -883,6 +889,7 @@ func (m reportingModel) startHosting() (tea.Model, tea.Cmd) {
 	m.srv = srv
 	m.owner = sessiondir.HostFingerprint
 	m.rep = relay.NewReporter(srv.relay, m.owner)
+	m.app.SetOnPersisted(hostAck(srv))
 	m.app.Toast(fmt.Sprintf("hosting on %s — invite guests with serve invite", srv.Addr()))
 	// Populate the roster now so the Session screen flips to host-mode
 	// immediately instead of on the next tick.
@@ -910,6 +917,7 @@ func (m reportingModel) stopHosting() (tea.Model, tea.Cmd) {
 		return hostStoppedMsg{}
 	}
 	m.srv, m.rep, m.owner = nil, nil, ""
+	m.app.SetOnPersisted(nil)
 	// Back to solo: clear the slates the wrapper had been feeding so the
 	// Session screen shows the [h]-start dead-end again.
 	w := m.app.World()

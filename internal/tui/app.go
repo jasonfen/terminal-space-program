@@ -332,7 +332,21 @@ func (a *App) SetOnPersisted(fn func(*sim.World)) { a.onPersisted = fn }
 // rotation, for a `--serve` start (ADR 0040 amendment 3). With no readable
 // slot it returns an error and leaves the fresh World alone.
 func (a *App) ResumeNewestAutosave() (string, error) {
-	return "", nil
+	infos, err := save.List() // newest first
+	if err != nil {
+		return "", err
+	}
+	for _, in := range infos {
+		if in.Lane != save.LaneAutosave || in.Unreadable {
+			continue
+		}
+		if err := a.loadWorldByID(in.ID); err != nil {
+			continue // a slot that will not load (catalog changed) is skipped, not fatal
+		}
+		a.flash("resumed autosave " + in.ID)
+		return in.ID, nil
+	}
+	return "", errors.New("no readable autosave to resume")
 }
 
 // NewWithWorld builds an App around an existing world — the
@@ -2484,10 +2498,17 @@ func (a *App) persistNow() error {
 		a.world.Clock.Paused = a.menuPrevPaused
 		defer func() { a.world.Clock.Paused = held }()
 	}
+	write := save.WriteAutosave
 	if a.guestSave != nil {
-		return a.guestSave(a.world)
+		write = a.guestSave
 	}
-	return save.WriteAutosave(a.world)
+	if err := write(a.world); err != nil {
+		return err
+	}
+	if a.onPersisted != nil {
+		a.onPersisted(a.world)
+	}
+	return nil
 }
 
 // maybeAutosave fires the periodic autosave (v0.26 S4 / ADR 0033 §E)
@@ -2533,7 +2554,7 @@ func (a *App) maybeAutosave(now time.Time) {
 		_ = a.guestSave(a.world)
 		return
 	}
-	_ = save.WriteAutosave(a.world)
+	_ = a.persistNow()
 }
 
 // portTrim is the arrow keys' PORT branch (ADR 0055 decision 4): with
