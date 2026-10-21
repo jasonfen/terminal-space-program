@@ -2517,6 +2517,9 @@ func (a *App) persistNow() error {
 	return nil
 }
 
+// fixedAutosaveInterval is the guests' cadence and the hosting floor.
+const fixedAutosaveInterval = 5 * time.Minute
+
 // maybeAutosave fires the periodic autosave (v0.26 S4 / ADR 0033 §E)
 // when the player's wall-clock interval has elapsed since the last
 // fire. now is the tea.Tick timestamp from the current sim.TickMsg —
@@ -2533,7 +2536,12 @@ func (a *App) maybeAutosave(now time.Time) {
 	// autosave off must not silently disable every guest's periodic
 	// persistence, leaving only the disconnect-time write.
 	if a.guestSave != nil {
-		interval = 5 * time.Minute
+		interval = fixedAutosaveInterval
+	}
+	// A hosting App (onPersisted is the ledger ack) never goes quieter than
+	// the guests: its acks are what retire dock marks and copies (F6).
+	if a.onPersisted != nil && (interval <= 0 || interval > fixedAutosaveInterval) {
+		interval = fixedAutosaveInterval
 	}
 	if interval <= 0 {
 		return
