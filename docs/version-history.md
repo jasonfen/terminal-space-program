@@ -2,6 +2,16 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.57.7
+
+Multiplayer dock and restart fixes (PRs `#720`, `#721`; tag `v0.57.7`).
+
+- **A server restart saves the host's own game.** The restart that follows every update used to lose everything the host had flown since the last autosave.
+- **Leaving the server can no longer leave one stack with two pilots.** A player's game is now saved before they are shown as gone, so taking control of their empty seat sees their latest stack.
+- **A dock can only capture a player who is still connected.** A player who had left could be caught in a dock with no way out.
+- **Each player has at most one ride and one stack at a time.** A second dock used to make the dock keys act on either one at random.
+- **Release binaries are built with Go 1.26.10**, which carries a crypto/x509 security fix (GO-2026-6809).
+
 ### v0.57.6
 
 Three fixes for vessels in other systems, multiplayer reclaims and custom systems (PRs `#717`, `#718`, `#719`; tag `v0.57.6`).
