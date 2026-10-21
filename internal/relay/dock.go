@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -145,6 +146,13 @@ type DockRecord struct {
 	//     the friend has their craft back, with no re-arm latch.
 	end       string
 	endHandle string
+
+	// ADR 0040 amendment (10a): the per-seat acknowledgement state. See
+	// ack.go. Role-keyed like Owner/Guest: a role swap swaps the flags.
+	OwnerDirty, GuestDirty bool       // that seat's durable World may disagree with this record
+	ownerCopy, guestCopy   *save.Craft // the Vessel last delivered into that seat's World
+	FromCompositeID        uint64     // the Composite's ID in the sender's World at a transfer or reclaim
+	Done                   bool       // the dock's work is finished; the record lingers only for acknowledgements
 }
 
 const (
@@ -190,12 +198,16 @@ type DockLedger struct {
 
 	mu      sync.Mutex
 	records map[uint64]*DockRecord
+	// settled holds finished records until both seats have acknowledged
+	// (ack.go). Every verb and query reads records only, so a settled record
+	// is invisible to them without a check.
+	settled map[uint64]*DockRecord
 	nextID  uint64
 }
 
 // NewDockLedger builds an empty ledger.
 func NewDockLedger() *DockLedger {
-	return &DockLedger{records: map[uint64]*DockRecord{}}
+	return &DockLedger{records: map[uint64]*DockRecord{}, settled: map[uint64]*DockRecord{}}
 }
 
 // Claim opens a cross-player dock: the docker (owner) claims a guest craft it
