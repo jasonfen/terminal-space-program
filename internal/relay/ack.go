@@ -42,7 +42,7 @@ func (r *DockRecord) swapSeatMarks() {
 // flushes the ledger when it did.
 //
 // One guard, because a wrong acknowledgement is a loss: a live Active record
-// whose owner copy is held keeps the copy unless the Composite resolves in w.
+// whose owner copy is held keeps the copy unless w holds a Vessel carrying the guest's parts.
 func (l *DockLedger) AckPersisted(seat string, w *sim.World) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -50,7 +50,7 @@ func (l *DockLedger) AckPersisted(seat string, w *sim.World) bool {
 	ack := func(r *DockRecord) {
 		if r.Owner == seat && (r.OwnerDirty || r.ownerCopy != nil) {
 			if r.ownerCopy != nil && !r.Done && r.Phase == DockActive {
-				if _, _, ok := w.CraftByID(r.CompositeID); !ok {
+				if _, _, ok := compositeIn(w, r); !ok {
 					log.Printf("dock %d: owner save lacks Composite %d, keeping the delivered copy", r.ID, r.CompositeID)
 					return
 				}

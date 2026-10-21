@@ -99,6 +99,19 @@ func carriesGuest(c *spacecraft.Spacecraft, guestOwner string, guestCraftID uint
 	return false
 }
 
+// compositeIn finds the Vessel in w that carries the guest's parts. The
+// Composite keeps its lead's ID until an adoption restamps it, so the record's
+// CompositeID can be stale or reused: content decides, the ID only breaks ties.
+func compositeIn(w *sim.World, r *DockRecord) (*spacecraft.Spacecraft, int, bool) {
+	found, at := (*spacecraft.Spacecraft)(nil), -1
+	for i, c := range w.Crafts {
+		if carriesGuest(c, r.GuestOwner, r.GuestCraftID) && (found == nil || c.ID == r.CompositeID) {
+			found, at = c, i
+		}
+	}
+	return found, at, found != nil
+}
+
 // repairOwnerSeat is rules O1 to O6.
 func repairOwnerSeat(w *sim.World, r *DockRecord) bool {
 	if r.transferPayload != nil { // O1: this seat is the recipient, nothing here yet
@@ -116,7 +129,7 @@ func repairOwnerSeat(w *sim.World, r *DockRecord) bool {
 		}
 		return false
 	}
-	carries := here && carriesGuest(c, r.GuestOwner, r.GuestCraftID)
+	cc, cidx, carries := compositeIn(w, r)
 	// O2, return side: the guest's parts were handed back, in flight, delivered
 	// or settled. The ledger's copy is the truth, so strip and discard.
 	if r.returnPayload != nil || r.guestCopy != nil || r.Phase == DockCooldown || r.Done {
@@ -136,10 +149,10 @@ func repairOwnerSeat(w *sim.World, r *DockRecord) bool {
 	// The Composite keeps the lead's ID, so "present" means "carries the
 	// guest's parts", not "an ID resolves".
 	if carries {
-		if r.ownerCopy == nil {
+		if r.ownerCopy == nil && cc.ID == r.CompositeID {
 			return false
 		}
-		r.ownerCopy = nil
+		r.ownerCopy, r.CompositeID = nil, cc.ID
 		return true
 	}
 	if r.ownerCopy == nil { // O5: gone since; the per-tick reaper handles it
