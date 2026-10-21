@@ -149,10 +149,10 @@ type DockRecord struct {
 
 	// ADR 0040 amendment (10a): the per-seat acknowledgement state. See
 	// ack.go. Role-keyed like Owner/Guest: a role swap swaps the flags.
-	OwnerDirty, GuestDirty bool       // that seat's durable World may disagree with this record
+	OwnerDirty, GuestDirty bool        // that seat's durable World may disagree with this record
 	ownerCopy, guestCopy   *save.Craft // the Vessel last delivered into that seat's World
-	FromCompositeID        uint64     // the Composite's ID in the sender's World at a transfer or reclaim
-	Done                   bool       // the dock's work is finished; the record lingers only for acknowledgements
+	FromCompositeID        uint64      // the Composite's ID in the sender's World at a transfer or reclaim
+	Done                   bool        // the dock's work is finished; the record lingers only for acknowledgements
 }
 
 const (
