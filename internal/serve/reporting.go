@@ -32,6 +32,12 @@ type reportingModel struct {
 	// restartSaved: the host's world was already written for a SIGTERM restart.
 	restartSaved bool
 
+	// repairedFor is the World reconcileDocking last repaired against the dock
+	// ledger (ADR 0040 amendment, 10a). A different World pointer means one
+	// just came from durable storage: a guest connecting, or a hand Load
+	// while hosting swapping the App's World.
+	repairedFor *sim.World
+
 	// ls is this session's registry entry, nil for the host (ADR 0054). The
 	// tick reads its dropped record and quits when the host has ended the
 	// session.

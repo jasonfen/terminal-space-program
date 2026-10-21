@@ -27,6 +27,17 @@ import (
 func (m *reportingModel) reconcileDocking(w *sim.World, coupled map[string]bool, reports map[string]relay.CraftReport, handles map[string]string, now time.Time) {
 	changed := false
 
+	// A World that has just come from durable storage is made to agree with
+	// the ledger before its first reconcile, then saved at once: the save is
+	// the acknowledgement (ADR 0040 amendment, 10a). Silent by design.
+	if m.repairedFor != w {
+		m.repairedFor = w
+		if m.srv.dock.Repair(w, m.owner) {
+			_ = m.app.PersistNow()
+			changed = true
+		}
+	}
+
 	// Cross-player capture (ADR 0053 decision 9): the active craft's port
 	// against a co-warp-coupled ghost's reported port, the same gate and
 	// five-second magnet a local dock uses. The Claim (docker owns) is filed

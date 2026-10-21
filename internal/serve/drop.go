@@ -244,7 +244,11 @@ func (s *Server) finishPurge(fp, handle string, ls *liveSession) purgeDoneMsg {
 	if ls == nil || !ls.purgeHandled.Load() {
 		if w, err := s.store.LoadPlayer(fp); err == nil {
 			offline = w
-		} else if !errors.Is(err, fs.ErrNotExist) {
+		} else if errors.Is(err, fs.ErrNotExist) {
+			// No program is repaired as an empty one (ADR 0040 amendment): a
+			// fuse they never saved hands the friend's Vessel back.
+			offline, _ = emptyWorld()
+		} else {
 			done.err = fmt.Errorf("their saved program could not be read: %w", err)
 		}
 	}
@@ -256,6 +260,9 @@ func (s *Server) finishPurge(fp, handle string, ls *liveSession) purgeDoneMsg {
 	// in backup/. The ledger and ghost are cleaned whatever happens to the
 	// file: a kicked player must not stay named by a record or drawn on a map.
 	if offline != nil {
+		// A payload older than the ledger is made to agree first, so the
+		// friend's Vessel is peeled out of the Composite it is really in.
+		s.dock.Repair(offline, fp)
 		s.dock.ReleaseGuestsOf(offline, fp, s.presence.isOnline)
 	}
 	s.dock.DropRecordsNaming(fp)

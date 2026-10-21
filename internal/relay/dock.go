@@ -54,7 +54,8 @@ const (
 // durable now — FullRecords/SeedFull round-trip the payloads and request flags
 // through the session directory, so a handover in flight when the server
 // restarts completes on the recipient's next connect instead of destroying the
-// craft (#311). Nothing on a record is transient any more.
+// craft (#311). Nothing in flight is transient, and nothing delivered is
+// forgotten until the receiving seat has saved it (10a, ack.go).
 type DockRecord struct {
 	ID            uint64
 	Owner         string // current stack owner fingerprint (flips on transfer)
@@ -490,22 +491,6 @@ func (l *DockLedger) GrantReclaim(recordID uint64, guestOwner string, stack *spa
 	r.GuestCraftID = oldDockerCraftID
 	r.swapSeatMarks()
 	r.reclaimNotice = true
-	return true
-}
-
-// RestoreRecord overwrites the record at recordID with snapshot verbatim —
-// the undo side of GrantReclaim, used when the migration's persist fails
-// after the grant already landed in memory (ADR 0040 §4 review). ok is false
-// when the record is no longer there to restore (it moved or ended under the
-// caller); the caller owns deciding what that means.
-func (l *DockLedger) RestoreRecord(recordID uint64, snapshot DockRecord) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	r, ok := l.records[recordID]
-	if !ok {
-		return false
-	}
-	*r = snapshot
 	return true
 }
 

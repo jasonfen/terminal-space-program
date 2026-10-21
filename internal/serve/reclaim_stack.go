@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -52,29 +53,47 @@ func (m reportingModel) reclaimStack() (tea.Model, tea.Cmd) {
 // the migration — that lock is exactly the window sessionHandler holds while
 // deciding whether to admit, and the liveness check is re-taken inside it.
 //
-// Write order is deliberate: the owner's payload is saved WITHOUT the stack
-// before the ledger is asked to hold it. A crash in the gap loses one craft,
-// which is visible and recoverable; the other order can leave the same vessel
-// in the owner's save AND on the record, and two players each flying "the"
-// stack is the silent, self-entrenching kind of wrong #307 taught us to fear.
+// Write order is ledger first (ADR 0040 amendment 2, 10a): the payload is
+// repaired against the ledger, the grant is flushed, and only then is the
+// owner's payload saved without the stack. A crash or a failed write in the
+// gap leaves the stack in the stale payload AND on the record, which is no
+// longer a hazard: the owner's next open repairs the payload against the
+// record's FromCompositeID and removes it. Nothing is lost and nothing is
+// undone.
 func (s *Server) reclaimFromEmptySeat(rec relay.DockRecord, reclaimer string) error {
 	defer s.admit.enter(rec.Owner)()
 	if s.presence.isOnline(rec.Owner) {
 		return errors.New("they just took their seat back — ask them to hand it over")
 	}
+	// A payload that does not exist is repaired as an empty World, so a guest
+	// riding a stack whose owner never saved gets their Vessel back.
 	w, err := s.store.LoadPlayer(rec.Owner)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return errors.New("their program has never been saved — there is nothing to take")
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		if w, err = emptyWorld(); err != nil {
+			return fmt.Errorf("their program could not be opened: %w", err)
 		}
+	case err != nil:
 		return fmt.Errorf("their program could not be opened: %w", err)
 	}
-	stack, ok := w.RemoveCraftByID(rec.CompositeID)
+	if s.dock.Repair(w, rec.Owner) {
+		if err := s.persistDocks(); err != nil {
+			return fmt.Errorf("the dock could not be saved, try again: %w", err)
+		}
+	}
+	// The repair could not rebuild the dock: the guest's Vessel is already on
+	// its way back as a Parcel, which is what they pressed [J] to get.
+	if s.dock.ReturnInFlight(rec.ID) {
+		return nil
+	}
+	// The repair can move the Composite's ID (a re-adopted stack); read it again.
+	cur, why := s.dock.ReclaimTarget(reclaimer, s.presence.isOnline)
+	if why != "" {
+		return errors.New(strings.TrimPrefix(why, "take control: "))
+	}
+	stack, ok := w.RemoveCraftByID(cur.CompositeID)
 	if !ok {
 		return errors.New("the stack is no longer in their program")
-	}
-	if err := s.store.SavePlayer(rec.Owner, w); err != nil {
-		return fmt.Errorf("their program could not be written: %w", err)
 	}
 	// w.Clock.SimTime is the absent owner's sim-time as of the payload this
 	// stack came from — the reclaim-review fix (§4 finding): the payload can
@@ -82,31 +101,31 @@ func (s *Server) reclaimFromEmptySeat(rec relay.DockRecord, reclaimer string) er
 	// this rides along and reconcileOwner Kepler-advances the stack to the
 	// reclaimer's current sim-time before adopting it, the same way a
 	// Parcel is placed via parcelAtNano.
-	if !s.dock.GrantReclaim(rec.ID, reclaimer, stack, w.Clock.SimTime.UnixNano()) {
+	if !s.dock.GrantReclaim(cur.ID, reclaimer, stack, w.Clock.SimTime.UnixNano()) {
 		return errors.New("the dock changed while the stack was being handed over")
 	}
 	if err := s.persistDocks(); err != nil {
-		// The grant only lives in the in-process ledger until this persist
-		// lands — a restart before the next successful one would drop the
-		// stack silently, exactly the #311 shape this ledger exists to
-		// close. Undo both halves of the migration so the stack survives
-		// SOMEWHERE durable: back on the owner's saved program, and the
-		// ledger record back to its pre-grant shape. rec is that pre-grant
-		// snapshot — ReclaimTarget took it before GrantReclaim touched
-		// anything.
-		s.dock.RestoreRecord(rec.ID, rec)
-		w.Crafts = append(w.Crafts, stack)
-		if resaveErr := s.store.SavePlayer(rec.Owner, w); resaveErr != nil {
-			// Both halves of the undo failed: the ledger record is back to
-			// pre-grant shape (so it no longer claims to hold the stack),
-			// but the owner's save was never rewritten with the stack back
-			// in it either. The stack now exists only in the in-memory
-			// `stack` this call is about to drop — log loudly, there is no
-			// durable copy left to point at.
-			log.Printf("reclaim: %s's stack could not be saved back after a ledger persist failure (persist: %v, resave: %v) — the stack has no durable copy", rec.Owner, err, resaveErr)
-			return fmt.Errorf("the handover could not be saved, and could not be undone either — get help: %w", err)
-		}
-		return fmt.Errorf("the handover could not be saved, try again: %w", err)
+		// The grant is in memory and the stack is still in the owner's saved
+		// payload, so nothing is lost; the tick loop keeps retrying the flush
+		// (#335). Do not touch the payload until the ledger holds the grant.
+		s.markDockFlushFailed(err)
+		return fmt.Errorf("the handover could not be saved yet, it will retry: %w", err)
 	}
+	if err := s.store.SavePlayer(rec.Owner, w); err != nil {
+		log.Printf("reclaim: %s's program could not be saved without the stack (%v); their next open repairs it", rec.Owner, err)
+		return nil
+	}
+	s.ackPersisted(rec.Owner, w)
 	return nil
+}
+
+// emptyWorld is a World with no Vessels: the stand-in for a player who has no
+// saved program, so a repair has something to run against.
+func emptyWorld() (*sim.World, error) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		return nil, err
+	}
+	w.Crafts = nil
+	return w, nil
 }
