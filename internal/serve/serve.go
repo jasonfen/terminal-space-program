@@ -497,7 +497,11 @@ func (s *Server) newGuestApp(fp string) (*tui.App, error) {
 		return nil, err
 	}
 	app.SetGuestPersistence(func(w *sim.World) error {
-		return s.store.SavePlayer(fp, w)
+		if err := s.store.SavePlayer(fp, w); err != nil {
+			return err
+		}
+		s.ackPersisted(fp, w)
+		return nil
 	})
 	return app, nil
 }
@@ -575,7 +579,9 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 		// deletes (call 3).
 		if app, ok := sess.Context().Value(ctxKeyApp).(*tui.App); ok && joined {
 			if rec := ls.droppedRecord(); rec == nil || !rec.purge {
-				_ = s.store.SavePlayer(fp, app.World())
+				if s.store.SavePlayer(fp, app.World()) == nil {
+					s.ackPersisted(fp, app.World())
+				}
 			}
 		}
 		// Presence: pair the join marked at connect/enroll (v0.27 S6).
