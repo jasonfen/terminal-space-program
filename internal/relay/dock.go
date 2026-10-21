@@ -829,6 +829,21 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 		// this seat is indistinguishable from a phantom — and reaping there
 		// would destroy the craft durability exists to save.
 		comp, cidx, live := w.CraftByID(r.CompositeID)
+		// The owner staged away all of their own components: what is left of
+		// the stack is the guest's Vessel. Hand it back as a Parcel (the
+		// release path below), safed by the same separation push; the owner
+		// keeps nothing of it.
+		if live && r.returnPayload == nil && sim.StackIsGuestOnly(comp) {
+			if restored, ok := w.ReleaseGuestOnlyStack(cidx, r.GuestCraftID); ok {
+				sim.SeparationPush(restored)
+				r.returnPayload = restored
+				r.OwnerDirty = true
+				r.returnAtNano = w.Clock.SimTime.UnixNano()
+				r.parcel, r.parcelAtNano = true, r.returnAtNano
+				*chips = append(*chips, DockChip{Kind: sim.SessionEventUndocked, Handle: r.GuestHandle})
+				return false
+			}
+		}
 		// 10a: the Composite keeps its lead's ID and IDs are per World, so a
 		// fresh World's ID 1 can answer to a record that named another stack.
 		// A Vessel carrying none of the guest's parts is not the dock (unless

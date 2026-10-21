@@ -125,6 +125,42 @@ func (w *World) UndockGuest(compositeIdx int, guestOwner string, guestCraftID ui
 	return restored, true
 }
 
+// StackIsGuestOnly reports whether every component of c is a cross-player
+// guest's: the owner's own components are gone (staged away) and what is left
+// is the guest's hardware.
+func StackIsGuestOnly(c *spacecraft.Spacecraft) bool {
+	if c == nil || len(c.DockedComponents) == 0 {
+		return false
+	}
+	for _, dc := range c.DockedComponents {
+		if dc.Owner == "" {
+			return false
+		}
+	}
+	return true
+}
+
+// ReleaseGuestOnlyStack lifts a guest-only stack (StackIsGuestOnly) out of
+// this World and returns it as the guest's Vessel, stamped with guestCraftID and
+// untagged, at the stack's current state. The caller hands it back through the
+// release path. ok is false when idx is not such a stack.
+func (w *World) ReleaseGuestOnlyStack(idx int, guestCraftID uint64) (*spacecraft.Spacecraft, bool) {
+	if idx < 0 || idx >= len(w.Crafts) || !StackIsGuestOnly(w.Crafts[idx]) {
+		return nil, false
+	}
+	c := w.Crafts[idx]
+	restored := w.restoreComponentCraft(c, c.DockedComponents[0], append([]spacecraft.Stage(nil), c.Stages...), c.State.R, c.State.V)
+	restored.ID = guestCraftID
+	if len(c.DockedComponents) > 1 {
+		restored.DockedComponents = append([]spacecraft.DockedComponent(nil), c.DockedComponents...)
+		for i := range restored.DockedComponents {
+			restored.DockedComponents[i].Owner = ""
+		}
+	}
+	w.RemoveCraftByID(c.ID)
+	return restored, true
+}
+
 // guestTopBlock resolves the guest's sub-stack inside composite c: the
 // components to peel, the components the composite keeps, and the count of
 // LIVE stages the peel takes off the top of c.Stages. ok=false means the peel
