@@ -86,3 +86,26 @@ func TestAckKeepsOwnerCopyWhenSaveHasOnlyAnUnrelatedVesselAtCompositeID(t *testi
 		t.Errorf("F5: an owner save without the guest's parts acknowledged the fuse")
 	}
 }
+
+// F12: the reaper's returnPayload exemption. Once the guest's parts have peeled
+// off, the Composite carries none of them, yet the dock is still answering
+// asks until the Vessel lands: a second undock press in that window is refused
+// (as before 10a), not silently dropped by the "no guest parts" gate.
+func TestReaperExemptionKeepsAnsweringAsksWhileTheReturnIsInFlight(t *testing.T) {
+	r := newRig(t, 406)
+	r.guestTick()
+	r.ownerTick()
+	r.ack()
+	if !r.l.RequestUndock(fpB, r.xID) {
+		t.Fatal("test setup: RequestUndock refused")
+	}
+	r.ownerTick() // peels the Vessel off: returnPayload parked
+	if !r.l.ReturnInFlight(r.snap().ID) {
+		t.Fatal("test setup: no return in flight")
+	}
+	r.l.RequestUndock(fpB, r.xID) // the player presses again
+	r.ownerTick()
+	if !r.snap().UndockRefused {
+		t.Errorf("a second undock press while the Vessel is in flight was dropped, not answered")
+	}
+}
