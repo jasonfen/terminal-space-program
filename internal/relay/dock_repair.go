@@ -163,6 +163,12 @@ func repairOwnerSeat(w *sim.World, r *DockRecord) bool {
 		return false
 	}
 	if sim.StackHasGuest(cp) { // O4: an adopted Composite
+		// After a role swap DockerCraftID is this player's own former guest
+		// Vessel, and a payload older than their handover still flies it. The
+		// Composite carries those parts now, so the free copy goes.
+		if old, _, ok := w.CraftByID(r.DockerCraftID); ok && old.ID != cp.ID && !carriesGuest(old, r.GuestOwner, r.GuestCraftID) {
+			w.RemoveCraftByID(r.DockerCraftID)
+		}
 		w.AdoptCraft(cp, true)
 		r.CompositeID = cp.ID
 		return true
