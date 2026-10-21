@@ -28,4 +28,3 @@ func TestRepairTransferRecipientStalePreHandoverPayload(t *testing.T) {
 		t.Errorf("F1: %d flyable copies of X in the recipient's World, want 1", v+p)
 	}
 }
-
