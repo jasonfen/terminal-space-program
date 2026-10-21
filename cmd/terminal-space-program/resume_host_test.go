@@ -68,3 +68,37 @@ func TestHostServeStartWithEmptyRingKeepsFreshWorld(t *testing.T) {
 		t.Errorf("the fresh World was replaced with nothing to resume")
 	}
 }
+
+// F7: after --reset-fleet, a plain restart before the first autosave must not
+// bring the pre-reset host back. The reset leaves the fresh host World as the
+// newest ring slot, so the next resume picks it.
+func TestPlainRestartAfterResetFleetResumesTheFreshHost(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	old, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old.Clock.SimTime = old.Clock.SimTime.Add(5 * time.Hour)
+	if err := save.WriteAutosave(old); err != nil {
+		t.Fatal(err)
+	}
+	app, err := tui.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	epoch := old.Clock.SimTime.Add(-90 * 24 * time.Hour)
+	if msg := resumeHostAutosave(app, true, true); msg != "" {
+		t.Fatalf("a reset start resumed: %s", msg)
+	}
+	alignHostAfterReset(app, epoch)
+
+	restarted, err := tui.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumeHostAutosave(restarted, true, false) // the plain restart
+	if got := restarted.World().Clock.SimTime; !got.Equal(epoch) {
+		t.Errorf("the restart resumed the pre-reset host at %v, want the reset epoch %v", got, epoch)
+	}
+}

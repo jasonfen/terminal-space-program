@@ -187,7 +187,7 @@ func main() {
 				fmt.Fprintf(os.Stderr, "terminal-space-program: reset-fleet: %v\n", err)
 				os.Exit(1)
 			}
-			app.World().Clock.SimTime = epoch
+			alignHostAfterReset(app, epoch)
 			fmt.Fprintf(os.Stderr, "terminal-space-program: fleet reset — %d player(s) on the shared 500x500 km ring, subspace epoch %s\n",
 				len(entries), epoch.UTC().Format(time.RFC3339))
 			for _, e := range entries {
@@ -297,6 +297,16 @@ func printLists(systems []bodies.System, systemFilter string, sys, bodiesL, load
 		for _, s := range sim.LaunchSites {
 			fmt.Printf("  %-12s %-28s %7.3f°N  %8.3f°E\n", s.Key, s.Name, s.LatitudeDeg, s.LongitudeEastDeg)
 		}
+	}
+}
+
+// alignHostAfterReset puts the fresh host World on the reset epoch and writes
+// it to the autosave ring, so it is the newest slot: a plain restart before the
+// first autosave would otherwise resume the pre-reset host beside a reset fleet.
+func alignHostAfterReset(app *tui.App, epoch time.Time) {
+	app.World().Clock.SimTime = epoch
+	if err := app.PersistNow(); err != nil {
+		fmt.Fprintf(os.Stderr, "terminal-space-program: reset-fleet: could not save the fresh host World: %v\n", err)
 	}
 }
 
