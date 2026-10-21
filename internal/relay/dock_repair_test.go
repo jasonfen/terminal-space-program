@@ -458,3 +458,57 @@ func TestRepairLeavesACleanSeatAlone(t *testing.T) {
 		t.Errorf("an unrelated Vessel was removed from a clean World")
 	}
 }
+
+// Residual 3 / section 7.4: UndockGuest on a stale Composite cannot refuse. The
+// guest's parts are peelable on the stale Composite whenever they were on the
+// live one, because the arrangement only ever loses peelability (a local dock
+// on top, a transfer flips the tags) and a World that owns the stack always has
+// the original orientation back. Checked here over the history with the most
+// movement: fuse, [J] away, [J] back, then an undock; the owner's payload stale
+// from each point it was written while owning the stack.
+func TestRepairStripNeverRefusesOnAStaleComposite(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		at   int // which owned-stack payload survives the crash
+	}{{"written after the fuse", 1}, {"written after the stack came back", 3}} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t, 314)
+			var stale *sim.World
+			r.guestTick()
+			r.ownerTick()
+			r.ack()
+			if tc.at == 1 {
+				stale = viaDisk(t, r.wA)
+			}
+			if ok, why := r.l.RequestTransfer(fpA, allOnline); !ok {
+				t.Fatalf("A -> B refused: %s", why)
+			}
+			r.ownerTick()
+			r.guestTick()
+			r.ack()
+			if ok, why := r.l.RequestTransfer(fpB, allOnline); !ok {
+				t.Fatalf("B -> A refused: %s", why)
+			}
+			r.guestTick()
+			r.ownerTick()
+			r.ack()
+			if tc.at == 3 {
+				stale = viaDisk(t, r.wA)
+			}
+			if !r.l.RequestUndock(fpB, r.xID) {
+				t.Fatalf("test setup: no undock to ask for")
+			}
+			r.ownerTick()
+			if r.snap().ReturnPayload == nil {
+				t.Fatalf("test setup: the live undock refused")
+			}
+			r.crash()
+			r.wA = stale
+			if !r.l.Repair(r.wA, fpA) {
+				t.Errorf("Repair did not strip the stale Composite (UndockGuest refused?)")
+			}
+			r.settle()
+			r.oneGuestVessel("after undock on a round-tripped stack")
+		})
+	}
+}
