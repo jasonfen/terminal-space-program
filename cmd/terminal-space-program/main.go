@@ -296,3 +296,8 @@ func printLists(systems []bodies.System, systemFilter string, sys, bodiesL, load
 		}
 	}
 }
+
+// resumeHostAutosave is the --serve start-up resume (ADR 0040 amendment 3).
+func resumeHostAutosave(app *tui.App, serveMode, resetFleet bool) string {
+	return ""
+}

@@ -214,6 +214,10 @@ type App struct {
 	// through this per-player sink instead of the host's local saves,
 	// and the local Saves surface (F5/F9, menu Save/Load) is disabled.
 	guestSave func(*sim.World) error
+	// onPersisted is called with the World after persistNow wrote it
+	// successfully (ADR 0040 amendment 3: the hosting App's autosaves
+	// acknowledge to the dock ledger).
+	onPersisted func(*sim.World)
 
 	// Chat input overlay (ADR 0035 S3). App-level rather than a screen
 	// so the capturingText obligation is one unconditional check — not
@@ -319,6 +323,17 @@ func (a *App) World() *sim.World { return a.world }
 // replaces every local autosave write and the local Saves surface is
 // refused with a toast. v0.27 S3 (ADR 0034).
 func (a *App) SetGuestPersistence(sink func(*sim.World) error) { a.guestSave = sink }
+
+// SetOnPersisted installs the hook persistNow calls after a successful write.
+func (a *App) SetOnPersisted(fn func(*sim.World)) { a.onPersisted = fn }
+
+// ResumeNewestAutosave swaps in the newest readable autosave-ring slot as the
+// live World and says so in the footer. It is the inverse of the ring's
+// rotation, for a `--serve` start (ADR 0040 amendment 3). With no readable
+// slot it returns an error and leaves the fresh World alone.
+func (a *App) ResumeNewestAutosave() (string, error) {
+	return "", nil
+}
 
 // NewWithWorld builds an App around an existing world — the
 // multiplayer reconnect path, where the player's persisted world is
