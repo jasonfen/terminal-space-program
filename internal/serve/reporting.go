@@ -29,6 +29,8 @@ type reportingModel struct {
 	rep   *relay.Reporter
 	srv   *Server
 	owner string
+	// restartSaved: the host's world was already written for a SIGTERM restart.
+	restartSaved bool
 
 	// ls is this session's registry entry, nil for the host (ADR 0054). The
 	// tick reads its dropped record and quits when the host has ended the
@@ -367,6 +369,16 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if _, ok := msg.(sim.TickMsg); ok && m.srv != nil {
 		now := time.Now()
 		w := m.app.World()
+		// SIGTERM restart: the host has no ssh session, so persistMiddleware
+		// never writes its world and os.Exit skips the quit-path autosave.
+		// Save it here, on the goroutine that owns the World, during the
+		// announce grace.
+		if m.ls == nil && m.srv.restarting.Load() && !m.restartSaved {
+			m.restartSaved = true
+			if err := m.app.PersistNow(); err != nil {
+				log.Printf("SIGTERM restart: host world did not save before exit: %v", err)
+			}
+		}
 		// Stamp the roster handle on the report so the ghost keeps its name
 		// after a kick removes the row (ADR 0054 decision 5).
 		if h, ok := m.handleOf(m.owner); ok {

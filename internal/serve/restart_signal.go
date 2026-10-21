@@ -44,6 +44,7 @@ func (s *Server) restartOnSignal(sig <-chan os.Signal, stop <-chan struct{}) {
 	case <-stop:
 		return
 	}
+	s.restarting.Store(true)
 	s.AnnounceRestart()
 	// Let the next tick carry the warning to every connected screen before
 	// the listener drains under them. The same grace the admin restart uses.

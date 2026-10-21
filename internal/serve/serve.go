@@ -17,6 +17,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -78,13 +79,16 @@ type Config struct {
 // run their own game. The listener is bound in New so port conflicts
 // surface before the host's own TUI takes the screen.
 type Server struct {
-	ssh      *ssh.Server
-	ln       net.Listener
-	store    *sessiondir.Store
-	relay    *relay.Store
-	dock     *relay.DockLedger
-	presence *presence
-	chat     *chatRing
+	// restarting is set when SIGTERM starts a restart, so the host's own tick
+	// (the only goroutine that may read its World) saves it before exit.
+	restarting atomic.Bool
+	ssh        *ssh.Server
+	ln         net.Listener
+	store      *sessiondir.Store
+	relay      *relay.Store
+	dock       *relay.DockLedger
+	presence   *presence
+	chat       *chatRing
 
 	// ver is the running-vs-available version readout (v0.30 S5). Created
 	// here (no network — just the running version + adopt-capability env);

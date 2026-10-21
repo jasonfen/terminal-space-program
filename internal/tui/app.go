@@ -2454,13 +2454,13 @@ func (a *App) autosave() {
 // chance to write, whatever the sim's pause state, and it must always
 // take it — a restart mid-pause must not silently stop persisting.
 // Call it on the Bubble Tea update goroutine: it reads the live world.
-func (a *App) PersistNow() { a.persistNow() }
+func (a *App) PersistNow() error { return a.persistNow() }
 
 // persistNow is the unconditional write shared by autosave (once past
 // its paused-world guard) and PersistNow (which has none). Never call
 // this directly from a quit path — go through autosave so the guard
 // applies.
-func (a *App) persistNow() {
+func (a *App) persistNow() error {
 	// The pause menu's hold is UI state, not a gameplay pause: persist the
 	// clock as the player left it, so a restart mid-menu does not come back
 	// frozen (B11 / G9 Q6).
@@ -2470,10 +2470,9 @@ func (a *App) persistNow() {
 		defer func() { a.world.Clock.Paused = held }()
 	}
 	if a.guestSave != nil {
-		_ = a.guestSave(a.world)
-		return
+		return a.guestSave(a.world)
 	}
-	_ = save.WriteAutosave(a.world)
+	return save.WriteAutosave(a.world)
 }
 
 // maybeAutosave fires the periodic autosave (v0.26 S4 / ADR 0033 §E)
