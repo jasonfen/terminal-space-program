@@ -86,35 +86,48 @@ type DockSnapshot struct {
 func (l *DockLedger) FullRecords() []DockSnapshot {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	out := make([]DockSnapshot, 0, len(l.records))
+	out := make([]DockSnapshot, 0, len(l.records)+len(l.settled))
 	for _, r := range l.records {
-		out = append(out, DockSnapshot{
-			ID: r.ID, Owner: r.Owner, OwnerHandle: r.OwnerHandle,
-			DockerCraftID: r.DockerCraftID, CompositeID: r.CompositeID,
-			GuestOwner: r.GuestOwner, GuestHandle: r.GuestHandle,
-			GuestCraftID:    r.GuestCraftID,
-			Phase:           r.Phase,
-			GuestPayload:    craftToWireTransfer(r.guestPayload),
-			ReturnPayload:   craftToWireSameOwner(r.returnPayload),
-			TransferPayload: craftToWireTransfer(r.transferPayload),
-			UndockAsk:       r.undockAsk,
-			UndockRefused:   r.undockRefused,
-			HandOverAsk:     r.handOverAsk,
-			TransferTo:      r.transferTo,
-			Aborted:         r.aborted,
-			ReleaseAsk:      r.releaseAsk,
-			ReleaseAsParcel: r.releaseAsParcel,
-			Parcel:          r.parcel,
-			ParcelAtNano:    r.parcelAtNano,
-			ReclaimNotice:   r.reclaimNotice,
-			ReclaimAtNano:   r.reclaimAtNano,
-			DockNotice:      r.dockNotice,
-			ReturnAtNano:    r.returnAtNano,
-			End:             r.end,
-			EndHandle:       r.endHandle,
-		})
+		out = append(out, snapshotOf(r))
+	}
+	for _, r := range l.settled {
+		out = append(out, snapshotOf(r))
 	}
 	return out
+}
+
+func snapshotOf(r *DockRecord) DockSnapshot {
+	return DockSnapshot{
+		ID: r.ID, Owner: r.Owner, OwnerHandle: r.OwnerHandle,
+		DockerCraftID: r.DockerCraftID, CompositeID: r.CompositeID,
+		GuestOwner: r.GuestOwner, GuestHandle: r.GuestHandle,
+		GuestCraftID:    r.GuestCraftID,
+		Phase:           r.Phase,
+		GuestPayload:    craftToWireTransfer(r.guestPayload),
+		ReturnPayload:   craftToWireSameOwner(r.returnPayload),
+		TransferPayload: craftToWireTransfer(r.transferPayload),
+		UndockAsk:       r.undockAsk,
+		UndockRefused:   r.undockRefused,
+		HandOverAsk:     r.handOverAsk,
+		TransferTo:      r.transferTo,
+		Aborted:         r.aborted,
+		ReleaseAsk:      r.releaseAsk,
+		ReleaseAsParcel: r.releaseAsParcel,
+		Parcel:          r.parcel,
+		ParcelAtNano:    r.parcelAtNano,
+		ReclaimNotice:   r.reclaimNotice,
+		ReclaimAtNano:   r.reclaimAtNano,
+		DockNotice:      r.dockNotice,
+		ReturnAtNano:    r.returnAtNano,
+		End:             r.end,
+		EndHandle:       r.endHandle,
+		OwnerDirty:      r.OwnerDirty,
+		GuestDirty:      r.GuestDirty,
+		OwnerCopy:       r.ownerCopy,
+		GuestCopy:       r.guestCopy,
+		FromCompositeID: r.FromCompositeID,
+		Done:            r.Done,
+	}
 }
 
 // SeedFull installs full records (from the session directory on server start)
@@ -150,8 +163,18 @@ func (l *DockLedger) SeedFull(snaps []DockSnapshot, systems []bodies.System) {
 			returnAtNano:    s.ReturnAtNano,
 			end:             s.End,
 			endHandle:       s.EndHandle,
+			OwnerDirty:      s.OwnerDirty,
+			GuestDirty:      s.GuestDirty,
+			ownerCopy:       s.OwnerCopy,
+			guestCopy:       s.GuestCopy,
+			FromCompositeID: s.FromCompositeID,
+			Done:            s.Done,
 		}
-		l.records[rec.ID] = rec
+		if rec.Done {
+			l.settled[rec.ID] = rec
+		} else {
+			l.records[rec.ID] = rec
+		}
 		if rec.ID >= l.nextID {
 			l.nextID = rec.ID
 		}
