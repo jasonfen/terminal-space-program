@@ -71,6 +71,13 @@ type DockSnapshot struct {
 	// record.
 	End       string
 	EndHandle string
+
+	// ADR 0040 amendment (10a): the acknowledgement state (ack.go). Done
+	// marks a settled record.
+	OwnerDirty, GuestDirty bool
+	OwnerCopy, GuestCopy   *save.Craft
+	FromCompositeID        uint64
+	Done                   bool
 }
 
 // FullRecords snapshots every live dock in full, converting the parked craft
