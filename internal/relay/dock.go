@@ -828,7 +828,14 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 		// handover parks the ONLY copy of the stack on the record, which from
 		// this seat is indistinguishable from a phantom — and reaping there
 		// would destroy the craft durability exists to save.
-		_, cidx, live := w.CraftByID(r.CompositeID)
+		comp, cidx, live := w.CraftByID(r.CompositeID)
+		// 10a: the Composite keeps its lead's ID and IDs are per World, so a
+		// fresh World's ID 1 can answer to a record that named another stack.
+		// A Vessel carrying none of the guest's parts is not the dock (unless
+		// the parts are leaving: returnPayload is set the tick they peel off).
+		if live && r.returnPayload == nil && !sim.StackHasGuest(comp) {
+			live = false
+		}
 		if !live {
 			if !r.hasParkedPayload() {
 				r.aborted = true
