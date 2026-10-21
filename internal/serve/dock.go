@@ -32,7 +32,11 @@ func (m *reportingModel) reconcileDocking(w *sim.World, coupled map[string]bool,
 	// the acknowledgement (ADR 0040 amendment, 10a). Silent by design.
 	if m.repairedFor != w {
 		m.repairedFor = w
-		if m.srv.dock.Repair(w, m.owner) {
+		repair := m.srv.dock.Repair
+		if m.owner == sessiondir.HostFingerprint && !m.app.ResumedFromSave() {
+			repair = m.srv.dock.RepairFresh
+		}
+		if repair(w, m.owner) {
 			_ = m.app.PersistNow()
 			changed = true
 		}

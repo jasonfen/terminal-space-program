@@ -111,6 +111,8 @@ type App struct {
 	keys   Keymap
 	active screenID
 
+	resumed bool // the World came from durable storage, not tui.New's default
+
 	selectedBody int
 
 	width, height int
@@ -349,6 +351,10 @@ func (a *App) ResumeNewestAutosave() (string, error) {
 	return "", errors.New("no readable autosave to resume")
 }
 
+// ResumedFromSave reports whether the World came from durable storage. A New
+// App's default World did not, so the ledger cannot match its Vessel IDs.
+func (a *App) ResumedFromSave() bool { return a.resumed }
+
 // NewWithWorld builds an App around an existing world — the
 // multiplayer reconnect path, where the player's persisted world is
 // restored instead of a fresh default start.
@@ -357,7 +363,7 @@ func NewWithWorld(w *sim.World) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a.world = w
+	a.world, a.resumed = w, true
 	a.world.SetEnabledMissionPrograms(enabledProgramsFromSettings(a.orbitView.Settings()))
 	return a, nil
 }
@@ -2227,7 +2233,7 @@ func (a *App) loadWorldByID(id string) error {
 	if err != nil {
 		return err
 	}
-	a.world = w
+	a.world, a.resumed = w, true
 	// The loaded world starts with the nil ("all enabled") default; re-apply
 	// the player's program toggles so a load respects them. v0.21 Slice 7.
 	a.world.SetEnabledMissionPrograms(enabledProgramsFromSettings(a.orbitView.Settings()))

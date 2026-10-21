@@ -209,3 +209,32 @@ func TestResetFleetClearsLedger(t *testing.T) {
 		t.Errorf("the old records came back from session.json: %d", n)
 	}
 }
+
+// F3/F9: a --serve host with nothing to resume runs tui.New's World, whose pad
+// Vessel has ID 1, the same ID a host's first lead had. A host-owned fuse that
+// never reached disk must hand the guest's Vessel back as a Parcel, not glue
+// it onto the pad Vessel.
+func TestFreshHostWorldGetsNoGuestFusedOntoPadVessel(t *testing.T) {
+	srv := serverOver(t, t.TempDir())
+	app, err := tui.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c := app.World().ActiveCraft(); c == nil || c.ID != 1 {
+		t.Fatalf("test setup: the default Vessel must be ID 1")
+	}
+	cp := save.CraftToWireForTransfer(guestLander(app.World()))
+	rec := hostDockRecord(1)
+	rec.OwnerDirty, rec.OwnerCopy = true, &cp
+	srv.dock.SeedFull([]relay.DockSnapshot{rec}, nil)
+	tickHost(WrapHost(app, srv, 0), 3)
+
+	for _, c := range app.World().Crafts {
+		if sim.StackHasGuest(c) {
+			t.Errorf("the guest's Vessel was fused onto the host's fresh pad Vessel %d", c.ID)
+		}
+	}
+	if got := snapshotByID(t, srv, 3); got.ReturnPayload == nil && !got.Aborted {
+		t.Errorf("the guest's Vessel is not on its way back: %+v", got)
+	}
+}

@@ -23,7 +23,16 @@ import (
 // what says the durable World may disagree with the record. A clean seat's
 // World agrees, and Vessel IDs are per World, so touching it could remove an
 // unrelated Vessel that reuses an ID.
-func (l *DockLedger) Repair(w *sim.World, seat string) bool {
+func (l *DockLedger) Repair(w *sim.World, seat string) bool { return l.repair(w, seat, false) }
+
+// RepairFresh is Repair for a seat whose World never came from its durable
+// payload (a --serve host with nothing to resume runs tui.New's default
+// World). Vessel IDs are per World, so its ID-1 pad Vessel is not the lead
+// the record names: the lead counts as gone and a lost fuse comes back to the
+// guest as a Parcel.
+func (l *DockLedger) RepairFresh(w *sim.World, seat string) bool { return l.repair(w, seat, true) }
+
+func (l *DockLedger) repair(w *sim.World, seat string, fresh bool) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	var recs []*DockRecord
@@ -40,7 +49,7 @@ func (l *DockLedger) Repair(w *sim.World, seat string) bool {
 		if r.GuestOwner == seat && repairGuestSeat(w, r) {
 			changed = true
 		}
-		if r.Owner == seat && repairOwnerSeat(w, r) {
+		if r.Owner == seat && repairOwnerSeat(w, r, fresh) {
 			changed = true
 		}
 	}
@@ -113,7 +122,7 @@ func compositeIn(w *sim.World, r *DockRecord) (*spacecraft.Spacecraft, int, bool
 }
 
 // repairOwnerSeat is rules O1 to O6.
-func repairOwnerSeat(w *sim.World, r *DockRecord) bool {
+func repairOwnerSeat(w *sim.World, r *DockRecord, fresh bool) bool {
 	if r.transferPayload != nil { // O1: this seat is the recipient, nothing here yet
 		return false
 	}
@@ -174,7 +183,7 @@ func repairOwnerSeat(w *sim.World, r *DockRecord) bool {
 		return true
 	}
 	// O3: the guest's Vessel as fused. Fuse it again if the lead is here.
-	if _, idx, ok := w.CraftByID(r.DockerCraftID); ok {
+	if _, idx, ok := w.CraftByID(r.DockerCraftID); ok && !fresh {
 		if comp, _, ok := w.DockGuestCraft(idx, cp, r.GuestOwner); ok {
 			r.CompositeID = comp.ID
 			return true
