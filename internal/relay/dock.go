@@ -232,7 +232,7 @@ func (l *DockLedger) Claim(owner, ownerHandle string, dockerCraftID uint64, gues
 			}
 			continue
 		}
-		if r.involvesCraft(owner, dockerCraftID) || r.involvesCraft(guestOwner, guestCraftID) {
+		if r.involvesCraft(owner, dockerCraftID) || r.involvesCraft(guestOwner, guestCraftID) || r.occupies(owner, guestOwner) {
 			return nil, false
 		}
 	}
@@ -249,6 +249,15 @@ func (l *DockLedger) Claim(owner, ownerHandle string, dockerCraftID uint64, gues
 	}
 	l.records[r.ID] = r
 	return r, true
+}
+
+// occupies reports whether this live record already gives the new claim's
+// docker a stack or its guest a ride. The verbs ([J], [U], undock) and the
+// World's single DockGuest slot key on the player, so a second record for the
+// same player would be acted on in map order (audit #13). One ride and one
+// stack per player, the rule DetectGuestContact applies to the claimer.
+func (r *DockRecord) occupies(owner, guestOwner string) bool {
+	return r.Owner == owner || r.GuestOwner == guestOwner
 }
 
 // involvesCraft reports whether (fp, craftID) is either endpoint of r.
@@ -1101,7 +1110,7 @@ func (l *DockLedger) ClaimRefused(owner string, dockerCraftID uint64, guestOwner
 			}
 			continue
 		}
-		if r.involvesCraft(owner, dockerCraftID) || r.involvesCraft(guestOwner, guestCraftID) {
+		if r.involvesCraft(owner, dockerCraftID) || r.involvesCraft(guestOwner, guestCraftID) || r.occupies(owner, guestOwner) {
 			return true
 		}
 	}
