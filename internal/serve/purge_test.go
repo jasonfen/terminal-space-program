@@ -257,6 +257,7 @@ func newMidDock(t *testing.T, gernDocks bool, gernLive bool) *midDock {
 		srv.presence.markOnline(gernFP)
 		d.gern = srv.withReporting(gernApp, gernFP, d.gernLS)
 	} else {
+		srv.presence.markOnline(gernFP) // contact detection only captures live sessions (audit #12)
 		d.gern = srv.withReporting(gernApp, gernFP)
 	}
 	hw, gw := hostApp.World(), gernApp.World()

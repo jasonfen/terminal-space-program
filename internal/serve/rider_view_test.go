@@ -33,6 +33,7 @@ func TestDockGuestFollowsStackCamera(t *testing.T) {
 	}
 	var host tea.Model = srv.HostModel(hostApp)
 	var guest tea.Model = srv.withReporting(guestApp, guestFP)
+	srv.presence.markOnline(guestFP) // contact detection only captures live sessions (audit #12)
 
 	hw, gw := hostApp.World(), guestApp.World()
 	gw.Clock.SimTime = hw.Clock.SimTime

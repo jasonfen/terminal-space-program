@@ -27,6 +27,7 @@ func seats(t *testing.T, gapM float64) (srv *Server, host, guest tea.Model, hw, 
 	}
 	host = srv.HostModel(hostApp)
 	guest = srv.withReporting(guestApp, guestFP)
+	srv.presence.markOnline(guestFP) // contact detection only captures live sessions (audit #12)
 	hw, gw = hostApp.World(), guestApp.World()
 	gw.Clock.SimTime = hw.Clock.SimTime
 	arrangePortContactAt(t, hw, gw, 777, gapM)

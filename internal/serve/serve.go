@@ -562,8 +562,24 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 		if ls != nil {
 			s.live.remove(fp, ls)
 		}
+		joined, _ := sess.Context().Value(ctxKeyJoined).(bool)
+		// The final payload goes down BEFORE the player is marked offline
+		// (audit #10b): an empty-seat [J] gates on presence alone, so the
+		// other order let it lift the stack out of the stale payload and
+		// this write then put it back, one stack with two pilots.
+		// "Was enrolled" comes from the session, not the roster: a kick
+		// has already removed the row, and the burn in progress it
+		// promised to keep must still be saved (ADR 0054 decision 5).
+		// Never-enrolled visitors leave nothing, and a purging drop writes
+		// nothing: a late write would resurrect the payload the purge
+		// deletes (call 3).
+		if app, ok := sess.Context().Value(ctxKeyApp).(*tui.App); ok && joined {
+			if rec := ls.droppedRecord(); rec == nil || !rec.purge {
+				_ = s.store.SavePlayer(fp, app.World())
+			}
+		}
 		// Presence: pair the join marked at connect/enroll (v0.27 S6).
-		if joined, _ := sess.Context().Value(ctxKeyJoined).(bool); joined {
+		if joined {
 			s.presence.markOffline(fp)
 			// A displaced session announces nothing (ADR 0036 S5): its player
 			// is not leaving, they are resuming on another connection, and
@@ -601,21 +617,5 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 				s.away.clear(fp)
 			}
 		}
-		app, ok := sess.Context().Value(ctxKeyApp).(*tui.App)
-		if !ok {
-			return
-		}
-		// "Was enrolled" comes from the session, not the roster: a kick
-		// has already removed the row, and the burn in progress it
-		// promised to keep must still be saved (ADR 0054 decision 5).
-		if joined, _ := sess.Context().Value(ctxKeyJoined).(bool); !joined {
-			return // never enrolled — ephemeral visit
-		}
-		// A purging drop writes nothing: a late write would resurrect the
-		// payload the purge deletes (call 3).
-		if rec := ls.droppedRecord(); rec != nil && rec.purge {
-			return
-		}
-		_ = s.store.SavePlayer(fp, app.World())
 	}
 }

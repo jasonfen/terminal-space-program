@@ -55,7 +55,14 @@ func (m *reportingModel) reconcileDocking(w *sim.World, coupled map[string]bool,
 		}
 		m.srv.dock.Approach.Publish(me, target, initiatorToward)
 		w.SetGhostPullGate(m.srv.dock.Approach.Gate(me))
-		if ghostOwner, ghostCraftID, ok := relay.DetectGuestContact(w, coupled); ok {
+		// Only a player with a live session can be captured: a left player's
+		// frozen report still couples (audit #12), and a Claim on them has no
+		// exit and later pulls their vessel from wherever it is.
+		liveCoupled := make(map[string]bool, len(coupled))
+		for o := range coupled {
+			liveCoupled[o] = m.srv.presence.isOnline(o)
+		}
+		if ghostOwner, ghostCraftID, ok := relay.DetectGuestContact(w, liveCoupled); ok {
 			ownHandle := handles[m.owner]
 			if _, claimed := m.srv.dock.Claim(m.owner, ownHandle, active.ID, ghostOwner, handles[ghostOwner], ghostCraftID); claimed {
 				changed = true
