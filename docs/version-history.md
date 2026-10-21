@@ -2,6 +2,17 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.58.0
+
+A server crash no longer duplicates or loses a docked vessel (PR `#724`; tag `v0.58.0`).
+
+- **Docks survive a hard crash of the multiplayer host.** The server's dock record now repairs each player's saved game when it is next opened, so after any crash during a dock, undock or handover there is exactly one copy of every vessel. Nothing is shown; the usual dock chips say what changed.
+- **The host comes back where they left off.** `--serve` resumes the host's newest autosave at start, so a stack the host owns, guest and all, survives a restart. `--reset-fleet` starts the host fresh as before.
+- **While hosting, the host's game autosaves at least every 5 minutes**, like every guest's, even with autosave off. Solo play follows the setting.
+- **Staging a stack down to a friend's docked vessel hands that vessel back to them.** It used to leave the dock stuck with undock refused.
+- **`--reset-fleet` now clears old docks for good.** A fresh vessel could be mistaken for a stack from before the reset.
+- The server's `session.json` moves to version 5; older builds refuse to start on it.
+
 ### v0.57.7
 
 Multiplayer dock and restart fixes (PRs `#720`, `#721`; tag `v0.57.7`).
