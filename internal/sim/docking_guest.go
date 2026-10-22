@@ -497,7 +497,7 @@ func (s CoWarpState) WithDockCoupling(ownerHandle string, ownerEffWarp float64) 
 // StackMidBurn / AnyCraftThrusting.
 func StackDryArmed(c *spacecraft.Spacecraft) bool {
 	return c != nil && c.DryOrder && c.ActiveBurn == nil && c.ManualBurn == nil &&
-		c.EffectiveThrottle() > 0 && c.ActiveStageFuel() <= 0
+		!c.LiquidCut() && c.ActiveStageFuel() <= 0
 }
 
 // StackMidBurn reports whether the craft is actively thrusting — a planted

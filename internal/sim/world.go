@@ -2094,6 +2094,8 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 		// #466 (G5 Q1): the throttle is a standing order. The dry tank ends
 		// the burn but not the order; the next stage press relights.
 		c.DryOrder = true
+	} else if c.ManualBurn != nil && endsCutBurn(c) {
+		c.ManualBurn = nil // ADR 0058: the last solid burned out under a cut core
 	}
 }
 
@@ -2294,6 +2296,11 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 			throttle = 1.0
 		}
 	}
+	// ADR 0058: the core's throttle drives fuel; the thrust the set delivers
+	// is ΣT_i·θ_i (solids pinned at 1), as a fraction of c.Thrust. Identical
+	// to the core throttle on a single-stage set.
+	core := throttle
+	throttle = c.LitThrottle(core)
 	// v0.10.0: by default thrust along the craft's physical nose
 	// (CurrentAttitudeDir, slewed at the tick top) so burning before
 	// alignment bleeds Δv to cosine loss. InstantSAS restores the
@@ -2356,8 +2363,7 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 	// directly; with Stages now authoritative, that path would leave
 	// the bottom stage's tank artificially full and the burn would
 	// never terminate from fuel exhaustion.
-	fuelBurned := c.MassFlowRateAt(throttle) * thrustDt
-	c.BurnFuel(fuelBurned)
+	c.BurnFuelAt(core, thrustDt)
 	c.State.M = c.TotalMass()
 }
 

@@ -1,6 +1,9 @@
 package spacecraft
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 // liquidPair is a synthetic marked liquid booster under a liquid core.
 func liquidPair() []Stage {
@@ -90,4 +93,16 @@ func TestLiquidCutNeedsEveryLiquidGroupAtZero(t *testing.T) {
 	if !c.LiquidCut() {
 		t.Error("both at 0: cut")
 	}
+}
+
+// BurnTimeForDV reads the blended engine (ADR 0058): t = (m0/ṁ)(1-e^(-Δv/(Isp·g0)))
+// with ṁ = Σ T_i/(Isp_i·g0) = 14,271.55 kg/s and Isp_eff 295.02, counted here
+// independently of the blend code.
+func TestBurnTimeForDVReadsTheBlend(t *testing.T) {
+	c := &Spacecraft{Stages: slsSynth()}
+	c.SyncFields()
+	mdot := 32.0e6/(268*g0) + 9.29e6/(452*g0)
+	isp := 41.29e6 / mdot / g0
+	want := c.TotalMass() / mdot * (1 - math.Exp(-1000/(isp*g0)))
+	near(t, "BurnTimeForDV(1000)", c.BurnTimeForDV(1000).Seconds(), want, 1e-3)
 }

@@ -114,6 +114,10 @@ func (w *World) ToggleManualBurn() {
 		return
 	}
 	if c.ManualBurn != nil {
+		if c.SolidLit() { // ADR 0058 decision 4: a solid can't be cut, so b is x on all
+			w.SetThrottleFor(ThrottleAll, 0)
+			return
+		}
 		w.StopManualBurn()
 		return
 	}
@@ -148,7 +152,42 @@ const throttleZeroEpsilon = 1e-9
 // the dangling burn would block StartManualBurn (v0.12.x
 // pause-and-resume) and keep the craft's warp clamp pinned ≤10× for
 // good.
-func (w *World) SetThrottle(t float64) {
+func (w *World) SetThrottle(t float64) { w.SetThrottleFor(ThrottleAll, t) }
+
+// ThrottleGroup picks which lit-set throttle a command writes (ADR 0058
+// decision 3; S4 maps its `c` target onto these).
+type ThrottleGroup int
+
+const (
+	ThrottleAll      ThrottleGroup = iota // core, and the liquid boosters if they have their own
+	ThrottleCore                          // Spacecraft.Throttle only
+	ThrottleBoosters                      // Spacecraft.BoosterThrottle; no-op without a liquid booster
+)
+
+// writeThrottle sets group g of c to t (already clamped). Solids have no
+// throttle to write. Returns whether anything changed.
+func writeThrottle(c *spacecraft.Spacecraft, g ThrottleGroup, t float64) bool {
+	changed := false
+	if g != ThrottleBoosters && t != c.Throttle {
+		c.Throttle, changed = t, true
+	}
+	if g == ThrottleBoosters && c.HasLiquidBooster() && t != c.BoosterThrottleEff() ||
+		g == ThrottleAll && c.BoosterThrottle != nil && t != *c.BoosterThrottle {
+		c.BoosterThrottle, changed = &t, true
+	}
+	return changed
+}
+
+// endsCutBurn reports that a manual burn has nothing left firing: a
+// multi-stage lit set, every liquid group at 0, every solid burned out.
+func endsCutBurn(c *spacecraft.Spacecraft) bool {
+	return len(spacecraft.LitStages(c.Stages)) > 1 && c.LiquidCut() && !c.SolidLit()
+}
+
+// SetThrottleFor is SetThrottle for one throttle group. The manual burn
+// ends only when every liquid group is at 0 and no solid is lit (ADR 0058
+// decision 4): a lit solid keeps thrusting, so the burn object stays.
+func (w *World) SetThrottleFor(g ThrottleGroup, t float64) {
 	c := w.ActiveCraft()
 	if c == nil {
 		return
@@ -161,11 +200,10 @@ func (w *World) SetThrottle(t float64) {
 	} else if t > 1 {
 		t = 1
 	}
-	if t != c.Throttle {
+	if writeThrottle(c, g, t) {
 		c.LastThrottleChangeAt = w.Clock.SimTime
 	}
-	c.Throttle = t
-	if t == 0 {
+	if c.LiquidCut() && !c.SolidLit() {
 		w.StopManualBurn()
 		if c.BurnStalled() || (c.ActiveBurn != nil && !w.activeBurnTargetReady(c)) {
 			if c.ActiveBurn != nil && c.RendezvousPlan != nil && c.RendezvousPlan.BurnActive {
@@ -178,12 +216,19 @@ func (w *World) SetThrottle(t float64) {
 
 // AdjustThrottle steps the active craft's Throttle by delta, clamped
 // to [0, 1].
-func (w *World) AdjustThrottle(delta float64) {
+func (w *World) AdjustThrottle(delta float64) { w.AdjustThrottleFor(ThrottleAll, delta) }
+
+// AdjustThrottleFor steps group g by delta from that group's current value.
+func (w *World) AdjustThrottleFor(g ThrottleGroup, delta float64) {
 	c := w.ActiveCraft()
 	if c == nil {
 		return
 	}
-	w.SetThrottle(c.Throttle + delta)
+	base := c.Throttle
+	if g == ThrottleBoosters {
+		base = c.BoosterThrottleEff()
+	}
+	w.SetThrottleFor(g, base+delta)
 }
 
 // SetAttitudeMode updates the active craft's held attitude. If a
