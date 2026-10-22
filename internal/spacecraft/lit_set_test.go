@@ -190,3 +190,15 @@ func TestMarkedSLSLiftoffThrustAgreesWithStats(t *testing.T) {
 	near(t, "canLiftOff-basis TWR", got, StackStats(c.Stages).LiftoffTWR, 1e-9)
 	near(t, "TWR vs ADR 1.64", got, 1.64, 0.01)
 }
+
+// Loadout.Thrust/Isp/Fuel read the lit set, so a marked SLS is 41.29 MN /
+// 295 s / SRB + core fuel, and an empty loadout reads zero.
+func TestLoadoutReadsTheLitSet(t *testing.T) {
+	l := Loadouts["SLS-Block1"]
+	near(t, "Thrust", l.Thrust(), 41.29e6, 1)
+	near(t, "Isp", l.Isp(), 295.02, 0.01)
+	near(t, "Fuel", l.Fuel(), 1_270_000+979_452, 1e-6)
+	if th, isp := LitEngine(nil); th != 0 || isp != 0 {
+		t.Errorf("LitEngine(nil) = %g, %g, want 0, 0", th, isp)
+	}
+}

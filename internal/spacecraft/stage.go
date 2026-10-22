@@ -354,12 +354,15 @@ func LitStages(stages []Stage) []int {
 	return set
 }
 
-// litEngine returns the lit set's summed thrust and thrust-weighted blend
+// LitEngine returns the lit set's summed thrust and thrust-weighted blend
 // Isp (Isp_eff = ΣT / Σ(T/Isp), as aggregateComponents). A member with an
 // empty tank is dead weight and drops out; when every tank is dry the lit
 // stage's own engine is kept, as for any dry vessel.
-func litEngine(stages []Stage) (thrust, isp float64) {
+func LitEngine(stages []Stage) (thrust, isp float64) {
 	set := LitStages(stages)
+	if len(set) == 0 {
+		return 0, 0
+	}
 	if len(set) == 1 { // unmarked: exact, no T/(T/Isp) rounding
 		return stages[set[0]].Thrust, stages[set[0]].Isp
 	}
@@ -401,6 +404,15 @@ func litPhaseBurn(stages []Stage, set []int) []float64 {
 	return burn
 }
 
+// LitSetStage is the lit stage with its Thrust and Isp replaced by the lit
+// set's (LitEngine): the one-Stage view of the engine a vessel flies with,
+// for readouts that print a stage's engine. Zero Stage for an empty slice.
+func LitSetStage(stages []Stage) Stage {
+	st := LitStageOf(stages)
+	st.Thrust, st.Isp = LitEngine(stages)
+	return st
+}
+
 // LitStageOf returns a copy of the lit stage of stages, or the zero Stage
 // for an empty slice.
 func LitStageOf(stages []Stage) Stage {
@@ -437,7 +449,7 @@ func (s *Spacecraft) SyncFields() {
 	s.Cargo = SumCargoMass(s.Stages)
 	s.MonopropCapacity = SumMonopropCap(s.Stages)
 	lit := s.Stages[LitStageIdx(s.Stages)]
-	s.Thrust, s.Isp = litEngine(s.Stages)
+	s.Thrust, s.Isp = LitEngine(s.Stages)
 	s.RCSThrust = lit.RCSThrust
 	s.RCSIsp = lit.RCSIsp
 	bottom := s.Stages[0]

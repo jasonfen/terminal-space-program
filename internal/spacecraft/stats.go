@@ -101,7 +101,7 @@ func StackStatsSeams(stages []Stage, seamBelow []bool) VehicleStats {
 		vs.TotalMass += s.DryMass + s.FuelMass + s.MonopropMass + s.CargoKg + s.HoldKg
 	}
 	if len(stages) > 0 && vs.TotalMass > 0 {
-		thrust, _ := litEngine(stages)
+		thrust, _ := LitEngine(stages)
 		vs.LiftoffTWR = thrust / (vs.TotalMass * g0)
 	}
 	return vs

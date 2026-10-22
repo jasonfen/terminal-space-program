@@ -135,29 +135,32 @@ func (l Loadout) DryMass() float64 {
 	return l.Stages[0].DryMass
 }
 
-// Fuel returns the lit stage's fuel mass (the bottom stage's on every
-// shipped loadout; see LitStageIdx).
+// Fuel returns the lit set's fuel mass (the bottom stage's on every unmarked
+// loadout; see LitStages and ActiveStageFuel).
 func (l Loadout) Fuel() float64 {
-	if len(l.Stages) == 0 {
-		return 0
+	var f float64
+	for _, i := range LitStages(l.Stages) {
+		f += l.Stages[i].FuelMass
 	}
-	return l.Stages[LitStageIdx(l.Stages)].FuelMass
+	return f
 }
 
-// Isp returns the lit stage's main-engine specific impulse.
+// Isp returns the lit set's blended main-engine specific impulse.
 func (l Loadout) Isp() float64 {
 	if len(l.Stages) == 0 {
 		return 0
 	}
-	return l.Stages[LitStageIdx(l.Stages)].Isp
+	_, isp := LitEngine(l.Stages)
+	return isp
 }
 
-// Thrust returns the lit stage's main-engine thrust.
+// Thrust returns the lit set's summed main-engine thrust.
 func (l Loadout) Thrust() float64 {
 	if len(l.Stages) == 0 {
 		return 0
 	}
-	return l.Stages[LitStageIdx(l.Stages)].Thrust
+	thrust, _ := LitEngine(l.Stages)
+	return thrust
 }
 
 // LoadoutSIVB1ID is the bare Apollo S-IVB / J-2 upper stage: the v0.5.13-
