@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.58.1
+
+Lighting a heavy stack on the pad no longer wrecks it, and saves survive a power cut (PRs `#732`, `#733`; tag `v0.58.1`).
+
+- **A vessel too heavy to lift off stays on the pad with its engine burning.** It lifts off as soon as thrust beats weight, either when you throttle up or once it has burned off enough propellant. It used to sink into the pad and count as a crash (closes `#716`).
+- **A power cut or crash just after a save no longer leaves an empty or cut-off save file.** Saves, settings and the server's `session.json` are flushed to disk before they replace the old copy.
+
 ### v0.58.0
 
 A server crash no longer duplicates or loses a docked vessel (PR `#724`; tag `v0.58.0`).
