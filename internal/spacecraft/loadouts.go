@@ -289,6 +289,7 @@ func resolveLoadout(d LoadoutDef, parts map[string]Part) Loadout {
 		}
 		st := p.ToStage()
 		st.LoadoutID = d.ID // the loadout that produced this stage (jettison/HUD identity)
+		st.LitWithAbove = ref.LitWithAbove
 		if ref.Override != nil {
 			applyPartOverride(&st, *ref.Override)
 		}
