@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jasonfen/terminal-space-program/internal/atomicfile"
 	"log"
 	"os"
 	"path/filepath"
@@ -548,11 +549,8 @@ func (s *Store) writeMeta(m Meta) error {
 	if err != nil {
 		return fmt.Errorf("sessiondir: %w", err)
 	}
-	tmp := s.metaPath() + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("sessiondir: %w", err)
-	}
-	if err := os.Rename(tmp, s.metaPath()); err != nil {
+	// shortcut: no directory fsync after the rename (guards losing the rename, not truncation); add if a lost write bites.
+	if err := atomicfile.Write(s.metaPath(), data, 0o644); err != nil {
 		return fmt.Errorf("sessiondir: %w", err)
 	}
 	return nil

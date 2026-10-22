@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/jasonfen/terminal-space-program/internal/atomicfile"
 	"os"
 	"path/filepath"
 	"time"
@@ -649,14 +650,8 @@ func writeAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create save dir: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("write tmpfile: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("rename into place: %w", err)
-	}
-	return nil
+	// shortcut: no directory fsync after the rename (guards losing the rename, not truncation); add if a lost autosave bites.
+	return atomicfile.Write(path, data, 0o644)
 }
 
 // Load reads path, validates the envelope, and returns a fresh World

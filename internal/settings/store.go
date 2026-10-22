@@ -3,6 +3,7 @@ package settings
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/jasonfen/terminal-space-program/internal/atomicfile"
 	"os"
 	"path/filepath"
 )
@@ -82,12 +83,6 @@ func Save(s Settings) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
-		return fmt.Errorf("write tmpfile: %w", err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("rename into place: %w", err)
-	}
-	return nil
+	// shortcut: no directory fsync after the rename (guards losing the rename, not truncation); add if a lost autosave bites.
+	return atomicfile.Write(path, data, 0o644)
 }
