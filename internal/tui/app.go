@@ -388,6 +388,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	a.dropStaleAsks()
 	switch m := msg.(type) {
 	case sim.TickMsg:
+		// ADR 0058 decision 5: note which vessels burn lit solids going in, so
+		// a tank that empties inside this tick (or a warp batch) flashes once.
+		boostersLit := make(map[*spacecraft.Spacecraft]bool)
+		for _, c := range a.world.Crafts {
+			if sim.BoosterSolidsLit(c) {
+				boostersLit[c] = true
+			}
+		}
 		a.world.Tick()
 		if a.orbitView.RendezvousPickerOpen() {
 			a.orbitView.SetRendezvousPickerNow(a.world.Clock.SimTime)
@@ -478,6 +486,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		a.world.PendingBurnFinishedEvents = nil
+		for c := range boostersLit {
+			if !sim.BoosterSolidsLit(c) && len(c.Stages) > 0 && c.Stages[0].LitWithAbove && c.Stages[0].FuelMass <= 0 {
+				burnMsgs = append(burnMsgs, "boosters burned out")
+				break
+			}
+		}
 		if len(burnMsgs) > 0 {
 			a.flash(strings.Join(burnMsgs, " · "))
 		}
