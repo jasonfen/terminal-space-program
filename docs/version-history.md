@@ -4,10 +4,11 @@ Newest first. One headline per release, then the concrete changes and the issues
 
 ### v0.58.1
 
-Lighting a heavy stack on the pad no longer wrecks it, and saves survive a power cut (PRs `#732`, `#733`; tag `v0.58.1`).
+Lighting a heavy stack on the pad no longer wrecks it, and saves survive a power cut (PRs `#732`, `#733`, `#735`; tag `v0.58.1`).
 
 - **A vessel too heavy to lift off stays on the pad with its engine burning.** It lifts off as soon as thrust beats weight, either when you throttle up or once it has burned off enough propellant. It used to sink into the pad and count as a crash (closes `#716`).
 - **A power cut or crash just after a save no longer leaves an empty or cut-off save file.** Saves, settings and the server's `session.json` are flushed to disk before they replace the old copy.
+- **Linux packages ship with each release**: `.deb`, `.rpm`, `.apk` and Arch (`.pkg.tar.zst`) for amd64 and arm64, so Linux users don't need Homebrew. The README has install lines.
 
 ### v0.58.0
 
