@@ -1127,11 +1127,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			// ADR 0047 §3 / #428: clear-all moved off plain letters
-			// entirely. `c` maps to ReArmDock on the map — a docking
-			// action with nothing to do with a burn plan one screen
-			// later — so inside the planner it just points at the real
-			// binding instead of either clearing the plan or silently
-			// doing the map's re-arm.
+			// entirely. `c` is a flight key on the map (the throttle target,
+			// ADR 0058), so inside the planner it just points at the real
+			// binding instead of clearing the plan.
 			if !a.maneuver.TextFieldFocused() && m.String() == "c" {
 				a.refuse("clear all", "is ctrl+k")
 				return a, nil

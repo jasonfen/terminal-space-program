@@ -40,16 +40,35 @@ func buildRearmLatchApp(t *testing.T) *App {
 	return a
 }
 
-// TestReArmDockKeyClearsLatch: pressing `c` with a latched, targeted
+// altU is Option/Alt+u as the terminal delivers it (ADR 0058 decision 3:
+// re-arm docking moved off `c`, which becomes the throttle target).
+var altU = tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'u'}, Alt: true}
+
+// TestReArmDockKeyClearsLatch: pressing `alt+u` with a latched, targeted
 // partner clears the latch and chips the partner's name (#372 acceptance).
 func TestReArmDockKeyClearsLatch(t *testing.T) {
 	a := buildRearmLatchApp(t)
 	partnerName := a.world.Crafts[1].Name
 
-	pressMsg(a, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	pressMsg(a, altU)
 
 	if !strings.Contains(a.statusMsg, "re-armed") || !strings.Contains(a.statusMsg, partnerName) {
 		t.Errorf("statusMsg = %q, want it to mention re-arming %q", a.statusMsg, partnerName)
+	}
+}
+
+// TestPlainCNoLongerReArms: the old `c` binding must not clear the latch
+// (ADR 0058 guard 7). Proof by order: a `c` press, then the real alt+u
+// press still finds the latch and reports success.
+func TestPlainCNoLongerReArms(t *testing.T) {
+	a := buildRearmLatchApp(t)
+	pressMsg(a, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	if strings.Contains(a.statusMsg, "re-arm") {
+		t.Errorf("plain c still re-arms: statusMsg = %q", a.statusMsg)
+	}
+	pressMsg(a, altU)
+	if !strings.Contains(a.statusMsg, "re-armed") {
+		t.Errorf("statusMsg = %q: the latch was already cleared by plain c", a.statusMsg)
 	}
 }
 
@@ -60,7 +79,7 @@ func TestReArmDockKeyNoLatchSaysSo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	pressMsg(a, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	pressMsg(a, altU)
 	if !strings.Contains(a.statusMsg, "no re-arm latch") {
 		t.Errorf("statusMsg = %q, want it to say no latch is held", a.statusMsg)
 	}
@@ -83,7 +102,7 @@ func TestReArmDockKeyInertWhileBossShellOpen(t *testing.T) {
 		t.Fatalf("setup: backtick did not open the boss shell (active=%v)", a.active)
 	}
 
-	pressMsg(a, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	pressMsg(a, altU)
 	if a.active != screenBoss {
 		t.Fatalf("'c' exited the boss shell (active=%v) — it should have been consumed as shell text", a.active)
 	}
@@ -93,7 +112,7 @@ func TestReArmDockKeyInertWhileBossShellOpen(t *testing.T) {
 		t.Fatalf("setup: ctrl+d did not close the boss shell")
 	}
 
-	pressMsg(a, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	pressMsg(a, altU)
 	if !strings.Contains(a.statusMsg, "re-armed") {
 		t.Errorf("statusMsg = %q after the real re-arm press — the latch looks like it was already cleared while the boss shell was capturing text", a.statusMsg)
 	}
