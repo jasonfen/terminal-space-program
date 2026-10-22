@@ -45,3 +45,17 @@ jobs:
           # so a release without the secret still publishes binaries (the
           # cask/scoop steps will fail loudly rather than silently skip).
           TAP_GITHUB_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
+
+      # apt/dnf/apk repos on Cloudsmith's open-source tier, so Linux users
+      # get upgrades from their package manager. GoReleaser's own Cloudsmith
+      # publisher is Pro-only, hence the CLI. Arch packages stay on the
+      # GitHub release (Cloudsmith has no pacman format).
+      - name: Push Linux packages to Cloudsmith
+        env:
+          CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
+        run: |
+          pip install --quiet cloudsmith-cli
+          repo=jasonfen/terminal-space-program
+          for f in dist/*.deb; do cloudsmith push deb "$repo/debian/any-version" "$f"; done
+          for f in dist/*.rpm; do cloudsmith push rpm "$repo/any-distro/any-version" "$f"; done
+          for f in dist/*.apk; do cloudsmith push alpine "$repo/alpine/any-version" "$f"; done

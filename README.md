@@ -96,29 +96,30 @@ ladder is off until you enable it in Settings.
 brew install --cask jasonfen/tap/terminal-space-program
 ```
 
-### Linux packages (.deb / .rpm / .apk / Arch)
+### Linux (apt / dnf / apk)
 
-Each release ships native packages for `amd64` and `arm64`:
+Package repository hosted by [Cloudsmith](https://cloudsmith.com), free for
+open source. Upgrades arrive with your normal system updates.
 
 ```bash
 # Debian / Ubuntu
-curl -LO https://github.com/jasonfen/terminal-space-program/releases/latest/download/terminal-space-program-linux-amd64.deb
-sudo apt install ./terminal-space-program-linux-amd64.deb
+sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl gnupg
+curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/terminal-space-program-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/terminal-space-program.list
+sudo apt update
+sudo apt install terminal-space-program
 
-# Fedora / RHEL / openSUSE
-sudo dnf install https://github.com/jasonfen/terminal-space-program/releases/latest/download/terminal-space-program-linux-amd64.rpm
+# Fedora / RHEL
+sudo dnf config-manager addrepo --from-repofile=https://dl.cloudsmith.io/public/jasonfen/terminal-space-program/any-distro.rpm.txt
+sudo dnf install terminal-space-program
 
 # Alpine
-curl -LO https://github.com/jasonfen/terminal-space-program/releases/latest/download/terminal-space-program-linux-amd64.apk
-sudo apk add --allow-untrusted ./terminal-space-program-linux-amd64.apk
-
-# Arch
-curl -LO https://github.com/jasonfen/terminal-space-program/releases/latest/download/terminal-space-program-linux-amd64.pkg.tar.zst
-sudo pacman -U ./terminal-space-program-linux-amd64.pkg.tar.zst
+curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program/setup.alpine.sh' | sudo -E bash
+sudo apk add terminal-space-program
 ```
 
-Swap `amd64` for `arm64` on ARM machines. Re-run to upgrade (no repo, so no
-auto-updates).
+Arch users: each [release](https://github.com/jasonfen/terminal-space-program/releases/latest)
+also carries a `.pkg.tar.zst` for `sudo pacman -U`.
 
 ### Scoop (Windows)
 
