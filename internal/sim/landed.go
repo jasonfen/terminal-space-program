@@ -76,3 +76,32 @@ func integrateLanded(w *World, c *spacecraft.Spacecraft, simDelta time.Duration)
 		c.CurrentAttitudeDir = cmd
 	}
 }
+
+// canLiftOff reports whether the landed craft's thrust along local up beats
+// its weight at the current throttle. #716: below that the engine runs but the
+// vessel stays seated; releasing it into free integration sank it into the
+// ground and classifySurfaceArrival called that a crash.
+func (w *World) canLiftOff(c *spacecraft.Spacecraft) bool {
+	m, r := c.TotalMass(), c.State.R.Norm()
+	if m <= 0 || r <= 0 {
+		return true
+	}
+	nose := w.commandedDirFor(c) // what integrateLanded will pin the nose to
+	if nose.Norm() == 0 {
+		nose = c.CurrentAttitudeDir
+	}
+	up := c.State.R.Scale(1 / r)
+	lift := c.Thrust * c.EffectiveThrottle() / m * nose.Unit().Dot(up)
+	return lift > c.Primary.GravitationalParameter()/(r*r)
+}
+
+// burnSeated runs a manual burn that cannot yet lift the craft: propellant is
+// spent and mass falls (so TWR rises), the craft stays pinned. A dry tank ends
+// the burn exactly as it does in flight.
+func (w *World) burnSeated(c *spacecraft.Spacecraft, simDelta time.Duration) {
+	c.BurnFuel(c.MassFlowRate() * simDelta.Seconds())
+	if c.ActiveStageFuel() <= 0 {
+		c.ManualBurn = nil
+		c.DryOrder = true
+	}
+}
