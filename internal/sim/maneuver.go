@@ -75,11 +75,15 @@ func (w *World) StartManualBurn() {
 	// because the Landed bypass returned early. Clearing here means
 	// the next Tick runs normal physics with the surface co-rotation
 	// velocity as the initial condition.
-	c.Landed = false
-	// v0.11.4+ (ADR 0004): first liftoff clears OnPad so a future
-	// soft-landing's Landed=false→true transition doesn't fire the
-	// ViewLaunch auto-route (which gates on OnPad).
-	c.OnPad = false
+	// #716: only when thrust beats weight; otherwise integrateOneCraft keeps
+	// the craft seated, burning, and releases it at the first tick it can lift.
+	if w.canLiftOff(c) {
+		c.Landed = false
+		// v0.11.4+ (ADR 0004): first liftoff clears OnPad so a future
+		// soft-landing's Landed=false→true transition doesn't fire the
+		// ViewLaunch auto-route (which gates on OnPad).
+		c.OnPad = false
+	}
 	// #298: the pilot taking manual thrust supersedes the standing
 	// rendezvous intent — release arm + driver so the coast can't warp
 	// against the burn (mirrors the driver yielding to node burns).
