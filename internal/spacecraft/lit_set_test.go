@@ -180,3 +180,13 @@ func TestDropDoubleMarks(t *testing.T) {
 		t.Error("input slice mutated")
 	}
 }
+
+// The thrust canLiftOff reads (c.Thrust over TotalMass, internal/sim/landed.go:
+// 94-99) is the lit set's sum, and gives the same TWR as the VAB's LiftoffTWR.
+func TestMarkedSLSLiftoffThrustAgreesWithStats(t *testing.T) {
+	c := NewFromLoadout("SLS-Block1")
+	near(t, "c.Thrust", c.Thrust, 41.29e6, 1)
+	got := c.Thrust / (c.TotalMass() * g0)
+	near(t, "canLiftOff-basis TWR", got, StackStats(c.Stages).LiftoffTWR, 1e-9)
+	near(t, "TWR vs ADR 1.64", got, 1.64, 0.01)
+}

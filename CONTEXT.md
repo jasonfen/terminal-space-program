@@ -35,7 +35,8 @@ under a powered one, see **Lit Stage**) and `Stages[len-1]` is the *top* stage (
 left after every lower stage has been decoupled). Carries dry mass, fuel
 mass/capacity, thrust, Isp, and ballistic coefficient. **Staging** is the
 act of jettisoning `Stages[0]`; the popped stage spawns as its own passive
-Vessel. Single-stage Vessels can't be staged (no-op + status flash).
+Vessel. Single-stage Vessels can't be staged (no-op + status flash). A
+Stage may be marked **Lit With the Stage Above** (see **Booster**).
 _Avoid_: Booster (one kind of stage, not all stages), Tank, Section.
 
 **Lit Stage**:
@@ -44,10 +45,43 @@ the bottom Stage when none has one. The engine, its tank and its thrusters
 are the lit stage's; the bottom Stage (`Stages[0]`) is what `space` drops
 and what the chute, legs and drag are read from. The two are the same on
 every catalog vessel, and differ on any VAB stack with an inert stage
-under a powered one. On screen: the `◉` pip in STAGES; the `▸` name is
-still the bottom stage.
+under a powered one. When the lit stage is a **Booster** stage, the stage
+above it is lit too: the **Lit Set** is the lit stage plus each stage
+above it while the one below is marked **Lit With the Stage Above**.
+The Vessel's thrust is the set's sum and its Isp the thrust-weighted
+blend (`Isp_eff = ΣF_i / Σ(F_i / Isp_i)`, as **Aggregation**); each lit
+tank drains at its own rate. On screen: a `◉` pip in STAGES for every
+stage in the set; the `▸` name is still the bottom stage (ADR 0058).
 _Avoid_: Active stage (ambiguous with the active Vessel), Firing stage
-(the old name for the bottom stage), Engine stage.
+(the old name for the bottom stage), Engine stage, Parallel stage (say
+Lit Set).
+
+**Booster** / **Core** (ADR 0058):
+Role words for the two halves of a **Lit Set**. The **Booster** stage is
+the one marked **Lit With the Stage Above**; the **Core** is the stage
+above it. A solid booster (`FuelType` solid) runs at 100% from ignition
+to burnout and cannot be throttled, cut, relit or dropped while lit
+(`space` refuses: `boosters still burning`); a liquid booster has its own
+throttle (see **Throttle Target**) and drops any time, shutting down on
+separation. Dry boosters stay attached until `space`. A booster stage
+models a pair: its drop spawns two passive Vessels named
+`<vessel>-booster1` / `-booster2`, each half the stage. On screen:
+ENGINE's title badge (`· boosters T-1m02s`, `· boosters DRY`,
+`· boosters 100% T-1m47s`) and the throttle row's label (`core:` /
+`boosters:`). Stage names (`SRBs`, `Core`) stay on STAGES and the drop
+flash; the catalog's `booster` *tier* is a palette grouping, not this.
+_Avoid_: Strap-on, Side stage, SRB (one kind of booster), Sustainer (the
+tier word).
+
+**Lit With the Stage Above** (ADR 0058):
+The mark that makes a Stage a **Booster**: authored on a Loadout's part
+reference (`lit_with_above`), toggled in the VAB with `b` on the lower
+stage (header tag ` · lights with S2`), copied onto the Stage and saved
+with it. Absent means the stack is serial, as every unmarked vessel is.
+One marked stage per Vessel; a marked stage cannot also be in a
+**Decouple Plan** group.
+_Avoid_: Parallel flag, Asparagus, Crossfeed (not modelled: tanks never
+feed each other).
 
 **Surface Staging**:
 A **Staging** event performed while the Vessel is **Landed** — the
