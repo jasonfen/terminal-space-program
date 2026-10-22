@@ -53,8 +53,8 @@ func TestLitStageIsBottomForEveryShippedLoadout(t *testing.T) {
 		if got := LitStageIdx(l.Stages); got != wantLit {
 			t.Errorf("%s: LitStageIdx = %d, want %d", id, got, wantLit)
 		}
-		if wantLit != 0 {
-			continue // the bottom-stage identities below hold only where lit == bottom
+		if wantLit != 0 || l.Stages[0].LitWithAbove {
+			continue // the bottom-stage identities below hold only where lit == bottom and serial (ADR 0058: a marked pair reads as a set, lit_set_test.go)
 		}
 		b := l.Stages[0]
 		if l.Thrust() != b.Thrust || l.Isp() != b.Isp || l.Fuel() != b.FuelMass {

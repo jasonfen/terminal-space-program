@@ -112,7 +112,8 @@
       "color": "#FF6B35",
       "parts": [
         {
-          "part_id": "srb"
+          "part_id": "srb",
+          "lit_with_above": true
         },
         {
           "part_id": "core-rs25"

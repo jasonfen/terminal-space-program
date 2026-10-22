@@ -63,13 +63,35 @@ func StackStatsSeams(stages []Stage, seamBelow []bool) VehicleStats {
 		}
 		return m
 	}
+	// A marked stage (ADR 0058) lights with the stage above it: its row is
+	// the blended first phase, and the core above arrives at its own phase
+	// carrying only what the first phase left in its tank (coreBurn).
+	// shortcut: a booster tank that outlasts its core loses the leftover
+	// Δv; the grill's pairs (SRB under a core) never do, revisit with the
+	// first liquid-booster vehicle.
+	coreBurn := make([]float64, len(stages))
+	boosterBurn := make([]float64, len(stages))
+	for i := range stages {
+		if c := i + 1; stages[i].LitWithAbove && (i == 0 || !stages[i-1].LitWithAbove) && c < top[i] && !seamed(c) &&
+			stages[i].FuelMass > 0 && stages[c].FuelMass > 0 {
+			b := litPhaseBurn(stages, []int{i, c})
+			boosterBurn[i], coreBurn[c] = b[0], b[1]
+		}
+	}
 	vs := VehicleStats{StageDV: make([]float64, len(stages))}
 	for i, s := range stages {
-		if s.FuelMass > 0 && s.Isp > 0 {
-			m0 := massUpTo(i)
-			m1 := m0 - s.FuelMass
+		fuel := s.FuelMass - coreBurn[i]
+		if fuel > 0 && s.Isp > 0 {
+			m0 := massUpTo(i) - coreBurn[i]
+			m1 := m0 - fuel
+			isp := s.Isp
+			if boosterBurn[i] > 0 {
+				fuel = boosterBurn[i] + coreBurn[i+1]
+				m1 = m0 - fuel
+				isp = (s.Thrust + stages[i+1].Thrust) / (s.Thrust/s.Isp + stages[i+1].Thrust/stages[i+1].Isp)
+			}
 			if m1 > 0 {
-				dv := s.Isp * g0 * math.Log(m0/m1)
+				dv := isp * g0 * math.Log(m0/m1)
 				vs.StageDV[i] = dv
 				if carrier[i] {
 					vs.TotalDV += dv
@@ -79,7 +101,8 @@ func StackStatsSeams(stages []Stage, seamBelow []bool) VehicleStats {
 		vs.TotalMass += s.DryMass + s.FuelMass + s.MonopropMass + s.CargoKg + s.HoldKg
 	}
 	if len(stages) > 0 && vs.TotalMass > 0 {
-		vs.LiftoffTWR = stages[LitStageIdx(stages)].Thrust / (vs.TotalMass * g0)
+		thrust, _ := LitEngine(stages)
+		vs.LiftoffTWR = thrust / (vs.TotalMass * g0)
 	}
 	return vs
 }

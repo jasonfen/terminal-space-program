@@ -1,5 +1,7 @@
 package spacecraft
 
+import "math"
+
 // FuelType constants (v0.11.5). The renderer maps each value to a
 // flame colour in internal/tui/screens/launch_sprite.go; the in-game
 // vocabulary lives in CONTEXT.md under "Maneuver & thrust".
@@ -227,6 +229,11 @@ type Stage struct {
 	// today: `lander` and `f9-s1` in StageCatalog.
 	CanSoftLand bool `json:",omitempty"`
 
+	// LitWithAbove (ADR 0058 decision 1) marks this stage as a Booster:
+	// it lights together with the stage above it (see LitStages). Copied
+	// from the loadout's part reference at resolve; absent means serial.
+	LitWithAbove bool `json:",omitempty"`
+
 	// HasParachute (v0.12 Slice 3, ADR 0008): per-stage parachute
 	// capability, the exact mirror of CanSoftLand. Set in StageCatalog
 	// (today: the `csm` stage and the standalone re-entry capsule);
@@ -333,6 +340,79 @@ func LitStageIdx(stages []Stage) int {
 	return 0
 }
 
+// LitStages returns the lit set (ADR 0058): the lit stage plus each stage
+// above it while the stage below is marked LitWithAbove. Bottom-first.
+func LitStages(stages []Stage) []int {
+	if len(stages) == 0 {
+		return nil
+	}
+	i := LitStageIdx(stages)
+	set := []int{i}
+	for ; stages[i].LitWithAbove && i+1 < len(stages); i++ {
+		set = append(set, i+1)
+	}
+	return set
+}
+
+// LitEngine returns the lit set's summed thrust and thrust-weighted blend
+// Isp (Isp_eff = ΣT / Σ(T/Isp), as aggregateComponents). A member with an
+// empty tank is dead weight and drops out; when every tank is dry the lit
+// stage's own engine is kept, as for any dry vessel.
+func LitEngine(stages []Stage) (thrust, isp float64) {
+	set := LitStages(stages)
+	if len(set) == 0 {
+		return 0, 0
+	}
+	if len(set) == 1 { // unmarked: exact, no T/(T/Isp) rounding
+		return stages[set[0]].Thrust, stages[set[0]].Isp
+	}
+	var flow float64 // Σ T_i/Isp_i
+	for _, i := range set {
+		if st := stages[i]; st.FuelMass > 0 && st.Thrust > 0 && st.Isp > 0 {
+			thrust += st.Thrust
+			flow += st.Thrust / st.Isp
+		}
+	}
+	if flow == 0 {
+		lit := stages[LitStageIdx(stages)]
+		return lit.Thrust, lit.Isp
+	}
+	return thrust, thrust / flow
+}
+
+// litPhaseBurn is the propellant each member of set burns, at full throttle
+// and its own mass flow T_i/(Isp_i·g0), until the first tank empties: the
+// first phase of a lit set (ADR 0058 decision 7). A member with no fuel or
+// no engine burns nothing. The first tank to empty burns exactly its
+// FuelMass, so a one-stage set reproduces "burn the whole tank".
+func litPhaseBurn(stages []Stage, set []int) []float64 {
+	if len(set) == 1 { // unmarked: the whole tank, whatever the engine
+		return []float64{stages[set[0]].FuelMass}
+	}
+	burn := make([]float64, len(set))
+	tMin := math.Inf(1)
+	for _, i := range set {
+		if st := stages[i]; st.FuelMass > 0 && st.Thrust > 0 && st.Isp > 0 {
+			tMin = math.Min(tMin, st.FuelMass*st.Isp/st.Thrust)
+		}
+	}
+	for k, i := range set {
+		if st := stages[i]; st.FuelMass > 0 && st.Thrust > 0 && st.Isp > 0 {
+			burn[k] = st.FuelMass * (tMin / (st.FuelMass * st.Isp / st.Thrust))
+		}
+	}
+	return burn
+}
+
+// LitSetStage is the lit stage with its Thrust and Isp replaced by the lit
+// set's (LitEngine): the one-Stage view of the engine a vessel flies with,
+// for readouts that print a stage's engine. Zero Stage for an empty slice.
+func LitSetStage(stages []Stage) Stage {
+	st := LitStageOf(stages)
+	st.Thrust, st.Isp = LitEngine(stages)
+	return st
+}
+
 // LitStageOf returns a copy of the lit stage of stages, or the zero Stage
 // for an empty slice.
 func LitStageOf(stages []Stage) Stage {
@@ -369,8 +449,7 @@ func (s *Spacecraft) SyncFields() {
 	s.Cargo = SumCargoMass(s.Stages)
 	s.MonopropCapacity = SumMonopropCap(s.Stages)
 	lit := s.Stages[LitStageIdx(s.Stages)]
-	s.Thrust = lit.Thrust
-	s.Isp = lit.Isp
+	s.Thrust, s.Isp = LitEngine(s.Stages)
 	s.RCSThrust = lit.RCSThrust
 	s.RCSIsp = lit.RCSIsp
 	bottom := s.Stages[0]
@@ -406,9 +485,10 @@ func (s *Spacecraft) SyncFields() {
 	}
 }
 
-// ActiveStageFuel returns the lit stage's (Stages[0] unless an inert
-// stage sits under the engine) main-engine propellant in kg. Used by the engine-cutoff path to
-// decide whether the active engine still has fuel.
+// ActiveStageFuel returns the lit set's main-engine propellant in kg (the
+// lit stage's tank on an unmarked vessel, ADR 0058: every lit tank on a
+// marked one). Used by the engine-cutoff path to decide whether the active
+// engine still has fuel.
 //
 // v0.9.4+: replaces direct checks against s.Fuel (which is the
 // SUMMED propellant across all stages). For a 3-stage Saturn V
@@ -423,24 +503,55 @@ func (s *Spacecraft) ActiveStageFuel() float64 {
 	if len(s.Stages) == 0 {
 		return s.Fuel
 	}
-	return s.Stages[s.LitStage()].FuelMass
+	var f float64
+	for _, i := range LitStages(s.Stages) {
+		f += s.Stages[i].FuelMass
+	}
+	return f
 }
 
-// BurnFuel decrements the lit stage's main-engine fuel by amount
-// (kg), clamped to [0, lit.FuelMass]. Refreshes the flat
-// shadow fields. v0.9.1+ replacement for the pre-staging pattern
+// BurnFuel decrements the lit set's main-engine fuel by amount (kg), split
+// across the lit tanks by each engine's mass flow T_i/Isp_i (so each tank
+// drains at its own rate, ADR 0058), each clamped to its own tank. Refreshes
+// the flat shadow fields. v0.9.1+ replacement for the pre-staging pattern
 // `c.Fuel -= amount`. Returns the amount actually burned (clamped).
+// shortcut: a tank that empties mid-call leaves its unburned share unburned
+// for that call, not moved to the other tank; S2 steps are sub-second.
 func (s *Spacecraft) BurnFuel(amount float64) float64 {
 	if len(s.Stages) == 0 || amount <= 0 {
 		return 0
 	}
-	lit := s.LitStage()
-	if amount > s.Stages[lit].FuelMass {
-		amount = s.Stages[lit].FuelMass
+	set := LitStages(s.Stages)
+	if len(set) == 1 {
+		lit := set[0]
+		if amount > s.Stages[lit].FuelMass {
+			amount = s.Stages[lit].FuelMass
+		}
+		s.Stages[lit].FuelMass -= amount
+		s.SyncFields()
+		return amount
 	}
-	s.Stages[lit].FuelMass -= amount
+	var wsum float64
+	for _, i := range set {
+		if st := s.Stages[i]; st.FuelMass > 0 && st.Isp > 0 {
+			wsum += st.Thrust / st.Isp
+		}
+	}
+	if wsum == 0 {
+		return 0
+	}
+	var burned float64
+	for _, i := range set {
+		st := &s.Stages[i]
+		if st.FuelMass <= 0 || st.Isp <= 0 {
+			continue
+		}
+		d := math.Min(amount*(st.Thrust/st.Isp)/wsum, st.FuelMass)
+		st.FuelMass -= d
+		burned += d
+	}
 	s.SyncFields()
-	return amount
+	return burned
 }
 
 // BurnMonoprop decrements the lit stage's RCS propellant by amount

@@ -584,10 +584,12 @@ func (s *Spacecraft) consumeFuel(dvUsed float64) {
 
 // RemainingDeltaV estimates how much more Δv the main engine's fuel
 // supports via the rocket equation: Δv = Isp·g0·ln(m0/m_after_fuel).
-// Only the active (bottom) stage's propellant is burnable through the
-// firing engine, so m_after_fuel subtracts ActiveStageFuel() from the
-// stacked total — everything else (dry mass, monoprop, *upper-stage
-// propellant*) is dead weight to this engine.
+// Only the lit set's propellant is burnable through the firing engines, so
+// m_after_fuel subtracts what the set burns before its first tank empties
+// (litPhaseBurn: the whole tank for one lit stage, ADR 0058's first leg at
+// the blended Isp for a marked pair) from the stacked total — everything
+// else (dry mass, monoprop, *upper-stage propellant*) is dead weight to
+// these engines.
 //
 // v0.14.x (GH #89): the floor was DryMass+Monoprop, but s.Fuel /
 // DryMass are the SUMMED values across all stages, so the implied
@@ -598,7 +600,14 @@ func (s *Spacecraft) consumeFuel(dvUsed float64) {
 // unchanged there; only multi-stage budgets are corrected.
 func (s *Spacecraft) RemainingDeltaV() float64 {
 	total := s.TotalMass()
-	floor := total - s.ActiveStageFuel()
+	burn := s.ActiveStageFuel()
+	if len(s.Stages) > 0 {
+		burn = 0
+		for _, b := range litPhaseBurn(s.Stages, LitStages(s.Stages)) {
+			burn += b
+		}
+	}
+	floor := total - burn
 	if floor <= 0 || total == 0 {
 		return 0
 	}

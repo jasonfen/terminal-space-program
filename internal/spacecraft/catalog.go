@@ -162,6 +162,9 @@ type PartOverride struct {
 type PartRef struct {
 	PartID   string        `json:"part_id"`
 	Override *PartOverride `json:"override,omitempty"`
+	// LitWithAbove (ADR 0058 decision 1) marks this stage as a Booster: it
+	// lights together with the stage above it. Absent means serial.
+	LitWithAbove bool `json:"lit_with_above,omitempty"`
 }
 
 // LoadoutDef is a data-authored loadout: an ordered list of part
@@ -339,7 +342,29 @@ func loadMergedCatalog() (map[string]Component, map[string]Part, []LoadoutDef, [
 	comps, parts, loadouts, warnings := mergeUserCatalog(comps, parts, loadouts, userCatalogDir())
 	parts, aggWarnings := aggregateComponents(parts, comps)
 	warnings = append(warnings, aggWarnings...)
+	loadouts, markWarnings := dropDoubleMarks(loadouts)
+	warnings = append(warnings, markWarnings...)
 	return comps, parts, loadouts, warnings, nil
+}
+
+// dropDoubleMarks enforces ADR 0058's one booster group per vessel: a part
+// whose lower neighbour is already marked LitWithAbove loses its mark, with
+// a warning naming the loadout (skip-bad, ADR 0026 §3). It copies a
+// loadout's Parts before editing, so the caller's defs are untouched.
+func dropDoubleMarks(defs []LoadoutDef) ([]LoadoutDef, []CatalogWarning) {
+	out := make([]LoadoutDef, len(defs))
+	var warns []CatalogWarning
+	for k, d := range defs {
+		d.Parts = append([]PartRef(nil), d.Parts...)
+		for i := 1; i < len(d.Parts); i++ {
+			if defs[k].Parts[i].LitWithAbove && defs[k].Parts[i-1].LitWithAbove {
+				d.Parts[i].LitWithAbove = false
+				warns = append(warns, CatalogWarning{Path: d.ID, Err: fmt.Errorf("part %d: second lit_with_above mark dropped (one booster group per vessel)", i)})
+			}
+		}
+		out[k] = d
+	}
+	return out, warns
 }
 
 func loadEmbeddedCatalog() (map[string]Component, map[string]Part, []LoadoutDef, error) {
