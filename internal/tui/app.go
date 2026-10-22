@@ -2108,6 +2108,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					a.flash("stage: cannot drop the only remaining stage")
 				}
+			case errors.Is(err, sim.ErrStageSolidsLit):
+				a.flash(err.Error()) // ADR 0058: the bare refusal, "boosters still burning"
 			default:
 				a.flash(fmt.Sprintf("stage failed: %v", err))
 			}

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	tea "github.com/charmbracelet/bubbletea"
 	"strings"
 	"testing"
 	"time"
@@ -56,5 +57,19 @@ func TestBoostersBurnedOutFlashesOnce(t *testing.T) {
 	a.Update(sim.TickMsg(time.Now()))
 	if a.statusMsg != "" {
 		t.Errorf("flashed again on the next tick: %q", a.statusMsg)
+	}
+}
+
+// ADR 0058 decision 5: `space` while the lit solids burn flashes the bare
+// refusal, not the generic "stage failed: ..." wrapper.
+func TestSpaceRefusedFlashWhileSolidsBurn(t *testing.T) {
+	a, sls := burningSLSApp(t)
+	n := len(sls.Stages)
+	pressMsg(a, tea.KeyMsg{Type: tea.KeySpace})
+	if a.statusMsg != "boosters still burning" {
+		t.Errorf("statusMsg = %q, want %q", a.statusMsg, "boosters still burning")
+	}
+	if len(sls.Stages) != n {
+		t.Errorf("stages %d -> %d: the refused press dropped something", n, len(sls.Stages))
 	}
 }
