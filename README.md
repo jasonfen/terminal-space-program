@@ -82,6 +82,30 @@ Press `M` to see the ladder and your progress on it. Don't want it? `M`,
 brew install --cask jasonfen/tap/terminal-space-program
 ```
 
+### Linux packages (.deb / .rpm / .apk / Arch)
+
+Each release ships native packages for `amd64` and `arm64`:
+
+```bash
+# Debian / Ubuntu
+curl -LO https://github.com/jasonfen/terminal-space-program/releases/latest/download/terminal-space-program-linux-amd64.deb
+sudo apt install ./terminal-space-program-linux-amd64.deb
+
+# Fedora / RHEL / openSUSE
+sudo dnf install https://github.com/jasonfen/terminal-space-program/releases/latest/download/terminal-space-program-linux-amd64.rpm
+
+# Alpine
+curl -LO https://github.com/jasonfen/terminal-space-program/releases/latest/download/terminal-space-program-linux-amd64.apk
+sudo apk add --allow-untrusted ./terminal-space-program-linux-amd64.apk
+
+# Arch
+curl -LO https://github.com/jasonfen/terminal-space-program/releases/latest/download/terminal-space-program-linux-amd64.pkg.tar.zst
+sudo pacman -U ./terminal-space-program-linux-amd64.pkg.tar.zst
+```
+
+Swap `amd64` for `arm64` on ARM machines. Re-run to upgrade (no repo, so no
+auto-updates).
+
 ### Scoop (Windows)
 
 ```powershell

@@ -96,6 +96,24 @@ homebrew_casks:
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/terminal-space-program"]
           end
 
+# Linux packages attached to each release, so Linux users don't need brew.
+# Version-free names keep the releases/latest/download URLs stable.
+nfpms:
+  - id: linux-packages
+    ids:
+      - tsp
+    package_name: terminal-space-program
+    file_name_template: "{{ .ProjectName }}-linux-{{ .Arch }}"
+    homepage: "https://github.com/jasonfen/terminal-space-program"
+    description: "Terminal-native orbital-mechanics rocket simulator (KSP in your terminal)"
+    maintainer: "jasonfen <https://github.com/jasonfen>"
+    license: MIT
+    formats:
+      - deb
+      - rpm
+      - apk
+      - archlinux
+
 # Scoop (Windows) — published to a personal bucket.
 # Users: `scoop bucket add jasonfen https://github.com/jasonfen/scoop-bucket`
 #        `scoop install terminal-space-program`.
