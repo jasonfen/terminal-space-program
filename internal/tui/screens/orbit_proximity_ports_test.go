@@ -267,6 +267,16 @@ func TestDockPortNoseRowsMatchDrawnSprite(t *testing.T) {
 		{LaunchSpriteRowsPx: 7, LaunchSpriteWidthPx: 2},
 	}
 	check("derived", derived)
+	// Hand-worked pin (the parity above would pass for any shared number):
+	// SLS = core 34 rows + taper + separator + ICPS 8 = 44; the boosters
+	// stand beside the core and add nothing; extent 2*4 offset + 2 wide = 10.
+	sls := spacecraft.Loadouts["SLS-Block1"].Stages
+	if got := sim.StackRows(sls); got != 44 {
+		t.Errorf("SLS sim.StackRows = %d, want 44", got)
+	}
+	if got := sim.StackWidthPx(sls); got != 10 {
+		t.Errorf("SLS sim.StackWidthPx = %d, want 10", got)
+	}
 }
 
 // The mark sits where the sprite's nose is drawn. Measured, not asserted

@@ -457,7 +457,7 @@
       "color": "#6FA8DC",
       "scale_class": "stripped-back",
       "parts": [
-        { "part_id": "raster-srb" },
+        { "part_id": "raster-srb", "lit_with_above": true },
         { "part_id": "raster-core" },
         { "part_id": "spool-stage" }
       ]

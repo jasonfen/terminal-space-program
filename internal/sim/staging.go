@@ -425,7 +425,7 @@ func BoosterSolidsLit(c *spacecraft.Spacecraft) bool {
 }
 
 // splitBoosterStage returns the two halves of a booster stage (ADR 0058
-// decision 5): the extensive fields halve, Isp, RCSIsp and
+// decision 5): the extensive fields and the sprite width halve, Isp, RCSIsp and
 // BallisticCoefficient (C_D·A/m, both halve) stay, and the halves are
 // plain debris: unmarked and with no command source.
 func splitBoosterStage(s spacecraft.Stage) [2]spacecraft.Stage {
@@ -438,6 +438,7 @@ func splitBoosterStage(s spacecraft.Stage) [2]spacecraft.Stage {
 	s.RCSThrust /= 2
 	s.CargoKg /= 2
 	s.HoldKg /= 2
+	s.LaunchSpriteWidthPx = max(1, s.LaunchSpriteWidthPx/2) // one side column of the pair (decision 10)
 	s.LitWithAbove = false
 	s.CommandSource = spacecraft.CommandNone
 	return [2]spacecraft.Stage{s, s}

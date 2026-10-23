@@ -137,14 +137,13 @@ func TestStackStatsHandWorkedLitSet(t *testing.T) {
 	near(t, "mass", vs.TotalMass, 2_561_227, 1)
 }
 
-// ADR 0058 decision 1: SLS-Block1 ships marked on its bottom part; every
-// other loadout resolves serial. Raster-LS is deliberately NOT marked in S1:
-// lit together its core (51 s) dies before its solids (72 s) and the Lumen
-// Kern-orbit gate (TestLumenLaunchersReachKernOrbit) reads 3,188 < 3,400 m/s.
-// S9 marks it in the same change as the core-fuel retune.
+// ADR 0058 decision 1 and 11: SLS-Block1 and Raster-LS ship marked on their
+// bottom part; every other loadout resolves serial. Raster-LS was left
+// unmarked by S1 (its 2,300 kg core died 21 s before its solids); S9 marks it
+// together with the retune.
 func TestOnlyBoosterLoadoutsAreMarked(t *testing.T) {
 	for _, id := range LoadoutOrder {
-		want := id == "SLS-Block1"
+		want := id == "SLS-Block1" || id == "Raster-LS"
 		for i, st := range Loadouts[id].Stages {
 			if got := st.LitWithAbove; got != (want && i == 0) {
 				t.Errorf("%s stage %d (%s) LitWithAbove = %v, want %v", id, i, st.Name, got, want && i == 0)
@@ -201,4 +200,25 @@ func TestLoadoutReadsTheLitSet(t *testing.T) {
 	if th, isp := LitEngine(nil); th != 0 || isp != 0 {
 		t.Errorf("LitEngine(nil) = %g, %g, want 0, 0", th, isp)
 	}
+}
+
+// ADR 0058 decision 11 / guard 14: lit together at 100% the Raster Core's tank
+// outlasts the Raster SRBs' (fuel / mdot, mdot = T / (Isp g0)), and the retune
+// pins its bytes. Hand-worked: SRB 8,600 / (300e3/(255 g0)) = 71.69 s; core
+// 4,300 / (150e3/(340 g0)) = 95.58 s (was 2,300 -> 51.1 s).
+func TestRasterCoreOutlastsItsSolids(t *testing.T) {
+	st := Loadouts["Raster-LS"].Stages
+	if len(LitStages(st)) != 2 {
+		t.Fatalf("Raster-LS lit set = %d stages, want 2 (SRBs + core)", len(LitStages(st)))
+	}
+	burn := func(s Stage) float64 { return s.FuelMass / (s.Thrust / (s.Isp * 9.80665)) }
+	near(t, "SRB burn s", burn(st[0]), 71.69, 0.01)
+	near(t, "core burn s", burn(st[1]), 95.58, 0.01)
+	if burn(st[1]) <= burn(st[0]) {
+		t.Errorf("core burns %.1f s, solids %.1f s: the core must outlast them", burn(st[1]), burn(st[0]))
+	}
+	near(t, "core fuel kg", st[1].FuelMass, 4300, 0)
+	near(t, "core dry kg", st[1].DryMass, 3000, 0)
+	// Kern-orbit budget: hand-worked 2,075.2 + 744.0 + 1,714.0 = 4,533 (4,530 serial before).
+	near(t, "Raster-LS dv", StackStats(st).TotalDV, 4533, 2)
 }
