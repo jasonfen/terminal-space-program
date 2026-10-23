@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonfen/terminal-space-program/internal/atomicfile"
 	"log"
 	"os"
@@ -83,6 +84,40 @@ var (
 	ErrUnknownInvite = errors.New("sessiondir: unknown or already-used invite code")
 	ErrNotEnrolled   = errors.New("sessiondir: fingerprint not in roster")
 )
+
+// maxHandleCols bounds a handle by display width, not rune count: 24 CJK
+// runes are 48 columns.
+const maxHandleCols = 24
+
+// cleanHandle is the one place a handle is normalised on its way into the
+// roster: printable runes only, trimmed, at most maxHandleCols columns.
+func cleanHandle(h string) string {
+	return strings.TrimSpace(ansi.Truncate(strings.TrimSpace(sim.PrintableOnly(h)), maxHandleCols, ""))
+}
+
+// cleanStoredHandles applies cleanHandle to a session.json written before
+// the filter existed. Fingerprint is the identity, so a seat survives; a
+// handle that cleans to nothing becomes "player" and any collision is left
+// to repairLegacyHandleCollisions. Reports whether anything changed.
+func cleanStoredHandles(m *Meta) bool {
+	changed := false
+	fix := func(h *string) {
+		c := cleanHandle(*h)
+		if c == "" && *h != "" {
+			c = "player"
+		}
+		if c != *h {
+			*h, changed = c, true
+		}
+	}
+	for i := range m.Roster {
+		fix(&m.Roster[i].Handle)
+	}
+	for i := range m.Invites {
+		fix(&m.Invites[i].Handle)
+	}
+	return changed
+}
 
 // foldHandle normalises a handle for case-insensitive comparison
 // (#274): "Gern" and "gern" must be treated as the same identity when
@@ -279,7 +314,8 @@ func Open(dir string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if repairLegacyHandleCollisions(&m) {
+	cleaned := cleanStoredHandles(&m)
+	if repairLegacyHandleCollisions(&m) || cleaned {
 		if err := s.writeMeta(m); err != nil {
 			return nil, err
 		}
@@ -587,7 +623,7 @@ func (s *Store) EnsureHost(handle string) (Player, error) {
 // surface only once the guest tries to enroll, so the host learns
 // about a collision before ever handing out a code that can't land.
 func (s *Store) MintInvite(handle string) (Invite, error) {
-	handle = strings.TrimSpace(handle)
+	handle = cleanHandle(handle)
 	if handle == "" {
 		return Invite{}, errors.New("sessiondir: invite needs a handle")
 	}
@@ -659,7 +695,7 @@ func (s *Store) Peek(code string) (Invite, error) {
 // double-spending. Calibrated is stamped true — the enroll flow runs
 // behind the calibration card.
 func (s *Store) Enroll(code, fingerprint, handle string) (Player, error) {
-	handle = strings.TrimSpace(handle)
+	handle = cleanHandle(handle)
 	if handle == "" {
 		return Player{}, errors.New("sessiondir: handle can't be empty")
 	}

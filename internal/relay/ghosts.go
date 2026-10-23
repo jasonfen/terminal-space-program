@@ -48,7 +48,7 @@ func GhostsFor(w *sim.World, reports []CraftReport, handles map[string]string) [
 				Owner:     rep.Owner,
 				CraftID:   cs.ID,
 				Handle:    handle,
-				Name:      cs.Name,
+				Name:      sim.PrintableOnly(cs.Name),
 				Glyph:     cs.Glyph,
 				PrimaryID: cs.Primary,
 				Pos:       w.BodyPosition(primary).Add(st.R),
@@ -84,7 +84,7 @@ func ghostPortsOf(ps []PortState) []sim.GhostPort {
 	}
 	out := make([]sim.GhostPort, len(ps))
 	for i, p := range ps {
-		out[i] = sim.GhostPort{OffsetM: p.OffsetM, Name: p.Name}
+		out[i] = sim.GhostPort{OffsetM: p.OffsetM, Name: sim.PrintableOnly(p.Name)}
 	}
 	return out
 }

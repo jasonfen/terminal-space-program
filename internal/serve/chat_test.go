@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
 )
 
 // ADR 0035 §1: chat lives in its own capped ring beside presence, so a
@@ -117,5 +118,19 @@ func TestChatRingIndependentOfPresence(t *testing.T) {
 	}
 	if got := p.eventsFor("fpB"); len(got) != 1 {
 		t.Fatalf("chat flood must never evict presence events; got %d", len(got))
+	}
+}
+
+func TestChatRingStripsControlCharacters(t *testing.T) {
+	c := newChatRing()
+	c.post("fpA", "alice", "", "", "hi\x1b[2J\nthere\tnow\r")
+	got := c.linesFor("fpA")[0].Text
+	for _, r := range got {
+		if !unicode.IsPrint(r) {
+			t.Fatalf("stored chat text %q holds non-printable rune %U", got, r)
+		}
+	}
+	if got != "hi[2Jtherenow" {
+		t.Errorf("chat text = %q, want %q", got, "hi[2Jtherenow")
 	}
 }

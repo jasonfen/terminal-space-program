@@ -45,3 +45,27 @@ func TestInviteCarriesTheInitiatorsCraftAcrossTheSeam(t *testing.T) {
 		t.Errorf("invite CraftName = %q, want the initiator's acting craft", inv.CraftName)
 	}
 }
+
+// A vessel name carrying an escape sequence must not reach the partner's
+// join prompt as one.
+func TestInviteCraftNameStripsControlCharacters(t *testing.T) {
+	store := NewStore()
+	wA, wB := newWorld(t), newWorld(t)
+	wB.Clock.SimTime = wA.Clock.SimTime
+	wB.ActiveCraft().State.R.X += 50_000
+	wB.ActiveCraft().Name = "Tug\x1b[2J"
+
+	const ownerA, ownerB = "SHA256:alice", "SHA256:bob"
+	handles := map[string]string{ownerA: "alice", ownerB: "bob"}
+	if !wB.EngageRendezvousWarp(ownerA, "alice", wA.Clock.SimTime.Add(72*time.Hour), 8000) {
+		t.Fatal("B failed to engage")
+	}
+	NewReporter(store, ownerB).Tick(wB, time.Now())
+	peers := CoWarpPeersFrom(wA, store.Snapshot(ownerA), handles, ownerA, live(ownerB), nil, time.Time{})
+	if len(peers) != 1 {
+		t.Fatalf("got %d peers, want 1", len(peers))
+	}
+	if got := peers[0].ActiveCraftName; got != "Tug[2J" {
+		t.Errorf("peer ActiveCraftName = %q, want %q", got, "Tug[2J")
+	}
+}
