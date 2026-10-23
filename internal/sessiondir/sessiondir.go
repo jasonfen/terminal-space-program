@@ -85,10 +85,6 @@ var (
 	ErrNotEnrolled   = errors.New("sessiondir: fingerprint not in roster")
 )
 
-// foldHandle normalises a handle for case-insensitive comparison
-// (#274): "Gern" and "gern" must be treated as the same identity when
-// checking uniqueness, even though the stored Handle preserves the
-// player's chosen case.
 // maxHandleCols bounds a handle by display width, not rune count: 24 CJK
 // runes are 48 columns.
 const maxHandleCols = 24
@@ -123,6 +119,10 @@ func cleanStoredHandles(m *Meta) bool {
 	return changed
 }
 
+// foldHandle normalises a handle for case-insensitive comparison
+// (#274): "Gern" and "gern" must be treated as the same identity when
+// checking uniqueness, even though the stored Handle preserves the
+// player's chosen case.
 func foldHandle(h string) string { return strings.ToLower(strings.TrimSpace(h)) }
 
 // Player is one roster entry. Fingerprint is the ssh public-key
