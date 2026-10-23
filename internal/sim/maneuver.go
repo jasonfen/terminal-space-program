@@ -152,28 +152,63 @@ const throttleZeroEpsilon = 1e-9
 // the dangling burn would block StartManualBurn (v0.12.x
 // pause-and-resume) and keep the craft's warp clamp pinned ≤10× for
 // good.
-func (w *World) SetThrottle(t float64) { w.SetThrottleFor(ThrottleAll, t) }
+func (w *World) SetThrottle(t float64) { w.SetThrottleFor(w.throttleTarget(), t) }
 
 // ThrottleGroup picks which lit-set throttle a command writes (ADR 0058
 // decision 3; S4 maps its `c` target onto these).
-type ThrottleGroup int
+type ThrottleGroup = spacecraft.ThrottleTarget
 
 const (
-	ThrottleAll      ThrottleGroup = iota // core, and the liquid boosters if they have their own
-	ThrottleCore                          // Spacecraft.Throttle only
-	ThrottleBoosters                      // Spacecraft.BoosterThrottle; no-op without a liquid booster
+	ThrottleAll      = spacecraft.ThrottleAll      // core, and the liquid boosters if they have their own
+	ThrottleCore     = spacecraft.ThrottleCore     // Spacecraft.Throttle only
+	ThrottleBoosters = spacecraft.ThrottleBoosters // Spacecraft.BoosterThrottle; no-op without a liquid booster
 )
+
+// CycleThrottleTarget advances the active craft's throttle target
+// all → core → boosters → all. It reports false and changes nothing on a
+// vessel without a liquid booster group (one throttle).
+func (w *World) CycleThrottleTarget() (spacecraft.ThrottleTarget, bool) {
+	c := w.ActiveCraft()
+	if c == nil || !c.HasLiquidBooster() {
+		return ThrottleAll, false
+	}
+	c.ThrottleTarget = (c.ThrottleTarget + 1) % 3
+	return c.ThrottleTarget, true
+}
+
+// throttleTarget is the group the throttle keys write: the active craft's
+// target, or All when it has no liquid booster to single out.
+func (w *World) throttleTarget() ThrottleGroup {
+	if c := w.ActiveCraft(); c != nil && c.HasLiquidBooster() {
+		return c.ThrottleTarget
+	}
+	return ThrottleAll
+}
 
 // writeThrottle sets group g of c to t (already clamped). Solids have no
 // throttle to write. Returns whether anything changed.
 func writeThrottle(c *spacecraft.Spacecraft, g ThrottleGroup, t float64) bool {
 	changed := false
-	if g != ThrottleBoosters && t != c.Throttle {
-		c.Throttle, changed = t, true
-	}
-	if g == ThrottleBoosters && c.HasLiquidBooster() && t != c.BoosterThrottleEff() ||
-		g == ThrottleAll && c.BoosterThrottle != nil && t != *c.BoosterThrottle {
-		c.BoosterThrottle, changed = &t, true
+	switch g {
+	case ThrottleBoosters:
+		if c.HasLiquidBooster() && t != c.BoosterThrottleEff() {
+			c.BoosterThrottle, changed = &t, true
+		}
+	case ThrottleCore:
+		if c.HasLiquidBooster() && c.BoosterThrottle == nil { // stop following the core
+			b := c.BoosterThrottleEff()
+			c.BoosterThrottle = &b
+		}
+		if t != c.Throttle {
+			c.Throttle, changed = t, true
+		}
+	default: // ThrottleAll: the boosters follow the core again (decision 3)
+		if t != c.Throttle {
+			c.Throttle, changed = t, true
+		}
+		if c.BoosterThrottle != nil {
+			c.BoosterThrottle, changed = nil, true
+		}
 	}
 	return changed
 }
@@ -216,7 +251,7 @@ func (w *World) SetThrottleFor(g ThrottleGroup, t float64) {
 
 // AdjustThrottle steps the active craft's Throttle by delta, clamped
 // to [0, 1].
-func (w *World) AdjustThrottle(delta float64) { w.AdjustThrottleFor(ThrottleAll, delta) }
+func (w *World) AdjustThrottle(delta float64) { w.AdjustThrottleFor(w.throttleTarget(), delta) }
 
 // AdjustThrottleFor steps group g by delta from that group's current value.
 func (w *World) AdjustThrottleFor(g ThrottleGroup, delta float64) {

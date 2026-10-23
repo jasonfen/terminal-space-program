@@ -32,7 +32,7 @@ func normalizeKey(layout keylayout.Layout, m tea.KeyMsg) tea.KeyMsg {
 // Keymap centralises every binding the root model cares about. Screens
 // that need additional keys define them locally.
 type Keymap struct {
-	Quit key.Binding
+	Quit       key.Binding
 	Help       key.Binding
 	BodyInfo   key.Binding
 	Maneuver   key.Binding
@@ -61,8 +61,8 @@ type Keymap struct {
 	PickerRight key.Binding
 	PickerUp    key.Binding
 	PickerDown  key.Binding
-	WarpUp   key.Binding
-	WarpDown key.Binding
+	WarpUp      key.Binding
+	WarpDown    key.Binding
 	// AutoWarp (v0.16 / ADR 0016) toggles Auto-Warp: warp to 30 s before
 	// the next burn, then drop to 1×. Selected Warp (WarpUp/WarpDown) is
 	// untouched; a manual warp keypress cancels Auto-Warp first.
@@ -115,16 +115,20 @@ type Keymap struct {
 	CycleView  key.Binding
 
 	// v0.7.3+ manual flight controls.
-	ThrottleFull        key.Binding // throttle to 100 %
-	ThrottleCut         key.Binding // throttle 0 % (also stops a manual burn)
-	ThrottleUp          key.Binding // +10 % step
-	ThrottleDown        key.Binding // -10 % step
+	ThrottleFull key.Binding // throttle to 100 %
+	ThrottleCut  key.Binding // throttle 0 % (also stops a manual burn)
+	// ThrottleTarget (ADR 0058 decision 3): `c` cycles which throttle the six
+	// throttle keys move: all / core / boosters. It took `c` from re-arm
+	// docking (now alt+u).
+	ThrottleTarget key.Binding
+	ThrottleUp     key.Binding // +10 % step
+	ThrottleDown   key.Binding // -10 % step
 	// ThrottleUpFine / ThrottleDownFine (#460, G6 Q6b; ADR 0052
 	// amendment): alt makes any trim fine, so alt+z / alt+x (shift optional) step the
 	// throttle +/-1 % where Z / X step 10 %. Needs the terminal to send
 	// Option as Meta/Alt on macOS (see the F1 and controls.md note).
-	ThrottleUpFine   key.Binding
-	ThrottleDownFine key.Binding
+	ThrottleUpFine      key.Binding
+	ThrottleDownFine    key.Binding
 	AttitudePrograde    key.Binding
 	AttitudeRetrograde  key.Binding
 	AttitudeNormalPlus  key.Binding
@@ -432,6 +436,7 @@ func DefaultKeymap() Keymap {
 
 		ThrottleFull:        key.NewBinding(key.WithKeys("z"), key.WithHelp("z", "throttle 100%")),
 		ThrottleCut:         key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "throttle 0% / cut burn")),
+		ThrottleTarget:      key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "throttle target: all / core / boosters")),
 		ThrottleUp:          key.NewBinding(key.WithKeys("Z"), key.WithHelp("Z", "throttle +10%")),
 		ThrottleDown:        key.NewBinding(key.WithKeys("X"), key.WithHelp("X", "throttle -10%")),
 		ThrottleUpFine:      key.NewBinding(key.WithKeys("alt+z", "alt+Z"), key.WithHelp("alt+z", "throttle +1%")),
@@ -472,18 +477,18 @@ func DefaultKeymap() Keymap {
 		// #425: moved off `?` (now the Help alias below) to `|` — "vertical
 		// bar = straight up" is the mnemonic Jason gave for the reset.
 		// ADR 0049 decision 9 widened it to reset heading trim too.
-		PitchTrimReset: key.NewBinding(key.WithKeys("|"), key.WithHelp("|", "reset pitch + heading trim")),
-		ToggleInstantSAS:          key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "SAS model: slew / instant (MANUAL/AUTO)")),
-		TiltUp:                    key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "tilt +5° (ViewTilted)")),
-		TiltDown:                  key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "tilt -5° (ViewTilted)")),
-		YawLeft:                   key.NewBinding(key.WithKeys("{"), key.WithHelp("{", "yaw -5° (ViewTilted)")),
-		YawRight:                  key.NewBinding(key.WithKeys("}"), key.WithHelp("}", "yaw +5° (ViewTilted)")),
-		EndFlight:                 key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "end flight (Crashed vessel)")),
-		JumpToLaunchView:          key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "launch/surface view — chase-cam on your active vessel (toggles)")),
-		ProximityView:             key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "proximity view — close-range picture of your target (toggles)")),
-		Declutter:                 key.NewBinding(key.WithKeys("f2"), key.WithHelp("F2", "declutter (hide overlays)")),
-		Inspect:                   key.NewBinding(key.WithKeys("j"), key.WithHelp("j", "inspect: step identity highlight (esc exits)")),
-		InspectCommit:             key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "inspect: commit inspected entity as target")),
-		BossKey:                   key.NewBinding(key.WithKeys("`"), key.WithHelp("`", "")),
+		PitchTrimReset:   key.NewBinding(key.WithKeys("|"), key.WithHelp("|", "reset pitch + heading trim")),
+		ToggleInstantSAS: key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "SAS model: slew / instant (MANUAL/AUTO)")),
+		TiltUp:           key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "tilt +5° (ViewTilted)")),
+		TiltDown:         key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "tilt -5° (ViewTilted)")),
+		YawLeft:          key.NewBinding(key.WithKeys("{"), key.WithHelp("{", "yaw -5° (ViewTilted)")),
+		YawRight:         key.NewBinding(key.WithKeys("}"), key.WithHelp("}", "yaw +5° (ViewTilted)")),
+		EndFlight:        key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "end flight (Crashed vessel)")),
+		JumpToLaunchView: key.NewBinding(key.WithKeys("V"), key.WithHelp("V", "launch/surface view — chase-cam on your active vessel (toggles)")),
+		ProximityView:    key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "proximity view — close-range picture of your target (toggles)")),
+		Declutter:        key.NewBinding(key.WithKeys("f2"), key.WithHelp("F2", "declutter (hide overlays)")),
+		Inspect:          key.NewBinding(key.WithKeys("j"), key.WithHelp("j", "inspect: step identity highlight (esc exits)")),
+		InspectCommit:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "inspect: commit inspected entity as target")),
+		BossKey:          key.NewBinding(key.WithKeys("`"), key.WithHelp("`", "")),
 	}
 }

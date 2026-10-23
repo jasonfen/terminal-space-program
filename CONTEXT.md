@@ -83,6 +83,16 @@ One marked stage per Vessel; a marked stage cannot also be in a
 _Avoid_: Parallel flag, Asparagus, Crossfeed (not modelled: tanks never
 feed each other).
 
+**Throttle Target** (ADR 0058):
+Which throttle the six throttle keys move: `all` (the core, and the
+boosters follow it), `core`, or `boosters`. `c` cycles it and flashes
+the new target (`throttle: core`). Snaps back to `all` when the boosters
+drop and on load; never saved. On a Vessel with one throttle (every
+Vessel without a liquid **Booster**) `c` flashes `one throttle` and does
+nothing. `x` zeroes the target; `b` cuts every liquid engine whatever
+the target.
+_Avoid_: Throttle mode, Engine group selector, Selected engine.
+
 **Surface Staging**:
 A **Staging** event performed while the Vessel is **Landed** — the
 player decouples the bottom stage on the ground rather than in flight.

@@ -1715,6 +1715,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.world.SetThrottle(0)
 			a.world.RecordAction(missions.ActionThrottleCut) // ADR 0025 §7
 			return a, nil
+		case key.Matches(m, a.keys.ThrottleTarget):
+			if t, ok := a.world.CycleThrottleTarget(); ok {
+				a.flash("throttle: " + t.String())
+			} else {
+				a.flash("one throttle")
+			}
+			return a, nil
 		case key.Matches(m, a.keys.ThrottleUp):
 			a.world.AdjustThrottle(0.1)
 			a.world.RecordAction(missions.ActionThrottleUp) // ADR 0025 §7
