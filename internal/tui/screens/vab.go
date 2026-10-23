@@ -388,6 +388,7 @@ func designStages(d spacecraft.Design, sub string) []vabStage {
 	}
 	applyNosePlan(out, d.Loadout.NosePayloadPlan)
 	applyFusePlan(out, d.Loadout.DecouplePlan)
+	dropStrayMarks(out)
 	return out
 }
 
@@ -417,6 +418,7 @@ func (v *VAB) insertBlockAbove(sa spacecraft.Subassembly) {
 	ns = append(ns, block...)
 	ns = append(ns, v.stages[at:]...)
 	v.stages = ns
+	dropStrayMarks(v.stages)
 	v.focusStageInStack(at + len(block) - 1)
 	v.flash = ""
 }
@@ -523,6 +525,19 @@ func (v *VAB) toggleDecoupleFuse() {
 		return
 	}
 	v.stages[i].decoupleFused = !v.stages[i].decoupleFused
+}
+
+// dropStrayMarks clears marks that cannot stand after an edit (a stage moved
+// to the top, a removal that put two marks side by side, an opened file):
+// the same rule as the catalog loader. Silent: no terse text fits.
+func dropStrayMarks(stages []vabStage) {
+	marks := make([]bool, len(stages))
+	for i, s := range stages {
+		marks[i] = s.litWithAbove
+	}
+	for _, i := range spacecraft.StrayLitMarks(marks) {
+		stages[i].litWithAbove = false
+	}
 }
 
 // toggleLitWithAbove flips whether the current stage lights together with the
@@ -839,6 +854,7 @@ func (v *VAB) loadDesign(d spacecraft.Design) {
 	}
 	v.applyNosePayloadPlan(d.Loadout.NosePayloadPlan)
 	v.applyDecouplePlan(d.Loadout.DecouplePlan)
+	dropStrayMarks(v.stages)
 	v.stageIdx = 0
 	v.focus = focusStack // a loaded vehicle becomes the active column
 	v.focusStageInStack(v.stageIdx)
@@ -1082,6 +1098,7 @@ func (v *VAB) removeUnderCursor() {
 			v.removeOneComponent(r.stageIdx, groups[r.group].compID)
 		}
 	}
+	dropStrayMarks(v.stages)
 	v.clampCursor()
 	v.syncStageIdx()
 	v.flash = ""
@@ -1407,6 +1424,7 @@ func (v *VAB) reorderStage(dir int) {
 		return
 	}
 	v.stages[i], v.stages[j] = v.stages[j], v.stages[i]
+	dropStrayMarks(v.stages)
 	v.focus = focusStack
 	v.focusStageInStack(j)
 	v.flash = ""

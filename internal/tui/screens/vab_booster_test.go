@@ -305,3 +305,74 @@ func TestVABBHelpAndControlsRows(t *testing.T) {
 		}
 	}
 }
+
+func marks(v *VAB) []bool {
+	out := make([]bool, len(v.stages))
+	for i, s := range v.stages {
+		out[i] = s.litWithAbove
+	}
+	return out
+}
+
+func sameBools(a, b []bool) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// Review fix: a mark with nothing above it, or directly above another mark,
+// is undefined flight; reorder, remove and open drop it (silently).
+func TestVABReorderThatPutsTheMarkOnTopDropsIt(t *testing.T) {
+	v := openSLS(t)
+	v.focusStageInStack(0)
+	v.HandleKey("]")
+	if !sameBools(marks(v), []bool{false, true, false}) {
+		t.Fatalf("after one move up marks = %v, want the mark to ride the stage", marks(v))
+	}
+	v.HandleKey("]")
+	if !sameBools(marks(v), []bool{false, false, false}) {
+		t.Errorf("marked stage on top kept its mark: %v", marks(v))
+	}
+}
+
+func TestVABRemoveThatMakesTwoMarksAdjacentDropsTheUpperOne(t *testing.T) {
+	v := subVAB(t)
+	stackOf(v, 0, "srb", "core-rs25", "srb", "icps-sls", "icps-sls")
+	v.stages[0].litWithAbove, v.stages[2].litWithAbove = true, true
+	v.focusStageInStack(1)
+	v.HandleKey("x")
+	if len(v.stages) != 4 || !sameBools(marks(v), []bool{true, false, false, false}) {
+		t.Errorf("after removing S2: %d stages, marks %v, want 4 and the lower mark only", len(v.stages), marks(v))
+	}
+	// removing the stage above the only mark leaves it on top: dropped.
+	v = openSLS(t)
+	v.focusStageInStack(1)
+	v.HandleKey("x")
+	v.focusStageInStack(1)
+	v.HandleKey("x")
+	if len(v.stages) != 1 || v.stages[0].litWithAbove {
+		t.Errorf("lone stage kept its mark: %v", marks(v))
+	}
+}
+
+func TestVABOpeningADesignWithStrayMarksDropsThem(t *testing.T) {
+	d := spacecraft.Design{Loadout: spacecraft.LoadoutDef{ID: "stray", Name: "stray", Parts: []spacecraft.PartRef{
+		{PartID: "srb", LitWithAbove: true},
+		{PartID: "core-rs25", LitWithAbove: true},
+		{PartID: "icps-sls", LitWithAbove: true},
+	}}}
+	v := subVAB(t)
+	v.loadDesign(d)
+	if !sameBools(marks(v), []bool{true, false, false}) {
+		t.Errorf("opened marks = %v, want the lowest only", marks(v))
+	}
+	if b := designStages(d, "sub"); !(b[0].litWithAbove && !b[1].litWithAbove && !b[2].litWithAbove) {
+		t.Errorf("subassembly block marks = %v %v %v", b[0].litWithAbove, b[1].litWithAbove, b[2].litWithAbove)
+	}
+}
