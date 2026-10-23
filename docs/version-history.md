@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.59.4
+
+Control codes can no longer reach another player's screen, and failed saves and roster edits on the server say so instead of passing silently (PRs `#755`, `#756`; tag `v0.59.4`).
+
+- **Pasted escape codes are stripped from shared text.** Handles, chat, and friends' vessel and port names drop non-printing characters before they are stored or shown, so a pasted `ESC[2J` can no longer clear everyone's screen. Handles already saved with them are cleaned on load without losing anyone's seat, and the handle limit is now 24 columns of display width (`#755`).
+- **Server write failures are reported.** A failed disconnect save is logged and the player's exit line says `your latest progress was not saved`; a kick whose roster edit fails is refused with `kick of <name> failed: ...` instead of reporting success; revoke, promote, demote and the pre-restart save are logged and shown to the host the same way (`#756`).
+
 ### v0.59.3
 
 Old saves show the current mission text and gates, and dock text names the vessel you are docked to (PRs `#753`, `#754`; tag `v0.59.3`).
