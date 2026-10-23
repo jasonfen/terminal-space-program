@@ -321,6 +321,9 @@ func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis
 				screenSX := rowAbove*pxSize*stackX + xPx*pxSize*widthX
 				screenSY := rowAbove*pxSize*stackY + xPx*pxSize*widthY
 				offset := basis.X.Scale(screenSX).Add(basis.Y.Scale(screenSY))
+				if r.xOffset != 0 {
+					offset = offset.Add(sideShift(r.xOffset, pxSize, widthX, widthY, basis))
+				}
 				pixels = append(pixels, SpritePixel{
 					OffsetWorld: offset,
 					Color:       r.color,
@@ -362,7 +365,7 @@ func flipDockedBlocks(rects []stackRect, seams []int) []stackRect {
 			}
 			// The gap above the block's last stage (taper/separator to the
 			// next block) belongs to the seam, not the block.
-			return !(k+1 < len(seams) && r.stage == end-1 && r.kind != rectBody)
+			return !(k+1 < len(seams) && r.stage == end-1 && (r.kind == rectTaper || r.kind == rectSeparator))
 		}
 		lo, hi := math.MaxInt, 0
 		for _, r := range out {
@@ -395,6 +398,9 @@ const (
 	rectBody stackRectKind = iota
 	rectTaper
 	rectSeparator
+	// rectSide is one of the two columns of a marked booster stage (ADR 0058
+	// decision 10), drawn beside the stage above at xOffset from the axis.
+	rectSide
 )
 
 // stackRect is one filled rectangle of the composed launch sprite:
@@ -408,6 +414,8 @@ type stackRect struct {
 	rows    int
 	width   int
 	color   lipgloss.Color
+	// xOffset shifts the rect's centre off the stack axis (rectSide only).
+	xOffset float64
 }
 
 // launchStackLayout is the single place that decides where every stage,
@@ -433,6 +441,18 @@ func launchStackLayout(stages []spacecraft.Stage) []stackRect {
 	var prevDerived bool
 	for i, s := range stages {
 		if s.LaunchSpriteRowsPx <= 0 {
+			continue
+		}
+		if pair := boosterPairAt(stages, i); pair {
+			// ADR 0058 decision 10: a marked stage draws as two columns beside
+			// the stage above, base level with it. It takes no height of its
+			// own and grows no taper or separator, so the stack above starts
+			// where it would have without the boosters.
+			colW := boosterColumnWidthPx(s)
+			off := float64(stageSpriteWidthPx(stages[i+1]))/2 + float64(colW)/2 + 1
+			for _, sign := range [...]float64{-1, +1} {
+				out = append(out, stackRect{stage: i, kind: rectSide, rowBase: rowOffset, rows: s.LaunchSpriteRowsPx, width: colW, color: stageSpriteColor(s), xOffset: sign * off})
+			}
 			continue
 		}
 		width := stageSpriteWidthPx(s)
@@ -554,9 +574,46 @@ func separatorRowBetween(lower, upper spacecraft.Stage) int {
 func composedStackRows(stages []spacecraft.Stage) int {
 	rows := 0
 	for _, r := range launchStackLayout(stages) {
-		rows += r.rows
+		if top := r.rowBase + r.rows; top > rows {
+			rows = top
+		}
 	}
 	return rows
+}
+
+// sideShift is the world offset of x sub-pixels along the width axis. Side
+// rects and booster flames add it after the axis-centred offset is built,
+// leaving that arithmetic (and so every serial sprite's bits) untouched.
+func sideShift(x, pxSize, widthX, widthY float64, basis widgets.Basis) orbital.Vec3 {
+	return basis.X.Scale(x * pxSize * widthX).Add(basis.Y.Scale(x * pxSize * widthY))
+}
+
+// boosterPairAt reports whether stages[i] draws as two side columns: it is
+// marked LitWithAbove and the stage above it is drawn (a lone marked stage,
+// such as a dropped booster half, is an ordinary column).
+func boosterPairAt(stages []spacecraft.Stage, i int) bool {
+	return stages[i].LitWithAbove && stages[i].LaunchSpriteRowsPx > 0 &&
+		i+1 < len(stages) && stages[i+1].LaunchSpriteRowsPx > 0
+}
+
+// boosterColumnWidthPx is one side column's width: max(1, authored/2), taken
+// before the 4-px floor (SRB 5 -> 2, a 3-wide liquid booster -> 1).
+func boosterColumnWidthPx(s spacecraft.Stage) int {
+	w := s.LaunchSpriteWidthPx
+	if w <= 0 {
+		w = defaultSpriteWidthPx
+	}
+	return max(1, w/2)
+}
+
+// coreStages is the stack the bell and the core flame belong to: past the
+// marked booster stage when the bottom stage draws as a pair, else the stack
+// itself (Stages[0] owns the bell and flame, as ever).
+func coreStages(stages []spacecraft.Stage) []spacecraft.Stage {
+	if len(stages) > 1 && boosterPairAt(stages, 0) {
+		return stages[1:]
+	}
+	return stages
 }
 
 // composedStackMaxWidth returns the widest stage body (sub-pixels) among
@@ -568,11 +625,8 @@ func composedStackRows(stages []spacecraft.Stage) int {
 // a single cell.
 func composedStackMaxWidth(stages []spacecraft.Stage) int {
 	maxW := 0
-	for _, s := range stages {
-		if s.LaunchSpriteRowsPx <= 0 {
-			continue
-		}
-		if w := stageSpriteWidthPx(s); w > maxW {
+	for _, r := range launchStackLayout(stages) {
+		if w := int(2*math.Abs(r.xOffset)) + r.width; w > maxW {
 			maxW = w
 		}
 	}
@@ -699,6 +753,43 @@ func ComposeFlame(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widget
 	if throttle <= 0 || len(stages) == 0 {
 		return nil
 	}
+	topWidth := bellWidth
+	topRow := -1.0
+	if topWidth == 0 {
+		// Un-belled: flame attaches directly under the stage base.
+		topWidth = stageSpriteWidthPx(stages[0])
+	} else {
+		// Belled: the flame starts just below the whole bell stack, whose
+		// height (1 or bellTaperRows) the bell renderer owns — keep the
+		// two in lockstep so the flame doesn't float or overlap the bell.
+		topRow = -1.0 - float64(EngineBellRows(stages))
+	}
+	return flameCone(topWidth, topRow, 0, flameColorForFuelType(stages[0].FuelType), cmdWorld, basis, scaleMPerPx, throttle, frameIdx)
+}
+
+// ComposeBoosterFlames paints the two side-column flames of a marked bottom
+// stage (ADR 0058 decision 10), each in the booster's fuel colour, under its
+// own column. throttle is the booster group's (1 for solids), so the flame
+// follows its own group, not the core's. Nil when the bottom stage is not
+// drawn as a pair or throttle <= 0.
+func ComposeBoosterFlames(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx float64, throttle float64, frameIdx int) []SpritePixel {
+	if len(stages) == 0 || !boosterPairAt(stages, 0) || throttle <= 0 {
+		return nil
+	}
+	colW := boosterColumnWidthPx(stages[0])
+	off := float64(stageSpriteWidthPx(stages[1]))/2 + float64(colW)/2 + 1
+	color := flameColorForFuelType(stages[0].FuelType)
+	var out []SpritePixel
+	for _, sign := range [...]float64{-1, +1} {
+		out = append(out, flameCone(colW, -1, sign*off, color, cmdWorld, basis, scaleMPerPx, throttle, frameIdx)...)
+	}
+	return out
+}
+
+// flameCone is the cone ComposeFlame documents, from its parts: topWidth wide
+// at topRow (rows above the base, negative below), centred xOff sub-pixels
+// off the stack axis, in color.
+func flameCone(topWidth int, topRow, xOff float64, flameColor lipgloss.Color, cmdWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx, throttle float64, frameIdx int) []SpritePixel {
 	var nRows int
 	switch {
 	case throttle <= 1.0/3.0:
@@ -712,17 +803,6 @@ func ComposeFlame(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widget
 	pxSize := scaleMPerPx
 	stackX, stackY := stackDirScreen(cmdWorld, basis)
 	widthX, widthY := stackY, -stackX
-	topWidth := bellWidth
-	topRow := -1.0
-	if topWidth == 0 {
-		// Un-belled: flame attaches directly under the stage base.
-		topWidth = stageSpriteWidthPx(stages[0])
-	} else {
-		// Belled: the flame starts just below the whole bell stack, whose
-		// height (1 or bellTaperRows) the bell renderer owns — keep the
-		// two in lockstep so the flame doesn't float or overlap the bell.
-		topRow = -1.0 - float64(EngineBellRows(stages))
-	}
 	tipWidth := topWidth / 2
 	if tipWidth < 1 {
 		tipWidth = 1
@@ -736,7 +816,6 @@ func ComposeFlame(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widget
 		frameShift = 1.0
 	}
 
-	flameColor := flameColorForFuelType(stages[0].FuelType)
 	pixels := make([]SpritePixel, 0, nRows*topWidth)
 	for r := 0; r < nRows; r++ {
 		rowAbove := topRow - float64(r) - frameShift
@@ -761,6 +840,9 @@ func ComposeFlame(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widget
 			screenSX := rowAbove*pxSize*stackX + xPx*pxSize*widthX
 			screenSY := rowAbove*pxSize*stackY + xPx*pxSize*widthY
 			offset := basis.X.Scale(screenSX).Add(basis.Y.Scale(screenSY))
+			if xOff != 0 {
+				offset = offset.Add(sideShift(xOff, pxSize, widthX, widthY, basis))
+			}
 			color := flameColor
 			if coreW > 0 && col >= coreLo && col < coreLo+coreW {
 				color = flameCoreColor
@@ -829,4 +911,18 @@ func stackDirScreen(cmdWorld orbital.Vec3, basis widgets.Basis) (x, y float64) {
 		return 0, 1
 	}
 	return snapNearVertical(x/mag, y/mag)
+}
+
+// boosterFlameThrottle is the flame length driver of a marked bottom stage's
+// side columns: 0 when its tank is dry (burned out), 1 for pinned solids, else
+// the liquid booster group's own throttle.
+func boosterFlameThrottle(c *spacecraft.Spacecraft) float64 {
+	b := c.Stages[0]
+	if b.FuelMass <= 0 {
+		return 0
+	}
+	if b.FuelType == spacecraft.FuelTypeSolid {
+		return 1
+	}
+	return c.BoosterThrottleEff()
 }

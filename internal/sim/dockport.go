@@ -44,9 +44,15 @@ const (
 // StackRows is the composed sprite's total height in rows, taper and
 // separator rows included: the same count launchStackLayout produces.
 func StackRows(stages []spacecraft.Stage) int {
-	rows := 0
+	rows, sideTop := 0, 0
 	for i, s := range stages {
 		if s.LaunchSpriteRowsPx <= 0 {
+			continue
+		}
+		if boosterPair(stages, i) {
+			// Two side columns (ADR 0058 decision 10): no height, taper or
+			// separator of their own; they only set a floor on the height.
+			sideTop = max(sideTop, rows+s.LaunchSpriteRowsPx)
 			continue
 		}
 		rows += s.LaunchSpriteRowsPx
@@ -60,14 +66,20 @@ func StackRows(stages []spacecraft.Stage) int {
 			}
 		}
 	}
-	return rows
+	return max(rows, sideTop)
+}
+
+// boosterPair mirrors launch_sprite.go's boosterPairAt: stages[i] is marked
+// and the stage above it is drawn, so it paints as two columns beside it.
+func boosterPair(stages []spacecraft.Stage, i int) bool {
+	return stages[i].LitWithAbove && i+1 < len(stages) && stages[i+1].LaunchSpriteRowsPx > 0
 }
 
 // StackWidthPx is the widest stage body in sprite pixels (rendered width,
 // i.e. after the default and the minimum are applied).
 func StackWidthPx(stages []spacecraft.Stage) int {
 	maxW := 0
-	for _, s := range stages {
+	for i, s := range stages {
 		if s.LaunchSpriteRowsPx <= 0 {
 			continue
 		}
@@ -75,8 +87,18 @@ func StackWidthPx(stages []spacecraft.Stage) int {
 		if w <= 0 {
 			w = dockDefaultWidthPx
 		}
+		authored := w
 		if w < dockMinWidthPx {
 			w = dockMinWidthPx
+		}
+		if boosterPair(stages, i) {
+			// Side columns: the extent is core width + 2 columns + 2 gaps.
+			col := max(1, authored/2)
+			up := stages[i+1].LaunchSpriteWidthPx
+			if up <= 0 {
+				up = dockDefaultWidthPx
+			}
+			w = max(up, dockMinWidthPx) + 2*col + 2
 		}
 		if w > maxW {
 			maxW = w

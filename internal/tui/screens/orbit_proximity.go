@@ -717,8 +717,8 @@ func (v *OrbitView) drawProximityHull(shown *bool, stages []spacecraft.Stage, at
 		*shown = false
 		return false
 	}
-	bell := ComposeEngineBell(stages, attitudeDir, basis, vesselSubPixelM)
-	legs := ComposeLegs(stages, attitudeDir, basis, vesselSubPixelM)
+	bell := ComposeEngineBell(coreStages(stages), attitudeDir, basis, vesselSubPixelM)
+	legs := ComposeLegs(coreStages(stages), attitudeDir, basis, vesselSubPixelM)
 	// No flame / canopy: both are transient equipment state (an active
 	// burn, a deployed chute) rather than hull geometry, and issue #348
 	// §1 asks for the SILHOUETTE at scale — the bell and legs are

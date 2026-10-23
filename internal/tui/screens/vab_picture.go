@@ -43,7 +43,7 @@ func stackPictureSprite(stages []spacecraft.Stage) []SpritePixel {
 	if px == nil {
 		return nil
 	}
-	return append(px, ComposeEngineBell(stages, cmd, basis, 1)...)
+	return append(px, ComposeEngineBell(coreStages(stages), cmd, basis, 1)...)
 }
 
 // renderStackPicture rasterises stages (bottom first) into h lines of w
@@ -122,7 +122,7 @@ func renderStackPicture(th Theme, stages []spacecraft.Stage, labels []string, fo
 	if labelRoom > 0 && len(labels) > 0 {
 		spans := map[int][2]int{}
 		for _, r := range launchStackLayout(stages) {
-			if r.kind != rectBody {
+			if r.kind != rectBody && r.kind != rectSide {
 				continue
 			}
 			spans[r.stage] = [2]int{r.rowBase, r.rowBase + r.rows}
