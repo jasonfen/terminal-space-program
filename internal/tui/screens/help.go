@@ -91,7 +91,7 @@ var helpSections = []helpSection{
 		{"shift+↑ / shift+↓", "pan the view up / down (plain arrows are the flight trims, see MANUAL FLIGHT)"},
 		{"> / <", "tilt the 3D view up / down (tilted view only; moves the camera, never the vessel)"},
 		{"{ / }", "yaw the 3D view left / right, wraps 360° (tilted view only)"},
-		{"F2", "declutter: hide the instrument boxes + navball (ENGINE, PROPELLANT stay while an engine is lit)"},
+		{"F2", "declutter: hide the instrument boxes + navball + Centerline scope (ENGINE, PROPELLANT stay while an engine is lit)"},
 	}},
 	{"TIME & WARP", [][2]string{
 		{".", "warp up (1× … 100000×; inert during a rendezvous coast; held to 10× within 50 m of another vessel)"},
