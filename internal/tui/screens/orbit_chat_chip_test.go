@@ -111,8 +111,8 @@ func TestSessionEventsChipDockKinds(t *testing.T) {
 	chip := v.buildSessionEventsChip(w)
 	joined := strings.Join(chip, "\n")
 	for _, want := range []string{
-		"docked with gern",
-		"undocked from gern",
+		"docked to gern's stack",
+		"undocked from gern's stack",
 		"control handed to gern",
 	} {
 		if !strings.Contains(joined, want) {

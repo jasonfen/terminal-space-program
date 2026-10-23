@@ -69,3 +69,53 @@ func TestDockGuestChipLongNameAt140x40(t *testing.T) {
 		t.Errorf("long vessel name clipped on the DOCKED row")
 	}
 }
+
+// An empty handle must read "their stack"/"their Skylab", never "their's".
+func TestDockGuestLabelWithoutHandleHasNoPossessiveS(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := dockGuestStackGhostWorld(t)
+	w.DockGuest.OwnerHandle = ""
+	if got := strings.Join(v.buildDockGuestChip(w), "\n"); !strings.Contains(got, "docked to their Skylab") || strings.Contains(got, "their's") {
+		t.Errorf("named, no handle:\n%s", got)
+	}
+	w.Ghosts = nil
+	if got := strings.Join(v.buildDockGuestChip(w), "\n"); !strings.Contains(got, "docked to their stack") || strings.Contains(got, "their's") {
+		t.Errorf("unnamed, no handle:\n%s", got)
+	}
+}
+
+// docked/undocked rows name the player's vessel from their ghost; events
+// carry a handle only, so two ghosts under one handle is ambiguous and
+// falls back to "<handle>'s stack" rather than guessing.
+func TestDockedUndockedRowsNameTheVessel(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	w := rendezvousChipWorld(t)
+	w.Ghosts = []sim.Ghost{{Owner: "SHA256:gern", CraftID: 1, Handle: "gern", Name: "Skylab"}}
+	w.SessionEvents = []sim.SessionEvent{
+		{Kind: sim.SessionEventDocked, Handle: "gern", At: time.Now()},
+		{Kind: sim.SessionEventUndocked, Handle: "gern", At: time.Now()},
+	}
+	got := strings.Join(v.buildSessionEventsChip(w), "\n")
+	for _, want := range []string{"◇ docked to gern's Skylab", "◇ undocked from gern's Skylab"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q:\n%s", want, got)
+		}
+	}
+
+	w.Ghosts = nil // no ghost known
+	got = strings.Join(v.buildSessionEventsChip(w), "\n")
+	for _, want := range []string{"◇ docked to gern's stack", "◇ undocked from gern's stack"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("fallback missing %q:\n%s", want, got)
+		}
+	}
+
+	w.Ghosts = []sim.Ghost{
+		{Owner: "SHA256:gern", CraftID: 1, Handle: "gern", Name: "Skylab"},
+		{Owner: "SHA256:gern", CraftID: 2, Handle: "gern", Name: "Probe"},
+	}
+	got = strings.Join(v.buildSessionEventsChip(w), "\n")
+	if !strings.Contains(got, "◇ docked to gern's stack") || strings.Contains(got, "Skylab") || strings.Contains(got, "Probe") {
+		t.Errorf("ambiguous handle guessed a vessel:\n%s", got)
+	}
+}
