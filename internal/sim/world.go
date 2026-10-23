@@ -838,23 +838,37 @@ func (w *World) ephemerisFor(c *spacecraft.Spacecraft) (bodies.System, orbital.C
 	return sys, orbital.ForSystem(sys)
 }
 
-// bodyPosRelTo returns b's position relative to primary at t. When primary
-// is b's parent that is b's own Kepler position (one solve); otherwise it
-// is the difference of the two heliocentric positions.
+// bodyPosRelTo returns b's position relative to primary at t in the viewed
+// System. See bodyPosRelToIn.
 func (w *World) bodyPosRelTo(b, primary bodies.CelestialBody, t time.Time) orbital.Vec3 {
+	return bodyPosRelToIn(w.System(), w.Calculator, b, primary, t)
+}
+
+// bodyPosRelToIn returns b's position relative to primary at t, in an
+// explicit System and its Calculator (a Vessel in a non-viewed System
+// resolves in its own). When primary is b's parent that is b's own Kepler
+// position (one solve); otherwise it is the difference of the two
+// heliocentric positions.
+func bodyPosRelToIn(sys bodies.System, calc orbital.Calculator, b, primary bodies.CelestialBody, t time.Time) orbital.Vec3 {
 	if b.ParentID != primary.ID {
-		return w.BodyPositionAt(b, t).Sub(w.BodyPositionAt(primary, t))
+		return bodyPositionIn(sys, calc, b, t).Sub(bodyPositionIn(sys, calc, primary, t))
 	}
-	M := w.Calculator.CalculateMeanAnomaly(b, t)
+	M := calc.CalculateMeanAnomaly(b, t)
 	E := orbital.SolveKepler(M, b.Eccentricity)
 	return orbital.PositionAtTrueAnomaly(orbital.ElementsFromBody(b), orbital.TrueAnomaly(E, b.Eccentricity))
 }
 
-// stillInPrimary reports whether a craft at r (relative to cur) is inside
-// cur's SOI and in none of cur's children's, i.e. FindPrimary would return
-// cur. shortcut: assumes sibling SOIs do not overlap (true for shipped
-// systems), upgrade if a system ships overlapping sibling SOIs.
+// stillInPrimary is stillInPrimaryIn against the viewed System.
 func (w *World) stillInPrimary(sys *bodies.System, cur bodies.CelestialBody, r orbital.Vec3, t time.Time) bool {
+	return stillInPrimaryIn(sys, w.Calculator, cur, r, t)
+}
+
+// stillInPrimaryIn reports whether a craft at r (relative to cur) is inside
+// cur's SOI and in none of cur's children's, i.e. FindPrimary would return
+// cur. sys and calc are the craft's own System and ephemeris. shortcut:
+// assumes sibling SOIs do not overlap (true for shipped systems), upgrade
+// if a system ships overlapping sibling SOIs.
+func stillInPrimaryIn(sys *bodies.System, calc orbital.Calculator, cur bodies.CelestialBody, r orbital.Vec3, t time.Time) bool {
 	root := sys.Bodies[0]
 	if cur.ID != root.ID {
 		parent := sys.ParentOf(cur)
@@ -870,7 +884,7 @@ func (w *World) stillInPrimary(sys *bodies.System, cur bodies.CelestialBody, r o
 		if p == nil || p.ID != cur.ID {
 			continue
 		}
-		if r.Sub(w.bodyPosRelTo(b, cur, t)).Norm() <= physics.SOIRadius(b, cur) {
+		if r.Sub(bodyPosRelToIn(*sys, calc, b, cur, t)).Norm() <= physics.SOIRadius(b, cur) {
 			return false
 		}
 	}
@@ -1855,6 +1869,10 @@ func (w *World) anyCraftChuteLive() bool {
 // as Clock.Warp() when the user isn't hitting the step-size guard.
 func (w *World) EffectiveWarp() float64 { return w.clampedWarp() }
 
+// liveSOIShortcut gates the stillInPrimaryIn skip in integrateOneCraft; only
+// tests turn it off, to run the pre-shortcut loop as the reference.
+var liveSOIShortcut = true
+
 // integrateOneCraft sub-steps the integrator for a single craft so
 // each step dt obeys dt < period/100. When the craft is the active
 // one and an ActiveBurn or ManualBurn is in flight, sub-steps run
@@ -1957,7 +1975,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	stepDur := time.Duration(dt * float64(time.Second))
 
 	sys, calc := w.ephemerisFor(c) // v0.16 / ADR 0015: integrate against the Vessel's own System and its ephemeris.
-	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
+	var positions map[string]orbital.Vec3
 	clock := tickStart
 	// v0.12 Slice 3 (ADR 0008): a descending chute craft always takes
 	// this Verlet path — canKeplerStepState rejects the analytic fast
@@ -2022,11 +2040,21 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 		}
 		clock = clock.Add(stepDur)
 
+		// Audit 19: while the craft stays inside its primary's SOI and in
+		// no child's (an exact test, one Kepler solve per child), FindPrimary
+		// would return c.Primary, so skip the all-bodies refresh below.
+		if liveSOIShortcut && stillInPrimaryIn(&sys, calc, c.Primary, c.State.R, clock) {
+			continue
+		}
+
 		// Per-sub-step SOI re-evaluation. v0.8.4: refresh body
 		// positions at the chunk's clock so high-warp ticks see body
 		// motion within the tick — matches the predictor, which is
 		// also time-aware. Without this an Earth→Mars Hohmann at high
 		// warp diverges from the dashed predictor line.
+		if positions == nil { // first full refresh of this tick
+			positions = make(map[string]orbital.Vec3, len(sys.Bodies))
+		}
 		for _, b := range sys.Bodies {
 			positions[b.ID] = bodyPositionIn(sys, calc, b, clock)
 		}
