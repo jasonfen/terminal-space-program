@@ -687,10 +687,17 @@ func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorl
 		flameThrottle = craft.Throttle
 	}
 	frameIdx := int(time.Now().UnixMilli()/flameFrameMs) % 2
-	bellWidth := EngineBellWidth(craft.Stages)
-	bell := ComposeEngineBell(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM)
-	legs := ComposeLegs(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM)
-	flame := ComposeFlame(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM, flameThrottle, frameIdx, bellWidth)
+	// A marked booster stage draws as two columns beside the core (ADR 0058
+	// decision 10): the bell and core flame belong to the core, and each
+	// booster column has its own flame following its own group.
+	core := coreStages(craft.Stages)
+	bellWidth := EngineBellWidth(core)
+	bell := ComposeEngineBell(core, craft.CurrentAttitudeDir, basis, vesselSubPixelM)
+	legs := ComposeLegs(core, craft.CurrentAttitudeDir, basis, vesselSubPixelM)
+	flame := ComposeFlame(core, craft.CurrentAttitudeDir, basis, vesselSubPixelM, flameThrottle, frameIdx, bellWidth)
+	if craft.ManualBurn != nil || craft.ActiveBurn != nil {
+		flame = append(flame, ComposeBoosterFlames(craft.Stages, craft.CurrentAttitudeDir, basis, vesselSubPixelM, boosterFlameThrottle(craft), frameIdx)...)
+	}
 	// v0.12 Slice 3 (ADR 0008): a deployed parachute paints a canopy
 	// above the top stage, giving the chute a visual identity for the
 	// Shift+V manual jump and the test-lob cases.

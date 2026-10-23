@@ -170,3 +170,15 @@ func TestVABPicture_EmptyStackSaysSo(t *testing.T) {
 		t.Errorf("empty stack picture should say so, got %q", lines)
 	}
 }
+
+// A marked booster stage draws beside the core, but it is still a stage in
+// the list: its label stays, and sits right of the outer column.
+func TestVABPictureLabelsBoosterStage(t *testing.T) {
+	lines := renderStackPicture(Theme{}, spacecraft.Loadouts["SLS-Block1"].Stages, []string{"BOOSTERS", "CORE", "ICPS"}, -1, 60, 40)
+	text := strings.Join(lines, "\n")
+	for _, want := range []string{"BOOSTERS", "CORE", "ICPS"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("picture lost the %q label:\n%s", want, text)
+		}
+	}
+}
