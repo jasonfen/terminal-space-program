@@ -930,7 +930,8 @@ func (v *OrbitView) proximityEngineRow(w *sim.World) string {
 	if c == nil {
 		return chipRow("throttle:", "—")
 	}
-	return chipRow("throttle:", v.engineThrottleLabel(w, c)+"  Δv "+deltaVReadout(c))
+	label, throttle := engineThrottleTarget(c) // the keys act on the target here too (ADR 0052)
+	return chipRow(label, v.engineThrottleLabelAt(w, c, throttle)+"  Δv "+deltaVReadout(c))
 }
 
 // proximityRCSRow says whether RCS is engaged and the Δv each translation

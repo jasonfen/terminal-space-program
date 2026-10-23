@@ -272,3 +272,22 @@ func TestStagePipsPaintTheWholeLitSet(t *testing.T) {
 	}
 	_ = fmt.Sprint
 }
+
+// ADR 0058 review finding 3: Proximity's throttle row names and reads the
+// throttle target, like ENGINE, since the throttle keys act on it there too.
+func TestProximityThrottleRowFollowsTheTarget(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	for _, tc := range []struct {
+		target spacecraft.ThrottleTarget
+		prefix string
+	}{
+		{spacecraft.ThrottleBoosters, "  boosters:  100% ● FIRING T+1m24s"},
+		{spacecraft.ThrottleCore, "  core:      60% ● FIRING T+1m24s"},
+		{spacecraft.ThrottleAll, "  throttle:  60% ● FIRING T+1m24s"},
+	} {
+		w := fhAtT84(t, tc.target)
+		if got := v.proximityEngineRow(w); !strings.HasPrefix(got, tc.prefix) {
+			t.Errorf("target %v: row = %q, want prefix %q", tc.target, got, tc.prefix)
+		}
+	}
+}
