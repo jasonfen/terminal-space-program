@@ -114,7 +114,7 @@ func CoWarpPeersFrom(w *sim.World, reports []CraftReport, handles map[string]str
 			// through the reporter's active craft, so the report's marker
 			// (#288) is exactly the right source.
 			if active, aok := rep.ActiveCraft(); aok {
-				p.ActiveCraftName = active.Name
+				p.ActiveCraftName = sim.PrintableOnly(active.Name)
 			}
 		}
 		out = append(out, p)

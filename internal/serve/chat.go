@@ -46,6 +46,7 @@ func (c *chatRing) post(owner, handle, to, toHandle, text string) {
 // postAt is post with an explicit timestamp, split out so tests can
 // exercise the TTL prune without waiting it out.
 func (c *chatRing) postAt(owner, handle, to, toHandle, text string, at time.Time) {
+	text = sim.PrintableOnly(text)
 	if r := []rune(text); len(r) > chatMessageRuneCap {
 		text = string(r[:chatMessageRuneCap])
 	}
