@@ -185,8 +185,8 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 	cCols, cRows := fullCols, rows
 	if !v.declutter {
 		canvasStr = v.composeNavballOverlay(w, canvasStr, cCols, cRows, true)
+		canvasStr = v.composeCenterlineScope(w, canvasStr, cCols, cRows)
 	}
-	canvasStr = v.composeCenterlineScope(w, canvasStr, cCols, cRows)
 	navballReserved := v.navballReservedRows(w, cCols, cRows)
 	canvasStr = v.composeChips(canvasStr, cCols, cRows, navballReserved, 1, 2, v.assembleChips(w))
 	canvasStr = v.composeInspectChip(canvasStr, cCols, cRows)

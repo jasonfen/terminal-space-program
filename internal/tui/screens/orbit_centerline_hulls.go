@@ -23,7 +23,7 @@ const centerlineHullSegments = 360
 // stretched into a stadium toward where your stack bottom projects when your
 // nose leans: the far circle sits at -Own.NoseM * (sin right, sin up), joined
 // to the near one by two tangent lines. Scenery class (dotted, never filled),
-// clipped at the rim. Neither hull is drawn for a target with no hull width.
+// clipped at the rim. Each hull is skipped when its own width is zero.
 func (v *OrbitView) drawCenterlineHulls(c *widgets.Canvas, w *sim.World, st sim.ProximityState, scale float64) {
 	rimM := (float64(c.Cols()*2)/2 - centerlineRimInsetPx) / scale // the rim, in metres
 	own := render.ColorCraftMarker

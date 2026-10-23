@@ -152,14 +152,14 @@ func (v *OrbitView) drawCenterline(w *sim.World, st sim.ProximityState, g center
 	// dashed until the dock gate holds, then solid, as the port line is.
 	// Beyond the last step the glyph sits on the rim in the port's direction.
 	centre := orbital.Vec3{X: st.OffAxisRightM, Y: st.OffAxisUpM}
-	if e > 0.95*v.clStepM/2 {
+	if e > centerlineStepOutFrac*v.clStepM/2 {
 		centre = centre.Unit().Scale(rimPx / scale)
 	}
 	if drawCenterlineBehind(c, st, centre) { // A6: behind your port plane
 		return v.clStepM
 	}
 	ringCells := centerlineRingPx(scale) // diameter in cells = radius in dots
-	if ringCells < centerlineGlyphCells || e > 0.95*v.clStepM/2 {
+	if ringCells < centerlineGlyphCells || e > centerlineStepOutFrac*v.clStepM/2 {
 		c.SetCellOverlayColored(centre, proximityPortMarkGlyph, render.ColorTarget)
 	} else {
 		pts := proximityRingPoints(centre, x, y, centerlineRingRadiusM)
@@ -167,7 +167,7 @@ func (v *OrbitView) drawCenterline(w *sim.World, st sim.ProximityState, g center
 	}
 
 	// Standoff cross: the lean of your axis across their port's face.
-	if ringCells >= centerlineCrossCells && e <= 0.95*v.clStepM/2 {
+	if ringCells >= centerlineCrossCells && e <= centerlineStepOutFrac*v.clStepM/2 {
 		dr, du := centerlineCrossOffsetM(st)
 		cross := centerlineClampToWindow(g, scale, centre, orbital.Vec3{X: dr, Y: du})
 		c.SetCellOverlayColored(centre.Add(cross), '+', own)
