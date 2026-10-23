@@ -105,7 +105,6 @@ var helpSections = []helpSection{
 	}},
 	{"MANUAL FLIGHT", [][2]string{
 		{"c", "throttle target: all / core / boosters; the throttle keys move the selected one (one throttle: no-op)"},
-		{"C", "not the throttle target: plants a circularize burn that fires by itself (clear it in [m])"},
 		{"z / x", "selected throttle full / cut"},
 		{"Z / X", "selected throttle +10% / -10%"},
 		{"alt+z / alt+x", "selected throttle +1% / -1% (fine, like the alt+arrow nose trims; alt+Z / alt+X work too)"},

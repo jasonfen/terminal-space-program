@@ -31,8 +31,13 @@ func TestHelpManualFlightNamesThrottleTarget(t *testing.T) {
 			t.Errorf("MANUAL FLIGHT c row %q lacks %q", row, want)
 		}
 	}
-	if !strings.Contains(helpRowText(t, "MANUAL FLIGHT", "C"), "circularize") {
-		t.Error("MANUAL FLIGHT lacks the C circularize sentence (ADR conflict 1)")
+	// Review finding 4: a "not the throttle target" warning is no fact about C;
+	// C has its own row under PLAN BURNS.
+	if r := helpRowText(t, "MANUAL FLIGHT", "C"); r != "" {
+		t.Errorf("MANUAL FLIGHT has a C row %q; C is documented under PLAN BURNS", r)
+	}
+	if !strings.Contains(helpRowText(t, "PLAN BURNS", "C"), "circularize") {
+		t.Error("PLAN BURNS lost its C circularize row")
 	}
 	for _, k := range []string{"z / x", "Z / X", "alt+z / alt+x"} {
 		if !strings.Contains(helpRowText(t, "MANUAL FLIGHT", k), "selected throttle") {
