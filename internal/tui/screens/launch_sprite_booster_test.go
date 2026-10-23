@@ -57,9 +57,12 @@ func unmarkedLoadoutIDs() []string {
 }
 
 // Golden digests (micrometre-rounded) captured on main 57405da, before S7 touched the layout.
+// goldenAllSerial covers the 39 loadouts unmarked then; S9 marks Raster-LS, so the set is 38.
+// Its value was re-captured by running this test on main e9e4029's unmodified parts.json and
+// loadouts.json with Raster-LS skipped by name, so the new golden predates S9's data edits.
 const (
 	goldenSaturnV   = "e3388b974dc8bb1c"
-	goldenAllSerial = "c7509d1027d4a6e8"
+	goldenAllSerial = "fd3d34ac376ba341"
 )
 
 func TestSerialSpritesByteIdentical(t *testing.T) {
@@ -87,15 +90,15 @@ func bodyRects(rs []stackRect, kind stackRectKind) (out []stackRect) {
 }
 
 // Hand-worked, SLS Block 1 (parts.json): srb 28 rows x 5 wide (marked),
-// core-rs25 24 x 4, icps-sls 8 x 3 (floored to 4 by minRenderedStageWidthPx).
+// core-rs25 34 x 4 (taller than the 28-row SRBs, as on the real SLS, ADR 0058 S9), icps-sls 8 x 3 (floored to 4 by minRenderedStageWidthPx).
 //
 //	column width  = max(1, 5/2)                  = 2
 //	offset        = core 4/2 + column 2/2 + 1    = 4   (columns at 3.5 and 4.5)
 //	srb           rowBase 0, 28 rows, both sides (base level with the core's)
-//	core          rowBase 0, 24 rows, width 4
-//	core->icps    taper at row 24 (24>=6 and 8>=6), separator at row 25
-//	icps          rowBase 26, 8 rows
-//	height        26 + 8 = 34 (the sum of rect rows would say 28+24+1+1+8 = 62)
+//	core          rowBase 0, 34 rows, width 4 (top at row 34, above the SRBs' 28)
+//	core->icps    taper at row 34 (34>=6 and 8>=6), separator at row 35
+//	icps          rowBase 36, 8 rows
+//	height        36 + 8 = 44 (the sum of rect rows would say 28+34+1+1+8 = 72)
 func TestLaunchStackLayoutSLSHasTwoSideColumns(t *testing.T) {
 	rs := launchStackLayout(slsStages())
 	sides := bodyRects(rs, rectSide)
@@ -118,14 +121,19 @@ func TestLaunchStackLayoutSLSHasTwoSideColumns(t *testing.T) {
 		}
 	}
 	core := bodyRects(rs, rectBody)
-	if len(core) != 2 || core[0].stage != 1 || core[0].rowBase != 0 || core[0].rows != 24 || core[0].width != 4 {
-		t.Errorf("core body = %+v, want stage 1 at rowBase 0, 24 rows, width 4 first", core)
+	if len(core) != 2 || core[0].stage != 1 || core[0].rowBase != 0 || core[0].rows != 34 || core[0].width != 4 {
+		t.Errorf("core body = %+v, want stage 1 at rowBase 0, 34 rows, width 4 first", core)
 	}
-	if len(core) == 2 && core[1].rowBase != 26 {
-		t.Errorf("icps rowBase = %d, want 26", core[1].rowBase)
+	if len(core) == 2 && core[1].rowBase != 36 {
+		t.Errorf("icps rowBase = %d, want 36", core[1].rowBase)
 	}
-	if h := composedStackRows(slsStages()); h != 34 {
-		t.Errorf("composedStackRows = %d, want 34", h)
+	if h := composedStackRows(slsStages()); h != 44 {
+		t.Errorf("composedStackRows = %d, want 44", h)
+	}
+	// The core stands taller than its boosters (real SLS: ~64.6 m vs ~54 m):
+	// its top (row 34) is above the SRBs' (row 28).
+	if len(core) == 2 && len(sides) == 2 && core[0].rowBase+core[0].rows <= sides[0].rowBase+sides[0].rows {
+		t.Errorf("core top row %d not above the boosters' top row %d", core[0].rowBase+core[0].rows, sides[0].rowBase+sides[0].rows)
 	}
 	if w := composedStackMaxWidth(slsStages()); w != 10 {
 		t.Errorf("composedStackMaxWidth = %d, want 10 (2*4 offset + 2 wide)", w)
