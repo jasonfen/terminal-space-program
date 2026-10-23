@@ -915,7 +915,7 @@ func (v *OrbitView) buildEmptySlateChip(w *sim.World) []string {
 	if dg := w.DockGuest; dg != nil {
 		return []string{
 			v.theme.Primary.Render("VESSEL"),
-			"  " + v.theme.Warning.Render("docked in "+dg.OwnerHandle+"'s stack"),
+			"  " + v.theme.Warning.Render("docked to "+dockGuestVesselLabel(w)),
 			v.theme.Dim.Render("  [U] release it"),
 		}
 	}

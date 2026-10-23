@@ -376,9 +376,9 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 			// this moment just says the advance was deliberate.
 			plain("◇ rendezvous: waypoint passed — coasting on with " + e.Handle)
 		case sim.SessionEventDocked:
-			plain("◇ docked with " + e.Handle)
+			plain("◇ docked to " + handleVesselLabel(w, e.Handle))
 		case sim.SessionEventUndocked:
-			plain("◇ undocked from " + e.Handle)
+			plain("◇ undocked from " + handleVesselLabel(w, e.Handle))
 		case sim.SessionEventTransfer:
 			plain("◇ control handed to " + e.Handle)
 		case sim.SessionEventHandOver:
@@ -411,9 +411,9 @@ func (v *OrbitView) buildSessionEventsChip(w *sim.World) []string {
 		case sim.SessionEventControlReclaimed:
 			rows = append(rows,
 				row{text: "⚠ " + e.Handle + " took the stack back while you were away", alert: true},
-				row{text: "  they were riding in it and your seat was empty"})
+				row{text: "  they were docked to it and your seat was empty"})
 		case sim.SessionEventDockLost:
-			rows = append(rows, row{text: "⚠ dock with " + e.Handle + " ended — the stack no longer exists", alert: true})
+			rows = append(rows, row{text: "⚠ dock to " + e.Handle + "'s stack ended — it no longer exists", alert: true})
 		case sim.SessionEventTargetLockLost:
 			msg := "⚠ target lock lost on reconnect"
 			if e.Handle != "" {
@@ -967,7 +967,7 @@ func (v *OrbitView) buildDockGuestChip(w *sim.World) []string {
 	}
 	lines := []string{
 		v.theme.Primary.Render("DOCKED"),
-		"  " + v.theme.Dim.Render("◇ riding in "+handle+"'s stack"),
+		"  " + v.theme.Dim.Render("◇ docked to "+dockGuestVesselLabel(w)),
 	}
 	if w.DockOwnerOnline() {
 		lines = append(lines,
@@ -1819,4 +1819,42 @@ const rendezvousChipValueCol = chipValueCol + 1
 // rendezvousChipRow is chipRow at the RENDEZVOUS chip's value column.
 func rendezvousChipRow(label, value string) string {
 	return chipRowAt(label, value, rendezvousChipValueCol)
+}
+
+// vesselLabel joins a player and a vessel name as "<handle>'s <name>", or
+// "their <name>" when no handle is known (never "their's").
+func vesselLabel(handle, name string) string {
+	if handle == "" {
+		return "their " + name
+	}
+	return handle + "'s " + name
+}
+
+// dockGuestVesselLabel is "<handle>'s <vessel name>" for the stack this
+// player is docked to (#723). The name is read at render time from the
+// owner's ghost report; before that report lands (or when the ghost's
+// primary does not resolve) it falls back to "<handle>'s stack".
+func dockGuestVesselLabel(w *sim.World) string {
+	name := "stack"
+	if g, _, ok := w.DockGuestStackGhost(); ok && g.Name != "" {
+		name = g.Name
+	}
+	return vesselLabel(w.DockGuest.OwnerHandle, name)
+}
+
+// handleVesselLabel names a player's vessel for session-event rows, which
+// carry a handle but no fingerprint. Exactly one ghost under the handle
+// names it; none or several (ambiguous) fall back to "<handle>'s stack".
+func handleVesselLabel(w *sim.World, handle string) string {
+	name, n := "stack", 0
+	for _, g := range w.Ghosts {
+		if g.Handle == handle {
+			n++
+			name = g.Name
+		}
+	}
+	if n != 1 || name == "" {
+		name = "stack"
+	}
+	return vesselLabel(handle, name)
 }

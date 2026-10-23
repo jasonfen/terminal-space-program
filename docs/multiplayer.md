@@ -113,7 +113,7 @@ magnet closes the last half metre.
   for both seats: whoever is the rendezvous initiator, else whoever has the
   other's vessel targeted (`t`), else the lower fingerprint. Only the
   approacher's chip reads `capturing`; the other vessel is never moved or
-  turned, and ends up riding in the approacher's stack. Target your friend
+  turned, and ends up docked to the approacher's vessel. Target your friend
   before you close in, so the pull is yours.
 - Both seats run at 1× while you are in the pull, since co-warp takes the
   slower of the two.
@@ -134,7 +134,7 @@ Dock your vessel to theirs and you fly one shared stack.
   take the stick.
 - Nobody ever gets stuck. The pilot's `U` releases a partner's vessel even if
   they've disconnected, and it's waiting for them, safed, when they come back.
-  If the pilot is the one who's gone, the guest riding their stack can press
+  If the pilot is the one who's gone, the guest docked to their vessel can press
   `J` to take the stick themselves. An empty seat needs nobody's permission.
 - After an undock, the pair is held apart even once you settle back into the
   docking gate, so a stray touch doesn't silently re-fuse two vessels you

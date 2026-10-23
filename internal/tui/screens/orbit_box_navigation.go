@@ -176,7 +176,7 @@ func (v *OrbitView) navigationDockGuestBox(w *sim.World) ([]string, bool) {
 
 	title := v.theme.Primary.Render("NAVIGATION") + "  " + primary.EnglishName
 	if w.DockGuest.OwnerHandle != "" {
-		title += "  " + v.theme.Warning.Render(w.DockGuest.OwnerHandle+"'s stack")
+		title += "  " + v.theme.Warning.Render(dockGuestVesselLabel(w))
 	}
 
 	peCell := readout.Distance(periAlt)

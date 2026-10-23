@@ -336,7 +336,7 @@ func TestDockGuestChipStandingBlock(t *testing.T) {
 		{Fingerprint: "SHA256:host", Handle: "vex", Online: true},
 	}}
 	joined := strings.Join(v.buildDockGuestChip(w), "\n")
-	for _, want := range []string{"DOCKED", "riding in vex's stack", "[J] request control", "[U] ask to undock"} {
+	for _, want := range []string{"DOCKED", "docked to vex's stack", "[J] request control", "[U] ask to undock"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("live-owner standing block missing %q:\n%s", want, joined)
 		}

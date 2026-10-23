@@ -141,14 +141,14 @@ func TestComposeChipsBudgetProtectsCriticalChipFromOverflow(t *testing.T) {
 		{corner: cornerTopLeft, lines: filler(2)},                             // SESSION-sized filler
 		{corner: cornerTopLeft, lines: filler(2)},                             // TIME LOCK-sized filler
 		{corner: cornerTopLeft, lines: []string{
-			"DOCKED", "  riding in bob's stack", "  [J] request control", "  [U] ask to undock",
+			"DOCKED", "  docked to bob's Skylab", "  [J] request control", "  [U] ask to undock",
 		}, priority: chipPriorityForced},
 	}
 	out := v.composeChips(blankCanvas(cCols, cRows), cCols, cRows, 0, 0, 0, chips)
 	if !strings.Contains(out, "DOCKED") {
 		t.Fatalf("critical chip (DOCKED) silently lost to top-left overflow:\n%s", out)
 	}
-	if !strings.Contains(out, "riding in bob's stack") || !strings.Contains(out, "[U] ask to undock") {
+	if !strings.Contains(out, "docked to bob's Skylab") || !strings.Contains(out, "[U] ask to undock") {
 		t.Errorf("critical chip rendered but truncated — its own content was clipped:\n%s", out)
 	}
 	if !strings.Contains(out, "hidden") {
@@ -971,7 +971,7 @@ func dockGuestStackGhostWorld(t *testing.T) *sim.World {
 	rel := orbital.Vec3{X: r}
 	vel := orbital.Vec3{Y: math.Sqrt(mu / r)}
 	w.Ghosts = []sim.Ghost{{
-		Owner: "SHA256:bob", CraftID: 42, Handle: "bob", Name: "bob's stack",
+		Owner: "SHA256:bob", CraftID: 42, Handle: "bob", Name: "Skylab",
 		PrimaryID: earth.ID,
 		Pos:       w.BodyPosition(*earth).Add(rel), RelPos: rel, Vel: vel,
 	}}
