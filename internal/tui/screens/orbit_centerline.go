@@ -2,6 +2,7 @@ package screens
 
 import (
 	"math"
+	"strconv"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -9,15 +10,16 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
-	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
-// The Centerline view (ADR 0055 decision 1, slice 2): the right half of the
-// Proximity View at Design Size. You are looking out of your own docking port
-// along your nose. Your port is a fixed crosshair; the Target's port is a
-// ring of the port gate's radius drawn where it is across your face; the
-// standoff cross inside the ring slides off its centre by the alignment lean.
+// The Centerline scope (ADR 0055 decision 1 and the 2026-10-23 amendment): a
+// framed panel in the Proximity View's top-right corner, the navball's twin.
+// You are looking out of your own docking port along your nose. Your port is
+// a fixed dotted crosshair; the Target's port is a ring of the port gate's
+// radius drawn where it is across your face; the standoff cross inside the
+// ring slides off its centre by the alignment lean. The disc ranges itself
+// (orbit_centerline_scale.go) and ignores the side picture's zoom.
 //
 // Three readers share one definition (the ADR's "three readers" rule): the
 // ring's position, the `lateral:` row and the w/s/a/d pulses all read
@@ -30,11 +32,6 @@ const (
 	// radius a port without a size has (ADR 0055 decision 1).
 	centerlineRingRadiusM = proximityPortNeedM
 
-	// centerlineFitFloorM is the entry fit's floor: the span, in metres,
-	// the ring window is fitted to when the lateral miss is smaller (ADR
-	// 0055 "Settled here" 5).
-	centerlineFitFloorM = 2.0
-
 	// centerlineGlyphCells / centerlineCrossCells: a ring under 3 cells
 	// across is the port glyph (the hull sprite's own switch, ADR 0053
 	// decision 6), and the standoff cross is drawn from 5 cells across.
@@ -45,63 +42,54 @@ const (
 	// target's port axis: the dock gate's radius (sim.DockingDistM).
 	centerlineCorridorM = sim.DockingDistM
 
-	// centerlineCrosshairArmPx are the crosshair arms' half-lengths in
-	// canvas pixels (3 cells across, 3 cells up).
-	centerlineCrosshairArmXPx = 6.0
-	centerlineCrosshairArmYPx = 12.0
+	// The panel: a 32-column inner width at Design Size (a 28-column disc
+	// with two spare cells each side), a border, and a title row above the
+	// disc. The disc is square in dots (2 x 4 dots per cell): 28 x 14 cells.
+	centerlineBaseDiscRows = 14
+	centerlinePadCols      = 2
+	centerlineChromeRows   = 3 // top border, title row, bottom border
+	centerlineChromeCols   = 2*centerlinePadCols + 2
+
+	// The rim sits one dot inside the disc; the edge ticks are 5-dot bars
+	// across the arms, two dots inside the rim.
+	centerlineRimInsetPx  = 1.0
+	centerlineTickInsetPx = 3.0
+	centerlineTickHalfPx  = 2.0
 )
 
-// centerlineGeom is the right pane's cell budget (ADR 0055 "Measured cell
-// budget"): where the pane starts, where the crosshair sits and how big a
-// ring the clear window holds. All cells are pane-relative.
+// centerlineGeom is the scope panel's cell budget: the disc, the panel round
+// it, and where it sits on the canvas. discCols is always 2 x discRows.
 type centerlineGeom struct {
-	leftCols int // the left pane's width; the pane starts here on screen
-	paneCols int
-	rows     int
-	// crossCol / crossRow is the crosshair's cell: the centre column of the
-	// strip the navball and the chips leave clear, above the pane's middle
-	// so the lower rows keep the range label.
-	crossCol, crossRow int
-	// winHalfCols / winHalfRows are the ring window's half extents in
-	// cells around the crosshair (a 33 x 17 window at Design Size).
+	discCols, discRows int
+	panelW, panelH     int
+	atCol, atRow       int
+	// winHalfCols / winHalfRows are the disc's half extents in cells around
+	// the crosshair (the standoff cross is kept inside them).
 	winHalfCols, winHalfRows int
 }
 
-// centerlineLayout resolves the split for a canvas of fullCols x rows, and
-// whether it exists at all: below the Design Size the right pane is the
-// first thing dropped (Compact Form, ADR 0046 / ADR 0055 decision 1).
-func centerlineLayout(fullCols, rows int) (centerlineGeom, bool) {
-	if fullCols < designCanvasCols || rows < designCanvasRows {
+// centerlineLayout resolves the panel for a canvas of cCols x cRows, and
+// whether it exists at all: below the Design Size it is the first thing
+// dropped (Compact Form, ADR 0046 / ADR 0055 A1). It grows with height like
+// the navball (heightScaledCells, ADR 0051 W5), capped so it never reaches
+// the navball's top row.
+func centerlineLayout(cCols, cRows int) (centerlineGeom, bool) {
+	if cCols < designCanvasCols || cRows < designCanvasRows {
 		return centerlineGeom{}, false
 	}
-	g := centerlineGeom{leftCols: fullCols / 2, rows: rows}
-	g.paneCols = fullCols - g.leftCols
-	// The strip the navball leaves clear: pane columns 0..clearLast, one
-	// blank cell before the navball's frame.
-	nb := navballGeometry(fullCols, rows)
-	clearLast := fullCols - nb.panelW - 1 - g.leftCols
-	g.crossCol = clearLast / 2
-	g.winHalfCols = (clearLast - 2) / 2
-	g.winHalfRows = 8
-	g.crossRow = rows/2 - 3
+	rows := heightScaledCells(centerlineBaseDiscRows, cRows)
+	nb := navballGeometry(cCols, cRows)
+	if maxRows := cRows - nb.panelH - 1 - centerlineChromeRows; rows > maxRows {
+		rows = maxRows
+	}
+	g := centerlineGeom{discRows: rows, discCols: 2 * rows, winHalfCols: rows, winHalfRows: rows / 2}
+	g.panelW = g.discCols + centerlineChromeCols
+	g.panelH = g.discRows + centerlineChromeRows
+	g.atCol = cCols - g.panelW
 	return g, true
 }
 
-// centerlineFitSpanM is the width in metres the right pane's clear window is
-// fitted to on entry: twice the lateral miss plus the ring's own radius so
-// the ring starts wholly on screen, never under the 2 m floor.
-func centerlineFitSpanM(st sim.ProximityState) float64 {
-	lateral := math.Hypot(st.OffAxisRightM, st.OffAxisUpM)
-	return math.Max(2*(lateral+centerlineRingRadiusM), centerlineFitFloorM)
-}
-
-// centerlineFitScale is the right pane's base scale in pixels per metre:
-// the fit span across the ring window.
-func centerlineFitScale(st sim.ProximityState, g centerlineGeom) float64 {
-	return float64((2*g.winHalfCols+1)*2) / centerlineFitSpanM(st)
-}
-
-// centerlineCanvas returns the right pane's canvas, created on first use.
+// centerlineCanvas returns the disc's canvas, created on first use.
 func (v *OrbitView) centerlineCanvas() *widgets.Canvas {
 	if v.cl == nil {
 		v.cl = widgets.NewCanvas(4, 4)
@@ -109,17 +97,7 @@ func (v *OrbitView) centerlineCanvas() *widgets.Canvas {
 	return v.cl
 }
 
-// centerlineCellWorld is the world point (pane metres, X right, Y up) the
-// canvas projects to the given pixel.
-func centerlineOrigin(g centerlineGeom, scale float64) orbital.Vec3 {
-	cx, cy := 2*g.crossCol+1, 4*g.crossRow+2
-	return orbital.Vec3{
-		X: float64(g.paneCols-cx) / scale,
-		Y: float64(cy-g.rows*2) / scale,
-	}
-}
-
-// centerlineRingPx is the ring's radius in canvas pixels at a scale.
+// centerlineRingPx is the ring's radius in canvas dots at a scale.
 func centerlineRingPx(scale float64) float64 { return centerlineRingRadiusM * scale }
 
 // centerlineCrossOffsetM is the standoff cross's displacement from the ring's
@@ -131,62 +109,95 @@ func centerlineCrossOffsetM(st sim.ProximityState) (right, up float64) {
 		centerlineRingRadiusM * st.MisalignUpDeg / proximityPortNeedDeg
 }
 
-// drawCenterline paints the right pane onto v.cl.
-func (v *OrbitView) drawCenterline(w *sim.World, st sim.ProximityState, g centerlineGeom) {
+// drawCenterline paints the disc onto v.cl and returns the width step it
+// ranged to, for the title row.
+func (v *OrbitView) drawCenterline(w *sim.World, st sim.ProximityState, g centerlineGeom) float64 {
 	c := v.centerlineCanvas()
-	c.Resize(g.paneCols, g.rows)
+	c.Resize(g.discCols, g.discRows)
 	c.Clear()
 	c.SetBasis(widgets.Basis{X: orbital.Vec3{X: 1}, Y: orbital.Vec3{Y: 1}})
-	scale := v.clBaseScale * v.userZoom
-	if !(scale > 0) {
-		return
-	}
-	c.SetScale(scale)
-	c.Center(centerlineOrigin(g, scale))
 
-	dim := v.theme.Dim.GetForeground()
+	e := math.Hypot(st.OffAxisRightM, st.OffAxisUpM) + centerlineRingRadiusM
+	v.clStepM = centerlineStep(v.clStepM, e)
+	pxW := float64(g.discCols * 2)
+	scale := pxW / v.clStepM // dots per metre: the disc's width is the step
+	c.SetScale(scale)
+	c.Center(orbital.Vec3{})
+	rimPx := pxW/2 - centerlineRimInsetPx
+
 	own := render.ColorCraftMarker
 	if a := w.ActiveCraft(); a != nil && a.Color != "" {
 		own = lipgloss.Color(a.Color)
 	}
 
-	// Crosshair: two short Scenery-class lines through the centre cell.
-	c.PlotPolylineClass([]orbital.Vec3{
-		{X: -centerlineCrosshairArmXPx / scale}, {X: centerlineCrosshairArmXPx / scale},
-	}, own, widgets.ClassScenery)
-	c.PlotPolylineClass([]orbital.Vec3{
-		{Y: -centerlineCrosshairArmYPx / scale}, {Y: centerlineCrosshairArmYPx / scale},
-	}, own, widgets.ClassScenery)
+	// Rim and its four edge ticks (the ODS monitor's tick marks, R[4]).
+	x, y := orbital.Vec3{X: 1}, orbital.Vec3{Y: 1}
+	c.PlotPolylineClass(proximityRingPoints(orbital.Vec3{}, x, y, rimPx/scale), render.ColorDim, widgets.ClassReal)
+	tick, half := (pxW/2-centerlineTickInsetPx)/scale, centerlineTickHalfPx/scale
+	for _, d := range []orbital.Vec3{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}} {
+		along := orbital.Vec3{X: d.Y, Y: d.X} // across the arm
+		c.PlotPolylineClass([]orbital.Vec3{
+			d.Scale(tick).Sub(along.Scale(half)), d.Scale(tick).Add(along.Scale(half)),
+		}, render.ColorDim, widgets.ClassReal)
+	}
+
+	// Crosshair: the COAS reticle, dotted, arms to the rim.
+	c.PlotPolylineClass([]orbital.Vec3{{X: -rimPx / scale}, {X: rimPx / scale}}, own, widgets.ClassScenery)
+	c.PlotPolylineClass([]orbital.Vec3{{Y: -rimPx / scale}, {Y: rimPx / scale}}, own, widgets.ClassScenery)
+
+	// Hull outlines (S2) go under the ring and the cross.
+	v.drawCenterlineHulls(c, w, st, scale)
 
 	// Ring: their port, centred at the lateral offset. TARGET colour;
 	// dashed until the dock gate holds, then solid, as the port line is.
+	// Beyond the last step the glyph sits on the rim in the port's direction.
 	centre := orbital.Vec3{X: st.OffAxisRightM, Y: st.OffAxisUpM}
-	ringCells := centerlineRingPx(scale) // diameter in px / 2 px per cell
-	ringRows := 0
-	if ringCells < centerlineGlyphCells {
+	if e > 0.95*v.clStepM/2 {
+		centre = centre.Unit().Scale(rimPx / scale)
+	}
+	ringCells := centerlineRingPx(scale) // diameter in cells = radius in dots
+	if ringCells < centerlineGlyphCells || e > 0.95*v.clStepM/2 {
 		c.SetCellOverlayColored(centre, proximityPortMarkGlyph, render.ColorTarget)
 	} else {
-		pts := proximityRingPoints(centre, orbital.Vec3{X: 1}, orbital.Vec3{Y: 1}, centerlineRingRadiusM)
+		pts := proximityRingPoints(centre, x, y, centerlineRingRadiusM)
 		c.PlotPolylineClass(pts, render.ColorTarget, proximityPortLineClass(w, st))
-		ringRows = int(math.Ceil(centerlineRingPx(scale) / 4))
 	}
 
 	// Standoff cross: the lean of your axis across their port's face.
-	if ringCells >= centerlineCrossCells {
+	if ringCells >= centerlineCrossCells && e <= 0.95*v.clStepM/2 {
 		dr, du := centerlineCrossOffsetM(st)
 		cross := centerlineClampToWindow(g, scale, centre, orbital.Vec3{X: dr, Y: du})
 		c.SetCellOverlayColored(centre.Add(cross), '+', own)
 	}
+	return v.clStepM
+}
 
-	// Labels.
-	c.SetCellLabelColored(0, 0, "Centerline", v.theme.Primary.GetForeground())
-	c.SetCellLabelColored(g.crossCol-1, 0, "▴up", dim)
-	c.SetCellLabelColored(g.paneCols-len([]rune("right▸"))-1, g.crossRow, "right▸", dim)
-	if col, row, on := centerlineCell(c, centre); on {
-		label := readout.PortDistance(st.PortRangeM)
-		at := clampInt(row-ringRows-1, 1, g.rows-1)
-		c.SetCellLabelColored(col-lipgloss.Width(label)/2, at, label, dim)
+// composeCenterlineScope draws the panel over the canvas at its top-right,
+// after the navball (ADR 0055 A1). No panel below Design Size or without a
+// port to look at (A2).
+func (v *OrbitView) composeCenterlineScope(w *sim.World, canvasStr string, cCols, cRows int) string {
+	st, ok := w.ProximityState()
+	g, fits := centerlineLayout(cCols, cRows)
+	if !ok || !st.HasPort || !fits {
+		return canvasStr
 	}
+	step := v.drawCenterline(w, st, g)
+
+	edge := lipgloss.NewStyle().Foreground(v.theme.Primary.GetForeground())
+	inner := g.panelW - 2
+	left, right := "CENTERLINE  "+strconv.FormatFloat(step, 'f', -1, 64)+" m", "port "+centerlineTitleRange(st)
+	gap := inner - lipgloss.Width(left) - lipgloss.Width(right)
+	if gap < 1 {
+		gap = 1
+	}
+	title := v.theme.Primary.Render("CENTERLINE") + v.theme.Dim.Render(left[len("CENTERLINE"):]+strings.Repeat(" ", gap)+right)
+	pad := strings.Repeat(" ", centerlinePadCols)
+	lines := []string{edge.Render("╭" + strings.Repeat("─", inner) + "╮"), edge.Render("│") + title + edge.Render("│")}
+	for _, row := range strings.Split(v.cl.String(), "\n") {
+		lines = append(lines, edge.Render("│")+pad+row+pad+edge.Render("│"))
+	}
+	lines = append(lines, edge.Render("╰"+strings.Repeat("─", inner)+"╯"))
+	return strings.Join(overlayStyledBlock(strings.Split(canvasStr, "\n"), strings.Join(lines, "\n"), g.atRow, g.atCol, cCols), "\n")
 }
 
 // centerlineClampToWindow shortens the cross's displacement, keeping its
@@ -212,35 +223,6 @@ func centerlineClampToWindow(g centerlineGeom, scale float64, centre, d orbital.
 	return d.Scale(f)
 }
 
-// centerlineCell is canvasCell for a given canvas.
-func centerlineCell(c *widgets.Canvas, p orbital.Vec3) (col, row int, on bool) {
-	px, py, ok := c.Project(p)
-	return px / 2, py / 4, ok
-}
-
-// joinCanvasRows places two canvases' rendered strings side by side, row by
-// row. Every styled run in a canvas row is closed, so concatenation is safe.
-func joinCanvasRows(left, right string) string {
-	l, r := strings.Split(left, "\n"), strings.Split(right, "\n")
-	n := len(l)
-	if len(r) > n {
-		n = len(r)
-	}
-	var b strings.Builder
-	for i := 0; i < n; i++ {
-		if i < len(l) {
-			b.WriteString(l[i])
-		}
-		if i < len(r) {
-			b.WriteString(r[i])
-		}
-		if i < n-1 {
-			b.WriteByte('\n')
-		}
-	}
-	return b.String()
-}
-
 // corridorSegment is the dotted line out along the target's port axis, from
 // its port point to centerlineCorridorM: the line the approach is flown
 // onto, in the side view (ADR 0055 decision 1). ok is false without a port
@@ -262,13 +244,4 @@ func (v *OrbitView) drawProximityCorridor(st sim.ProximityState) {
 		return
 	}
 	v.canvas.PlotPolylineClass([]orbital.Vec3{from, to}, render.ColorTarget, widgets.ClassScenery)
-}
-
-// spillBottomRow paints the part of the bottom row's label and Hint Strip that
-// ran past the left pane's edge onto the right pane's last row, so the legend
-// reads straight across the seam as it did on one canvas.
-func (v *OrbitView) spillBottomRow(label string, g centerlineGeom) {
-	last := g.rows - 1
-	v.cl.SetCellLabelColored(-g.leftCols, last, label, v.theme.Primary.GetForeground())
-	v.cl.SetCellLabelColored(len([]rune(label))+hintStripGap-g.leftCols, last, proximityHintStripText, v.theme.Dim.GetForeground())
 }

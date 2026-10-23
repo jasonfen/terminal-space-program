@@ -61,16 +61,10 @@ type OrbitView struct {
 	// FocusZoomRadius' system-wide fall-through actually runs.
 	lastCraftHere bool
 
-	// The Centerline split (ADR 0055 slice 2). At Design Size the Proximity
-	// View draws two half-width canvases: v.canvas shrinks to the left
-	// pane's width and cl is the right pane. proxSplit says v.canvas is the
-	// half-width one right now, proxFullCols what Resize last gave it.
-	// clBaseScale is the right pane's Framing-Event scale; v.userZoom
-	// multiplies both panes' bases.
-	cl           *widgets.Canvas
-	clBaseScale  float64
-	proxSplit    bool
-	proxFullCols int
+	// The Centerline scope (ADR 0055 A1): cl is the disc's canvas, clStepM
+	// the width step it ranged to (0 = re-range on the next frame).
+	cl      *widgets.Canvas
+	clStepM float64
 
 	// baseScale is the auto-fit pixels-per-meter the Framing-Event fit
 	// last computed (FocusZoomRadius). userZoom is the player's manual
@@ -514,28 +508,7 @@ func (v *OrbitView) Resize(totalCols, totalRows int) {
 		canvasCols = 20
 	}
 	v.canvas.Resize(canvasCols, totalRows-3)
-	v.proxSplit = false
 	v.fitted = false // force refit after resize
-}
-
-// fullCanvasCols is the canvas width the terminal gave the screen, whether or
-// not the Proximity View has shrunk v.canvas to its left pane.
-func (v *OrbitView) fullCanvasCols() int {
-	if v.proxSplit {
-		return v.proxFullCols
-	}
-	return v.canvas.Cols()
-}
-
-// endProximitySplit gives v.canvas its full width back when a frame is not a
-// split Proximity frame.
-func (v *OrbitView) endProximitySplit() {
-	if !v.proxSplit {
-		return
-	}
-	v.canvas.Resize(v.proxFullCols, v.canvas.Rows())
-	v.proxSplit = false
-	v.fitted = false
 }
 
 // ZoomIn / ZoomOut are thin wrappers for App to call on +/-. They nudge the
@@ -693,7 +666,7 @@ func (v *OrbitView) IsCanvasClick(col, row int) bool {
 // IsHudClick reports whether a screen-space col lands on the HUD
 // panel (right of the canvas + its border).
 func (v *OrbitView) IsHudClick(col int) bool {
-	return col > v.fullCanvasCols()+1
+	return col > v.canvas.Cols()+1
 }
 
 // ProjectToOrbit maps a screen-space click to the time-of-flight at
@@ -760,8 +733,6 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	if w.ViewMode == sim.ViewProximity {
 		return v.renderProximity(w, totalCols, totalRows)
 	}
-	v.endProximitySplit()
-
 	sys := w.System()
 
 	// Framing Event resolution (ADR 0021 A): fit the canvas exactly once

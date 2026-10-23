@@ -10,6 +10,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
@@ -18,20 +19,30 @@ import (
 // pane's canvas, from arithmetic done in the test, never by reading back the
 // number the code computed.
 
-// Design Size right pane, as the ADR's cell budget arithmetic gives it and
-// the first capture confirmed: 69 + 69 columns, the navball's frame at screen
-// column 104, the crosshair at pane column 17 (screen column 86) on row 15.
+// Design Size scope, as the ADR's arithmetic gives it (A1): a 34 x 17 framed
+// panel at canvas col 104, row 0; a 28 x 14 disc (56 x 56 dots) whose first
+// cell is canvas (107, 2); the crosshair in disc cell (14, 7) = canvas
+// (121, 9), at dot (28, 28).
 const (
-	clPaneCols  = 69
-	clCrossCol  = 17 // screen column 86
-	clCrossRow  = 15
-	clCrossPxX  = 2*clCrossCol + 1
-	clCrossPxY  = 4*clCrossRow + 2
-	clWindowPx  = 66.0 // 33 columns across
+	clPanelCol  = 104
+	clPanelW    = 34
+	clPanelH    = 17
+	clDiscCol0  = 107
+	clDiscRow0  = 2
+	clDiscCols  = 28
+	clDiscRows  = 14
+	clCrossCol  = 14 // disc cell
+	clCrossRow  = 7
+	clCrossPxX  = 28 // disc dot
+	clCrossPxY  = 28
+	clRimPx     = 27.0
 	clRingR     = 0.5
 	clGateDeg   = 4.0
 	clFrameLine = 2 // canvas row r is frame line r+2 (title, top border)
 )
+
+// dotsPerM is the scope's scale at a width step: the disc's 56 dots across S.
+func dotsPerM(stepM float64) float64 { return 56 / stepM }
 
 func renderSplit(t *testing.T, w *sim.World) (*OrbitView, string) {
 	t.Helper()
@@ -54,6 +65,16 @@ func frameRune(frame string, col, row int) rune {
 	return r[col+1]
 }
 
+// frameLine is canvas row r of a rendered frame, colour stripped.
+func frameLine(frame string, row int) string {
+	lines := strings.Split(ansi.Strip(frame), "\n")
+	if row+clFrameLine >= len(lines) {
+		return ""
+	}
+	r := []rune(lines[row+clFrameLine])
+	return string(r[1 : len(r)-1])
+}
+
 // ringWorld parks the active vessel so the target's port sits up metres above
 // and right metres to the right of its own port, 3 m ahead along the axis.
 // portedPairWorld offsets are the active port from the target's, in LVLH
@@ -72,14 +93,26 @@ func ringWorld(t *testing.T, up, right, tiltDeg float64) *sim.World {
 	return w
 }
 
-// litPixels lists the right pane's lit dots that are not on the crosshair's
-// own two lines.
+// scopeFurniture reports whether a disc dot belongs to the scope's own
+// marks: the two reticle lines, the rim and the four edge ticks. Anything
+// else lit is the ring (or, from S2, a hull).
+func scopeFurniture(px, py int) bool {
+	if px == clCrossPxX || py == clCrossPxY {
+		return true
+	}
+	if d := math.Hypot(float64(px-clCrossPxX), float64(py-clCrossPxY)); d > 24 {
+		return true
+	}
+	return false
+}
+
+// litExcludingCrosshair lists the disc's lit dots that are not scope furniture.
 func litExcludingCrosshair(c *widgets.Canvas) (minX, minY, maxX, maxY, n int) {
 	minX, minY = 1<<30, 1<<30
 	maxX, maxY = -1, -1
 	for py := 0; py < c.Rows()*4; py++ {
 		for px := 0; px < c.Cols()*2; px++ {
-			if !c.SubPixelSet(px, py) || px == clCrossPxX || py == clCrossPxY {
+			if !c.SubPixelSet(px, py) || scopeFurniture(px, py) {
 				continue
 			}
 			n++
@@ -90,144 +123,160 @@ func litExcludingCrosshair(c *widgets.Canvas) (minX, minY, maxX, maxY, n int) {
 	return
 }
 
-// expectedScale is the entry fit's pixels per metre, from the ADR's rule:
-// the 33-column window across the larger of 2 x (lateral + 0.5 m ring) and 2 m.
-func expectedScale(lateralM float64) float64 {
-	return clWindowPx / math.Max(2*(lateralM+clRingR), 2)
+// inkAt reports whether the frame cell holds braille ink or the cross glyph.
+func inkAt(frame string, col, row int) bool {
+	r := frameRune(frame, col, row)
+	return (r > 0x2800 && r <= 0x28FF) || r == '+'
 }
 
-// The layout the ADR's arithmetic predicted, confirmed on the first capture:
-// two 69-cell panes, crosshair at screen column 86 row 15, a 33 x 17 window.
-func TestCenterlineLayoutAtDesignSize(t *testing.T) {
-	g, ok := centerlineLayout(138, 37)
-	if !ok {
-		t.Fatal("no split at the Design Size canvas (138x37)")
-	}
-	if g.leftCols != 69 || g.paneCols != 69 {
-		t.Errorf("panes = %d + %d columns, want 69 + 69", g.leftCols, g.paneCols)
-	}
-	if g.leftCols+g.crossCol != 86 || g.crossRow != 15 {
-		t.Errorf("crosshair at screen column %d row %d, want 86, 15", g.leftCols+g.crossCol, g.crossRow)
-	}
-	if 2*g.winHalfCols+1 != 33 || 2*g.winHalfRows+1 != 17 {
-		t.Errorf("ring window = %d x %d, want 33 x 17", 2*g.winHalfCols+1, 2*g.winHalfRows+1)
-	}
+// A rendered title row is "CENTERLINE  <step>", then the port range flush
+// right, in the panel's 32 inner columns.
+func wantTitle(step string, st sim.ProximityState) string {
+	l, r := "CENTERLINE  "+step, "port "+readout.PortDistance(st.PortRangeM)
+	return l + strings.Repeat(" ", 32-len(l)-len(r)) + r
 }
 
-// The right pane exists at 140x40 with its label on the pane's first cell, and
-// is absent below the Design Size, where the left pane keeps the whole width.
-func TestCenterlineSplitOnlyAtDesignSize(t *testing.T) {
+// A1: the panel is 34 x 17, framed, at canvas cols 104-137 rows 0-16, title
+// row inside; the canvas keeps the full 138 columns; the navball below it is
+// untouched at rows 17-35.
+func TestCenterlinePanelIsFramedTopRightAndCanvasKeepsItsWidth(t *testing.T) {
 	w := ringWorld(t, 1, 0.6, 0)
+	st, _ := w.ProximityState()
 	v, out := renderSplit(t, w)
-	if v.canvas.Cols() != 69 {
-		t.Errorf("left pane = %d columns at 140x40, want 69", v.canvas.Cols())
+	if v.canvas.Cols() != 138 {
+		t.Errorf("canvas = %d columns in Proximity, want the full 138", v.canvas.Cols())
 	}
-	for i, r := range []rune("Centerline") {
-		if got := frameRune(out, 69+i, 0); got != r {
-			t.Fatalf("pane cell (%d, 0) = %q, want %q of the Centerline label", 69+i, got, r)
+	for _, c := range []struct {
+		col, row int
+		want     rune
+	}{
+		{clPanelCol, 0, '╭'}, {clPanelCol + clPanelW - 1, 0, '╮'},
+		{clPanelCol, clPanelH - 1, '╰'}, {clPanelCol + clPanelW - 1, clPanelH - 1, '╯'},
+	} {
+		if got := frameRune(out, c.col, c.row); got != c.want {
+			t.Errorf("panel corner (%d, %d) = %q, want %q", c.col, c.row, got, c.want)
 		}
 	}
+	line := []rune(frameLine(out, 1))
+	if len(line) < clPanelCol+clPanelW {
+		t.Fatalf("title row too short: %q", string(line))
+	}
+	if got, want := string(line[clPanelCol+1:clPanelCol+clPanelW-1]), wantTitle("4 m", st); got != want {
+		t.Errorf("title row = %q, want %q", got, want)
+	}
 
-	small := NewOrbitView(chipTestTheme())
-	small.Resize(80, 24)
-	text := ansi.Strip(small.Render(w, 0, 80, 24))
-	if strings.Contains(text, "Centerline") {
-		t.Error("80x24 draws the Centerline pane; Compact Form drops it first")
+	// The navball is where it was: its frame opens on the row under the panel.
+	g := navballGeometry(138, 37)
+	atCol, atRow := 138-g.panelW, 37-g.panelH-1
+	if atRow != clPanelH {
+		t.Fatalf("fixture: navball opens on row %d, the panel was drawn for row %d", atRow, clPanelH)
 	}
-	if small.canvas.Cols() != 78 {
-		t.Errorf("80x24 left pane = %d columns, want the full 78", small.canvas.Cols())
+	if got := frameRune(out, atCol, atRow); got != '╭' {
+		t.Errorf("navball top-left = %q at (%d, %d), want ╭", got, atCol, atRow)
 	}
-	// One row short of the Design Size is compact too.
-	short := NewOrbitView(chipTestTheme())
-	short.Resize(DesignWidth, DesignHeight-1)
-	if strings.Contains(ansi.Strip(short.Render(w, 0, DesignWidth, DesignHeight-1)), "Centerline") {
-		t.Error("140x39 draws the Centerline pane")
+	if got := frameRune(out, atCol, atRow+g.panelH-1); got != '╰' {
+		t.Errorf("navball bottom-left = %q, want ╰", got)
 	}
 }
 
-// Without a port to look at there is nothing to centre on: the side view
-// keeps the full width.
-func TestCenterlineAbsentWithoutAPort(t *testing.T) {
-	w := portedPairWorld(t, []string{"rcs-tug"}, []string{"s-ivb-1"}, orbital.Vec3{X: 3}, 0)
-	v, out := renderSplit(t, w)
-	if strings.Contains(ansi.Strip(out), "Centerline") || v.canvas.Cols() != 138 {
-		t.Errorf("a portless target split the view (left pane %d columns)", v.canvas.Cols())
-	}
-}
-
-// The crosshair is fixed at the pane's cell (86, 15): lit there, in the
-// frame, whatever the ring is doing.
+// A3: the crosshair is the disc's centre cell, canvas (121, 9); its arms run
+// to the rim; the rim carries ticks at up / right / down / left. All of it
+// whatever the ring is doing.
 func TestCenterlineCrosshairIsFixedAtItsCell(t *testing.T) {
 	for _, off := range [][2]float64{{0, 0}, {1.2, -0.8}, {-3, 2}} {
 		w := ringWorld(t, off[0], off[1], 0)
 		v, out := renderSplit(t, w)
-		if !v.cl.SubPixelSet(clCrossPxX, clCrossPxY) {
-			t.Errorf("lateral %v: pixel (%d, %d) at the crosshair centre is not lit", off, clCrossPxX, clCrossPxY)
-		}
-		// A straight nose puts the standoff cross's '+' on the crosshair.
-		if r := frameRune(out, 69+clCrossCol, clCrossRow); (r < 0x2801 || r > 0x28FF) && r != '+' {
-			t.Errorf("lateral %v: frame cell (86, 15) = %q, want crosshair ink", off, r)
-		}
-	}
-}
-
-// The crosshair's two arms cross on the pixel of the pane's cell (86, 15): the
-// vertical arm is lit in that pixel column and dark three columns either side,
-// the horizontal arm in that row and dark three rows above and below.
-func TestCenterlineCrosshairArmsCrossAtTheCell(t *testing.T) {
-	w := ringWorld(t, 0, 0, 0) // ring 16 px out: clear of the arms
-	v, _ := renderSplit(t, w)
-	lit := func(px0, py0, px1, py1 int) (n int) {
-		for py := py0; py <= py1; py++ {
-			for px := px0; px <= px1; px++ {
-				if v.cl.SubPixelSet(px, py) {
-					n++
-				}
+		lit := false
+		for dx := 0; dx < 2; dx++ { // the centre cell's 2 x 4 dots
+			for dy := 0; dy < 4; dy++ {
+				lit = lit || v.cl.SubPixelSet(clCrossPxX+dx, clCrossPxY+dy)
 			}
 		}
-		return
-	}
-	if n := lit(clCrossPxX, clCrossPxY-10, clCrossPxX, clCrossPxY+10); n < 6 {
-		t.Errorf("vertical arm lit %d dots in pixel column %d, want a line", n, clCrossPxX)
-	}
-	if n := lit(clCrossPxX-3, clCrossPxY-10, clCrossPxX-3, clCrossPxY+10) + lit(clCrossPxX+3, clCrossPxY-10, clCrossPxX+3, clCrossPxY+10); n != 0 {
-		t.Errorf("%d dots lit three pixel columns off the crosshair's column", n)
-	}
-	if n := lit(clCrossPxX-5, clCrossPxY, clCrossPxX+5, clCrossPxY); n < 3 {
-		t.Errorf("horizontal arm lit %d dots in pixel row %d, want a line", n, clCrossPxY)
-	}
-	if n := lit(clCrossPxX-5, clCrossPxY-3, clCrossPxX+5, clCrossPxY-3) + lit(clCrossPxX-5, clCrossPxY+3, clCrossPxX+5, clCrossPxY+3); n != 0 {
-		t.Errorf("%d dots lit three pixel rows off the crosshair's row", n)
+		if !lit {
+			t.Errorf("lateral %v: the crosshair's centre cell has no lit dot", off)
+		}
+		if !inkAt(out, clDiscCol0+clCrossCol, clDiscRow0+clCrossRow) {
+			t.Errorf("lateral %v: frame cell (121, 9) = %q, want crosshair ink", off, frameRune(out, clDiscCol0+clCrossCol, clDiscRow0+clCrossRow))
+		}
 	}
 }
 
-// The ring is centred at (right, up) metres from the crosshair at the shared
-// fit: 1 m up and 0.6 m left of the crosshair.
+// The reticle's arms cross on the centre dot and run the width of the disc:
+// ink within a few dots of each rim point, and the rim's four ticks beside
+// them (the tick is a bar across the arm, two dots inside the rim).
+func TestCenterlineReticleReachesTheRimAndTheRimHasTicks(t *testing.T) {
+	w := ringWorld(t, 0, 0, 0)
+	v, out := renderSplit(t, w)
+	any := func(pts ...[2]int) bool {
+		for _, p := range pts {
+			if v.cl.SubPixelSet(p[0], p[1]) {
+				return true
+			}
+		}
+		return false
+	}
+	if !any([2]int{28, 0}, [2]int{28, 1}, [2]int{28, 2}) {
+		t.Error("up arm does not reach the rim")
+	}
+	if !any([2]int{28, 53}, [2]int{28, 54}, [2]int{28, 55}) {
+		t.Error("down arm does not reach the rim")
+	}
+	if !any([2]int{0, 28}, [2]int{1, 28}, [2]int{2, 28}) {
+		t.Error("left arm does not reach the rim")
+	}
+	if !any([2]int{53, 28}, [2]int{54, 28}, [2]int{55, 28}) {
+		t.Error("right arm does not reach the rim")
+	}
+	// Ticks: off-arm dots 2 px either side of the arm, 2 px inside the rim.
+	for name, p := range map[string][2]int{
+		"up": {26, 3}, "up+": {30, 3}, "down": {26, 53}, "down+": {30, 53},
+		"left": {3, 26}, "left+": {3, 30}, "right": {53, 26}, "right+": {53, 30},
+	} {
+		if !v.cl.SubPixelSet(p[0], p[1]) {
+			t.Errorf("rim tick %s: dot %v not lit", name, p)
+		}
+	}
+	// The four compass cells (disc cell -> canvas) carry ink.
+	for name, c := range map[string][2]int{
+		"up": {clCrossCol, 0}, "down": {clCrossCol, clDiscRows - 1},
+		"left": {0, clCrossRow}, "right": {clDiscCols - 1, clCrossRow},
+	} {
+		if !inkAt(out, clDiscCol0+c[0], clDiscRow0+c[1]) {
+			t.Errorf("compass cell %s (%d, %d) has no ink", name, clDiscCol0+c[0], clDiscRow0+c[1])
+		}
+	}
+	// And the rim is a round line, not a box: the disc's corner cell is empty.
+	if inkAt(out, clDiscCol0, clDiscRow0) {
+		t.Error("disc corner cell has ink; the rim should be a circle")
+	}
+}
+
+// The ring is centred at (right, up) metres from the crosshair at 56 / S dots
+// per metre: 1 m up and 0.6 m left is e = 1.67 m, the 4 m step, 14 dots / m.
 func TestCenterlineRingSitsAtTheLateralOffset(t *testing.T) {
 	const up, right = 1.0, -0.6
 	w := ringWorld(t, up, right, 0)
 	v, _ := renderSplit(t, w)
-	scale := expectedScale(math.Hypot(up, right))
+	scale := dotsPerM(4)
 	wantX := float64(clCrossPxX) + right*scale
 	wantY := float64(clCrossPxY) - up*scale
 	minX, minY, maxX, maxY, n := litExcludingCrosshair(v.cl)
 	if n == 0 {
-		t.Fatal("no ring ink in the right pane")
+		t.Fatal("no ring ink in the disc")
 	}
 	midX, midY := float64(minX+maxX)/2, float64(minY+maxY)/2
 	if math.Abs(midX-wantX) > 3 || math.Abs(midY-wantY) > 3 {
-		t.Errorf("ring centre at pixel (%.1f, %.1f), want (%.1f, %.1f) = crosshair + (%.2f m right, %.2f m up) at %.2f px/m",
+		t.Errorf("ring centre at dot (%.1f, %.1f), want (%.1f, %.1f) = crosshair + (%.2f m right, %.2f m up) at %.2f dots/m",
 			midX, midY, wantX, wantY, right, up, scale)
 	}
-	// And its size is the 0.5 m radius at that scale.
 	if got, want := float64(maxX-minX)/2, clRingR*scale; math.Abs(got-want) > 3 {
-		t.Errorf("ring half-width = %.1f px, want %.1f (0.5 m at %.2f px/m)", got, want, scale)
+		t.Errorf("ring half-width = %.1f dots, want %.1f (0.5 m at %.2f dots/m)", got, want, scale)
 	}
 }
 
-// A w pulse in PORT (BurnPortUp) moves the ring DOWN the pane by the metres
-// the pulse bought at the pane's scale, and the lateral: row's up number falls
-// by the same: the ring, the row and the pulse read one PortFaceBasis.
+// A w pulse in PORT (BurnPortUp) moves the ring DOWN the disc by the metres
+// the pulse bought at the scope's scale, and the lateral: row's up number
+// falls by the same: the ring, the row and the pulse read one PortFaceBasis.
 func TestCenterlinePortUpPulseMovesTheRingDown(t *testing.T) {
 	w := ringWorld(t, 1.0, 0, 0)
 	w.Clock.Paused = false
@@ -249,43 +298,45 @@ func TestCenterlinePortUpPulseMovesTheRingDown(t *testing.T) {
 	}
 	secs := w.Clock.SimTime.Sub(t0).Seconds()
 	moved := 0.1 * secs // RCSDvQuantum 0.1 m/s along up
-	out := v.Render(w, 0, DesignWidth, DesignHeight)
-	_ = out
+	v.Render(w, 0, DesignWidth, DesignHeight)
 	st1, _ := w.ProximityState()
 	if got := st0.OffAxisUpM - st1.OffAxisUpM; math.Abs(got-moved) > 0.05*moved {
 		t.Fatalf("lateral up fell by %.3f m, the pulse bought %.3f m", got, moved)
 	}
 	_, y1min, _, y1max, _ := litExcludingCrosshair(v.cl)
-	scale := expectedScale(1.0)
+	scale := dotsPerM(4)
 	dy := float64(y1min+y1max)/2 - float64(y0min+y0max)/2
 	if dy <= 0 {
-		t.Fatalf("ring moved %.1f px (positive is down) after pushing up; want down", dy)
+		t.Fatalf("ring moved %.1f dots (positive is down) after pushing up; want down", dy)
 	}
 	if want := moved * scale; math.Abs(dy-want) > 4 {
-		t.Errorf("ring moved %.1f px down, want %.1f (%.3f m at %.2f px/m)", dy, want, moved, scale)
+		t.Errorf("ring moved %.1f dots down, want %.1f (%.3f m at %.2f dots/m)", dy, want, moved, scale)
 	}
 }
 
-// crossCell finds the standoff cross's '+' in the right pane.
+// crossCell finds the standoff cross's '+' in the disc, as a disc cell.
 func crossCell(frame string) (col, row int, ok bool) {
-	for r := 1; r < 36; r++ {
-		for c := 69; c < 104; c++ {
+	for r := clDiscRow0; r < clDiscRow0+clDiscRows; r++ {
+		for c := clDiscCol0; c < clDiscCol0+clDiscCols; c++ {
 			if frameRune(frame, c, r) == '+' {
-				return c - 69, r, true
+				return c - clDiscCol0, r - clDiscRow0, true
 			}
 		}
 	}
 	return 0, 0, false
 }
 
-// pxCell is the pane cell holding pixel (px, py).
-func pxCell(px, py float64) (int, int) { return int(math.Floor(px)) / 2, int(math.Floor(py)) / 4 }
+// cellAt is the disc cell holding the dot dx dots right and dy dots up of the
+// crosshair, rounded the way the canvas projects a world point.
+func cellAt(dx, dy float64) (int, int) {
+	return (clCrossPxX + int(math.Round(dx))) / 2, (clCrossPxY - int(math.Round(dy))) / 4
+}
 
 // The standoff cross sits on the ring's edge at exactly 4 degrees of lean,
-// inside at 3, and below the centre for a nose tipped down.
+// inside at 3, and below the centre for a nose tipped down. Lateral 0 is the
+// 2 m step: 28 dots / m, a 14-dot ring radius.
 func TestCenterlineCrossReachesTheEdgeAtTheGate(t *testing.T) {
-	scale := expectedScale(0)
-	ringR := clRingR * scale
+	ringR := clRingR * dotsPerM(2)
 	cases := []struct {
 		tilt   float64
 		wantPx float64 // up is positive
@@ -301,11 +352,11 @@ func TestCenterlineCrossReachesTheEdgeAtTheGate(t *testing.T) {
 		_, out := renderSplit(t, w)
 		col, row, ok := crossCell(out)
 		if !ok {
-			t.Fatalf("tilt %+g: no standoff cross in the right pane", tc.tilt)
+			t.Fatalf("tilt %+g: no standoff cross in the disc", tc.tilt)
 		}
-		wc, wr := pxCell(float64(clCrossPxX), float64(clCrossPxY)-tc.wantPx)
+		wc, wr := cellAt(0, tc.wantPx)
 		if col != wc || row != wr {
-			t.Errorf("tilt %+g deg: cross at pane cell (%d, %d), want (%d, %d) = %.1f px above the ring centre",
+			t.Errorf("tilt %+g deg: cross at disc cell (%d, %d), want (%d, %d) = %.1f dots above the ring centre",
 				tc.tilt, col, row, wc, wr, tc.wantPx)
 		}
 	}
@@ -314,8 +365,6 @@ func TestCenterlineCrossReachesTheEdgeAtTheGate(t *testing.T) {
 // A nose tipped toward the face's right puts the cross right of the ring's
 // centre by the same rule, and a centred nose puts it on the crosshair.
 func TestCenterlineCrossFollowsYawAndCentresWhenStraight(t *testing.T) {
-	scale := expectedScale(0)
-	ringR := clRingR * scale
 	w := ringWorld(t, 0, 0, 0)
 	_, out := renderSplit(t, w)
 	if col, row, ok := crossCell(out); !ok || col != clCrossCol || row != clCrossRow {
@@ -335,25 +384,53 @@ func TestCenterlineCrossFollowsYawAndCentresWhenStraight(t *testing.T) {
 	col, row, ok := crossCell(out)
 	// Turning the nose swings its port (the lever arm is the stack), so the
 	// ring is wherever the sim now puts it; the cross is one ring radius right of it.
-	scale = expectedScale(math.Hypot(st.OffAxisRightM, st.OffAxisUpM))
-	ringR = clRingR * scale
-	wc, wr := pxCell(float64(clCrossPxX)+st.OffAxisRightM*scale+ringR, float64(clCrossPxY)-st.OffAxisUpM*scale)
+	e := math.Hypot(st.OffAxisRightM, st.OffAxisUpM) + clRingR
+	step := 2.0
+	for e > 0.95*step/2 {
+		step *= 2
+	}
+	scale := dotsPerM(step)
+	ringR := clRingR * scale
+	wc, wr := cellAt(st.OffAxisRightM*scale+ringR, st.OffAxisUpM*scale)
 	if !ok || col != wc || row != wr {
 		t.Errorf("4 deg right: cross at (%d, %d) ok=%v, want (%d, %d)", col, row, ok, wc, wr)
 	}
 }
 
-// Below 3 cells across the ring is the port glyph, below 5 there is no cross.
+// Under 3 cells across the ring is the port glyph, under 5 there is no cross.
+// 6 m up is the 16 m step: the ring is 1.75 cells.
 func TestCenterlineSmallRingIsTheGlyphAndHasNoCross(t *testing.T) {
-	w := ringWorld(t, 30, 0, 4) // 30 m up: the ring is under a cell
+	w := ringWorld(t, 6, 0, 4)
 	_, out := renderSplit(t, w)
 	if _, _, ok := crossCell(out); ok {
 		t.Error("a sub-5-cell ring carries a standoff cross")
 	}
-	scale := expectedScale(30)
-	col, row := pxCell(float64(clCrossPxX), float64(clCrossPxY)-30*scale)
-	if got := frameRune(out, 69+col, row); got != proximityPortMarkGlyph {
-		t.Errorf("cell (%d, %d) = %q, want the %q port glyph at the ring's centre", 69+col, row, got, proximityPortMarkGlyph)
+	col, row := cellAt(0, 6*dotsPerM(16))
+	if got := frameRune(out, clDiscCol0+col, clDiscRow0+row); got != proximityPortMarkGlyph {
+		t.Errorf("cell (%d, %d) = %q, want the %q port glyph at the ring's centre", clDiscCol0+col, clDiscRow0+row, got, proximityPortMarkGlyph)
+	}
+}
+
+// Beyond the 64 m step the port glyph sits on the rim in the port's direction.
+func TestCenterlineBeyondTheLastStepTheGlyphSitsOnTheRim(t *testing.T) {
+	for _, c := range []struct {
+		name      string
+		up, right float64
+		col, row  int // disc cell
+	}{
+		{"above", 50, 0, clCrossCol, 0},
+		{"below", -50, 0, clCrossCol, clDiscRows - 1},
+		{"right", 0, 50, clDiscCols - 1, clCrossRow},
+		{"left", 0, -50, 0, clCrossRow},
+	} {
+		w := ringWorld(t, c.up, c.right, 0)
+		_, out := renderSplit(t, w)
+		if got := frameRune(out, clDiscCol0+c.col, clDiscRow0+c.row); got != proximityPortMarkGlyph {
+			t.Errorf("%s: rim cell (%d, %d) = %q, want %q", c.name, clDiscCol0+c.col, clDiscRow0+c.row, got, proximityPortMarkGlyph)
+		}
+		if line := frameLine(out, 1); !strings.Contains(line, "CENTERLINE  64 m") {
+			t.Errorf("%s: title %q does not read the 64 m step", c.name, line)
+		}
 	}
 }
 
@@ -376,30 +453,104 @@ func TestCenterlineRingSolidOnlyWhenGateReady(t *testing.T) {
 	}
 }
 
-// +/- zoom both panes by the same factor from their own bases, and the scale
-// bar is drawn once.
-func TestCenterlineZoomMovesBothPanesAndTheBarIsDrawnOnce(t *testing.T) {
+// A4: the scope has no zoom. `+` rescales the side picture and nothing in the
+// disc: the ring stays on the same dots. The scale bar is still drawn once,
+// and the bottom label now reads straight across (no seam).
+func TestCenterlineZoomMovesTheSidePictureOnlyAndTheBarIsDrawnOnce(t *testing.T) {
 	w := ringWorld(t, 1, 0.5, 0)
 	v, _ := renderSplit(t, w)
-	l0, r0 := v.canvas.Scale(), v.cl.Scale()
+	l0 := v.canvas.Scale()
+	r0 := v.cl.Scale()
+	x0, y0, x1, y1, n0 := litExcludingCrosshair(v.cl)
 	v.ZoomIn()
 	out := v.Render(w, 0, DesignWidth, DesignHeight)
-	l1, r1 := v.canvas.Scale(), v.cl.Scale()
-	if math.Abs(l1/l0-1.25) > 1e-9 || math.Abs(r1/r0-1.25) > 1e-9 {
-		t.Errorf("after + the left pane scaled %.4fx and the Centerline pane %.4fx, want 1.25x both", l1/l0, r1/r0)
+	if got := v.canvas.Scale() / l0; math.Abs(got-1.25) > 1e-9 {
+		t.Errorf("after + the side picture scaled %.4fx, want 1.25x", got)
 	}
-	v.ZoomOut()
-	v.ZoomOut()
-	out = v.Render(w, 0, DesignWidth, DesignHeight)
-	if got := v.cl.Scale() / r0; math.Abs(got-1/1.25) > 1e-9 {
-		t.Errorf("after + - - the Centerline pane is %.4fx its fit, want %.4f", got, 1/1.25)
+	if got := v.cl.Scale() / r0; math.Abs(got-1) > 1e-9 {
+		t.Errorf("after + the scope scaled %.4fx, want 1x (no zoom)", got)
+	}
+	a, b, c, d, n1 := litExcludingCrosshair(v.cl)
+	if a != x0 || b != y0 || c != x1 || d != y1 || n1 != n0 {
+		t.Errorf("after + the ring moved: bbox (%d,%d)-(%d,%d) n=%d, was (%d,%d)-(%d,%d) n=%d", a, b, c, d, n1, x0, y0, x1, y1, n0)
 	}
 	bar, ok := scaleBarFor(v.canvas.Scale())
 	if !ok {
-		t.Fatal("no scale bar for the left pane")
+		t.Fatal("no scale bar for the side picture")
 	}
 	if n := strings.Count(ansi.Strip(out), bar.text()); n != 1 {
 		t.Errorf("scale bar %q drawn %d times, want once", bar.text(), n)
+	}
+	if !strings.Contains(frameLine(out, 36), "view: Proximity") {
+		t.Errorf("bottom label = %q, want it to start with view: Proximity", frameLine(out, 36))
+	}
+}
+
+// Compact Form: the scope is the first thing dropped. At 80x24 and one row
+// short of the Design Size there is no panel; the side picture keeps the
+// whole width and the chip's port: / misalign: rows survive.
+func TestCenterlinePanelOnlyAtDesignSize(t *testing.T) {
+	w := ringWorld(t, 1, 0.6, 0)
+	small := NewOrbitView(chipTestTheme())
+	small.Resize(80, 24)
+	text := ansi.Strip(small.Render(w, 0, 80, 24))
+	if strings.Contains(text, "CENTERLINE") {
+		t.Error("80x24 draws the Centerline panel; Compact Form drops it first")
+	}
+	if small.canvas.Cols() != 78 {
+		t.Errorf("80x24 canvas = %d columns, want the full 78", small.canvas.Cols())
+	}
+	for _, want := range []string{"port:", "misalign:"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("80x24 lost the %q row", want)
+		}
+	}
+	short := NewOrbitView(chipTestTheme())
+	short.Resize(DesignWidth, DesignHeight-1)
+	if strings.Contains(ansi.Strip(short.Render(w, 0, DesignWidth, DesignHeight-1)), "CENTERLINE") {
+		t.Error("140x39 draws the Centerline panel")
+	}
+	_, out := renderSplit(t, w)
+	if !strings.Contains(ansi.Strip(out), "CENTERLINE") {
+		t.Error("140x40 draws no Centerline panel")
+	}
+}
+
+// Taller terminals grow the panel with the navball (heightScaledCells), and
+// it never reaches the navball's top row.
+func TestCenterlinePanelGrowsWithHeightAndStopsAboveTheNavball(t *testing.T) {
+	w := ringWorld(t, 1, 0.6, 0)
+	rows := DesignHeight + 12
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(DesignWidth, rows)
+	out := v.Render(w, 0, DesignWidth, rows)
+	cRows := rows - 3
+	disc := heightScaledCells(14, cRows)
+	g := navballGeometry(138, cRows)
+	navTop := cRows - g.panelH - 1
+	if want := disc + 3; want > navTop {
+		t.Fatalf("fixture: panel %d rows does not fit above the navball at row %d", want, navTop)
+	}
+	if disc <= 14 {
+		t.Fatalf("disc did not grow at %d rows", rows)
+	}
+	panelW := 2*disc + 6
+	left := 138 - panelW
+	if got := frameRune(out, left, 0); got != '╭' {
+		t.Errorf("grown panel top-left = %q at (%d, 0), want ╭", got, left)
+	}
+	if got := frameRune(out, left, disc+2); got != '╰' {
+		t.Errorf("grown panel bottom-left = %q at (%d, %d), want ╰", got, left, disc+2)
+	}
+}
+
+// Without a port to look at there is nothing to centre on: the side view
+// keeps its corner.
+func TestCenterlineAbsentWithoutAPort(t *testing.T) {
+	w := portedPairWorld(t, []string{"rcs-tug"}, []string{"s-ivb-1"}, orbital.Vec3{X: 3}, 0)
+	v, out := renderSplit(t, w)
+	if strings.Contains(ansi.Strip(out), "CENTERLINE") || v.canvas.Cols() != 138 {
+		t.Errorf("a portless target drew the panel (canvas %d columns)", v.canvas.Cols())
 	}
 }
 
@@ -468,16 +619,16 @@ func TestProximityCorridorSurvivesCompactForm(t *testing.T) {
 	}
 }
 
-// The split must not break mouse routing or the map: right-pane clicks are
-// not HUD clicks, and the map gets its full canvas back.
-func TestCenterlineSplitKeepsMouseAndMapIntact(t *testing.T) {
+// The panel must not break mouse routing or the map: a click on it is not a
+// HUD click, and the canvas is never resized by entering or leaving Proximity.
+func TestCenterlinePanelKeepsMouseAndMapIntact(t *testing.T) {
 	w := ringWorld(t, 1, 0.5, 0)
 	v, _ := renderSplit(t, w)
-	if v.IsHudClick(100) {
-		t.Error("a click inside the Centerline pane routes as a HUD click")
+	if v.IsHudClick(120) {
+		t.Error("a click inside the Centerline panel routes as a HUD click")
 	}
-	if v.IsCanvasClick(100, 10) {
-		t.Error("a click inside the Centerline pane routes as an empty-canvas (stage a burn) click")
+	if v.canvas.Cols() != 138 {
+		t.Errorf("canvas = %d columns in Proximity, want 138", v.canvas.Cols())
 	}
 	w.ViewMode = sim.ViewOrbitFlat
 	v.Render(w, 0, DesignWidth, DesignHeight)
