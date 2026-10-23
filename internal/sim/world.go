@@ -1061,6 +1061,9 @@ type NodeTargetRefusalEvent struct {
 	// The HUD message differs ("node cancelled" vs "burn held off") so
 	// the player knows whether to keep waiting or replan.
 	Cancelled bool
+	// NoEngine marks a node cancelled because the vessel has no thrust
+	// (Audit 18), not because a target went away.
+	NoEngine bool
 }
 
 // BurnFiredEvent records a planted finite burn's ignition for the Event

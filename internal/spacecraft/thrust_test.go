@@ -375,3 +375,22 @@ func TestPlaneChangeDirectionRotatesPlanePreservingSpeed(t *testing.T) {
 		t.Errorf("zero r: got %+v, want zero vector", d)
 	}
 }
+
+// Audit 18: no engine (Thrust 0 or Isp 0) means ApplyImpulsive moves nothing.
+func TestApplyImpulsiveEnginelessGainsNothing(t *testing.T) {
+	systems, _ := bodies.LoadAll()
+	earth := systems[0].FindBody("Earth")
+	for name, zero := range map[string]func(*Spacecraft){
+		"thrust": func(s *Spacecraft) { s.Thrust = 0 },
+		"isp":    func(s *Spacecraft) { s.Isp = 0 },
+	} {
+		sc := NewInLEO(*earth)
+		zero(sc)
+		v0 := sc.State.V
+		sc.ApplyImpulsive(BurnPrograde, 1000)
+		sc.ApplyImpulsiveDir(v0.Unit(), 1000)
+		if d := sc.State.V.Sub(v0).Norm(); d != 0 {
+			t.Errorf("%s=0: gained %.1f m/s", name, d)
+		}
+	}
+}

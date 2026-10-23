@@ -443,7 +443,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the node/burn is cancelled outright, not merely held pending a
 		// re-latch that will never come.
 		if e := a.world.LastNodeTargetRefusal; e != nil {
-			if e.Cancelled {
+			if e.NoEngine {
+				a.flash(fmt.Sprintf("%s: node cancelled, no engine", e.CraftName))
+			} else if e.Cancelled {
 				a.flash(fmt.Sprintf("%s: node cancelled, target gone", e.CraftName))
 			} else {
 				a.flash(fmt.Sprintf("%s: burn held off — target lock not resolved", e.CraftName))
@@ -594,6 +596,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// ref against the ghost slate (#294 review round 3
 				// finding I) via the same resolver a planted node's
 				// fire-time dispatch uses.
+				if c := a.world.ActiveCraft(); c.Thrust <= 0 || c.Isp <= 0 {
+					// Audit 18: no engine, no Δv. This replaces the over-budget flash below.
+					overBudget = false
+					a.flash(fmt.Sprintf("%s: no engine", c.Name))
+					break
+				}
 				if m.TargetCraftID != 0 {
 					if rT, vT, ok := a.world.TargetRelState(m.TargetGhostOwner, m.TargetCraftID, a.world.ActiveCraft().Primary); ok {
 						a.world.ActiveCraft().ApplyImpulsiveWithTarget(m.Mode, m.DV, rT, vT)

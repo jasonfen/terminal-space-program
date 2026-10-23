@@ -41,7 +41,8 @@ func TestBurnVectorActiveBurnCommandsCapturedDir(t *testing.T) {
 func TestBurnVectorImpulsiveFiresAlongCapturedDir(t *testing.T) {
 	w := mustWorld(t)
 	c := w.ActiveCraft()
-	c.Thrust = 0 // force the impulsive path (BurnTimeForDV == 0)
+	thrust := c.Thrust
+	c.Thrust = 0 // plant impulsive (BurnTimeForDV == 0), engine restored below
 
 	dir := c.State.R.Unit() // radial-out, ⟂ to the (circular) velocity
 	const dv = 100.0
@@ -53,6 +54,7 @@ func TestBurnVectorImpulsiveFiresAlongCapturedDir(t *testing.T) {
 		PrimaryID:   c.Primary.ID,
 		BurnDirUnit: dir,
 	})
+	c.Thrust = thrust // Audit 18: firing needs an engine
 	w.Tick() // advances sim-time past TriggerTime → node fires
 
 	dV := c.State.V.Sub(vBefore)

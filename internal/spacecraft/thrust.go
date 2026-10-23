@@ -536,11 +536,11 @@ func (s *Spacecraft) ApplyImpulsiveWithTarget(mode BurnMode, dv float64, rT, vT 
 // BurnFuel silently clamps the debit to the stage's remaining fuel —
 // leaving the craft with more Δv than its propellant supports (GH #89).
 // Capping at RemainingDeltaV() makes consumeFuel burn exactly the
-// available stage fuel. A craft with no rocket-equation model (Isp<=0,
-// i.e. legacy / thrust-less test fixtures) is left unmodified.
+// available stage fuel. A craft with no engine (Isp<=0 or Thrust<=0)
+// gets no Δv at all (Audit 18).
 func (s *Spacecraft) capImpulsiveDV(dv float64) float64 {
-	if s.Isp <= 0 {
-		return dv
+	if s.Isp <= 0 || s.Thrust <= 0 {
+		return 0
 	}
 	maxDV := s.RemainingDeltaV()
 	if dv > maxDV {

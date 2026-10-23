@@ -55,10 +55,15 @@ func flyRow(t *testing.T, w *World, place planner.RendezvousOrbit, laps int, imp
 // burnIdx < 0 keeps flyRow's original policy.
 func flyRowBurnWarp(t *testing.T, w *World, place planner.RendezvousOrbit, laps int, impulsive bool, burnIdx int) (flownCA float64, plan *RendezvousBurnPlan) {
 	t.Helper()
+	// Thrust 0 only while planting, so the node is planted impulsive
+	// (Duration 0); the engine is restored before it fires (Audit 18: an
+	// engine-less vessel's node is refused).
+	thrust := w.ActiveCraft().Thrust
 	if impulsive {
 		w.ActiveCraft().Thrust = 0
 	}
 	plan, err := w.PlanRendezvousBurn(place, laps)
+	w.ActiveCraft().Thrust = thrust
 	if err != nil {
 		t.Fatalf("laps=%d plant: %v", laps, err)
 	}
