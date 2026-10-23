@@ -155,6 +155,9 @@ func (v *OrbitView) drawCenterline(w *sim.World, st sim.ProximityState, g center
 	if e > 0.95*v.clStepM/2 {
 		centre = centre.Unit().Scale(rimPx / scale)
 	}
+	if drawCenterlineBehind(c, st, centre) { // A6: behind your port plane
+		return v.clStepM
+	}
 	ringCells := centerlineRingPx(scale) // diameter in cells = radius in dots
 	if ringCells < centerlineGlyphCells || e > 0.95*v.clStepM/2 {
 		c.SetCellOverlayColored(centre, proximityPortMarkGlyph, render.ColorTarget)
