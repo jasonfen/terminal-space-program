@@ -3,6 +3,7 @@ package screens
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -29,6 +30,7 @@ import (
 func (v *OrbitView) buildEngineBox(w *sim.World) []string {
 	title := v.theme.Primary.Render("ENGINE") + v.vesselBurnBadge(w)
 	c := w.ActiveCraft()
+	title += v.engineBoosterBadge(c)
 	title = v.engineTitleWithQueue(title, w, c)
 	if c == nil {
 		return []string{
@@ -38,9 +40,10 @@ func (v *OrbitView) buildEngineBox(w *sim.World) []string {
 			v.engineNodeLine(w, nil),
 		}
 	}
+	label, throttle := engineThrottleTarget(c)
 	return []string{
 		title,
-		chipRow2(engineCols, "throttle:", v.engineThrottleLabel(w, c), "mode:", c.EngineMode.String()),
+		chipRow2(engineCols, label, v.engineThrottleLabelAt(w, c, throttle), "mode:", c.EngineMode.String()),
 		v.engineTWRCell(c),
 		v.engineNodeLine(w, c),
 	}
@@ -93,7 +96,13 @@ func (v *OrbitView) engineTitleWithQueue(title string, w *sim.World, c *spacecra
 // rather than showing a second, oppositely-signed one; a manual burn has
 // no node row to carry that information, so it keeps its own.
 func (v *OrbitView) engineThrottleLabel(w *sim.World, c *spacecraft.Spacecraft) string {
-	base := fmt.Sprintf("%.0f%%", c.EffectiveThrottle()*100)
+	return v.engineThrottleLabelAt(w, c, c.EffectiveThrottle())
+}
+
+// engineThrottleLabelAt is engineThrottleLabel for a chosen group's throttle
+// (the throttle target's, ADR 0058 decision 6).
+func (v *OrbitView) engineThrottleLabelAt(w *sim.World, c *spacecraft.Spacecraft, throttle float64) string {
+	base := fmt.Sprintf("%.0f%%", throttle*100)
 	if sim.StackDryArmed(c) {
 		// #466 (G5 Q1): the throttle is a standing order; the lit tank is
 		// dry, so say so. [space] relights the next engine at this setting.
@@ -110,6 +119,56 @@ func (v *OrbitView) engineThrottleLabel(w *sim.World, c *spacecraft.Spacecraft) 
 	return base + " " + firing + elapsed
 }
 
+// engineThrottleTarget is the throttle row's label and value for the
+// throttle target (ADR 0058 decision 6): throttle: (all, and every vessel
+// with one throttle), core:, boosters:. The one deliberate exception to
+// ADR 0051's fixed labels; the label is the selector's state.
+func engineThrottleTarget(c *spacecraft.Spacecraft) (label string, throttle float64) {
+	switch c.EffectiveThrottleTarget() {
+	case spacecraft.ThrottleCore:
+		return "core:", c.EffectiveThrottle()
+	case spacecraft.ThrottleBoosters:
+		return "boosters:", c.BoosterThrottleEff()
+	}
+	return "throttle:", c.EffectiveThrottle()
+}
+
+// engineBoosterBadge is the title badge tail while a booster group burns
+// (ADR 0058 decision 6): "· boosters T-1m02s" (solid), "· boosters DRY",
+// "· boosters 100% T-1m47s" (liquid, with its throttle). With the target on
+// the boosters the badge shows the core instead ("· core 60%  T-1m47s");
+// the percentage pads to four cells so the clock keeps its column. The
+// clock is the group's lowest lit tank at its own flow; nothing is shown
+// for a group at 0%.
+func (v *OrbitView) engineBoosterBadge(c *spacecraft.Spacecraft) string {
+	if c == nil || !sim.StackMidBurn(c) {
+		return ""
+	}
+	set := spacecraft.LitStages(c.Stages)
+	if len(set) < 2 {
+		return ""
+	}
+	idx, label, th, liquid := set[0], "boosters", c.BoosterThrottleEff(), c.Stages[set[0]].FuelType != spacecraft.FuelTypeSolid
+	if c.EffectiveThrottleTarget() == spacecraft.ThrottleBoosters {
+		idx, label, th, liquid = set[len(set)-1], "core", c.EffectiveThrottle(), true
+	}
+	if !liquid {
+		th = 1 // a solid is pinned at 100% and shows no percentage
+	}
+	text := " · " + label
+	if c.Stages[idx].FuelMass <= 0 {
+		return v.theme.Warning.Render(text + " DRY")
+	}
+	if liquid {
+		pct := fmt.Sprintf("%.0f%%", th*100)
+		text += " " + pct + strings.Repeat(" ", max(0, 4-len(pct)))
+	}
+	if secs, ok := c.StageTimeToDry(idx, th); ok {
+		text += " " + readout.Countdown(time.Duration(secs*float64(time.Second)))
+	}
+	return v.theme.Warning.Render(strings.TrimRight(text, " "))
+}
+
 // engineTWRCell renders the TWR row (decision 13b): the current-throttle
 // figure, with the max-throttle figure alongside it. There is no lift
 // verdict (#648): a max below 1.0 is the tell on its own, and a verdict
@@ -123,7 +182,7 @@ func (v *OrbitView) engineTWRCell(c *spacecraft.Spacecraft) string {
 		return chipRowAt(readout.LabelTWR, "—", engineCols.value1)
 	}
 	g := c.Primary.GravitationalParameter() / (c.Primary.RadiusMeters() * c.Primary.RadiusMeters())
-	cur := c.Thrust * c.EffectiveThrottle() / (c.TotalMass() * g)
+	cur := c.Thrust * c.LitThrottle(c.EffectiveThrottle()) / (c.TotalMass() * g)
 	max := c.Thrust / (c.TotalMass() * g)
 	curLabel := fmt.Sprintf("%.2f", cur)
 	maxLabel := fmt.Sprintf("%.2f", max)

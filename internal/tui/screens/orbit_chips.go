@@ -967,7 +967,8 @@ func deltaVReadout(c *spacecraft.Spacecraft) string {
 
 // stagePips renders one coloured glyph per stage, bottom stage first
 // (#600). Four states: ◉ lit, the lit stage (the lowest with an engine; the
-// bottom stage on most vessels) with fuel aboard, the one that burns now (flame orange, render.ColorFlame); ● fuelled and waiting
+// bottom stage on most vessels) and each stage lit with it (ADR 0058: a
+// booster group's core) with fuel aboard, the one that burns now (flame orange, render.ColorFlame); ● fuelled and waiting
 // above it (Primary); ○ spent, the same Warning amber ENGINE's "✕ DRY"
 // uses so the two readouts agree (orbit_box_engine.go engineThrottleLabel);
 // ◇ tankless, a pod or payload that never carried propellant (Dim).
@@ -975,13 +976,17 @@ func deltaVReadout(c *spacecraft.Spacecraft) string {
 func (v *OrbitView) stagePips(c *spacecraft.Spacecraft) string {
 	lit := lipgloss.NewStyle().Foreground(render.ColorFlame)
 	var pips strings.Builder
+	inSet := map[int]bool{}
+	for _, i := range spacecraft.LitStages(c.Stages) {
+		inSet[i] = true
+	}
 	for i, st := range c.Stages {
 		switch {
 		case st.FuelCapacity <= 0:
 			pips.WriteString(v.theme.Dim.Render("◇"))
 		case st.FuelMass <= 0:
 			pips.WriteString(v.theme.Warning.Render("○"))
-		case i == c.LitStage():
+		case inSet[i]:
 			pips.WriteString(lit.Render("◉"))
 		default:
 			pips.WriteString(v.theme.Primary.Render("●"))

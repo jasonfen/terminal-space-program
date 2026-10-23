@@ -179,8 +179,8 @@ func (w *World) CycleThrottleTarget() (spacecraft.ThrottleTarget, bool) {
 // throttleTarget is the group the throttle keys write: the active craft's
 // target, or All when it has no liquid booster to single out.
 func (w *World) throttleTarget() ThrottleGroup {
-	if c := w.ActiveCraft(); c != nil && c.HasLiquidBooster() {
-		return c.ThrottleTarget
+	if c := w.ActiveCraft(); c != nil {
+		return c.EffectiveThrottleTarget()
 	}
 	return ThrottleAll
 }
