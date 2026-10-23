@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"net"
 	"os"
 	"os/user"
@@ -498,6 +499,9 @@ func (s *Server) newGuestApp(fp string) (*tui.App, error) {
 	}
 	app.SetGuestPersistence(func(w *sim.World) error {
 		if err := s.store.SavePlayer(fp, w); err != nil {
+			// Server log only: the error names host paths, which a guest
+			// has no use for.
+			log.Printf("save: %s's program not saved: %v", s.nameFor(fp), err)
 			return err
 		}
 		s.ackPersisted(fp, w)
@@ -544,6 +548,9 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 		defer close(done)
 		sess.Context().SetValue(ctxKeyDone, done)
 		next(sess)
+		// saveFailed is set when the final payload write below fails, so the
+		// line the player is left with does not claim a save that did not happen.
+		saveFailed := false
 		// A session the host ended on purpose leaves its player one line
 		// (ADR 0054 decision 4). Deferred so it runs after the payload
 		// write below and before done closes: the program has already
@@ -551,7 +558,7 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 		if ls, _ := sess.Context().Value(ctxKeyLive).(*liveSession); ls != nil {
 			if rec := ls.dropped.Load(); rec != nil && !ls.displaced.Load() {
 				defer func() {
-					fmt.Fprintln(sess.Stderr(), rec.line())
+					fmt.Fprintln(sess.Stderr(), rec.line(!saveFailed))
 					_ = sess.Exit(1)
 				}()
 			}
@@ -579,7 +586,10 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 		// deletes (call 3).
 		if app, ok := sess.Context().Value(ctxKeyApp).(*tui.App); ok && joined {
 			if rec := ls.droppedRecord(); rec == nil || !rec.purge {
-				if s.store.SavePlayer(fp, app.World()) == nil {
+				if err := s.store.SavePlayer(fp, app.World()); err != nil {
+					saveFailed = true
+					log.Printf("disconnect save: %s's program not saved: %v", s.nameFor(fp), err)
+				} else {
 					s.ackPersisted(fp, app.World())
 				}
 			}

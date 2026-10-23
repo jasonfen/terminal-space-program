@@ -37,7 +37,9 @@ func (m *reportingModel) reconcileDocking(w *sim.World, coupled map[string]bool,
 			repair = m.srv.dock.RepairFresh
 		}
 		if repair(w, m.owner) {
-			_ = m.app.PersistNow()
+			if err := m.app.PersistNow(); err != nil {
+				log.Printf("dock repair: %s's program not saved: %v", m.srv.nameFor(m.owner), err)
+			}
 			changed = true
 		}
 	}
