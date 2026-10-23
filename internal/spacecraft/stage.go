@@ -678,3 +678,18 @@ func (s *Spacecraft) BoosterThrottleEff() float64 {
 func (s *Spacecraft) LiquidCut() bool {
 	return s.EffectiveThrottle() == 0 && (!s.HasLiquidBooster() || s.BoosterThrottleEff() == 0)
 }
+
+// ThrottleTarget picks which lit-set throttle a throttle command writes
+// (ADR 0058 decision 3). The zero value is All.
+type ThrottleTarget int
+
+const (
+	ThrottleAll      ThrottleTarget = iota // the core; the liquid boosters follow it
+	ThrottleCore                           // the core only
+	ThrottleBoosters                       // the liquid boosters only
+)
+
+// String is the word the `throttle:` flash shows.
+func (t ThrottleTarget) String() string {
+	return [...]string{"all", "core", "boosters"}[t]
+}

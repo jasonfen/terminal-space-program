@@ -125,6 +125,11 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 	// so it still tiles the live stack and Undock keeps every piece's parts (#707).
 	c.ReconcileDockedComponents()
 	c.SyncFields() // re-derives DryMass / Fuel / Thrust / Isp / etc.
+	// ADR 0058 decision 3: with no liquid booster left in the lit set the
+	// second throttle is gone; the boosters' throttle and the target reset.
+	if !c.HasLiquidBooster() {
+		c.BoosterThrottle, c.ThrottleTarget = nil, ThrottleAll
+	}
 	// Mass field on the integrator state needs the new total too.
 	c.State.M = c.TotalMass()
 	// A running planted burn's EndTime was sized for the engine that was
