@@ -83,7 +83,7 @@ import (
 // an old envelope's nodes, values unchanged.
 // v13 refreshes Flight School's tut-launch ladder in saves (#525: the
 // lift-off rung moved from [space] to [b] and a staging rung was added);
-// migrateV12PayloadToV13 rebuilds it from the catalog keeping progress.
+// refreshMissions (mission_refresh.go) now does that for every mission on load.
 // v14 adds Craft.RendezvousPlan (the last Rendezvous Burn planted from the
 // picker, kept after the node fires so the TARGET chip can keep reading the
 // plan's arrival); migrateV13PayloadToV14 is an identity pass.
@@ -742,11 +742,9 @@ func Load(path string) (*sim.World, error) {
 	if f.Version < 12 {
 		migrateV11PayloadToV12(&f.Payload)
 	}
-	// schema v13: tut-launch's ladder changed (#525); rebuild it from the
-	// catalog, keeping each rung's status.
-	if f.Version < 13 {
-		migrateV12PayloadToV13(&f.Payload)
-	}
+	// schema v13 refreshed tut-launch's ladder (#525); every catalog
+	// mission is now refreshed on load by refreshMissions, so that gate is
+	// a no-op.
 	// schema v14: Craft gains RendezvousPlan; absent in older saves (no
 	// plan), so an identity pass whose job is the version gate.
 	if f.Version < 14 {
@@ -966,10 +964,16 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 	// the current ladder fresh (embedded + user overlay, via LoadAll,
 	// matching NewWorld). A failed catalog load is non-fatal — missions are
 	// additive.
-	if p.Missions != nil {
+	// Saved missions that exist in the catalog are refreshed from it
+	// (text, gates, fail_on) with their progress carried; see refreshMissions.
+	if cat, err := missions.LoadAll(); err == nil {
+		if p.Missions != nil {
+			w.Missions = refreshMissions(p.Missions, cat.Missions)
+		} else {
+			w.Missions = missions.Clone(cat.Missions)
+		}
+	} else if p.Missions != nil {
 		w.Missions = missions.Clone(p.Missions)
-	} else if cat, err := missions.LoadAll(); err == nil {
-		w.Missions = missions.Clone(cat.Missions)
 	}
 	return w, nil
 }
