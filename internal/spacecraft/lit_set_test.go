@@ -143,7 +143,7 @@ func TestStackStatsHandWorkedLitSet(t *testing.T) {
 // together with the retune.
 func TestOnlyBoosterLoadoutsAreMarked(t *testing.T) {
 	for _, id := range LoadoutOrder {
-		want := id == "SLS-Block1" || id == "Raster-LS"
+		want := id == "SLS-Block1" || id == "SLS-Orion" || id == "Raster-LS"
 		for i, st := range Loadouts[id].Stages {
 			if got := st.LitWithAbove; got != (want && i == 0) {
 				t.Errorf("%s stage %d (%s) LitWithAbove = %v, want %v", id, i, st.Name, got, want && i == 0)

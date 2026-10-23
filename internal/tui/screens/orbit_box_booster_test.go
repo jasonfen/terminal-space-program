@@ -42,14 +42,14 @@ func boosterWorld(t *testing.T, c *spacecraft.Spacecraft, elapsed float64) *sim.
 }
 
 // slsAtT42 is the ADR's decision 6 state: tanks 758,608 / 891,420 kg,
-// mass 1,961,803 kg, core at 100%.
+// mass 1,962,619 kg (1,961,803 + the 816 kg Orion stage adapter on icps-sls, ADR 0060 decision 2), core at 100%.
 func slsAtT42(t *testing.T) *sim.World {
 	t.Helper()
 	c := spacecraft.NewFromLoadout("SLS-Block1")
 	c.Stages[0].FuelMass, c.Stages[1].FuelMass = 758608, 891420
 	w := boosterWorld(t, c, 42)
-	if m := c.TotalMass(); m < 1961802 || m > 1961804 {
-		t.Fatalf("fixture mass = %.0f, want 1,961,803", m)
+	if m := c.TotalMass(); m < 1962618 || m > 1962620 {
+		t.Fatalf("fixture mass = %.0f, want 1,962,619", m)
 	}
 	return w
 }

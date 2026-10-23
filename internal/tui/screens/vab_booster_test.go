@@ -49,14 +49,15 @@ func TestVABOpenedSLSShowsTheMark(t *testing.T) {
 		t.Errorf("S2 header carries a tag: %q", h)
 	}
 	s := v.Stats()
-	// Hand-worked (slice-S6.md): 2518.2 / 9040.6 / 9501.5, Σ 21060.2, TWR 1.64.
-	for i, want := range []float64{2518, 9041, 9502} {
+	// ADR 0058 hand-worked 2518.2 / 9040.6 / 9501.5, Σ 21060.2; ADR 0060 decision 2
+	// (816 kg adapter on icps-sls) makes it 2516.9 / 9013.0 / 8679.9, Σ 20209.8, TWR 1.63.
+	for i, want := range []float64{2517, 9013, 8680} {
 		if math.Abs(s.StageDV[i]-want) > 1.5 {
 			t.Errorf("S%d Δv = %.1f, want %.0f", i+1, s.StageDV[i], want)
 		}
 	}
-	if math.Abs(s.TotalDV-21060.2) > 1 {
-		t.Errorf("Σ Δv = %.1f, want 21060.2 ±1 (ADR 21,061)", s.TotalDV)
+	if math.Abs(s.TotalDV-20209.8) > 1 {
+		t.Errorf("Σ Δv = %.1f, want 20209.8 ±1 (ADR 0060 decision 2)", s.TotalDV)
 	}
 	if math.Abs(s.LiftoffTWR-1.64) > 0.01 {
 		t.Errorf("TWR = %.3f, want 1.64 ±0.01", s.LiftoffTWR)
@@ -72,14 +73,14 @@ func TestVABBTogglesTheMarkAndTheStatsFollow(t *testing.T) {
 		t.Fatal("b on a marked stage did not clear it")
 	}
 	s := v.Stats()
-	if math.Abs(s.TotalDV-21331) > 1.5 || math.Abs(s.LiftoffTWR-1.27) > 0.01 {
-		t.Errorf("serial SLS: Σ %.1f TWR %.3f, want 21331 / 1.27", s.TotalDV, s.LiftoffTWR)
+	if math.Abs(s.TotalDV-20480.2) > 1.5 || math.Abs(s.LiftoffTWR-1.27) > 0.01 {
+		t.Errorf("serial SLS: Σ %.1f TWR %.3f, want 20480 / 1.27", s.TotalDV, s.LiftoffTWR)
 	}
 	if strings.Contains(header(v, 0), "lights with") {
 		t.Error("tag still shown after clearing")
 	}
 	pressB(v, 0)
-	if !v.stages[0].litWithAbove || math.Abs(v.Stats().TotalDV-21060.2) > 1 {
+	if !v.stages[0].litWithAbove || math.Abs(v.Stats().TotalDV-20209.8) > 1 {
 		t.Errorf("re-marking did not restore the pair: Σ %.1f", v.Stats().TotalDV)
 	}
 }

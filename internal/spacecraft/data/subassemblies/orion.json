@@ -1,0 +1,11 @@
+{
+  "loadouts": [
+    {
+      "id": "orion",
+      "name": "Orion",
+      "role": "custom",
+      "parts": [{"part_id": "orion-esm"}, {"part_id": "orion-cm"}],
+      "subassembly_role": "stage"
+    }
+  ]
+}
