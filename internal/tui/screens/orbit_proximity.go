@@ -84,26 +84,8 @@ func proximityFitRadius(st sim.ProximityState) float64 {
 func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) string {
 	st, sceneOK := w.ProximityState()
 
-	// The Centerline split (ADR 0055 decision 1): at Design Size and above,
-	// with a port to look at, v.canvas becomes the left pane and the
-	// Centerline pane draws on v.cl; below it the left pane keeps the whole
-	// width (Compact Form drops the right pane first).
-	fullCols := v.fullCanvasCols()
+	fullCols := v.canvas.Cols()
 	rows := v.canvas.Rows()
-	geom, canSplit := centerlineLayout(fullCols, rows)
-	split := sceneOK && st.HasPort && canSplit
-	if split {
-		if !v.proxSplit {
-			v.proxFullCols = fullCols
-			v.proxSplit = true
-		}
-		if v.canvas.Cols() != geom.leftCols {
-			v.canvas.Resize(geom.leftCols, rows)
-			v.fitted = false
-		}
-	} else {
-		v.endProximitySplit()
-	}
 
 	// Framing Event resolution (ADR 0021 A), Proximity's own context:
 	// entering the view, changing system, or retargeting. Range closing is
@@ -131,9 +113,7 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 		if sceneOK {
 			v.canvas.FitTo(proximityFitRadius(st))
 			v.baseScale = v.canvas.Scale()
-			if split {
-				v.clBaseScale = centerlineFitScale(st, geom)
-			}
+			v.clStepM = 0 // the scope re-ranges on entry (ADR 0055 A4)
 		}
 		if contextChanged {
 			v.userZoom = v.zoomMemoryFor(slot)
@@ -197,14 +177,6 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 	}
 
 	canvasStr := v.canvas.String()
-	if split {
-		// The bottom row's label and Hint Strip run on across the seam: the
-		// left pane clipped them at its edge, so paint the rest on the right
-		// pane, shifted by the left pane's width.
-		v.drawCenterline(w, st, geom)
-		v.spillBottomRow(label, geom)
-		canvasStr = joinCanvasRows(canvasStr, v.cl.String())
-	}
 
 	// The shared overlay tail, identical to the map's: same navball, same
 	// chips, same click routing. This is what "it's a view, not a screen"
@@ -214,6 +186,7 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 	if !v.declutter {
 		canvasStr = v.composeNavballOverlay(w, canvasStr, cCols, cRows, true)
 	}
+	canvasStr = v.composeCenterlineScope(w, canvasStr, cCols, cRows)
 	navballReserved := v.navballReservedRows(w, cCols, cRows)
 	canvasStr = v.composeChips(canvasStr, cCols, cRows, navballReserved, 1, 2, v.assembleChips(w))
 	canvasStr = v.composeInspectChip(canvasStr, cCols, cRows)

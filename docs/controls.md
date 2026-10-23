@@ -173,7 +173,7 @@ On the Keyboard layout screen `←` / `→`, `Space` or `Enter` cycle the layout
 | `v` | Cycle the projection: Tilted (default, a 3D-style perspective) → Top → Right → Bottom → Left → Orbit-flat. Two rows above the `view:` label read which way north points (`N ↑` up the screen, `N ⊙` toward you, `N ⊗` away; in Tilted and Orbit-flat a degree figure, `N ↑ 42°`, is how far north tilts out of the screen toward or away from you, 0° being flat on the screen, and it is not the orbit ring's `plane` angle) and how open your orbit ring looks (`plane ◠ 67° open`: 0° `─` is a flat line, 90° `○` a full circle); the maneuver planner shows the same cue. The camera re-frames once when focus, view, or system changes and otherwise stays where you put it |
 | `>` / `<` | Tilt the 3D view up / down (tilted view only). Camera only: a missed shift can move the view, never the vessel |
 | `{` / `}` | Yaw the 3D view left / right in 5° steps, wrapping (tilted view only) |
-| `o` | **Proximity view** for the last kilometres of a rendezvous: the target vessel sits dead centre, its direction of travel runs right, the planet is below, so you read your drift the way the physics works. Needs a vessel target; a `CLOSE RANGE` chip reminds you once within 35 km. At the 140x40 design size the view splits down the middle: the side picture on the left, the [Centerline view](#docking) on the right, and a dotted corridor in the side picture runs 50 m out along the target's port axis. Below that size the right half is dropped and the side picture keeps the full width. Both vessels' docking ports are marked `○` (theirs in target green, yours in your vessel's colour), a port line joins them with its length, and the chip gains `port:`, `misalign:`, `lateral:` and `hold:` rows (see [Docking](#docking)). The plain arrows still trim your vessel here; the PROXIMITY chip's `trim:` row and the bottom legend show it. Press again to return to the map as you left it |
+| `o` | **Proximity view** for the last kilometres of a rendezvous: the target vessel sits dead centre, its direction of travel runs right, the planet is below, so you read your drift the way the physics works. Needs a vessel target; a `CLOSE RANGE` chip reminds you once within 35 km. The side picture takes the full width, with a dotted corridor running 50 m out along the target's port axis; at the 140x40 design size the [Centerline scope](#docking) sits in its top-right corner, over the navball's twin slot. Below that size the scope is dropped. Both vessels' docking ports are marked `○` (theirs in target green, yours in your vessel's colour), a port line joins them with its length, and the chip gains `port:`, `misalign:`, `lateral:` and `hold:` rows (see [Docking](#docking)). The plain arrows still trim your vessel here; the PROXIMITY chip's `trim:` row and the bottom legend show it. Press again to return to the map as you left it |
 | `V` | **Launch / surface view**: chase-cam on your active vessel with a curved horizon, pad marker, and breadcrumb trail, scaled tight at liftoff and pulled back high up. Lifting off routes you here automatically. Press again to return to the map |
 | `j` | **Inspect**: each press steps a bright highlight onto the next thing drawn (bodies, vessels, other players' ghosts, planned burns, the closest-approach `✕`) and names it in a chip. One press past the last item clears it; `Esc` clears immediately. Clicking any orbit line or marker jumps the highlight there |
 | `Enter` | While inspecting: make the highlighted thing your target and clear the highlight. Works on vessels and other players, not just bodies. Things that can't be a target say so |
@@ -307,22 +307,25 @@ slowly and straight, and the last half metre closes by itself.
   `lateral:` splits the miss into up/down and left/right across the port.
   `hold:` names the attitude you are holding, as GUIDANCE's `hold:` row does. The port line and the Centerline ring go solid green when the gate
   holds. The 50 m ring is where the close picture starts, no longer a dock.
-- **The Centerline view.** The right half of the Proximity view at 140x40
-  looks out of your own docking port along your nose. Your port is a fixed
-  crosshair near the middle of the half. Their port is a ring, 0.5 m in
-  radius at the half's scale (the gate's port term), drawn where it is across
-  your face: up and down, left and right, the same two numbers as `lateral:`.
-  A `w` pulse (push up) moves the ring down the half, because you went up.
+- **The Centerline scope.** At 140x40 a framed panel in the Proximity view's
+  top-right corner looks out of your own docking port along your nose. Its
+  title row reads `CENTERLINE  4 m      port 3.33 m`: the disc's width in
+  metres, then the port range. Your port is a dotted crosshair whose arms run
+  to the disc's rim, with a tick at up, right, down and left. Their port is a
+  ring 0.5 m in radius (the gate's port term), drawn where it is across your
+  face: up and down, left and right, the same two numbers as `lateral:`. A
+  `w` pulse (push up) moves the ring down the disc, because you went up.
   Inside the ring a `+` (the standoff cross) sits off the ring's centre by
   your nose's lean off parallel to their port axis, the two components the
   navball's `pitch` / `yaw` row reads; it reaches the ring's edge at exactly
   the 4° the gate allows, so a cross inside the ring means the alignment term
   holds. The ring is a `○` glyph under 3 cells across and carries no cross
-  under 5. Labels: `Centerline`, `▴up`, `right▸`, and the port range at the
-  ring. The half fits on entry to twice the lateral miss (2 m across at
-  least), then stays where you leave it; `+` / `-` zoom both halves by the
-  same factor, and the scale bar under the side picture is the only one (the
-  ring itself is 0.5 m).
+  under 5. The disc ranges itself: its width steps through 2, 4, 8, 16, 32
+  and 64 m, out when their port would leave the disc and back in when it
+  would fit the next step down with room, never flickering. Beyond 64 m the
+  `○` sits on the rim in the port's direction and `lateral:` carries the
+  metres. `+` / `-` zoom the side picture only; the scope has no zoom, and
+  the scale bar under the side picture is its own.
 - **The magnet.** The tick the gate holds, a five-second pull starts. It moves
   the vessel you are flying (the active one) the last half metre onto the
   port axis and turns its nose square; warp drops to 1×, and your RCS pulses
