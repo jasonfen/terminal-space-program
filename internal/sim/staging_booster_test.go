@@ -194,3 +194,21 @@ func TestBoostersBurnedOutPredicate(t *testing.T) {
 		t.Error("still lit with a dry tank")
 	}
 }
+
+// ADR 0058 decision 10: each dropped half is one side column of the
+// pair, so its sprite width is max(1, w/2): SRB 5 -> 2, a 3-wide liquid
+// booster -> 1, and a width of 1 (or the unset 0) never halves below 1.
+func TestBoosterHalvesHalveTheSpriteWidth(t *testing.T) {
+	for _, tc := range []struct{ w, want int }{{5, 2}, {3, 1}, {2, 1}, {1, 1}} {
+		halves := splitBoosterStage(spacecraft.Stage{LaunchSpriteWidthPx: tc.w})
+		for k, h := range halves {
+			if h.LaunchSpriteWidthPx != tc.want {
+				t.Errorf("width %d: half %d = %d, want %d", tc.w, k, h.LaunchSpriteWidthPx, tc.want)
+			}
+		}
+	}
+	_, c := slsWorld(t)
+	if got := splitBoosterStage(c.Stages[0])[0].LaunchSpriteWidthPx; got != 2 {
+		t.Errorf("SLS SRB half width = %d, want 2 (full stage is 5)", got)
+	}
+}
