@@ -2,6 +2,12 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.59.1
+
+A node planted below full throttle now delivers all of its Δv (PR `#749`; tag `v0.59.1`).
+
+- **A planned burn set below 100% throttle burns for as long as it needs.** Its window was sized for full throttle, so a 200 m/s burn at 50% stopped with about 100 m/s still owed. The planner's burn-time preview now shows the longer time too (closes `#748`).
+
 ### v0.59.0
 
 The SLS lights its boosters with its core, and you can build your own vessels with boosters (PRs `#736`-`#742`, `#744`, `#745`, `#747`; ADR 0058; tag `v0.59.0`).
