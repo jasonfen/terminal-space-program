@@ -63,6 +63,12 @@ type Spacecraft struct {
 	// that promotion is node-local and does not apply here.)
 	Throttle float64
 
+	// BoosterThrottle is the commanded throttle of a liquid booster in the
+	// lit set (ADR 0058 decision 2); nil means it follows Throttle. Solids
+	// ignore it (pinned at 1). Transient until the S8 wire; cleared on the
+	// booster drop (S4).
+	BoosterThrottle *float64 `json:"-"`
+
 	// LastThrottleChangeAt is the sim-time at which Throttle most
 	// recently changed value. v0.8.6.x+: the warp clamp uses this
 	// to suppress high warp for a brief window after the player

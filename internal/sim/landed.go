@@ -91,7 +91,7 @@ func (w *World) canLiftOff(c *spacecraft.Spacecraft) bool {
 		nose = c.CurrentAttitudeDir
 	}
 	up := c.State.R.Scale(1 / r)
-	lift := c.Thrust * c.EffectiveThrottle() / m * nose.Unit().Dot(up)
+	lift := c.Thrust * c.LitThrottle(c.EffectiveThrottle()) / m * nose.Unit().Dot(up)
 	return lift > c.Primary.GravitationalParameter()/(r*r)
 }
 
@@ -99,9 +99,11 @@ func (w *World) canLiftOff(c *spacecraft.Spacecraft) bool {
 // spent and mass falls (so TWR rises), the craft stays pinned. A dry tank ends
 // the burn exactly as it does in flight.
 func (w *World) burnSeated(c *spacecraft.Spacecraft, simDelta time.Duration) {
-	c.BurnFuel(c.MassFlowRate() * simDelta.Seconds())
+	c.BurnFuelAt(c.EffectiveThrottle(), simDelta.Seconds())
 	if c.ActiveStageFuel() <= 0 {
 		c.ManualBurn = nil
 		c.DryOrder = true
+	} else if endsCutBurn(c) {
+		c.ManualBurn = nil
 	}
 }

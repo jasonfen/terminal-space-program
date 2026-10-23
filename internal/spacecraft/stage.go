@@ -570,3 +570,111 @@ func (s *Spacecraft) BurnMonoprop(amount float64) float64 {
 	s.SyncFields()
 	return amount
 }
+
+// drivenMembers returns the lit set's firing members (tank and engine live)
+// with each one's throttle for a core throttle of core: the top member is the
+// core, a solid is pinned at 1, a liquid booster takes BoosterThrottle or
+// follows the core (ADR 0058 decision 2). Nil for a single-stage set: that
+// path keeps today's one-throttle arithmetic.
+func (s *Spacecraft) drivenMembers(core float64) (idx []int, theta []float64) {
+	set := LitStages(s.Stages)
+	if len(set) < 2 {
+		return nil, nil
+	}
+	core = math.Max(0, math.Min(1, core))
+	for k, i := range set {
+		st := s.Stages[i]
+		if st.FuelMass <= 0 || st.Thrust <= 0 || st.Isp <= 0 {
+			continue
+		}
+		th := core
+		if k < len(set)-1 {
+			th = s.boosterThrottleOr(core)
+			if st.FuelType == FuelTypeSolid {
+				th = 1
+			}
+		}
+		idx, theta = append(idx, i), append(theta, th)
+	}
+	return idx, theta
+}
+
+func (s *Spacecraft) boosterThrottleOr(core float64) float64 {
+	if s.BoosterThrottle == nil {
+		return core
+	}
+	return math.Max(0, math.Min(1, *s.BoosterThrottle))
+}
+
+// LitThrottle is the fraction of s.Thrust the lit set delivers for a core
+// throttle of core: ΣT_i·θ_i / ΣT_i. A single-stage set returns core as is.
+func (s *Spacecraft) LitThrottle(core float64) float64 {
+	idx, theta := s.drivenMembers(core)
+	if idx == nil {
+		return core
+	}
+	var sum, full float64
+	for k, i := range idx {
+		sum += s.Stages[i].Thrust * theta[k]
+		full += s.Stages[i].Thrust
+	}
+	if full == 0 {
+		return 0
+	}
+	return sum / full
+}
+
+// BurnFuelAt debits each lit tank for dt seconds at its own group's throttle
+// (flow T_i·θ_i/(Isp_i·g0)), each clamped to its tank, and returns the mass
+// burned. A single-stage set is BurnFuel(MassFlowRateAt(core)·dt).
+func (s *Spacecraft) BurnFuelAt(core, dt float64) float64 {
+	idx, theta := s.drivenMembers(core)
+	if idx == nil {
+		return s.BurnFuel(s.MassFlowRateAt(core) * dt)
+	}
+	var burned float64
+	for k, i := range idx {
+		st := &s.Stages[i]
+		d := math.Min(st.Thrust*theta[k]/(st.Isp*g0)*dt, st.FuelMass)
+		st.FuelMass -= d
+		burned += d
+	}
+	s.SyncFields()
+	return burned
+}
+
+// SolidLit reports whether a pinned solid is burning in a multi-stage lit set.
+func (s *Spacecraft) SolidLit() bool {
+	set := LitStages(s.Stages)
+	for k := 0; k < len(set)-1; k++ {
+		if st := s.Stages[set[k]]; st.FuelType == FuelTypeSolid && st.FuelMass > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// HasLiquidBooster reports whether the lit set has a marked liquid booster
+// with its own throttle group.
+func (s *Spacecraft) HasLiquidBooster() bool {
+	set := LitStages(s.Stages)
+	for k := 0; k < len(set)-1; k++ {
+		if s.Stages[set[k]].FuelType != FuelTypeSolid {
+			return true
+		}
+	}
+	return false
+}
+
+// BoosterThrottleEff is the liquid booster group's throttle: BoosterThrottle,
+// or the core's when it follows.
+func (s *Spacecraft) BoosterThrottleEff() float64 {
+	return s.boosterThrottleOr(s.EffectiveThrottle())
+}
+
+// LiquidCut reports that every liquid group is at 0: the core, and the
+// liquid booster when the set has one. On a single-throttle vessel it is
+// "throttle is 0".
+func (s *Spacecraft) LiquidCut() bool {
+	return s.EffectiveThrottle() == 0 && (!s.HasLiquidBooster() || s.BoosterThrottleEff() == 0)
+}
