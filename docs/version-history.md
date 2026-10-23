@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.59.2
+
+A vessel with no engine can no longer burn, and high warp on escape and atmospheric legs is much cheaper (PRs `#750`, `#751`; tag `v0.59.2`).
+
+- **No engine, no burn.** A vessel with no thrust used to gain the full Δv of an impulsive node for free. A planted node now cancels with `<vessel>: node cancelled, no engine`, and execute-now flashes `<vessel>: no engine` (`#750`).
+- **High warp on hyperbolic and atmospheric legs costs about 12x less per tick** (6.8 ms to 0.56 ms for one vessel at 100000x). The flight path is unchanged: the full body-position refresh still runs whenever the vessel could be crossing a sphere of influence (`#751`).
+
 ### v0.59.1
 
 A node planted below full throttle now delivers all of its Δv (PR `#749`; tag `v0.59.1`).
