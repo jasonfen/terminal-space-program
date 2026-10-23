@@ -1972,7 +1972,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	stepDur := time.Duration(dt * float64(time.Second))
 
 	sys, calc := w.ephemerisFor(c) // v0.16 / ADR 0015: integrate against the Vessel's own System and its ephemeris.
-	var positions map[string]orbital.Vec3 // allocated on the first full refresh
+	var positions map[string]orbital.Vec3
 	clock := tickStart
 	// v0.12 Slice 3 (ADR 0008): a descending chute craft always takes
 	// this Verlet path — canKeplerStepState rejects the analytic fast
@@ -2049,7 +2049,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 		// motion within the tick — matches the predictor, which is
 		// also time-aware. Without this an Earth→Mars Hohmann at high
 		// warp diverges from the dashed predictor line.
-		if positions == nil {
+		if positions == nil { // first full refresh of this tick
 			positions = make(map[string]orbital.Vec3, len(sys.Bodies))
 		}
 		for _, b := range sys.Bodies {
