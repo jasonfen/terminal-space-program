@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.59.3
+
+Old saves show the current mission text and gates, and dock text names the vessel you are docked to (PRs `#753`, `#754`; tag `v0.59.3`).
+
+- **Missions in old saves refresh on load.** Every Flight School and challenge mission now takes its wording, gates and fail rules from the current catalog, so a save from before the port-gate docking change shows the new hints. Progress carries over: a completed mission stays completed, each step keeps its status, and a step added since the save counts as done only if you already passed a later one (`#753`).
+- **Dock text names the vessel.** The DOCKED chip reads `◇ docked to gern's Skylab` instead of `riding in gern's stack`, and the docked, undocked, reclaim and dock-lost rows follow suit. With no vessel name known it reads `gern's stack` (closes `#723`).
+
 ### v0.59.2
 
 A vessel with no engine can no longer burn, and high warp on escape and atmospheric legs is much cheaper (PRs `#750`, `#751`; tag `v0.59.2`).
