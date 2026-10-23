@@ -77,6 +77,8 @@ func (v *VAB) handleBuildKey(key string) VABAction {
 		v.toggleDockSeam()
 	case "c":
 		v.toggleDecoupleFuse()
+	case "b":
+		v.toggleLitWithAbove()
 	case "t":
 		v.enterTargetMode()
 	case "s":
@@ -561,7 +563,7 @@ func (v *VAB) Render(width, height int) string {
 const (
 	vabHints1 = "[tab] other column  [↑/↓] move  [←/→] change part  [PgUp/Dn] jump section  [a] add above cursor  [n] new stage  [x] remove"
 	vabHints2 = "[+/-] count  [ [ / ] ] move stage down / up  [y] copy stage  [enter] open part into pieces  [d] payload from here up"
-	vabHints3 = "[c] drops with stage below  [t] Δv goal  [s] save  [S] save from here up  [o] open  [/] find part"
+	vabHints3 = "[c] drops with stage below  [b] lights with stage above  [t] Δv goal  [s] save  [S] save from here up  [o] open  [/] find part"
 )
 
 // renderBuild lays out the VAB as three titled boxes in the frame (B11 / G9
@@ -1094,6 +1096,9 @@ func (v *VAB) stageHeaderLine(i int, stats spacecraft.VehicleStats, sel, cursorO
 	tag := ""
 	if v.stages[i].decoupleFused && i >= 1 {
 		tag = " ⛓"
+	}
+	if st.LitWithAbove && i+1 < len(v.stages) {
+		tag += fmt.Sprintf(" · lights with S%d", i+2) // ADR 0058 decision 9
 	}
 	if st.HasPort() {
 		tag += " · port" // ADR 0056 decision 7: the stage carries a nose port
