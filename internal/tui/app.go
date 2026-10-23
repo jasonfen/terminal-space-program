@@ -596,6 +596,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// ref against the ghost slate (#294 review round 3
 				// finding I) via the same resolver a planted node's
 				// fire-time dispatch uses.
+				if c := a.world.ActiveCraft(); c.Thrust <= 0 || c.Isp <= 0 {
+					// Audit 18: no engine, no Δv. This replaces the over-budget flash below.
+					overBudget = false
+					a.flash(fmt.Sprintf("%s: no engine", c.Name))
+					break
+				}
 				if m.TargetCraftID != 0 {
 					if rT, vT, ok := a.world.TargetRelState(m.TargetGhostOwner, m.TargetCraftID, a.world.ActiveCraft().Primary); ok {
 						a.world.ActiveCraft().ApplyImpulsiveWithTarget(m.Mode, m.DV, rT, vT)

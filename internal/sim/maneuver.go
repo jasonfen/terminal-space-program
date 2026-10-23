@@ -3194,8 +3194,8 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 			}
 		}
 		// Audit 18: no thrust or Isp (the same c.Thrust/c.Isp the burn path
-		// reads, synced from the lit set) means no burn; capImpulsiveDV lets
-		// Isp<=0 through, so refuse here rather than grant free Δv.
+		// reads, synced from the lit set) means no burn. Refuse and flash it
+		// here, rather than letting capImpulsiveDV silently grant nothing.
 		if c.Thrust <= 0 || c.Isp <= 0 {
 			w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{
 				When: w.Clock.SimTime, CraftName: c.Name, Cancelled: true, NoEngine: true,
