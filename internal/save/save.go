@@ -99,7 +99,14 @@ import (
 // ADR 0057 decision 5.6 adds cargo_kg, hold_kg and cargo_hold to the same
 // Stage inside v15 with no bump of their own: omitempty additions whose absent
 // value (0 / false) is the truth for every older stage, so nothing migrates.
-const SchemaVersion = 15
+// ADR 0058 decision 13 bumps to v16 - Stage gains lit_with_above (the Booster
+// mark: the stage lights together with the one above) and Craft gains
+// booster_throttle (a pointer: 0 means boosters cut, absent means they follow
+// the core). Absent decodes to serial / follows-core, the truth for every
+// save before this ADR, so migrateV15PayloadToV16 is an identity pass; the
+// bump exists so a v15 binary refuses a v16 envelope instead of silently
+// dropping the keys and flying a mid-booster-phase SLS serial from the SRBs.
+const SchemaVersion = 16
 
 // RendezvousPlan is spacecraft.RendezvousPlan on the wire (times as UnixNano).
 type RendezvousPlan struct {
@@ -308,6 +315,11 @@ type Craft struct {
 	// saves are backfilled by migrateV14PayloadToV15.
 	HasLaunchSite bool `json:"has_launch_site,omitempty"`
 
+	// BoosterThrottle (ADR 0058, schema v16): the liquid boosters' own
+	// throttle. A pointer because 0 (boosters cut) is a real value; nil
+	// follows the core. The throttle target is session state, not saved.
+	BoosterThrottle *float64 `json:"booster_throttle,omitempty"`
+
 	// Crashed / CanSoftLand / OnPad / LandedLatDeg / LandedLonDeg
 	// (v0.11.4+, schema v6 additive — no bump, per ADR 0004). All
 	// `omitempty`-default-false so pre-v0.11.4 saves round-trip
@@ -406,6 +418,9 @@ type Stage struct {
 	CargoKg   float64 `json:"cargo_kg,omitempty"`
 	HoldKg    float64 `json:"hold_kg,omitempty"`
 	CargoHold bool    `json:"cargo_hold,omitempty"`
+
+	// LitWithAbove (ADR 0058, schema v16): the Booster mark. Absent = serial.
+	LitWithAbove bool `json:"lit_with_above,omitempty"`
 }
 
 // PortWire mirrors spacecraft.PartPort on the wire.
@@ -742,6 +757,12 @@ func Load(path string) (*sim.World, error) {
 	// old lookup and the old coordinates.
 	if f.Version < 15 {
 		migrateV14PayloadToV15(&f.Payload)
+	}
+	// schema v16 (ADR 0058 decision 13): Stage.lit_with_above and
+	// Craft.booster_throttle; absent is the truth for older saves, so an
+	// identity pass whose job is the version gate.
+	if f.Version < 16 {
+		migrateV15PayloadToV16(&f.Payload)
 	}
 	return worldFromPayload(f.Payload, systems)
 }

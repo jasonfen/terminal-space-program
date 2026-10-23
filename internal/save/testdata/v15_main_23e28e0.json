@@ -1,0 +1,833 @@
+{
+  "version": 15,
+  "generator": "tsp dev",
+  "clock_t0": 1792715914002354000,
+  "body_catalog_hash": "9638d54efed7ea5b7a07a619b687bee3750c1efe2c99980955f8a6a26fa8e01f",
+  "payload": {
+    "system_idx": 0,
+    "sim_time_unix_nano": 946728000000000000,
+    "base_step_nano": 50000000,
+    "warp_idx": 0,
+    "paused": false,
+    "focus": {
+      "kind": 2,
+      "body_idx": 0
+    },
+    "crafts": [
+      {
+        "id": 1,
+        "name": "Apollo TLI-1",
+        "dry_mass": 26600,
+        "fuel": 98579,
+        "isp": 421,
+        "thrust": 1023000,
+        "primary_id": "earth",
+        "r": {
+          "x": 6303985.432532973,
+          "y": 0,
+          "z": -2733204.834331312
+        },
+        "v": {
+          "x": 2374.4253041231714,
+          "y": 4731.022317271016,
+          "z": 5476.480335397988
+        },
+        "m": 126920.09090909091,
+        "monoprop": 1741.0909090909092,
+        "monoprop_capacity": 1741.0909090909092,
+        "rcs_thrust": 440,
+        "rcs_isp": 220,
+        "loadout_id": "Apollo-TLI",
+        "role": "mission-stack",
+        "glyph": "➤",
+        "color": "#FFD93D",
+        "stages": [
+          {
+            "loadout_id": "Apollo-TLI",
+            "name": "S-IVB",
+            "glyph": "➤",
+            "color": "#FFD93D",
+            "dry_mass": 11000,
+            "fuel_mass": 75000,
+            "fuel_capacity": 75000,
+            "thrust": 1023000,
+            "isp": 421,
+            "monoprop_mass": 720,
+            "monoprop_cap": 720,
+            "rcs_thrust": 440,
+            "rcs_isp": 220
+          },
+          {
+            "loadout_id": "Apollo-TLI",
+            "name": "Descent",
+            "glyph": "➤",
+            "color": "#5FFF87",
+            "dry_mass": 2500,
+            "fuel_mass": 6310,
+            "fuel_capacity": 6310,
+            "thrust": 45000,
+            "isp": 311,
+            "monoprop_mass": 163.63636363636365,
+            "monoprop_cap": 163.63636363636365,
+            "rcs_thrust": 100,
+            "rcs_isp": 220,
+            "can_soft_land": true
+          },
+          {
+            "loadout_id": "Apollo-TLI",
+            "name": "Ascent",
+            "glyph": "➤",
+            "color": "#7BFFA0",
+            "dry_mass": 1200,
+            "fuel_mass": 1269,
+            "fuel_capacity": 1269,
+            "thrust": 16000,
+            "isp": 311,
+            "monoprop_mass": 78.54545454545455,
+            "monoprop_cap": 78.54545454545455,
+            "rcs_thrust": 48,
+            "rcs_isp": 220,
+            "can_soft_land": true,
+            "command_source": "crewed",
+            "ports": [
+              {
+                "end": "top"
+              }
+            ]
+          },
+          {
+            "loadout_id": "Apollo-TLI",
+            "name": "SM",
+            "glyph": "➤",
+            "color": "#C0C0FF",
+            "dry_mass": 6000,
+            "fuel_mass": 16000,
+            "fuel_capacity": 16000,
+            "thrust": 91000,
+            "isp": 314,
+            "monoprop_mass": 392.72727272727275,
+            "monoprop_cap": 392.72727272727275,
+            "rcs_thrust": 240,
+            "rcs_isp": 220
+          },
+          {
+            "loadout_id": "Apollo-TLI",
+            "name": "CM",
+            "glyph": "➤",
+            "color": "#B8C8E0",
+            "dry_mass": 5900,
+            "monoprop_mass": 386.1818181818182,
+            "monoprop_cap": 386.1818181818182,
+            "rcs_thrust": 236,
+            "rcs_isp": 220,
+            "has_parachute": true,
+            "command_source": "crewed",
+            "antenna_kind": "direct",
+            "antenna_range_m": 10000000,
+            "ports": [
+              {
+                "end": "top"
+              }
+            ]
+          }
+        ],
+        "current_attitude_dir": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "decouple_plan": [
+          1,
+          2
+        ]
+      },
+      {
+        "name": "SLS-Block1-1",
+        "dry_mass": 286775,
+        "fuel": 2274452,
+        "isp": 295.02111866894114,
+        "thrust": 41290000,
+        "primary_id": "earth",
+        "r": {
+          "x": 6303985.432532973,
+          "y": 0,
+          "z": -2733204.834331312
+        },
+        "v": {
+          "x": 2374.4253041231714,
+          "y": 4731.022317271016,
+          "z": 5476.480335397988
+        },
+        "m": 2579997.727272727,
+        "monoprop": 18770.727272727276,
+        "monoprop_capacity": 18770.727272727276,
+        "rcs_thrust": 7920,
+        "rcs_isp": 220,
+        "loadout_id": "SLS-Block1",
+        "role": "launch-vehicle",
+        "glyph": "➤",
+        "color": "#FF6B35",
+        "stages": [
+          {
+            "loadout_id": "SLS-Block1",
+            "name": "SRBs",
+            "glyph": "➤",
+            "color": "#E0E0E0",
+            "dry_mass": 198000,
+            "fuel_mass": 1270000,
+            "fuel_capacity": 1270000,
+            "thrust": 32000000,
+            "isp": 268,
+            "monoprop_mass": 12960.000000000002,
+            "monoprop_cap": 12960.000000000002,
+            "rcs_thrust": 7920,
+            "rcs_isp": 220,
+            "ballistic_coefficient": 0.000008
+          },
+          {
+            "loadout_id": "SLS-Block1",
+            "name": "Core",
+            "glyph": "➤",
+            "color": "#FF6B35",
+            "dry_mass": 85275,
+            "fuel_mass": 979452,
+            "fuel_capacity": 979452,
+            "thrust": 9290000,
+            "isp": 452,
+            "monoprop_mass": 5581.636363636364,
+            "monoprop_cap": 5581.636363636364,
+            "rcs_thrust": 3411,
+            "rcs_isp": 220,
+            "ballistic_coefficient": 0.000025
+          },
+          {
+            "loadout_id": "SLS-Block1",
+            "name": "ICPS",
+            "glyph": "➤",
+            "color": "#5BB3FF",
+            "dry_mass": 3500,
+            "fuel_mass": 25000,
+            "fuel_capacity": 25000,
+            "thrust": 110000,
+            "isp": 462,
+            "monoprop_mass": 229.09090909090912,
+            "monoprop_cap": 229.09090909090912,
+            "rcs_thrust": 140,
+            "rcs_isp": 220,
+            "ballistic_coefficient": 0.0000625,
+            "command_source": "probe",
+            "antenna_kind": "direct",
+            "antenna_range_m": 10000000
+          }
+        ],
+        "current_attitude_dir": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      },
+      {
+        "name": "Apollo-Stack-1",
+        "dry_mass": 196600,
+        "fuel": 2732579,
+        "isp": 263,
+        "thrust": 35100000,
+        "primary_id": "earth",
+        "r": {
+          "x": 6303985.432532973,
+          "y": 0,
+          "z": -2733204.834331312
+        },
+        "v": {
+          "x": 2374.4253041231714,
+          "y": 4731.022317271016,
+          "z": 5476.480335397988
+        },
+        "m": 2942047.3636363638,
+        "monoprop": 12868.363636363636,
+        "monoprop_capacity": 12868.363636363636,
+        "rcs_thrust": 5200,
+        "rcs_isp": 220,
+        "loadout_id": "Apollo-Stack",
+        "role": "mission-stack",
+        "glyph": "➤",
+        "color": "#FFD93D",
+        "stages": [
+          {
+            "loadout_id": "Apollo-Stack",
+            "name": "S-IC",
+            "glyph": "➤",
+            "color": "#FF8C42",
+            "dry_mass": 130000,
+            "fuel_mass": 2160000,
+            "fuel_capacity": 2160000,
+            "thrust": 35100000,
+            "isp": 263,
+            "monoprop_mass": 8509.09090909091,
+            "monoprop_cap": 8509.09090909091,
+            "rcs_thrust": 5200,
+            "rcs_isp": 220,
+            "ballistic_coefficient": 0.000008
+          },
+          {
+            "loadout_id": "Apollo-Stack",
+            "name": "S-II",
+            "glyph": "➤",
+            "color": "#FFC042",
+            "dry_mass": 40000,
+            "fuel_mass": 440000,
+            "fuel_capacity": 440000,
+            "thrust": 5140000,
+            "isp": 421,
+            "monoprop_mass": 2618.1818181818185,
+            "monoprop_cap": 2618.1818181818185,
+            "rcs_thrust": 1600,
+            "rcs_isp": 220,
+            "ballistic_coefficient": 0.000025
+          },
+          {
+            "loadout_id": "Apollo-Stack",
+            "name": "S-IVB",
+            "glyph": "➤",
+            "color": "#FFD93D",
+            "dry_mass": 11000,
+            "fuel_mass": 109000,
+            "fuel_capacity": 109000,
+            "thrust": 1023000,
+            "isp": 421,
+            "monoprop_mass": 720,
+            "monoprop_cap": 720,
+            "rcs_thrust": 440,
+            "rcs_isp": 220,
+            "ballistic_coefficient": 0.0000625
+          },
+          {
+            "loadout_id": "Apollo-Stack",
+            "name": "Descent",
+            "glyph": "➤",
+            "color": "#5FFF87",
+            "dry_mass": 2500,
+            "fuel_mass": 6310,
+            "fuel_capacity": 6310,
+            "thrust": 45000,
+            "isp": 311,
+            "monoprop_mass": 163.63636363636365,
+            "monoprop_cap": 163.63636363636365,
+            "rcs_thrust": 100,
+            "rcs_isp": 220,
+            "can_soft_land": true
+          },
+          {
+            "loadout_id": "Apollo-Stack",
+            "name": "Ascent",
+            "glyph": "➤",
+            "color": "#7BFFA0",
+            "dry_mass": 1200,
+            "fuel_mass": 1269,
+            "fuel_capacity": 1269,
+            "thrust": 16000,
+            "isp": 311,
+            "monoprop_mass": 78.54545454545455,
+            "monoprop_cap": 78.54545454545455,
+            "rcs_thrust": 48,
+            "rcs_isp": 220,
+            "can_soft_land": true,
+            "command_source": "crewed",
+            "ports": [
+              {
+                "end": "top"
+              }
+            ]
+          },
+          {
+            "loadout_id": "Apollo-Stack",
+            "name": "SM",
+            "glyph": "➤",
+            "color": "#C0C0FF",
+            "dry_mass": 6000,
+            "fuel_mass": 16000,
+            "fuel_capacity": 16000,
+            "thrust": 91000,
+            "isp": 314,
+            "monoprop_mass": 392.72727272727275,
+            "monoprop_cap": 392.72727272727275,
+            "rcs_thrust": 240,
+            "rcs_isp": 220
+          },
+          {
+            "loadout_id": "Apollo-Stack",
+            "name": "CM",
+            "glyph": "➤",
+            "color": "#B8C8E0",
+            "dry_mass": 5900,
+            "monoprop_mass": 386.1818181818182,
+            "monoprop_cap": 386.1818181818182,
+            "rcs_thrust": 236,
+            "rcs_isp": 220,
+            "has_parachute": true,
+            "command_source": "crewed",
+            "antenna_kind": "direct",
+            "antenna_range_m": 10000000,
+            "ports": [
+              {
+                "end": "top"
+              }
+            ]
+          }
+        ],
+        "current_attitude_dir": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        },
+        "decouple_plan": [
+          1,
+          1,
+          1,
+          2
+        ]
+      },
+      {
+        "name": "RCS-tug-1",
+        "dry_mass": 200,
+        "fuel": 0,
+        "isp": 0,
+        "thrust": 0,
+        "primary_id": "earth",
+        "r": {
+          "x": 6303985.432532973,
+          "y": 0,
+          "z": -2733204.834331312
+        },
+        "v": {
+          "x": 2374.4253041231714,
+          "y": 4731.022317271016,
+          "z": 5476.480335397988
+        },
+        "m": 213.0909090909091,
+        "monoprop": 13.090909090909092,
+        "monoprop_capacity": 13.090909090909092,
+        "rcs_thrust": 8,
+        "rcs_isp": 220,
+        "loadout_id": "RCS-tug",
+        "role": "tug",
+        "glyph": "➤",
+        "color": "#FF87D7",
+        "stages": [
+          {
+            "loadout_id": "RCS-tug",
+            "name": "RCS Tug",
+            "glyph": "➤",
+            "color": "#FF87D7",
+            "dry_mass": 200,
+            "monoprop_mass": 13.090909090909092,
+            "monoprop_cap": 13.090909090909092,
+            "rcs_thrust": 8,
+            "rcs_isp": 220,
+            "command_source": "probe",
+            "antenna_kind": "direct",
+            "antenna_range_m": 10000000,
+            "ports": [
+              {
+                "end": "top"
+              }
+            ]
+          }
+        ],
+        "current_attitude_dir": {
+          "x": 0,
+          "y": 0,
+          "z": 0
+        }
+      }
+    ],
+    "next_craft_id": 2,
+    "next_node_id": 1,
+    "missions": [
+      {
+        "id": "tut-orient",
+        "name": "Flight School: Orientation",
+        "description": "Get your bearings — the camera and the target slot.",
+        "program": "tutorial",
+        "objectives": [
+          {
+            "name": "Change your view",
+            "description": "Press [v] to cycle the camera view. Rather fly solo? [M] then [1] turns Flight School off.",
+            "kind": "event",
+            "params": {
+              "action": "cycle_view"
+            }
+          },
+          {
+            "name": "Aim for the Moon",
+            "description": "Press [t] to cycle the target slot until TARGET reads Moon. [T] clears it.",
+            "kind": "event",
+            "params": {
+              "action": "cycle_target",
+              "require_target_body_id": "moon"
+            }
+          }
+        ]
+      },
+      {
+        "id": "tut-plan",
+        "name": "Flight School: Plan a Burn",
+        "description": "Open the planner and plant your first maneuver.",
+        "program": "tutorial",
+        "requires": [
+          "tut-orient"
+        ],
+        "objectives": [
+          {
+            "name": "Open the planner",
+            "description": "Press [m] to open the maneuver planner.",
+            "kind": "event",
+            "params": {
+              "action": "open_maneuver"
+            }
+          },
+          {
+            "name": "Plant a transfer to the Moon",
+            "description": "With the Moon targeted, press [H] to plant a transfer you can afford.",
+            "kind": "event",
+            "params": {
+              "action": "plan_transfer",
+              "require_target_body_id": "moon",
+              "require_budget_ok": true
+            }
+          }
+        ]
+      },
+      {
+        "id": "tut-fly",
+        "name": "Flight School: Fly It",
+        "description": "Execute a burn and climb away from your starting orbit.",
+        "program": "tutorial",
+        "requires": [
+          "tut-plan"
+        ],
+        "objectives": [
+          {
+            "name": "Climb above 700 km",
+            "description": "Warp to your burn ([G]) or fire manually ([b]) and raise your altitude past 700 km.",
+            "kind": "reach_altitude",
+            "params": {
+              "primary_id": "earth",
+              "min_altitude_m": 700000
+            }
+          }
+        ]
+      },
+      {
+        "id": "tut-launch",
+        "name": "Flight School: Off the Pad",
+        "description": "Launch a Saturn V from the pad and fly it to orbit.",
+        "program": "tutorial",
+        "requires": [
+          "tut-fly"
+        ],
+        "objectives": [
+          {
+            "name": "Spawn on the pad",
+            "description": "Press [n], pick Saturn V, and set position to launchpad.",
+            "kind": "event",
+            "params": {
+              "action": "spawn_craft",
+              "require_spawn_location": "pad"
+            }
+          },
+          {
+            "name": "Throttle up",
+            "description": "Press [z] to throttle up to 100%.",
+            "kind": "event",
+            "params": {
+              "action": "throttle_full"
+            }
+          },
+          {
+            "name": "Light the engine",
+            "description": "Press [b] to light the engine and lift off.",
+            "kind": "event",
+            "params": {
+              "action": "ignite"
+            }
+          },
+          {
+            "name": "Pitch east",
+            "description": "Above 10 km, pitch east with [W] and hold it through the turn.",
+            "kind": "reach_altitude",
+            "params": {
+              "primary_id": "earth",
+              "min_altitude_m": 10000
+            }
+          },
+          {
+            "name": "Stage when the tank runs dry",
+            "description": "When the first stage runs dry, press [space] to drop it and keep flying.",
+            "kind": "event",
+            "params": {
+              "action": "stage"
+            }
+          },
+          {
+            "name": "Plan the circularising burn",
+            "description": "At ORBIT READY, press [C] to plant the circularising burn.",
+            "kind": "event",
+            "params": {
+              "action": "plan_circularize"
+            }
+          },
+          {
+            "name": "Fly the burn and make orbit",
+            "description": "Warp to the node or fire it manually — settle into orbit.",
+            "kind": "circularize_from_pad",
+            "params": {
+              "primary_id": "earth"
+            }
+          }
+        ]
+      },
+      {
+        "id": "tut-dock",
+        "name": "Flight School: Docking",
+        "description": "Rendezvous with a partner vessel and dock.",
+        "program": "tutorial",
+        "requires": [
+          "tut-launch"
+        ],
+        "objectives": [
+          {
+            "name": "Spawn a partner in orbit",
+            "description": "Press [n] to spawn a second vessel in orbit with a docking port (Capsule, RCS Tug).",
+            "kind": "event",
+            "params": {
+              "action": "spawn_craft",
+              "require_spawn_location": "orbit"
+            }
+          },
+          {
+            "name": "Target it",
+            "description": "Press [t] to cycle the target slot until TARGET shows the other vessel.",
+            "kind": "event",
+            "params": {
+              "action": "cycle_target",
+              "require_target_craft": true
+            }
+          },
+          {
+            "name": "Plant the rendezvous burn",
+            "description": "Press [K] to plant a burn toward it.",
+            "kind": "event",
+            "params": {
+              "action": "plan_rendezvous"
+            }
+          },
+          {
+            "name": "Close in and dock",
+            "description": "Fly nose to nose: port within half a metre, under 0.1 m/s, within 4 degrees. The magnet closes the last half metre.",
+            "kind": "dock",
+            "params": {}
+          }
+        ]
+      },
+      {
+        "id": "chal-high-orbit",
+        "name": "Make a 1000 km Orbit",
+        "description": "Trim a clean, near-circular orbit at 1000 km.",
+        "program": "challenge",
+        "objectives": [
+          {
+            "name": "Circular orbit at 1000 km",
+            "description": "Raise and round out your orbit to 1000 km altitude (±5%, e ≤ 0.01).",
+            "kind": "circularize",
+            "params": {
+              "primary_id": "earth",
+              "altitude_m": 1000000,
+              "altitude_tol_pct": 0.05,
+              "eccentricity_cap": 0.01
+            }
+          }
+        ]
+      },
+      {
+        "id": "chal-luna-flyby",
+        "name": "Luna Flyby",
+        "description": "Coast into the Moon's sphere of influence.",
+        "program": "challenge",
+        "requires": [
+          "chal-high-orbit"
+        ],
+        "objectives": [
+          {
+            "name": "Enter Luna's SOI",
+            "description": "Target the Moon, plant a transfer ([H]), and coast until the Moon's gravity takes over.",
+            "kind": "soi_flyby",
+            "params": {
+              "primary_id": "moon"
+            }
+          }
+        ]
+      },
+      {
+        "id": "chal-luna-capture",
+        "name": "Luna Capture",
+        "description": "Brake into a bound orbit around the Moon.",
+        "program": "challenge",
+        "requires": [
+          "chal-luna-flyby"
+        ],
+        "objectives": [
+          {
+            "name": "Capture at Luna",
+            "description": "Burn retrograde near periapsis to drop into a bound lunar orbit (e \u003c 1).",
+            "kind": "orbit_insertion",
+            "params": {
+              "primary_id": "moon"
+            }
+          }
+        ]
+      },
+      {
+        "id": "chal-luna-return",
+        "name": "Luna Landing \u0026 Return",
+        "description": "Land on the Moon, then bring it home.",
+        "program": "challenge",
+        "requires": [
+          "chal-luna-capture"
+        ],
+        "objectives": [
+          {
+            "name": "Land on Luna",
+            "description": "Descend and touch down anywhere on the Moon's surface.",
+            "kind": "land_at_body",
+            "params": {
+              "primary_id": "moon"
+            }
+          },
+          {
+            "name": "Return to Earth",
+            "description": "Lift off, transfer back, and settle into a bound Earth orbit (or land).",
+            "kind": "return_to_body",
+            "params": {
+              "primary_id": "earth"
+            }
+          }
+        ]
+      },
+      {
+        "id": "chal-dock",
+        "name": "Dock Two Vessels",
+        "description": "Bring two vessels together and dock them.",
+        "program": "challenge",
+        "objectives": [
+          {
+            "name": "Spawn a partner",
+            "description": "Press [n] to spawn a second vessel with a docking port (Capsule, RCS Tug) to rendezvous with.",
+            "kind": "event",
+            "params": {
+              "action": "spawn_craft"
+            }
+          },
+          {
+            "name": "Dock the two vessels",
+            "description": "Target the other vessel ([t]), close in ([K] plants a rendezvous nudge), then fly port to port ([;] reaches the PORT frame): within half a metre, under 0.1 m/s, noses within 4 degrees. The magnet docks you.",
+            "kind": "dock",
+            "params": {}
+          }
+        ]
+      },
+      {
+        "id": "chal-mars-flyby",
+        "name": "Mars Flyby",
+        "description": "Leave Earth's neighbourhood — fly past Mars.",
+        "program": "challenge",
+        "requires": [
+          "chal-luna-capture"
+        ],
+        "objectives": [
+          {
+            "name": "Enter Mars' SOI",
+            "description": "Plant an interplanetary transfer to Mars ([t] target Mars, [H]) and coast into its sphere of influence.",
+            "kind": "soi_flyby",
+            "params": {
+              "primary_id": "mars"
+            }
+          }
+        ]
+      },
+      {
+        "id": "chal-deploy-payload",
+        "name": "Deploy a Payload",
+        "description": "Carry a payload to orbit and release it on its own.",
+        "program": "challenge",
+        "objectives": [
+          {
+            "name": "Deploy a payload",
+            "description": "Spawn a carrier ([n] → Comsat Carrier x3 or Survey Pack), reach orbit, then press [Y] to release the top payload as its own vessel.",
+            "kind": "event",
+            "params": {
+              "action": "deploy"
+            }
+          }
+        ]
+      },
+      {
+        "id": "chal-place-comsat",
+        "name": "Place a Comsat",
+        "description": "Put a relay comsat into a target orbit.",
+        "program": "challenge",
+        "requires": [
+          "chal-deploy-payload"
+        ],
+        "objectives": [
+          {
+            "name": "Circular orbit at 800 km",
+            "description": "Fly your carrier into a near-circular orbit at ~800 km altitude (e ≤ 0.05).",
+            "kind": "circularize",
+            "params": {
+              "primary_id": "earth",
+              "altitude_m": 800000,
+              "altitude_tol_pct": 0.1,
+              "eccentricity_cap": 0.05
+            }
+          },
+          {
+            "name": "Deploy on station",
+            "description": "Once you're in the target orbit, press [Y] to release the comsat there.",
+            "kind": "event",
+            "params": {
+              "action": "deploy"
+            }
+          }
+        ]
+      },
+      {
+        "id": "chal-relay-constellation",
+        "name": "Relay Constellation",
+        "description": "Build out a relay network and bring three comsats online.",
+        "program": "challenge",
+        "requires": [
+          "chal-place-comsat"
+        ],
+        "objectives": [
+          {
+            "name": "Deploy a relay comsat",
+            "description": "Launch a Comsat Carrier ([n]), reach orbit, and press [Y] to release a relay comsat.",
+            "kind": "event",
+            "params": {
+              "action": "deploy"
+            }
+          },
+          {
+            "name": "Three relays connected",
+            "description": "Deploy and position relay comsats until three are connected to the network at once.",
+            "kind": "relay_coverage",
+            "params": {
+              "min_relays": 3
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

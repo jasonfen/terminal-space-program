@@ -56,6 +56,7 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 		Color:              c.Color,
 		PitchTrim:          c.PitchTrim,
 		HeadingTrim:        c.HeadingTrim,
+		BoosterThrottle:    copyFloatPtr(c.BoosterThrottle),
 		CurrentAttitudeDir: vec3From(c.CurrentAttitudeDir),
 		Landed:             c.Landed,
 		LaunchLatDeg:       c.LaunchLatDeg,
@@ -305,6 +306,7 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 		Color:              wc.Color,
 		PitchTrim:          wc.PitchTrim,
 		HeadingTrim:        wc.HeadingTrim,
+		BoosterThrottle:    copyFloatPtr(wc.BoosterThrottle),
 		CurrentAttitudeDir: vec3To(wc.CurrentAttitudeDir),
 		Landed:             wc.Landed,
 		LaunchLatDeg:       wc.LaunchLatDeg,
@@ -474,4 +476,14 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 		}
 	}
 	return c, nil
+}
+
+// copyFloatPtr copies a *float64 so wire and live crafts never alias; nil stays
+// nil and a set 0 stays a set 0.
+func copyFloatPtr(p *float64) *float64 {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
 }
