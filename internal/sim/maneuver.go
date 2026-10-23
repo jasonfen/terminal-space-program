@@ -3193,6 +3193,15 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				continue
 			}
 		}
+		// Audit 18: no thrust or Isp (the same c.Thrust/c.Isp the burn path
+		// reads, synced from the lit set) means no burn; capImpulsiveDV lets
+		// Isp<=0 through, so refuse here rather than grant free Δv.
+		if c.Thrust <= 0 || c.Isp <= 0 {
+			w.LastNodeTargetRefusal = &NodeTargetRefusalEvent{
+				When: w.Clock.SimTime, CraftName: c.Name, Cancelled: true, NoEngine: true,
+			}
+			continue // dropped — not appended to kept
+		}
 		// #702: a burn with a normal or radial part holds the inertial
 		// direction it has at ignition, resolved once here in the frame it
 		// was planned in (#701).

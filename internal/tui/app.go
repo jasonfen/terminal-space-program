@@ -443,7 +443,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// the node/burn is cancelled outright, not merely held pending a
 		// re-latch that will never come.
 		if e := a.world.LastNodeTargetRefusal; e != nil {
-			if e.Cancelled {
+			if e.NoEngine {
+				a.flash(fmt.Sprintf("%s: node cancelled, no engine", e.CraftName))
+			} else if e.Cancelled {
 				a.flash(fmt.Sprintf("%s: node cancelled, target gone", e.CraftName))
 			} else {
 				a.flash(fmt.Sprintf("%s: burn held off — target lock not resolved", e.CraftName))
