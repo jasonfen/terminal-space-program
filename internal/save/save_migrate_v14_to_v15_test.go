@@ -135,8 +135,8 @@ func TestMigrateV14ToV15ResaveWritesPortsExplicitly(t *testing.T) {
 	if err := json.Unmarshal(raw, &env); err != nil {
 		t.Fatal(err)
 	}
-	if env.Version != save.SchemaVersion || save.SchemaVersion != 15 {
-		t.Fatalf("version %d, SchemaVersion %d, want 15", env.Version, save.SchemaVersion)
+	if env.Version != save.SchemaVersion || save.SchemaVersion < 15 {
+		t.Fatalf("version %d, SchemaVersion %d, want the current version, >= 15", env.Version, save.SchemaVersion)
 	}
 	seen := 0
 	for _, c := range env.Payload.Crafts {
