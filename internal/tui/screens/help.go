@@ -169,11 +169,11 @@ var helpSections = []helpSection{
 		{"U", "undock the active composite: the pieces come back port to port 1.5 to 3 m apart, parting at 0.15 m/s"},
 		{"U (cross-player)", "release your partner's vessel from a shared stack; theirs comes back even if they're offline"},
 		{"u", "hand over cargo: while docked to a stack with a Cargo Hold, every cargo load aboard moves into it, one way; the flash states the mass"},
-		{"c", "re-arm docking: clear the local re-arm latch for the [t] target (or every latch naming the active vessel) so a just-undocked pair can dock again"},
+		{"alt+u", "re-arm docking: clear the local re-arm latch for the [t] target (or every latch naming the active vessel) so a just-undocked pair can dock again"},
 		{"Y", "deploy the top carried payload (keep flying the carrier); asks first"},
 		{"D", "transpose: SM → firing core, LM → releasable nose payload; asks first"},
 		{"t / T", "cycle / clear the target"},
-		{"space", "decouple bottom stage, instantly, pad included (the STAGES box names it; bare chute capsule: arm the chute; a Dragon drops its trunk first, then the next press arms the chute)"},
+		{"space", "decouple bottom stage, instantly, pad included (the STAGES box names it; bare chute capsule: arm the chute; a Dragon drops its trunk first, then the next press arms the chute); refused while lit solid boosters burn; a booster stage drops as two vessels"},
 		{"E", "end flight: clear a crashed vessel from the slate (asks first)"},
 	}},
 	{"DOCKING (port to port)", [][2]string{
@@ -191,7 +191,7 @@ var helpSections = []helpSection{
 		{"navball (PORT)", "pitch / yaw: how far your nose is above or below, right or left of, parallel to their port axis"},
 		{"p", "rcs pulse step: 0.1 / 0.01 / 0.001 m/s; the last metres want 0.01 or finer"},
 		{"U", "undock the active composite: the pieces come back port to port 1.5 to 3 m apart, parting at 0.15 m/s"},
-		{"c", "re-arm docking: a just-undocked pair cannot re-dock until 100 m or ten minutes pass; [c] clears that now"},
+		{"alt+u", "re-arm docking: a just-undocked pair cannot re-dock until 100 m or ten minutes pass; [alt+u] clears that now"},
 	}},
 	{"SPAWN FORM (n)", [][2]string{
 		{"tab / shift+tab", "next / previous field"},

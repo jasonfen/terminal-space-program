@@ -490,7 +490,7 @@ func (m *Maneuver) HandleKey(msg tea.KeyMsg, nodes []sim.ManeuverNode) (tea.Cmd,
 	case "ctrl+k":
 		// Clear ALL nodes for the active craft, then close the form.
 		// ADR 0047 / #428: this is now the ONLY clear-all binding — `c`
-		// (mapped to ReArmDock on the map) and `C` (PlanCircularize)
+		// (a flight key on the map) and `C` (PlanCircularize)
 		// are handled one level up in app.go before HandleKey is even
 		// called, so this switch never sees either letter.
 		return func() tea.Msg { return NodeClearAllMsg{} }, true

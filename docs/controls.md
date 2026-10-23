@@ -271,12 +271,12 @@ refuse in one phrase.
 | `n` | Open the [spawn form](#spawn-form-n) |
 | `[` / `]` | Switch which vessel you're flying |
 | `1`–`9` | Jump straight to vessel N (nothing happens if the slot is empty) |
-| `space` | Drop the bottom stage (only if there's more than one), instantly, on the pad too; the STAGES box names it (`▸ S-IC (1/3) [space]`) and a flash confirms what dropped. On a bare capsule with a parachute this arms the chute instead; it opens on its own in the atmosphere. A Dragon drops its trunk first, then the next press arms the chute |
+| `space` | Drop the bottom stage (only if there's more than one), instantly, on the pad too; the STAGES box names it (`▸ S-IC (1/3) [space]`) and a flash confirms what dropped. On a bare capsule with a parachute this arms the chute instead; it opens on its own in the atmosphere. A Dragon drops its trunk first, then the next press arms the chute. Refused while lit solid boosters burn (`boosters still burning`); a booster stage (the SLS solids) drops as two vessels, `<vessel>-booster1` and `-booster2` |
 | `Y` | Deploy the top carried payload as its own vessel (satellite, probe, station) while you keep flying the carrier. Asks first (there is no undo). Press again for the next one |
 | `D` | Apollo transposition: flip the Service Module to the front to do the flying, leaving the Lunar Module as a nose payload (then `U` to release it). Asks first (there is no undo) |
 | `U` | Undock a docked vessel into its parts and switch you to a released piece. Each piece comes back where its hull was drawn, port to port a row or two apart (1.5 to 3 m, by how tall the two stages at the seam are), and parts along the seam at 0.15 m/s. On a cross-player stack it releases your partner's vessel through the dock ledger, connected or not (an absent partner's vessel is parked as a **Parcel** and delivered, safed, when they next connect) |
 | `u` | Hand over cargo. While docked to a stack that has a **Cargo Hold**, every cargo load your vessel carries moves into the hold, at once, one way (nothing comes back). The flash states the mass (`3.307 t cargo handed over`), or the state that stopped it: `not docked`, `no hold aboard`, `no cargo aboard`. Lowercase `u`; `U` is undock. Only the vessel's owner hands over its cargo: riding in a friend's stack, your `u` is asked of their seat and the answer shows on your session chips |
-| `c` | Re-arm docking. After an undock a pair is held apart until you clear 100 m or ten minutes pass, even if you fly back into the docking gate. `c` clears that hold now: with a vessel targeted, just that pair; otherwise every hold on your active vessel. A pair already holding the gate starts the magnet on the next tick |
+| `alt+u` | Re-arm docking (Option+u on a Mac with Option as Meta, see MANUAL FLIGHT). After an undock a pair is held apart until you clear 100 m or ten minutes pass, even if you fly back into the docking gate. `alt+u` clears that hold now: with a vessel targeted, just that pair; otherwise every hold on your active vessel. A pair already holding the gate starts the magnet on the next tick |
 | `J` | Transfer control of a cross-player docked stack to the guest riding in it. Multiplayer only; see [multiplayer.md](multiplayer.md#docking-across-players) |
 | `E` | End the flight: remove a crashed vessel (asks first) |
 | `F5` / `F9` | Quicksave / quickload (`F9` asks first: a card, `Enter` picks the highlighted row) to a fixed quick slot, separate from named saves. See [Saves](#saves-esc--save-game--load-game) |
@@ -356,7 +356,7 @@ slowly and straight, and the last half metre closes by itself.
   skip through each other between ticks.
 - **Undocking.** `U` parts a composite along its seam: each piece comes back
   where its hull was drawn, port to port a row or two apart (1.5 to 3 m), opening at 0.15 m/s.
-  The pair cannot re-dock until it clears 100 m or ten minutes pass; `c`
+  The pair cannot re-dock until it clears 100 m or ten minutes pass; `alt+u`
   clears that hold now.
 - **Alongside spawn.** The spawn form's `alongside` position puts the new
   vessel 25 m port to port ahead of your nose, pointing back at you, at your

@@ -35,6 +35,10 @@ var (
 	// the only stage would leave the player with nothing to
 	// control, which is the wrong default. Status-flash + no-op.
 	ErrStageOnlyOne = errors.New("stage: cannot drop the only remaining stage")
+	// ErrStageSolidsLit — the bottom stage is a lit solid booster with fuel
+	// left (ADR 0058 decision 5): it cannot be dropped, cut or relit while
+	// it burns. The text is the Event Flash.
+	ErrStageSolidsLit = errors.New("boosters still burning")
 	// ErrTransposeNotReady — Transpose called on a craft that is not in
 	// the pre-transposition [Descent, Ascent, SM, CM] shape (ADR 0009).
 	// The player must drop the three Saturn stages first.
@@ -94,6 +98,13 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 		return 0, 0, ErrStageOnlyOne
 	}
 
+	// ADR 0058 decision 5: a lit solid booster cannot be dropped. Unlit
+	// solids (the pad before b), dry ones and every liquid stage go as usual.
+	if BoosterSolidsLit(c) {
+		return 0, 0, ErrStageSolidsLit
+	}
+	vesselName := c.Name // a booster pair is named for the vessel at the press, before the rename below
+
 	// Pop the bottom `groupSize` stages (Stages[:groupSize]) and build
 	// a passive Spacecraft from them. The dropped stages carry their
 	// residual fuel + monoprop, inherit the active craft's primary
@@ -135,12 +146,25 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 		c.Name = c.Stages[0].Name
 	}
 
-	jettisoned := buildJettisonedCraft(dropped, c)
-	jettisoned.Name = w.nextCraftName(jettisoned.Name)
+	// ADR 0058 decision 5: a marked stage models a pair of boosters, so
+	// its drop spawns two passive vessels, half the stage each.
+	if groupSize == 1 && dropped[0].LitWithAbove {
+		for k, half := range splitBoosterStage(dropped[0]) {
+			b := buildJettisonedCraft([]spacecraft.Stage{half}, c)
+			placeBoosterHalf(b, c, k)
+			b.Name = w.uniqueName(fmt.Sprintf("%s-booster%d", vesselName, k+1))
+			w.stampCraftID(b)
+			w.Crafts = append(w.Crafts, b)
+			jettisonedIdx = len(w.Crafts) - 1
+		}
+	} else {
+		jettisoned := buildJettisonedCraft(dropped, c)
+		jettisoned.Name = w.nextCraftName(jettisoned.Name)
 
-	w.stampCraftID(jettisoned) // the jettisoned stage is a new vessel (ADR 0012)
-	w.Crafts = append(w.Crafts, jettisoned)
-	jettisonedIdx = len(w.Crafts) - 1
+		w.stampCraftID(jettisoned) // the jettisoned stage is a new vessel (ADR 0012)
+		w.Crafts = append(w.Crafts, jettisoned)
+		jettisonedIdx = len(w.Crafts) - 1
+	}
 
 	// Active craft stays in place (the player keeps flying the
 	// upper chain). Slate ordering: active idx is unchanged; the
@@ -383,4 +407,68 @@ func dockedComponentFromStages(stages []spacecraft.Stage, name, role string) spa
 	}
 	tmp.SyncFields()
 	return tmp.AsDockedComponent()
+}
+
+// BoosterSolidsLit reports the ADR 0058 refusal condition: the bottom stage
+// is marked, solid and has fuel, and the vessel is mid-burn.
+func BoosterSolidsLit(c *spacecraft.Spacecraft) bool {
+	if c == nil || len(c.Stages) == 0 {
+		return false
+	}
+	b := c.Stages[0]
+	return b.LitWithAbove && b.FuelType == spacecraft.FuelTypeSolid && b.FuelMass > 0 && StackMidBurn(c)
+}
+
+// splitBoosterStage returns the two halves of a booster stage (ADR 0058
+// decision 5): the extensive fields halve, Isp, RCSIsp and
+// BallisticCoefficient (C_D·A/m, both halve) stay, and the halves are
+// plain debris: unmarked and with no command source.
+func splitBoosterStage(s spacecraft.Stage) [2]spacecraft.Stage {
+	s.DryMass /= 2
+	s.FuelMass /= 2
+	s.FuelCapacity /= 2
+	s.Thrust /= 2
+	s.MonopropMass /= 2
+	s.MonopropCap /= 2
+	s.RCSThrust /= 2
+	s.CargoKg /= 2
+	s.HoldKg /= 2
+	s.LitWithAbove = false
+	s.CommandSource = spacecraft.CommandNone
+	return [2]spacecraft.Stage{s, s}
+}
+
+// placeBoosterHalf moves booster half k (0 or 1) stagingSeparationM to its
+// side of the velocity vector, in the orbital plane, with a sideways push of
+// stagingPushVMS on top of the usual retrograde one, so the pair never share
+// a cell. A landed parent keeps buildJettisonedCraft's pinned placement.
+func placeBoosterHalf(b, parent *spacecraft.Spacecraft, k int) {
+	if parent.Landed {
+		return
+	}
+	side := 1.0
+	if k == 1 {
+		side = -1
+	}
+	v := parent.State.V
+	if v.Norm() == 0 {
+		v = orbital.Vec3{X: 1} // degenerate: any direction in the plane is as good
+	}
+	lat := parent.State.R.Cross(v).Cross(v).Unit() // in-plane, perpendicular to v (radial)
+	if lat.Norm() == 0 {
+		lat = orbital.Vec3{Z: 1}
+	}
+	b.State.R = b.State.R.Add(lat.Scale(side * stagingSeparationM))
+	b.State.V = b.State.V.Add(lat.Scale(side * stagingPushVMS))
+}
+
+// uniqueName returns name when no vessel on the slate has it, else the
+// usual -N spawn suffix (ADR 0058: booster names bypass nextCraftName).
+func (w *World) uniqueName(name string) string {
+	for _, c := range w.Crafts {
+		if c != nil && c.Name == name {
+			return w.nextCraftName(name)
+		}
+	}
+	return name
 }

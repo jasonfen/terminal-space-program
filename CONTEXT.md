@@ -801,8 +801,8 @@ ctrl+d deletes it. The list ends with a blank **new-node row**: with the
 cursor there the panel projects the form's **Draft** (the not-yet-planted
 values in the fields) and is labelled as such. A Draft is never shown as
 if it were a planted Node. Clearing every Node is ctrl+k only; `c` in
-the planner refuses and points at ctrl+k, so the letter that re-arms
-docking on the map can't destroy a plan one screen later.
+the planner refuses and points at ctrl+k, so a flight-view letter
+can't destroy a plan one screen later.
 _Avoid_: Selected node (Selection is the map Cursor), Active node (the
 one that is firing), Edit mode (bare).
 
@@ -1659,7 +1659,7 @@ each adjacent pair; the live per-stage fuel comes back with it (the legacy
 prorate applies only to pre-ADR-0009 saves). Composite-level state (Nodes,
 active Burn, Manual Burn, attitude mode, engine mode) is dropped. The pair
 is held apart by the **Re-arm Latch** until it clears 100 m or ten minutes
-pass, or `c` clears it.
+pass, or `alt+u` clears it.
 _Avoid_: Mate / Demate, Fuse / Split, Couple / Decouple (collides with
 **Stage** decoupling).
 
@@ -1798,7 +1798,7 @@ _Avoid_: Collision, Crash (reserved for ground impact), Bounce.
 **Re-arm Latch**:
 The hold that keeps a just-undocked pair from re-docking at once. It lifts
 when the pair clears 100 m (twice the Docking Distance), after ten minutes
-of sim time, or when the player presses `c`. Local to the World that
+of sim time, or when the player presses `alt+u`. Local to the World that
 undocked; the cross-player equivalent lives in the dock ledger.
 _Avoid_: Cooldown, Dock lock.
 

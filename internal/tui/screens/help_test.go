@@ -170,7 +170,7 @@ func TestHelpDocumentsReArmDockKey(t *testing.T) {
 	h.OpenPage(9) // VESSEL
 	out := h.Render(120, 400, keylayout.QWERTY)
 	if !strings.Contains(out, "re-arm docking") {
-		t.Errorf("help overlay missing the re-arm docking (`c`) entry:\n%s", out)
+		t.Errorf("help overlay missing the re-arm docking (`alt+u`) entry:\n%s", out)
 	}
 }
 

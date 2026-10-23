@@ -388,6 +388,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	a.dropStaleAsks()
 	switch m := msg.(type) {
 	case sim.TickMsg:
+		// ADR 0058 decision 5: note which vessels burn lit solids going in, so
+		// a tank that empties inside this tick (or a warp batch) flashes once.
+		boostersLit := make(map[*spacecraft.Spacecraft]bool)
+		for _, c := range a.world.Crafts {
+			if sim.BoosterSolidsLit(c) {
+				boostersLit[c] = true
+			}
+		}
 		a.world.Tick()
 		if a.orbitView.RendezvousPickerOpen() {
 			a.orbitView.SetRendezvousPickerNow(a.world.Clock.SimTime)
@@ -478,6 +486,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		a.world.PendingBurnFinishedEvents = nil
+		for c := range boostersLit {
+			if !sim.BoosterSolidsLit(c) && len(c.Stages) > 0 && c.Stages[0].LitWithAbove && c.Stages[0].FuelMass <= 0 {
+				burnMsgs = append(burnMsgs, "boosters burned out")
+				break
+			}
+		}
 		if len(burnMsgs) > 0 {
 			a.flash(strings.Join(burnMsgs, " · "))
 		}
@@ -1127,11 +1141,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			// ADR 0047 §3 / #428: clear-all moved off plain letters
-			// entirely. `c` maps to ReArmDock on the map — a docking
-			// action with nothing to do with a burn plan one screen
-			// later — so inside the planner it just points at the real
-			// binding instead of either clearing the plan or silently
-			// doing the map's re-arm.
+			// entirely. `c` is a flight key on the map (the throttle target,
+			// ADR 0058), so inside the planner it just points at the real
+			// binding instead of clearing the plan.
 			if !a.maneuver.TextFieldFocused() && m.String() == "c" {
 				a.refuse("clear all", "is ctrl+k")
 				return a, nil
@@ -2096,6 +2108,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else {
 					a.flash("stage: cannot drop the only remaining stage")
 				}
+			case errors.Is(err, sim.ErrStageSolidsLit):
+				a.flash(err.Error()) // ADR 0058: the bare refusal, "boosters still burning"
 			default:
 				a.flash(fmt.Sprintf("stage failed: %v", err))
 			}
