@@ -682,6 +682,17 @@ func (s *Spacecraft) BurnTimeForDV(dv float64) time.Duration {
 	return time.Duration(secs * float64(time.Second))
 }
 
+// BurnTimeForDVAt is BurnTimeForDV for a burn fired at throttle: mass flow
+// scales with throttle, so the engine-on time scales by 1/throttle (#748).
+// A throttle ≤ 0 or ≥ 1 means full, as ManeuverNode.EffectiveThrottle reads it.
+func (s *Spacecraft) BurnTimeForDVAt(dv, throttle float64) time.Duration {
+	d := s.BurnTimeForDV(dv)
+	if throttle <= 0 || throttle >= 1 {
+		return d
+	}
+	return time.Duration(float64(d) / throttle)
+}
+
 // ThrustAccelFnAt returns an RK4-compatible accel closure that adds
 // engine thrust along the given burn-mode direction on top of two-body
 // gravity, using an explicit throttle. Direction is recomputed each

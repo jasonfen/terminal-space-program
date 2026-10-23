@@ -136,7 +136,7 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 	// lit; a weaker new bottom stage needs a longer window or the burn is
 	// reaped on duration with Δv still owed. Extend only, never shorten.
 	if ab := c.ActiveBurn; ab != nil {
-		if end := w.Clock.SimTime.Add(c.BurnTimeForDV(ab.DVRemaining)); end.After(ab.EndTime) {
+		if end := w.Clock.SimTime.Add(c.BurnTimeForDVAt(ab.DVRemaining, ab.Throttle)); end.After(ab.EndTime) {
 			ab.EndTime = end
 		}
 	}
