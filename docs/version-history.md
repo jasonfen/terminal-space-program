@@ -2,6 +2,20 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.59.0
+
+The SLS lights its boosters with its core, and you can build your own vessels with boosters (PRs `#736`-`#742`, `#744`, `#745`, `#747`; ADR 0058; tag `v0.59.0`).
+
+- **`b` lights the SLS's solid boosters and its core together.** The solids burn at full thrust until they're empty and can't be throttled or cut. `space` is refused while they burn (`boosters still burning`). Once they burn out (`boosters burned out`), `space` drops them as two vessels, `<vessel>-booster1` and `-booster2`.
+- **Raster-LS works the same way.** Its core carries more propellant so that it outlasts its solids. Total Δv is about unchanged.
+- **Liquid boosters get their own throttle.** `c` picks the target: all, core or boosters. The throttle keys and `x` move only the selected one, and the ENGINE row is labelled `core:` or `boosters:`. A vessel with one throttle answers `one throttle`.
+- **Re-arm docking moves from `c` to `alt+u`.**
+- **ENGINE, PROPELLANT and STAGES read the whole booster group.** ENGINE's title shows the boosters' clock or `DRY`, PROPELLANT shows both tanks (`60% · 91%`), and STAGES marks every lit stage `◉`.
+- **In the VAB, `b` marks a stage to light with the stage above it.** The header shows ` · lights with S2`, Σ Δv and TWR follow the mark, and designs and subassemblies keep it.
+- **On the pad, the boosters draw beside the core with their own flames.** The SLS core now stands taller than its boosters.
+- **Saves move to schema 16.** Older saves load unchanged, and an older build refuses a v16 save.
+- **A node burn on a vessel with lit solids hands the solids to a manual burn when the node is done.** The core cuts to 0% and the solids burn to empty, since solids can't be shut off.
+
 ### v0.58.1
 
 Lighting a heavy stack on the pad no longer wrecks it, and saves survive a power cut (PRs `#732`, `#733`, `#735`; tag `v0.58.1`).
