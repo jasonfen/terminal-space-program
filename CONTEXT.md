@@ -435,6 +435,9 @@ recovered** — jettisoned
 during re-entry prep. After **Transposition** it is the bottom/firing
 Stage of the surviving stack, pushing the **Command Module** plus the LM
 nose payload.
+Orion's **European Service Module (ESM)** is the second instance: the
+`ESM` part under the `Orion` crew module (ADR 0060), with the AJ10 engine
+and the 8,600 kg tank, dropped by `space` before reentry the same way.
 _Avoid_: CSM (that name fuses SM+CM — keep them distinct), Service stage.
 
 **Command Module (CM)**:
@@ -444,6 +447,8 @@ and splashes down — the true surviving core of a lunar mission. Modelled
 on the existing parachute-recovered **Capsule** (ADR 0008): a passive,
 engineless Stage that re-enters under chute after the **Service Module**
 is jettisoned.
+Orion's crew module (`orion-cm`, named `Orion`) is the second instance:
+chute, crewed command, the Dragon's antenna and a top port (ADR 0060).
 _Avoid_: Capsule (that's the standalone Loadout; the CM is the Apollo
 Stack's instance of the same recovery model), Command stage, Re-entry pod.
 

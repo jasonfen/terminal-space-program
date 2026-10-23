@@ -266,6 +266,33 @@
       ]
     },
     {
+      "id": "SLS-Orion",
+      "name": "SLS + Orion",
+      "role": "mission-stack",
+      "category": "mission-stacks",
+      "glyph": "➤",
+      "color": "#FF6B35",
+      "parts": [
+        { "part_id": "srb", "lit_with_above": true },
+        { "part_id": "core-rs25" },
+        { "part_id": "icps-sls" },
+        { "part_id": "orion-esm" },
+        { "part_id": "orion-cm" }
+      ]
+    },
+    {
+      "id": "Orion",
+      "name": "Orion",
+      "role": "capsule",
+      "category": "landers-capsules",
+      "glyph": "➤",
+      "color": "#E4E8F0",
+      "parts": [
+        { "part_id": "orion-esm" },
+        { "part_id": "orion-cm" }
+      ]
+    },
+    {
       "id": "Kern-Stack",
       "name": "Kern Stack",
       "role": "mission-stack",

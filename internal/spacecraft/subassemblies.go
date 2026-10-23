@@ -42,7 +42,7 @@ func (s Subassembly) Role() string {
 func (s Subassembly) Shipped() bool { return s.Loadout.Source == "embedded" }
 
 // shippedSubassemblyOrder is the order the shipped blocks list in.
-var shippedSubassemblyOrder = []string{"comsat", "lm", "csm-lm", "dragon", "cargo-dragon"}
+var shippedSubassemblyOrder = []string{"comsat", "lm", "csm-lm", "dragon", "cargo-dragon", "orion"}
 
 // SubassembliesDir resolves the player's subassemblies directory, a sibling of
 // DesignsDir.

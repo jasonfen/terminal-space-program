@@ -44,6 +44,9 @@ func spriteDigest(stages []spacecraft.Stage) string {
 func unmarkedLoadoutIDs() []string {
 	var ids []string
 	for id, l := range spacecraft.Loadouts {
+		if id == "Orion" { // ADR 0060: added after the golden; skipped by name so it still covers the loadouts it was captured on
+			continue
+		}
 		marked := false
 		for _, s := range l.Stages {
 			marked = marked || s.LitWithAbove

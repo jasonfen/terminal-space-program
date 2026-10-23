@@ -24,8 +24,8 @@ func TestShippedSubassembliesLoad(t *testing.T) {
 	if len(warns) != 0 {
 		t.Fatalf("warnings: %v", warns)
 	}
-	if got := subIDs(subs); got != "comsat,lm,csm-lm,dragon,cargo-dragon" {
-		t.Fatalf("shipped subassemblies = %q, want comsat,lm,csm-lm,dragon,cargo-dragon", got)
+	if got := subIDs(subs); got != "comsat,lm,csm-lm,dragon,cargo-dragon,orion" {
+		t.Fatalf("shipped subassemblies = %q, want comsat,lm,csm-lm,dragon,cargo-dragon,orion", got)
 	}
 	want := map[string]struct {
 		role  string
@@ -37,6 +37,7 @@ func TestShippedSubassembliesLoad(t *testing.T) {
 		"csm-lm":       {"stage", "apollo-sm,command-module,apollo-descent,apollo-ascent", "[2]"},
 		"dragon":       {"stage", "dragon-trunk,dragon-crew", ""},
 		"cargo-dragon": {"stage", "dragon-trunk,dragon-cargo", ""},
+		"orion":        {"stage", "orion-esm,orion-cm", ""},
 	}
 	for _, s := range subs {
 		w := want[s.ID()]
@@ -76,10 +77,10 @@ func TestSubassemblyRoundTripAndOverlay(t *testing.T) {
 		t.Fatal(err)
 	}
 	subs, _ := ListSubassemblies()
-	if got := subIDs(subs); got != "comsat,lm,csm-lm,dragon,cargo-dragon,comsat-x3" {
+	if got := subIDs(subs); got != "comsat,lm,csm-lm,dragon,cargo-dragon,orion,comsat-x3" {
 		t.Fatalf("after save = %q", got)
 	}
-	back := subs[5]
+	back := subs[6]
 	if back.Role() != "payload" || len(back.Loadout.Parts) != 3 || back.Shipped() {
 		t.Errorf("round trip lost role / parts / provenance: %+v", back.Loadout)
 	}
@@ -93,7 +94,7 @@ func TestSubassemblyRoundTripAndOverlay(t *testing.T) {
 		t.Fatal(err)
 	}
 	subs, _ = ListSubassemblies()
-	if got := subIDs(subs); got != "comsat,lm,csm-lm,dragon,cargo-dragon,comsat-x3" {
+	if got := subIDs(subs); got != "comsat,lm,csm-lm,dragon,cargo-dragon,orion,comsat-x3" {
 		t.Fatalf("replace changed the order: %q", got)
 	}
 	if subs[0].Role() != "stage" || len(subs[0].Loadout.Parts) != 2 || subs[0].Shipped() {
