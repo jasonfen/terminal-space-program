@@ -2304,6 +2304,14 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 	// is ΣT_i·θ_i (solids pinned at 1), as a fraction of c.Thrust. Identical
 	// to the core throttle on a single-stage set.
 	core := throttle
+	if c.ActiveBurn != nil && c.BoosterThrottle != nil {
+		// A node was sized (BurnTimeForDV) with every engine at full, so the
+		// liquid boosters follow the node's throttle; the player's own value
+		// is put back when the step is done.
+		saved := c.BoosterThrottle
+		c.BoosterThrottle = nil
+		defer func() { c.BoosterThrottle = saved }()
+	}
 	throttle = c.LitThrottle(core)
 	// v0.10.0: by default thrust along the craft's physical nose
 	// (CurrentAttitudeDir, slewed at the tick top) so burning before

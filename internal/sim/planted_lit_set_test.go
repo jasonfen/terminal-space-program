@@ -60,3 +60,40 @@ func TestPlantedBurnLeavesSolidsBurning(t *testing.T) {
 		t.Errorf("burn ended with %v kg of solid left", c.Stages[0].FuelMass)
 	}
 }
+
+func liquidPair(t *testing.T) (*World, *spacecraft.Spacecraft) {
+	t.Helper()
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	c.Stages = []spacecraft.Stage{
+		{Name: "LRB", DryMass: 50_000, FuelMass: 400_000, FuelCapacity: 400_000,
+			Thrust: 10e6, Isp: 300, FuelType: spacecraft.FuelTypeHydrolox, LitWithAbove: true},
+		{Name: "Core", DryMass: 30_000, FuelMass: 300_000, FuelCapacity: 300_000,
+			Thrust: 5e6, Isp: 400, FuelType: spacecraft.FuelTypeHydrolox},
+	}
+	crewTend(c)
+	c.SyncFields()
+	c.State.M = c.TotalMass()
+	c.EngineMode = spacecraft.EngineMain
+	return w, c
+}
+
+// ADR 0058 review finding 2: BurnTimeForDV sizes a node with every engine at
+// full, so a node flies the liquid boosters at the node's throttle, not at the
+// player's BoosterThrottle (which would reap the burn with Δv owed).
+func TestPlantedBurnIgnoresBoosterThrottle(t *testing.T) {
+	w, c := liquidPair(t)
+	w.SetThrottleFor(ThrottleBoosters, 0.3)
+	plantAndFly(t, w, c, 200)
+	owed := c.ActiveBurn.DVRemaining
+	for c.ActiveBurn != nil {
+		owed = c.ActiveBurn.DVRemaining
+		w.Tick()
+	}
+	if owed > 5 {
+		t.Errorf("node reaped with %.1f of 200 m/s still owed", owed)
+	}
+	if c.BoosterThrottle == nil || *c.BoosterThrottle != 0.3 {
+		t.Errorf("BoosterThrottle after the node = %v, want the player's 0.3 kept", c.BoosterThrottle)
+	}
+}
