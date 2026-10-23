@@ -325,7 +325,17 @@ slowly and straight, and the last half metre closes by itself.
   would fit the next step down with room, never flickering. Beyond 64 m the
   `○` sits on the rim in the port's direction and `lateral:` carries the
   metres. `+` / `-` zoom the side picture only; the scope has no zoom, and
-  the scale bar under the side picture is its own.
+  the scale bar under the side picture is its own. Both hulls are drawn
+  end-on as dotted circles: theirs, of their width, around the ring; yours,
+  of your width, around the crosshair. Circles apart mean you pass clear
+  moving along their axis; overlapping circles mean you will bump. When your
+  nose leans, your outline stretches into a stadium toward where the bottom
+  of your stack projects (stack length times the sine of the lean). The
+  outlines are clipped at the rim and never change the step. Once you have
+  overshot, so their port is behind the plane through yours, the ring
+  becomes `◌` at any scale, the cross is hidden, and the title's range reads
+  negative (`port -4.12 m`); the hulls stay. The PROXIMITY chip's `port:` row
+  stays unsigned.
 - **The magnet.** The tick the gate holds, a five-second pull starts. It moves
   the vessel you are flying (the active one) the last half metre onto the
   port axis and turns its nose square; warp drops to 1×, and your RCS pulses

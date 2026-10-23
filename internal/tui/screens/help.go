@@ -181,7 +181,7 @@ var helpSections = []helpSection{
 		{"ports", "on the nose of crewed modules, tugs, keepers, relays, stations, Probe Sat; not launchers, bare stages, comsats"},
 		{"stack port", "a lone vessel's port is its top stage's; a docked pair or loaded carrier has none free until the partner leaves"},
 		{"the gate", "ports within 0.5 m, under 0.1 m/s, misaligned under 4°, all at once; port line and Centerline ring go solid green"},
-		{"centerline", "top-right scope: crosshair = your port, ring = theirs (cross inside = under 4°); width steps 2 to 64 m"},
+		{"centerline", "top-right scope: crosshair = your port, ring = theirs, hull circles apart = clear; ◌ = theirs behind; steps 2-64 m"},
 		{"chip rows", "misalign: angle between the axes; lateral: their port across your face (↑ ↓ ◂ ▸); hold: the attitude you hold"},
 		{"magnet", "a five-second pull closes the last half metre once the gate holds; warp 1×, keys ignored; leaving the gate ends it"},
 		{"bump", "hulls touching outside the gate bounce apart; re-approach under 0.10 m/s; warp capped at 10× within 50 m of a hull"},

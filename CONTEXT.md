@@ -650,7 +650,8 @@ multiplier. Amends the original ADR 0021 rule that reset manual zoom at
 every Framing Event. **Proximity View** keeps a parallel set of slots
 keyed by Target rather than Focus (ADR 0043) — its camera is pinned to
 the Target, and separate slots are what let the jump out and back restore
-the map's own multiplier untouched.
+the map's own multiplier untouched. The Proximity slot zooms the side
+picture only; the **Centerline scope** has no zoom.
 
 **Proximity View** (ADR 0043):
 The target-relative close-range ViewMode: the frame is pinned to the
@@ -665,40 +666,80 @@ stop on the [[#view--projection|ViewMode]] `v` cycle at all (issue #348
 §4): that cycle walks the six map projections only, so an unavailable
 Target simply means the toggle key refuses rather than the cycle
 skipping a slot. It is a ViewMode, not a screen: chips, navball and
-every flight key behave exactly as they do on the map, and it keeps its
-own Zoom Memory slot (keyed by Target, not Focus) so the jump out and
+every flight key behave exactly as they do on the map, and at Design Size
+the **Centerline scope** sits in its top-right corner whenever the pair has
+a port; it keeps its own Zoom Memory slot (the side picture's; the scope
+ranges itself; keyed by Target, not Focus) so the jump out and
 back leaves the map's zoom and pan untouched. The launch/surface chase-cam
 (`V`) is the same shape — its own toggling jump key, altitude-derived
 entry scale, also outside the `v` cycle — and the two can stack (jumping
 to Proximity from inside the chase-cam and back).
 _Avoid_: Docking view, RPO screen.
 
-**Centerline view** (ADR 0055):
-The right half of the **Proximity View** at Design Size and above: the
-picture out of your own **Docking Port** along your nose, in the port
-face's frame (up = the face's up, right = its right, the same basis the
-`lateral:` row and the PORT-frame pulses read). Your port is a fixed
-**crosshair** near the middle of the half; the Target's port is a **ring**
-of the port gate's radius (0.5 m at the half's scale) drawn where it is
-across your face, a `○` glyph under 3 cells across, dashed until the
-**Docking Gate** holds and solid after; a **Standoff cross** inside the
-ring slides off its centre by the alignment lean. The half fits on entry
-to twice the lateral miss (2 m across at least), then the **Camera
-Contract** holds; `+` / `-` zoom it with the side picture by one factor
-(one Zoom Memory multiplier for the pair), and the side picture's scale bar
-is the only one. Below Design Size it is the first thing Compact Form
-drops; the side picture keeps its dotted **corridor**, 50 m out along the
-Target's port axis. Named for the Shuttle's ODS centerline camera.
-_Avoid_: Port view (the surface `V` view's future sibling, not this),
-Docking camera, DPAI.
+**Centerline scope** (ADR 0055, amended 2026-10-23; was **Centerline view**):
+The framed panel in the top-right corner of the **Proximity View** at
+Design Size and above (34 x 17, the slot NAVIGATION and TARGET fill on the
+map, ending where the navball begins; it grows with height like the navball):
+a round disc looking out of your own **Docking Port** along your nose, in
+the port face's frame (up = the face's up, right = its right, the same basis
+the `lateral:` row and the PORT-frame pulses read). Your port is a dotted
+crosshair across the whole disc; the Target's port is a **ring** of the port
+gate's radius (0.5 m) drawn where it is across your face, a `○` glyph under
+3 cells across, dashed until the **Docking Gate** holds and solid after; a
+**Standoff cross** inside the ring slides off its centre by the alignment
+lean. Both hulls are drawn end-on as **Hull outlines**. The disc ranges
+itself in **Scope steps** (2, 4, 8, 16, 32, 64 m across) and prints the step
+and the port range on its title row, `CENTERLINE  4 m      port 3.33 m`;
+`+` / `-` zoom the side picture only. While the Target's port is behind the
+plane through your own port the ring is the **Reverse glyph** `◌`, the cross
+is hidden and the title's port range reads negative. Shown whenever the pair
+has a port, in every nav mode; below Design Size it is the first thing
+Compact Form drops; the side picture keeps its dotted **corridor**, 50 m out
+along the Target's port axis. Named for the Shuttle's ODS centerline camera;
+the reticle is the COAS's, the rim ticks the ODS monitor's.
+_Avoid_: Centerline view (the right-half form, v0.57 to v0.59), Port view
+(the surface `V` view's future sibling), Docking camera, DPAI, Radar.
 
 **Standoff cross**:
-The small `+` inside the **Centerline view**'s ring that shows which way
+The small `+` inside the **Centerline scope**'s ring that shows which way
 your nose leans off parallel to the Target's port axis, displaced from the
 ring's centre by the lean (up / right of the face, the **Misalign** pair),
 reaching the ring's edge exactly at the 4° **Docking Gate** term. Centred
 = straight. The Apollo docking target's standoff cross, read the same way.
+Hidden while the ring is the **Reverse glyph**; drawn only when the ring is 5
+cells across or more (the 2 m and 4 m steps).
 _Avoid_: Tick, Lean mark, Alignment vector.
+
+**Hull outline** (ADR 0055 A5):
+The dotted circle the **Centerline scope** draws for each hull end-on: the
+Target's, of its width around its port ring (always a true circle, since its
+axis is the scope's view axis); yours, of your width around the crosshair,
+stretched toward where your stack bottom projects when your nose leans (a
+stadium, by stack length x sin of the lean). Circles apart = you pass clear
+of the other body translating along the Target's axis; overlapping = you
+bump. Read from the same cylinders as the **Bump** and the `range:` row
+(`PortGeometry.WidthM` / `NoseM`); a friend's vessel's from its reported
+`width_m`. Clipped at the disc's rim; never filled; never drives the **Scope
+step**. Not a cockpit term: the game's bump cylinder, drawn.
+_Avoid_: Silhouette (the side picture's sprite), Keep-out ring, Footprint.
+
+**Scope step** (ADR 0055 A4):
+The **Centerline scope**'s width in metres, one of 2, 4, 8, 16, 32, 64,
+printed on its title row. The disc steps out when the Target's port ring
+would leave it (its far edge past 95% of the radius) and in when it would
+fit the next step down with room (under 45%); on entry it starts at the
+smallest step that holds the ring. Beyond 64 m the `○` sits on the rim in
+the port's direction. A radar scope's range scale; nothing to press.
+_Avoid_: Zoom (that is the side picture's, ADR 0042), Range (the `range:`
+row), Fit (the **Framing Event**'s word).
+
+**Reverse glyph** (ADR 0055 A6):
+`◌`, the **Centerline scope**'s ring while the Target's port is behind the
+plane through your own port (you have overshot); the **Standoff cross** is
+hidden with it and the scope's title reads the port range negative (`port
+-4.12 m`). The navball's anti-target glyph, reused for the same meaning. The
+PROXIMITY box's `port:` row stays unsigned.
+_Avoid_: Behind marker, Overshoot flag.
 
 **Camera Contract**:
 The rule that camera fit (center + zoom) is solely the player's: the sim
