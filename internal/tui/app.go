@@ -536,7 +536,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// only has to specify Δv. Zero-thrust craft fall back to the
 			// legacy impulsive path (Duration = 0) — the API still
 			// supports that branch, just no longer through the form.
-			dur := a.world.ActiveCraft().BurnTimeForDV(m.DV)
+			dur := a.world.ActiveCraft().BurnTimeForDVAt(m.DV, m.Throttle)
 			// v0.6.4 click-to-edit: replace the original node before
 			// planting so click → edit → Enter reads as "modify in
 			// place" rather than "duplicate." Removal must come first

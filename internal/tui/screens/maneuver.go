@@ -863,7 +863,7 @@ func (m *Maneuver) projection(w *sim.World, c *spacecraft.Spacecraft, dv float64
 	// Draft: apply the form's (mode, dv, fire-at) triple. When fire-at is
 	// event-relative the world propagates the craft to the event first;
 	// it falls back to the current state if the event is unreachable.
-	dur := c.BurnTimeForDV(dv)
+	dur := c.BurnTimeForDVAt(dv, m.parsedThrottle())
 	mode := spacecraft.AllBurnModes[m.modeIdx]
 	event := sim.AllTriggerEvents[m.fireAtIdx]
 	// Same gate as the resolver (wave 1 known issue 6): an apsis event on
@@ -939,7 +939,7 @@ func (m *Maneuver) renderForm(w *sim.World, dv float64, proj plannerProjection, 
 	budget := c.RemainingDeltaV()
 	// v0.6.5: duration is derived from Δv at render time (and again at
 	// commit), so the form preview matches what the App will plant.
-	dur := c.BurnTimeForDV(dv)
+	dur := c.BurnTimeForDVAt(dv, m.parsedThrottle())
 
 	warn := ""
 	if dv > budget {
