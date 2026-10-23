@@ -31,8 +31,8 @@ func TestHelpManualFlightNamesThrottleTarget(t *testing.T) {
 			t.Errorf("MANUAL FLIGHT c row %q lacks %q", row, want)
 		}
 	}
-	if !strings.Contains(helpRowText(t, "MANUAL FLIGHT", "shift+c"), "circularize") {
-		t.Error("MANUAL FLIGHT lacks the shift+c circularize sentence (ADR conflict 1)")
+	if !strings.Contains(helpRowText(t, "MANUAL FLIGHT", "C"), "circularize") {
+		t.Error("MANUAL FLIGHT lacks the C circularize sentence (ADR conflict 1)")
 	}
 	for _, k := range []string{"z / x", "Z / X", "alt+z / alt+x"} {
 		if !strings.Contains(helpRowText(t, "MANUAL FLIGHT", k), "selected throttle") {

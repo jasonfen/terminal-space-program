@@ -196,7 +196,7 @@ copilot's brake. See [multiplayer.md](multiplayer.md#rendezvous-warp).
 
 | Key | Action |
 |---|---|
-| `c` | Throttle target: all / core / boosters. The throttle keys below move the selected throttle; the flash names it (`throttle: core`). A vessel with one throttle answers `one throttle` and nothing changes. The target resets to all when the boosters drop. `C` (shift+c) is not this: it plants a circularize burn that fires by itself |
+| `c` | Throttle target: all / core / boosters. The throttle keys below move the selected throttle; the flash names it (`throttle: core`). A vessel with one throttle answers `one throttle` and nothing changes. The target resets to all when the boosters drop. `C` is not this: it plants a circularize burn that fires by itself |
 | `z` / `x` | Selected throttle to full / cut to zero |
 | `Z` / `X` | Selected throttle up / down 10% |
 | `alt+z` / `alt+x` | Selected throttle up / down 1% (the fine step, like the alt+arrow nose trims; `alt+Z` / `alt+X` work too) |
