@@ -817,7 +817,7 @@ func (s *SessionScreen) Render(w *sim.World, width, height int) string {
 			tags = append(tags, "away") // ADR 0036 S5: the glyph alone is too subtle to carry it
 		}
 		if p.DockedGuest {
-			tags = append(tags, "docked") // v0.28 S5: live — riding another player's stack
+			tags = append(tags, "docked") // v0.28 S5: live — docked to another player's stack
 		}
 		// Rendezvous Warp arm markers (v0.29 S2): who's waiting on whom.
 		if p.WantsRendezvous {

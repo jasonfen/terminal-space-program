@@ -59,7 +59,7 @@ func TestDockGuestRenderLooksRight(t *testing.T) {
 			// the ADR) already carries the rider's own identity ("riding
 			// in bob's stack"), so the literal word "VESSEL" is no longer
 			// expected here.
-			for _, want := range []string{"DOCKED", "riding in bob's stack", "bob's stack"} {
+			for _, want := range []string{"DOCKED", "docked to bob's Skylab", "bob's Skylab"} {
 				if !strings.Contains(out, want) {
 					t.Errorf("%s render missing %q", tc.name, want)
 				}
@@ -147,7 +147,7 @@ func TestDockGuestRenderIncludesDockedBlock(t *testing.T) {
 	// fine, since Graceful Shrink never drops it whole; what must never
 	// happen again is the #328 silent clip. Accept either wording as
 	// long as both exit keys are legible somewhere in the frame.
-	for _, want := range []string{"DOCKED", "riding in bob's stack"} {
+	for _, want := range []string{"DOCKED", "docked to bob's Skylab"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("render missing %q — the rider's only route to [J]/[U] was clipped off-canvas", want)
 		}

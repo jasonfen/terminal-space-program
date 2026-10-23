@@ -276,9 +276,9 @@ refuse in one phrase.
 | `Y` | Deploy the top carried payload as its own vessel (satellite, probe, station) while you keep flying the carrier. Asks first (there is no undo). Press again for the next one |
 | `D` | Apollo transposition: flip the Service Module to the front to do the flying, leaving the Lunar Module as a nose payload (then `U` to release it). Asks first (there is no undo) |
 | `U` | Undock a docked vessel into its parts and switch you to a released piece. Each piece comes back where its hull was drawn, port to port a row or two apart (1.5 to 3 m, by how tall the two stages at the seam are), and parts along the seam at 0.15 m/s. On a cross-player stack it releases your partner's vessel through the dock ledger, connected or not (an absent partner's vessel is parked as a **Parcel** and delivered, safed, when they next connect) |
-| `u` | Hand over cargo. While docked to a stack that has a **Cargo Hold**, every cargo load your vessel carries moves into the hold, at once, one way (nothing comes back). The flash states the mass (`3.307 t cargo handed over`), or the state that stopped it: `not docked`, `no hold aboard`, `no cargo aboard`. Lowercase `u`; `U` is undock. Only the vessel's owner hands over its cargo: riding in a friend's stack, your `u` is asked of their seat and the answer shows on your session chips |
+| `u` | Hand over cargo. While docked to a stack that has a **Cargo Hold**, every cargo load your vessel carries moves into the hold, at once, one way (nothing comes back). The flash states the mass (`3.307 t cargo handed over`), or the state that stopped it: `not docked`, `no hold aboard`, `no cargo aboard`. Lowercase `u`; `U` is undock. Only the vessel's owner hands over its cargo: docked to a friend's vessel, your `u` is asked of their seat and the answer shows on your session chips |
 | `alt+u` | Re-arm docking (Option+u on a Mac with Option as Meta, see MANUAL FLIGHT). After an undock a pair is held apart until you clear 100 m or ten minutes pass, even if you fly back into the docking gate. `alt+u` clears that hold now: with a vessel targeted, just that pair; otherwise every hold on your active vessel. A pair already holding the gate starts the magnet on the next tick |
-| `J` | Transfer control of a cross-player docked stack to the guest riding in it. Multiplayer only; see [multiplayer.md](multiplayer.md#docking-across-players) |
+| `J` | Transfer control of a cross-player docked stack to the guest docked to it. Multiplayer only; see [multiplayer.md](multiplayer.md#docking-across-players) |
 | `E` | End the flight: remove a crashed vessel (asks first) |
 | `F5` / `F9` | Quicksave / quickload (`F9` asks first: a card, `Enter` picks the highlighted row) to a fixed quick slot, separate from named saves. See [Saves](#saves-esc--save-game--load-game) |
 
@@ -383,7 +383,7 @@ docking, chat) are in [multiplayer.md](multiplayer.md). The keys:
 |---|---|---|
 | `O` | flight view | Open the **session roster**: one row per player with online state, last-known system, vessel count, and time offset vs you |
 | `~` | flight view | **Chat**. `enter` broadcasts, `esc` bails; a leading `@handle` sends a private line, `tab` completes the handle, and a typo refuses to send. Messages show as chips for ~30 s; nothing is stored |
-| `J` | flight view | Transfer control of a docked stack to the guest riding in it |
+| `J` | flight view | Transfer control of a docked stack to the guest docked to it |
 | `t` | roster | Target a player's vessel (expands to a picker when they have several in your system; `esc` backs out) |
 | `v` | roster | Spectate: fit the camera to their ghost orbit and follow it. `f` returns to your own vessel |
 | `s` | roster | Sync-warp forward to a player's time (forward only; a player behind you syncs to you) |
