@@ -81,6 +81,9 @@ type ProximityState struct {
 	// face (PortFaceBasis): positive up / right means push that way to
 	// centre on it, negative down / left.
 	PortRangeM float64
+	// PortAxialM is delta . a_own (ADR 0055 A6): how far their port is ahead
+	// of the plane through yours along your axis. Negative once you overshoot.
+	PortAxialM float64
 	AlignDeg   float64
 	// MisalignUpDeg / MisalignRightDeg (ADR 0055 decision 3) split the lean of
 	// your axis off parallel-to-theirs across the target's port face: the
@@ -210,6 +213,7 @@ func (w *World) resolveProximityPorts(st *ProximityState, own *spacecraft.Spacec
 	pb := st.Target.PortPoint(rT, 0)
 	delta := pb.Sub(pa)
 	st.PortRangeM = delta.Norm()
+	st.PortAxialM = delta.Dot(st.Own.Axis.Unit())
 	st.AlignDeg = PortAlignmentDeg(st.Own.Axis, st.Target.Axis)
 	if up, right, ok := PortFaceBasis(st.Target.Axis, st.Frame); ok {
 		st.OffAxisUpM = delta.Dot(up)

@@ -297,3 +297,23 @@ func TestProximityStateGhostPortUnknown(t *testing.T) {
 		t.Errorf("ghost: unknown=%v HasPort=%v note=%q", st.PortUnknown, st.HasPort, st.PortNote)
 	}
 }
+
+// ADR 0055 A6: PortAxialM is their port ahead of the plane through yours,
+// along your axis. dockPair's X offset is your port out along the target's
+// axis, and your axis points back along it, so X > 0 is "ahead".
+func TestProximityStatePortAxialSign(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		x    float64
+		want float64
+	}{{"3 m ahead", 3, 3}, {"2 m past", -2, -2}} {
+		w := dockPair(t, []string{"rcs-tug"}, []string{"nudge-tug"}, orbital.Vec3{X: c.x, Y: 0.6}, orbital.Vec3{})
+		st, ok := w.ProximityState()
+		if !ok || !st.HasPort {
+			t.Fatalf("%s: no port scene", c.name)
+		}
+		if !near(st.PortAxialM, c.want, 1e-6) {
+			t.Errorf("%s: PortAxialM = %g, want %g", c.name, st.PortAxialM, c.want)
+		}
+	}
+}
