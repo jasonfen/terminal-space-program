@@ -644,10 +644,11 @@ for a tank, `+` / `-` for the count, done.
 | `x` | Remove the component group under the cursor, or the whole stage when on a stage header or the stage is empty / a catalog part |
 | `+` / `-` | Count: raise / lower the count of the component group under the cursor (`×N`) |
 | `[` / `]` | Move the cursor's stage down / up in the stack |
-| `y` | Copy stage: duplicate the stage under the cursor, marks included |
+| `y` | Copy stage: duplicate the stage under the cursor, marks included (not the booster mark, there is one booster group per vessel) |
 | `Enter` | **Open part into pieces** (crack open): the catalog part under the cursor (a stage header) becomes editable components, no undo key, so you can start from an S-IVB or a Falcon booster and tweak it. A flash shows the Δv change; parts with no decomposition stay whole |
 | `d` | **Payload from here up** (dock seam): toggle a seam below the stage. Everything above the seam becomes a nose payload released with `Y` (deploy, one at a time) or `U` (undock all) instead of staging; mark several seams for several payloads |
-| `c` | **Drops with stage below** (fuse): toggle a fused decouple. The stage drops together with the group below it on one staging press |
+| `c` | **Drops with stage below** (fuse): toggle a fused decouple. The stage drops together with the group below it on one staging press. Refused on a booster stage (`boosters drop alone`) |
+| `b` | **Lights with stage above**: toggle the booster mark. This stage lights together with the stage above it on `b` in flight and is the vessel's boosters; the header reads `· lights with S2`, and Σ Δv and TWR follow the pair. Refused with `nothing above` on the top stage, `one booster group` under another mark, and `boosters drop alone` on a stage in a `c` group. The mark saves with the design and with a subassembly |
 | `t` | **Δv goal**: set a session **Σ Δv target**. The stats strip reads `current / target (delta)`, and with a tank row selected a hint shows how many of that tank close the gap (`+2 → Σ ≈ 9280 ✓`) or that it's unreachable |
 | `s` | Name and save the design |
 | `S` | Save from here up: the cursor's stage and everything above it, named, as a **subassembly**. The card shows the name, the role (`←` / `→` flips payload or stage; payload when the bottom stage was marked `d`) and the stages saved with their marks. It joins the palette's `· subassembly ·` section; `Comsat`, `LM` and `CSM+LM` ship there |

@@ -143,6 +143,7 @@ type vabStage struct {
 	catalogPartID string
 	dockSeamBelow bool // a dock seam here → this stage starts a nose-payload group (Undock release)
 	decoupleFused bool // this stage decouples together with the group below (one staging press)
+	litWithAbove  bool // this stage lights together with the stage above (ADR 0058: it is the vessel's boosters)
 	// subassemblyID is the subassembly this stage came in with (ADR 0056
 	// decision 3), "" for a stage added by hand. It names what a released
 	// payload is called and lets the inspector say where a stage came from.
@@ -380,13 +381,14 @@ func designStages(d spacecraft.Design, sub string) []vabStage {
 	var out []vabStage
 	for _, ref := range d.Loadout.Parts {
 		if p, ok := byID[ref.PartID]; ok {
-			out = append(out, vabStage{components: append([]string(nil), p.Components...), subassemblyID: sub})
+			out = append(out, vabStage{components: append([]string(nil), p.Components...), subassemblyID: sub, litWithAbove: ref.LitWithAbove})
 		} else {
-			out = append(out, vabStage{catalogPartID: ref.PartID, subassemblyID: sub})
+			out = append(out, vabStage{catalogPartID: ref.PartID, subassemblyID: sub, litWithAbove: ref.LitWithAbove})
 		}
 	}
 	applyNosePlan(out, d.Loadout.NosePayloadPlan)
 	applyFusePlan(out, d.Loadout.DecouplePlan)
+	dropStrayMarks(out)
 	return out
 }
 
@@ -416,6 +418,7 @@ func (v *VAB) insertBlockAbove(sa spacecraft.Subassembly) {
 	ns = append(ns, block...)
 	ns = append(ns, v.stages[at:]...)
 	v.stages = ns
+	dropStrayMarks(v.stages)
 	v.focusStageInStack(at + len(block) - 1)
 	v.flash = ""
 }
@@ -511,8 +514,54 @@ func (v *VAB) toggleDockSeam() {
 // toggleDecoupleFuse flips whether the current stage decouples together with
 // the group below it (one staging press releases both).
 func (v *VAB) toggleDecoupleFuse() {
-	if v.stageIdx >= 1 && v.stageIdx < len(v.stages) {
-		v.stages[v.stageIdx].decoupleFused = !v.stages[v.stageIdx].decoupleFused
+	i := v.stageIdx
+	if i < 1 || i >= len(v.stages) {
+		return
+	}
+	// A marked pair can't sit in a decouple group (ADR 0058 decision 5): the
+	// stage itself, or the one below it, carries the mark.
+	if !v.stages[i].decoupleFused && (v.stages[i].litWithAbove || v.stages[i-1].litWithAbove) {
+		v.flash = "boosters drop alone"
+		return
+	}
+	v.stages[i].decoupleFused = !v.stages[i].decoupleFused
+}
+
+// dropStrayMarks clears marks that cannot stand after an edit (a stage moved
+// to the top, a removal that put two marks side by side, an opened file):
+// the same rule as the catalog loader. Silent: no terse text fits.
+func dropStrayMarks(stages []vabStage) {
+	marks := make([]bool, len(stages))
+	for i, s := range stages {
+		marks[i] = s.litWithAbove
+	}
+	for _, i := range spacecraft.StrayLitMarks(marks) {
+		stages[i].litWithAbove = false
+	}
+}
+
+// toggleLitWithAbove flips whether the current stage lights together with the
+// stage above it, making it the vessel's boosters (ADR 0058 decision 9).
+// Clearing is always allowed; setting is refused on the top stage, under an
+// existing mark, and on a stage in a decouple group.
+func (v *VAB) toggleLitWithAbove() {
+	i := v.stageIdx
+	if i < 0 || i >= len(v.stages) {
+		return
+	}
+	if v.stages[i].litWithAbove {
+		v.stages[i].litWithAbove = false
+		return
+	}
+	switch {
+	case i == len(v.stages)-1:
+		v.flash = "nothing above"
+	case i >= 1 && v.stages[i-1].litWithAbove:
+		v.flash = "one booster group"
+	case v.stages[i].decoupleFused || v.stages[i+1].decoupleFused:
+		v.flash = "boosters drop alone"
+	default:
+		v.stages[i].litWithAbove = true
 	}
 }
 
@@ -628,13 +677,13 @@ func applyFusePlan(stages []vabStage, plan []int) {
 // atomic catalog block via BuildStage, or a composition via ComposeStage
 // (RCS derived from dry mass, matching the spawn path).
 func (v *VAB) resolveStage(vs vabStage) spacecraft.Stage {
+	var st spacecraft.Stage
 	if vs.isCatalog() {
-		if st, ok := spacecraft.BuildStage(vs.catalogPartID); ok {
-			return st
-		}
-		return spacecraft.Stage{}
+		st, _ = spacecraft.BuildStage(vs.catalogPartID)
+	} else {
+		st, _ = spacecraft.ComposeStage(vs.components, v.comps)
 	}
-	st, _ := spacecraft.ComposeStage(vs.components, v.comps)
+	st.LitWithAbove = vs.litWithAbove
 	return st
 }
 
@@ -729,7 +778,7 @@ func (v *VAB) toFragment(from, to int, name string) spacecraft.Design {
 	refs := make([]spacecraft.PartRef, 0, len(run))
 	for i, vs := range run {
 		if vs.isCatalog() {
-			refs = append(refs, spacecraft.PartRef{PartID: vs.catalogPartID})
+			refs = append(refs, spacecraft.PartRef{PartID: vs.catalogPartID, LitWithAbove: vs.litWithAbove})
 			continue
 		}
 		pid := fmt.Sprintf("_%s_s%d", id, i+1)
@@ -740,7 +789,7 @@ func (v *VAB) toFragment(from, to int, name string) spacecraft.Design {
 			Color:      "#FFD93D",
 			Components: append([]string(nil), vs.components...),
 		})
-		refs = append(refs, spacecraft.PartRef{PartID: pid})
+		refs = append(refs, spacecraft.PartRef{PartID: pid, LitWithAbove: vs.litWithAbove})
 	}
 	return spacecraft.Design{
 		Loadout: spacecraft.LoadoutDef{
@@ -798,13 +847,14 @@ func (v *VAB) loadDesign(d spacecraft.Design) {
 		// component count — an empty composed stage (0 components) is still a
 		// composed stage and must not round-trip into a bogus catalog ref.
 		if p, ok := byID[ref.PartID]; ok {
-			v.stages = append(v.stages, vabStage{components: append([]string(nil), p.Components...)})
+			v.stages = append(v.stages, vabStage{components: append([]string(nil), p.Components...), litWithAbove: ref.LitWithAbove})
 		} else {
-			v.stages = append(v.stages, vabStage{catalogPartID: ref.PartID})
+			v.stages = append(v.stages, vabStage{catalogPartID: ref.PartID, litWithAbove: ref.LitWithAbove})
 		}
 	}
 	v.applyNosePayloadPlan(d.Loadout.NosePayloadPlan)
 	v.applyDecouplePlan(d.Loadout.DecouplePlan)
+	dropStrayMarks(v.stages)
 	v.stageIdx = 0
 	v.focus = focusStack // a loaded vehicle becomes the active column
 	v.focusStageInStack(v.stageIdx)
@@ -1048,6 +1098,7 @@ func (v *VAB) removeUnderCursor() {
 			v.removeOneComponent(r.stageIdx, groups[r.group].compID)
 		}
 	}
+	dropStrayMarks(v.stages)
 	v.clampCursor()
 	v.syncStageIdx()
 	v.flash = ""
@@ -1233,6 +1284,7 @@ func (v *VAB) crackOpen() {
 		components:    append([]string(nil), m.VabSeed...),
 		dockSeamBelow: vs.dockSeamBelow,
 		decoupleFused: vs.decoupleFused,
+		litWithAbove:  vs.litWithAbove,
 		subassemblyID: vs.subassemblyID,
 	}
 	v.stages[r.stageIdx] = cracked
@@ -1372,6 +1424,7 @@ func (v *VAB) reorderStage(dir int) {
 		return
 	}
 	v.stages[i], v.stages[j] = v.stages[j], v.stages[i]
+	dropStrayMarks(v.stages)
 	v.focus = focusStack
 	v.focusStageInStack(j)
 	v.flash = ""

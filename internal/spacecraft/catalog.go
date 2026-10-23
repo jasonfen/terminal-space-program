@@ -347,20 +347,36 @@ func loadMergedCatalog() (map[string]Component, map[string]Part, []LoadoutDef, [
 	return comps, parts, loadouts, warnings, nil
 }
 
+// StrayLitMarks returns the indexes (bottom-first) of marks that cannot stand:
+// a mark on the top stage has nothing above to light with, and a mark directly
+// above another is a second booster group (ADR 0058: one pair per vessel).
+// It reads the marks as given, so a run of three marks drops the upper two.
+func StrayLitMarks(marks []bool) []int {
+	var out []int
+	for i, m := range marks {
+		if m && (i == len(marks)-1 || (i > 0 && marks[i-1])) {
+			out = append(out, i)
+		}
+	}
+	return out
+}
+
 // dropDoubleMarks enforces ADR 0058's one booster group per vessel: a part
-// whose lower neighbour is already marked LitWithAbove loses its mark, with
-// a warning naming the loadout (skip-bad, ADR 0026 §3). It copies a
-// loadout's Parts before editing, so the caller's defs are untouched.
+// whose mark is stray (StrayLitMarks) loses it, with a warning naming the
+// loadout (skip-bad, ADR 0026 §3). It copies a loadout's Parts before
+// editing, so the caller's defs are untouched.
 func dropDoubleMarks(defs []LoadoutDef) ([]LoadoutDef, []CatalogWarning) {
 	out := make([]LoadoutDef, len(defs))
 	var warns []CatalogWarning
 	for k, d := range defs {
 		d.Parts = append([]PartRef(nil), d.Parts...)
-		for i := 1; i < len(d.Parts); i++ {
-			if defs[k].Parts[i].LitWithAbove && defs[k].Parts[i-1].LitWithAbove {
-				d.Parts[i].LitWithAbove = false
-				warns = append(warns, CatalogWarning{Path: d.ID, Err: fmt.Errorf("part %d: second lit_with_above mark dropped (one booster group per vessel)", i)})
-			}
+		marks := make([]bool, len(d.Parts))
+		for i, p := range d.Parts {
+			marks[i] = p.LitWithAbove
+		}
+		for _, i := range StrayLitMarks(marks) {
+			d.Parts[i].LitWithAbove = false
+			warns = append(warns, CatalogWarning{Path: d.ID, Err: fmt.Errorf("part %d: lit_with_above mark dropped (needs a stage above, one booster group per vessel)", i)})
 		}
 		out[k] = d
 	}
