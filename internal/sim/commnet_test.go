@@ -785,3 +785,38 @@ func TestBackfilledAntennaCrewedVesselsReachLEONotTheMoon(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0060 decision 6 guard 10 (ADR 0057 decision 2's pattern). Orion's crew
+// module carries the same 100,000 km direct antenna as the Dragon: connected
+// in LEO as a single DIRECT hop (the COMMS box's DIRECT is hops == 1), and
+// still connected, reason none, at the Moon's distance. Only the far case
+// reads the antenna range; the near one rides the home blanket.
+func TestOrionConnectsInLEOAndAtTheMoon(t *testing.T) {
+	w := mustWorld(t)
+	w.Crafts = nil
+	w.ActiveCraftIdx = -1
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Orion", ParentBodyID: "earth", AltitudeM: 500_000})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	w.RecomputeCommGraph()
+	if !w.CommGraph.HasConnection(c.ID) {
+		t.Fatal("Orion at 500 km not connected")
+	}
+	if _, hops, ok := w.ActiveCommPath(); !ok || hops != 1 {
+		t.Errorf("ActiveCommPath hops/connected = %d/%v, want 1/true (DIRECT)", hops, ok)
+	}
+
+	far := spacecraft.NewFromLoadout("Orion")
+	radialAboveStation0(t, w, far, 384_400e3)
+	w.Crafts = []*spacecraft.Spacecraft{far}
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	w.RecomputeCommGraph()
+	if !w.CommGraph.HasConnection(far.ID) {
+		t.Fatalf("Orion at lunar distance not connected (reason %v)", w.CommGraph.Reason(far.ID))
+	}
+	if r := w.CommGraph.Reason(far.ID); r != CommDisconnectNone {
+		t.Errorf("reason at 384,400 km = %v, want none", r)
+	}
+}
