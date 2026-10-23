@@ -2076,6 +2076,10 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 			})
 			w.noteBurnFinished(c) // a planted rendezvous burn that ended short withdraws its plan
 			c.ActiveBurn = nil
+			if c.SolidLit() { // ADR 0058 decision 4: a solid can't be cut; b with one lit does the same
+				writeThrottle(c, ThrottleAll, 0)
+				c.ManualBurn = &ManualBurn{StartTime: w.Clock.SimTime}
+			}
 		} else if c.ActiveStageFuel() <= 0 || !burnReady {
 			// #294 review finding 1: an unresolved target-relative burn is
 			// held exactly like a fuel-stalled one — its EndTime is pushed
