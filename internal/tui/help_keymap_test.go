@@ -192,6 +192,28 @@ func TestHelpGlossaryNamesCargoAndHoldRow(t *testing.T) {
 	}
 }
 
+// TestHelpGlossaryNamesBoosterReadouts (ADR 0058 decision 14, guard [13]):
+// ENGINE's boosters / core badge and row label are new words on the HUD, so
+// F1's READOUT GLOSSARY and docs/controls.md each carry the row, and the
+// STAGES pips row says a booster group is lit together.
+func TestHelpGlossaryNamesBoosterReadouts(t *testing.T) {
+	tokens := screens.HelpKeyTokens()
+	for _, code := range []string{"boosters", "core"} {
+		if !tokens[code] {
+			t.Errorf("F1 glossary missing a line naming %q (ADR 0058 decision 14)", code)
+		}
+	}
+	doc, err := os.ReadFile("../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"| `boosters / core` |", "DRY", "booster group"} {
+		if !strings.Contains(string(doc), want) {
+			t.Errorf("docs/controls.md glossary lacks %q", want)
+		}
+	}
+}
+
 // TestControlsDocNamesThrottleTarget (ADR 0058 decision 14 / guard 15.[13]):
 // docs/controls.md carries the `c` throttle-target row and the "selected
 // throttle" wording on the throttle keys, mirroring F1.

@@ -679,6 +679,26 @@ func (s *Spacecraft) LiquidCut() bool {
 	return s.EffectiveThrottle() == 0 && (!s.HasLiquidBooster() || s.BoosterThrottleEff() == 0)
 }
 
+// EffectiveThrottleTarget is the target the throttle keys act on: the stored
+// one while a liquid booster exists to single out, else All.
+func (s *Spacecraft) EffectiveThrottleTarget() ThrottleTarget {
+	if s.HasLiquidBooster() {
+		return s.ThrottleTarget
+	}
+	return ThrottleAll
+}
+
+// StageTimeToDry is the seconds until Stages[i]'s tank empties burning at
+// throttle th (flow T·th/(Isp·g0)); ok is false when it is not burning.
+func (s *Spacecraft) StageTimeToDry(i int, th float64) (secs float64, ok bool) {
+	st := s.Stages[i]
+	flow := st.Thrust * th / (st.Isp * g0)
+	if st.Isp <= 0 || flow <= 0 {
+		return 0, false
+	}
+	return st.FuelMass / flow, true
+}
+
 // ThrottleTarget picks which lit-set throttle a throttle command writes
 // (ADR 0058 decision 3). The zero value is All.
 type ThrottleTarget int

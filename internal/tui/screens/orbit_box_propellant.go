@@ -3,6 +3,7 @@ package screens
 import (
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -37,8 +38,10 @@ func (v *OrbitView) buildPropellantBox(w *sim.World) []string {
 	// The lit stage's tank as a percentage only; its mass was a second
 	// reading of the same thing, and mass: beside it already says how heavy
 	// the vessel is (Jason 2026-10-10: "just keep %").
-	if pct, _, ok := activeStageFuel(c); ok {
-		fuelLabel = fmt.Sprintf("%.0f%%", pct)
+	// With a booster group the lit set reads bottom-first: "60% · 91%"
+	// (ADR 0058 decision 7); the STAGES pips say which is which.
+	if label, ok := litSetFuelLabel(c); ok {
+		fuelLabel = label
 	}
 	monopropLabel, rcsLabel := "—", "—"
 	if c.MonopropCapacity > 0 {
@@ -57,6 +60,19 @@ func (v *OrbitView) buildPropellantBox(w *sim.World) []string {
 		chipRow2(propellantCols, "monoprop:", monopropLabel, "rcs:", rcsLabel),
 		chipRow2(propellantCols, "cargo:", cargoLabel, "hold:", holdLabel),
 	}
+}
+
+// litSetFuelLabel is activeStageFuel over the lit set: one percentage per
+// tank with capacity, bottom-first, joined by " · ". A vessel with one lit
+// stage reads exactly as before.
+func litSetFuelLabel(c *spacecraft.Spacecraft) (string, bool) {
+	var parts []string
+	for _, i := range spacecraft.LitStages(c.Stages) {
+		if st := c.Stages[i]; st.FuelCapacity > 0 {
+			parts = append(parts, fmt.Sprintf("%.0f%%", 100*st.FuelMass/st.FuelCapacity))
+		}
+	}
+	return strings.Join(parts, " · "), len(parts) > 0
 }
 
 // cargoHoldLabels renders PROPELLANT's cargo: and hold: cells (ADR 0057
