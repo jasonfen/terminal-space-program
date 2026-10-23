@@ -325,7 +325,10 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.app.Toast(err.Error())
 			}
 		case screens.SessionCmdRevoke:
-			_ = m.srv.store.RevokeInvite(admin.Cmd.Code)
+			if err := m.srv.store.RevokeInvite(admin.Cmd.Code); err != nil {
+				log.Printf("revoke invite: %v", err)
+				m.app.Toast("revoke failed: " + err.Error())
+			}
 		case screens.SessionCmdDisconnect:
 			m.disconnectPlayer(admin.Cmd.Fingerprint)
 		case screens.SessionCmdKick:
@@ -342,10 +345,14 @@ func (m reportingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.app.Toast("only the host can promote or demote admins")
 				return m, nil
 			}
+			verb, set := "demote", m.srv.store.DemoteAdmin
 			if admin.Cmd.Kind == screens.SessionCmdPromote {
-				_ = m.srv.store.PromoteAdmin(admin.Cmd.Fingerprint)
-			} else {
-				_ = m.srv.store.DemoteAdmin(admin.Cmd.Fingerprint)
+				verb, set = "promote", m.srv.store.PromoteAdmin
+			}
+			if err := set(admin.Cmd.Fingerprint); err != nil {
+				who := m.srv.nameFor(admin.Cmd.Fingerprint)
+				log.Printf("%s %s: %v", verb, who, err)
+				m.app.Toast(verb + " " + who + " failed: " + err.Error())
 			}
 		}
 		m.metaAt = time.Time{} // force refresh — the list is the feedback
@@ -1005,10 +1012,14 @@ func (m reportingModel) restartServer() (tea.Model, tea.Cmd) {
 	// all of it, on a box with the autosave interval set to off.
 	// Synchronous, on the update goroutine, because it reads the live
 	// world; the drain goroutine below must not touch it.
-	m.app.PersistNow()
+	restartNote := "progress saved"
+	if err := m.app.PersistNow(); err != nil {
+		log.Printf("restart: host world did not save before the drain: %v", err)
+		restartNote = "host progress not saved"
+	}
 	// Announce now so the next tick carries the warning to every screen.
 	srv.presence.event(sim.SessionEventServerRestart, actor, "", "")
-	m.app.Toast("restarting server — draining sessions, progress saved")
+	m.app.Toast("restarting server — draining sessions, " + restartNote)
 	go func() {
 		<-srv.after(restartAnnounceGrace)
 		srv.drainAndClose(&dropRecord{kind: dropRestart})

@@ -4,11 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"path/filepath"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/sessiondir"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -54,22 +56,30 @@ type dropRecord struct {
 
 const linePrefix = "terminal-space-program: "
 
-// line is the one line the dropped friend is left with.
-func (r *dropRecord) line() string {
+// line is the one line the dropped friend is left with. saved is whether the
+// final write landed: when it did not, the line says so instead of claiming it.
+func (r *dropRecord) line(saved bool) string {
 	switch r.kind {
 	case dropDisconnect:
-		return linePrefix + "disconnected by " + r.actor + " — reconnect any time, your progress is saved"
+		return linePrefix + "disconnected by " + r.actor + " — reconnect any time, " + savedClause(saved, "your progress is saved")
 	case dropKick:
 		if r.purge {
 			return linePrefix + "kicked from this session by " + r.actor + " — ask them for a new invite"
 		}
-		return linePrefix + "kicked from this session by " + r.actor + " — ask them for a new invite; your vessels are saved"
+		return linePrefix + "kicked from this session by " + r.actor + " — ask them for a new invite; " + savedClause(saved, "your vessels are saved")
 	case dropStopHosting:
-		return linePrefix + r.actor + " stopped hosting — reconnect when they host again; your progress is saved"
+		return linePrefix + r.actor + " stopped hosting — reconnect when they host again; " + savedClause(saved, "your progress is saved")
 	case dropRestart:
-		return linePrefix + "server restarting — reconnect in a moment; your progress is saved"
+		return linePrefix + "server restarting — reconnect in a moment; " + savedClause(saved, "your progress is saved")
 	}
 	return ""
+}
+
+func savedClause(saved bool, ok string) string {
+	if saved {
+		return ok
+	}
+	return "your latest progress was not saved"
 }
 
 // chipKind is the departure the others see. Stop hosting and restart end
@@ -173,8 +183,15 @@ func (m *reportingModel) kickPlayer(fp string, purge bool) tea.Cmd {
 		return m.purgeKickedPlayer(fp)
 	}
 	target := m.srv.handleOf(fp)
+	// The roster edit goes first: if it fails nobody was kicked, so the
+	// session stays up and the host is told. A row that is already gone
+	// (ErrNotEnrolled) is the state a kick wants, so the drop still follows.
+	if err := m.srv.store.RemovePlayer(fp); err != nil && !errors.Is(err, sessiondir.ErrNotEnrolled) {
+		log.Printf("kick: %s not removed from the roster: %v", target, err)
+		m.app.Toast("kick of " + target + " failed: " + err.Error())
+		return nil
+	}
 	m.srv.dropPlayer(fp, &dropRecord{kind: dropKick, actor: m.actorHandle(), target: target})
-	_ = m.srv.store.RemovePlayer(fp)
 	return nil
 }
 
@@ -215,7 +232,17 @@ func (m *reportingModel) purgeKickedPlayer(fp string) tea.Cmd {
 			}
 		}
 	}
-	_ = s.store.RemovePlayer(fp)
+	if err := s.store.RemovePlayer(fp); err != nil && !errors.Is(err, sessiondir.ErrNotEnrolled) {
+		// Nobody was kicked and nothing is deleted. The session was already
+		// flagged as a purge, which writes no final payload, so turn the flag
+		// into a plain disconnect and let the teardown save their program.
+		log.Printf("kick and delete: %s not removed from the roster: %v", target, err)
+		if live {
+			ls.dropped.Store(&dropRecord{kind: dropDisconnect, actor: m.actorHandle(), target: target})
+		}
+		m.app.Toast("kick of " + target + " failed: " + err.Error())
+		return nil
+	}
 	return func() tea.Msg {
 		if live && ls.done != nil {
 			select {

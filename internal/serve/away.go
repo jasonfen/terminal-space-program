@@ -110,6 +110,15 @@ func (s *Server) handleOf(fp string) string {
 	return ""
 }
 
+// nameFor is handleOf for log lines: the roster handle, or the fingerprint
+// when the row is gone (a kick removes it before the final save).
+func (s *Server) nameFor(fp string) string {
+	if h := s.handleOf(fp); h != "" {
+		return h
+	}
+	return fp
+}
+
 // departureKind names what happened to a session that is ending. One that
 // was away did not leave — nobody came back for it. Calling that "left"
 // blames a player for abandoning a coast they never touched, and the
