@@ -898,7 +898,7 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 			r.returnAtNano = w.Clock.SimTime.UnixNano()
 			// ADR 0038 §6: the docker undocks already targeting the guest's
 			// departing craft.
-			w.SetTargetGhost(r.GuestOwner, r.GuestCraftID)
+			w.SetCraftTargetGhost(cidx, r.GuestOwner, r.GuestCraftID)
 			*chips = append(*chips, DockChip{Kind: sim.SessionEventUndocked, Handle: r.GuestHandle})
 			return false
 		}
@@ -906,6 +906,13 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 		// 0040 §3). Same split as the guest's own ask; what differs is only
 		// what happens when nobody is there to catch it.
 		if r.releaseAsk {
+			// A split already in flight (the guest's own [U] won the race,
+			// Audit L2-5) has nothing left to release: a second UndockGuest
+			// would fail and chip a refusal for a release that happened.
+			if r.returnPayload != nil {
+				r.releaseAsk, r.releaseAsParcel = false, false
+				return false
+			}
 			r.releaseAsk = false
 			asParcel := r.releaseAsParcel
 			r.releaseAsParcel = false
@@ -933,7 +940,7 @@ func (l *DockLedger) reconcileOwner(w *sim.World, r *DockRecord, chips *[]DockCh
 				r.parcel = true
 				r.parcelAtNano = r.returnAtNano
 			} else {
-				w.SetTargetGhost(r.GuestOwner, r.GuestCraftID)
+				w.SetCraftTargetGhost(cidx, r.GuestOwner, r.GuestCraftID)
 			}
 			*chips = append(*chips, DockChip{Kind: sim.SessionEventUndocked, Handle: r.GuestHandle})
 			return false

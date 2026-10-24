@@ -473,6 +473,19 @@ func (w *World) SetTargetGhost(owner string, craftID uint64) {
 	w.reconcileNavMode() // ghost targets keep NavTarget valid (HasRelativeTarget)
 }
 
+// SetCraftTargetGhost aims the craft at slate index idx at a remote player's
+// craft. The active craft goes through SetTargetGhost; any other craft only
+// has its own Target written, so the player's active vessel is left alone.
+func (w *World) SetCraftTargetGhost(idx int, owner string, craftID uint64) {
+	if idx == w.ActiveCraftIdx {
+		w.SetTargetGhost(owner, craftID)
+		return
+	}
+	if idx >= 0 && idx < len(w.Crafts) {
+		w.Crafts[idx].Target = Target{Kind: TargetGhost, CraftID: craftID, GhostOwner: owner}
+	}
+}
+
 // CraftInertialVelocity returns a craft's velocity in the system-
 // inertial (heliocentric) frame. Mirrors CraftInertial for position.
 // Useful to consumers outside the sim package (HUD readouts, target
