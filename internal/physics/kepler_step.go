@@ -24,21 +24,32 @@ import (
 // guards against SOI crossings by checking apo < primary's SOI before
 // taking the analytic path.
 func KeplerStep(s StateVector, mu, dt float64) (StateVector, bool) {
-	if mu <= 0 {
+	el, M0, ok := keplerElementsAndAnomaly(s, mu)
+	if !ok {
 		return s, false
 	}
-	el := orbital.ElementsFromState(s.R, s.V, mu)
+	n := math.Sqrt(mu / (el.A * el.A * el.A))
+	return keplerRebuild(el, M0+n*dt, mu, s.M), true
+}
+
+// keplerElementsAndAnomaly is the prologue KeplerStep and RaiseStep share:
+// the bound orbit's elements and the mean anomaly of the state on it.
+// ok=false for hyperbolic / parabolic / degenerate inputs.
+func keplerElementsAndAnomaly(s StateVector, mu float64) (el orbital.Elements, M0 float64, ok bool) {
+	if mu <= 0 {
+		return el, 0, false
+	}
+	el = orbital.ElementsFromState(s.R, s.V, mu)
 	if el.E >= 1 || el.A <= 0 {
-		return s, false
+		return el, 0, false
 	}
 
 	rMag := s.R.Norm()
 	if rMag <= 0 {
-		return s, false
+		return el, 0, false
 	}
 
 	// Mean anomaly at t=0 derived from current state.
-	var M0 float64
 	// Match orbital.ElementsFromState's circularTol (1e-6). For e below
 	// it, cosE = (1 − r/a)/e amplifies float noise by ~1/e, clamping
 	// cosE to ±1 and snapping the craft back to periapsis (a warp-lock
@@ -75,11 +86,14 @@ func KeplerStep(s StateVector, mu, dt float64) (StateVector, bool) {
 		M0 = math.Atan2(q, p)
 	}
 
-	n := math.Sqrt(mu / (el.A * el.A * el.A))
-	mNew := M0 + n*dt
+	return el, M0, true
+}
+
+// keplerRebuild is the epilogue: the state at mean anomaly mNew on el.
+func keplerRebuild(el orbital.Elements, mNew, mu, mass float64) StateVector {
 	eNew := orbital.SolveKepler(mNew, el.E)
 	nuNew := orbital.TrueAnomaly(eNew, el.E)
 	rNew := orbital.PositionAtTrueAnomaly(el, nuNew)
 	vNew := orbital.VelocityAtTrueAnomaly(el, nuNew, mu)
-	return StateVector{R: rNew, V: vNew, M: s.M}, true
+	return StateVector{R: rNew, V: vNew, M: mass}
 }
