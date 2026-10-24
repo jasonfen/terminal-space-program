@@ -1,0 +1,11 @@
+{
+  "loadouts": [
+    {
+      "id": "starlink",
+      "name": "Starlink",
+      "role": "custom",
+      "parts": [{"part_id": "starlink"}],
+      "subassembly_role": "payload"
+    }
+  ]
+}

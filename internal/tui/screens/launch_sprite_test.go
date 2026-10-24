@@ -1021,3 +1021,26 @@ func TestComposeCanopy_EmptyStages(t *testing.T) {
 		t.Errorf("ComposeCanopy(nil) = %v, want nil", got)
 	}
 }
+
+// ADR 0059 S1: every fuel type a spawnable stage carries has its own flame
+// colour; an unmapped one falls back to the warning amber and is drawn as a
+// fault.
+func TestEveryFuelTypeHasAFlameColour(t *testing.T) {
+	seen := 0
+	reported := map[string]bool{}
+	for _, id := range spacecraft.LoadoutOrder {
+		for _, s := range spacecraft.Loadouts[id].Stages {
+			if s.FuelType == "" {
+				continue
+			}
+			seen++
+			if _, ok := fuelTypeFlameColor[s.FuelType]; !ok && !reported[s.FuelType] {
+				reported[s.FuelType] = true
+				t.Errorf("loadout %q stage %q: fuel type %q has no flame colour", id, s.Name, s.FuelType)
+			}
+		}
+	}
+	if seen == 0 {
+		t.Fatal("no fuel types found: the catalog did not load")
+	}
+}

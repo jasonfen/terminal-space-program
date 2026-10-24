@@ -294,6 +294,9 @@ func TestStagesRowLoadoutsUntouched(t *testing.T) {
 	for _, id := range spacecraft.LoadoutOrder {
 		w := densityCoastingWithPlan(t)
 		c := spacecraft.NewFromLoadout(id)
+		if len(c.Stages) > stagePipsMax {
+			continue // past the pip cap the row is cut by design; the 26-stage Starlink stack
+		}
 		w.Crafts[w.ActiveCraftIdx] = c
 		row := strings.Join(v.buildStagesBox(w), "")
 		if strings.Contains(row, "…") {

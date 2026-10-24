@@ -44,6 +44,7 @@ var fuelTypeFlameColor = map[string]lipgloss.Color{
 	spacecraft.FuelTypeHydrolox:   lipgloss.Color("#BFEFFF"), // pale cyan (J-2, RS-25, RL-10)
 	spacecraft.FuelTypeHypergolic: lipgloss.Color("#FFD96A"), // yellow-amber (LM, SPS)
 	spacecraft.FuelTypeSolid:      lipgloss.Color("#FF4500"), // orange-red (SLS SRB)
+	spacecraft.FuelTypeArgon:      lipgloss.Color("#9FA8FF"), // blue-violet plasma (Starlink Hall thruster)
 }
 
 // flameColorForFuelType returns the flame tint for the given FuelType,

@@ -64,6 +64,8 @@ func derivedSpriteColor(fuelType string) string {
 		return "#C9B58A" // khaki
 	case FuelTypeSolid:
 		return "#A89CB8" // slate mauve
+	case FuelTypeArgon:
+		return "#9FA8FF" // blue-violet plasma
 	}
 	return "#C8C8C8"
 }

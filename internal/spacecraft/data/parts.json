@@ -648,6 +648,27 @@
       }
     },
     {
+      "id": "starlink",
+      "name": "Starlink",
+      "glyph": "➤",
+      "color": "#D8D8E8",
+      "tier": "payload",
+      "dry_mass_kg": 740,
+      "fuel_mass_kg": 20,
+      "fuel_capacity_kg": 20,
+      "thrust_n": 0.17,
+      "isp_s": 2400,
+      "fuel_type": "argon",
+      "launch_sprite_rows_px": 1,
+      "launch_sprite_width_px": 1,
+      "launch_sprite_color": "#D8D8E8",
+      "command_source": "probe",
+      "antenna": {
+        "kind": "relay",
+        "range_m": 5000000
+      }
+    },
+    {
       "id": "science-probe",
       "name": "Science Probe",
       "glyph": "➤",

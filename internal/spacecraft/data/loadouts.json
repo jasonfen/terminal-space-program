@@ -426,6 +426,120 @@
       ]
     },
     {
+      "id": "Falcon-9-Starlink-24",
+      "name": "Falcon 9 + Starlink x24",
+      "role": "carrier",
+      "category": "satellites-payloads",
+      "glyph": "➤",
+      "color": "#D8D8E8",
+      "parts": [
+        {
+          "part_id": "f9-s1"
+        },
+        {
+          "part_id": "f9-s2"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        },
+        {
+          "part_id": "starlink"
+        }
+      ],
+      "nose_payload_plan": [
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    {
       "id": "Survey-Pack",
       "name": "Survey Pack",
       "role": "carrier",

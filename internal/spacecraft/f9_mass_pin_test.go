@@ -60,6 +60,7 @@ var f9Golden = []string{
 	"loadout:Falcon-9|2|29500.000|518500.000|549930.909|15273.695362|1.410537|craft 549930.909",
 	"loadout:Falcon-9-Dragon|4|39000.000|521062.000|563414.727|11331.400032|1.376780|craft 563414.727",
 	"loadout:Falcon-9-Cargo-Dragon|4|39000.000|521062.000|565921.727|10704.173493|1.370681|craft 565921.727",
+	"loadout:Falcon-9-Starlink-24|26|47260.000|518980.000|569333.382|11962.151806|1.362467|craft 569333.382",
 }
 
 func TestF9ControlAndAntennaAddNoMass(t *testing.T) {

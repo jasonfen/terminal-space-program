@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -93,7 +94,7 @@ func TestSpawnRowTailIsDim(t *testing.T) {
 	plain, raw := catalogPlainRows(t, th, 130)
 	checked := 0
 	for i, p := range plain {
-		if !strings.Contains(p, "Falcon 9") || strings.Contains(p, "Dragon") {
+		if !strings.Contains(p, "Falcon 9") || strings.Contains(p, "Dragon") || strings.Contains(p, "Starlink") {
 			continue // the plain Falcon 9 row; the Dragon stacks carry 4 stages
 		}
 		checked++
@@ -112,5 +113,37 @@ func TestSpawnRowTailIsDim(t *testing.T) {
 	}
 	if checked != 1 {
 		t.Fatalf("expected exactly one Falcon 9 row, saw %d", checked)
+	}
+}
+
+// ADR 0059 S1 / decision 2: Falcon 9 + Starlink x24 sits under Satellites &
+// Payloads with the stack's dry mass and the lit engine's figures. The ADR's
+// mock row is prose; the form's own column format is what is pinned here.
+func TestSpawnFormStarlinkRow(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(nil, "", nil, "", "", nil)
+	s.showAll = true
+	group, row := "", ""
+	var groupOfRow string
+	for _, ln := range strings.Split(stripANSI(s.Render(140, 0)), "\n") {
+		if r := []rune(ln); len(r) > 98 {
+			ln = string(r[:98])
+		}
+		txt := strings.TrimSpace(strings.Trim(ln, "│ "))
+		if txt == "Satellites & Payloads" || txt == "Mission Stacks" || txt == "Landers & Capsules" || txt == "Launch Vehicles" {
+			group = txt
+		}
+		if strings.HasPrefix(strings.TrimLeft(txt, "▸ "), "Falcon 9 + Starlink x24 ") {
+			row, groupOfRow = txt, group
+		}
+	}
+	if row == "" {
+		t.Fatal("spawn form has no Falcon 9 + Starlink x24 row")
+	}
+	if groupOfRow != "Satellites & Payloads" {
+		t.Errorf("row is under %q, want Satellites & Payloads", groupOfRow)
+	}
+	if !regexp.MustCompile(`dry 47\.26 t\s+fuel .*26 stages`).MatchString(row) {
+		t.Errorf("row = %q, want dry 47.26 t and 26 stages", row)
 	}
 }

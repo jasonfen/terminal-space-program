@@ -10,6 +10,7 @@ const (
 	FuelTypeHydrolox   = "hydrolox"   // LH2 + LOX (J-2, RS-25, RL-10) — pale cyan
 	FuelTypeHypergolic = "hypergolic" // Aerozine 50 + N2O4 (LM, SPS) — yellow-amber
 	FuelTypeSolid      = "solid"      // APCP (SLS SRB) — orange-red
+	FuelTypeArgon      = "argon"      // Hall thruster (Starlink) — blue-violet
 )
 
 // Command-source constants (v0.23 / ADR 0027). A stage's CommandSource

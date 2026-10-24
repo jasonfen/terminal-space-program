@@ -79,7 +79,7 @@ func TestVABPaletteHasSubassemblySection(t *testing.T) {
 			rows = append(rows, label)
 		}
 	}
-	want := "Comsat [payload]|LM [payload · 2 stages]|CSM+LM [stage · 4 stages]|Dragon [stage · 2 stages]|Cargo Dragon [stage · 2 stages]|Orion [stage · 2 stages]"
+	want := "Comsat [payload]|LM [payload · 2 stages]|CSM+LM [stage · 4 stages]|Dragon [stage · 2 stages]|Cargo Dragon [stage · 2 stages]|Orion [stage · 2 stages]|Starlink [payload]"
 	if strings.Join(rows, "|") != want {
 		t.Errorf("subassembly section = %q, want %q", strings.Join(rows, "|"), want)
 	}
@@ -353,13 +353,13 @@ func TestVABOpenListsSubassembliesAndDeletes(t *testing.T) {
 		t.Fatalf("x opened no subassembly delete card")
 	}
 	v.HandleKey("y")
-	if subs, _ := spacecraft.ListSubassemblies(); len(subs) != 7 {
+	if subs, _ := spacecraft.ListSubassemblies(); len(subs) != 8 {
 		t.Fatalf("deleted on the first y: %d blocks", len(subs))
 	}
 	v.HandleKey("y")
 	subs, _ := spacecraft.ListSubassemblies()
-	if len(subs) != 6 {
-		t.Errorf("blocks after the second y = %d, want the 6 shipped", len(subs))
+	if len(subs) != 7 {
+		t.Errorf("blocks after the second y = %d, want the 7 shipped", len(subs))
 	}
 	for _, it := range v.palette {
 		if it.subassemblyID == "comsat-x2" {
@@ -458,6 +458,15 @@ func TestVABDeployedPayloadIsNamedAfterTheBlock(t *testing.T) {
 		})
 		if strings.Join(names, ",") != "Comsat-1,Comsat-2,Comsat-3" {
 			t.Errorf("deployed %v, want Comsat-1,Comsat-2,Comsat-3", names)
+		}
+	})
+	t.Run("starlink block", func(t *testing.T) {
+		names := deploy(t, func(v *VAB) {
+			pickSub(t, v, "starlink")
+			v.addSelected()
+		})
+		if strings.Join(names, ",") != "Starlink-1" {
+			t.Errorf("deployed %v, want one payload, Starlink-1", names)
 		}
 	})
 	t.Run("hand-marked part", func(t *testing.T) {
