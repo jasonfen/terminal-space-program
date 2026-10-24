@@ -304,3 +304,56 @@ func startsMagnet(w *World) bool {
 	w.checkDocking()
 	return w.dockMagnet != nil
 }
+
+// A long stack inside the gate docks. The stack pivots on its bottom, so a
+// magnet that turned the nose about State.R swung a 100 m stack's port out of
+// the 0.5 m gate mid-pull; the pull let go with the hulls touching and the
+// pair bumped apart (v0.60.0 playtest: Orion at the gate). The pull now turns
+// the nose about the port point: the port gap only ever closes.
+func TestDockMagnetLongStackPortNeverLeavesTheGate(t *testing.T) {
+	for _, c := range []struct {
+		puller  string
+		tiltDeg float64
+	}{{"Orion", 3.9}, {"Apollo-Stack", 3}, {"SLS-Orion", 3}} {
+		w, err := NewWorld()
+		if err != nil {
+			t.Fatal(err)
+		}
+		earth := w.Systems[0].FindBody("Earth")
+		a, b := spacecraft.NewFromLoadout(c.puller), spacecraft.NewFromLoadout("RCS-tug")
+		a.Name, b.Name = "Alpha", "Bravo"
+		a.Primary, b.Primary = *earth, *earth
+		r := orbital.Vec3{X: earth.RadiusMeters() + 500e3}
+		v := orbital.Vec3{Y: math.Sqrt(earth.GravitationalParameter() / r.Norm())}
+		axis := orbital.Vec3{Y: 1}
+		a.State = physics.StateVector{R: r, V: v, M: a.TotalMass()}
+		a.CurrentAttitudeDir = axis
+		b.CurrentAttitudeDir = orbital.Rotate(axis.Scale(-1), orbital.Vec3{Z: 1}, c.tiltDeg*math.Pi/180).Unit()
+		b.SlewRateDegPerSec = 1e-9 // hold the facing as placed
+		ga, gb := VesselPortGeometry(a), VesselPortGeometry(b)
+		pa := ga.PortPoint(a.State.R, 0)
+		bR := pa.Add(axis.Scale(0.45)).Sub(gb.PortPoint(orbital.Vec3{}, 0))
+		b.State = physics.StateVector{R: bR, V: v.Sub(axis.Scale(0.05)), M: b.TotalMass()}
+		w.Crafts = []*spacecraft.Spacecraft{a, b}
+		w.ActiveCraftIdx = 0
+		w.stampCraftID(a)
+		w.stampCraftID(b)
+
+		worst := 0.0
+		end := w.Clock.SimTime.Add(6 * time.Second)
+		for w.Clock.SimTime.Before(end) && len(w.Crafts) == 2 {
+			w.Tick()
+			if len(w.Crafts) == 2 {
+				_, rng, _, _ := dockPairGate(a, b)
+				worst = math.Max(worst, rng)
+			}
+		}
+		if len(w.Crafts) != 1 || w.LastBumpEvent != nil {
+			t.Errorf("%s at %.1f deg: %d vessels after 6 s, bump %+v; want one composite, no bump (port range peaked at %.3f m)",
+				c.puller, c.tiltDeg, len(w.Crafts), w.LastBumpEvent, worst)
+		}
+		if worst > 0.45 {
+			t.Errorf("%s at %.1f deg: port range rose to %.3f m during the pull, want it never above the 0.45 m start", c.puller, c.tiltDeg, worst)
+		}
+	}
+}
