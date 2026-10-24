@@ -369,3 +369,16 @@ func TestProximityStateGhostWithoutShapeIsUnknown(t *testing.T) {
 		t.Error("ring ready on an unknown-shape ghost")
 	}
 }
+
+// The batch exemption is for a batch's own pieces only: a friend's vessel 30 m
+// away still caps warp inside the window (ADR 0059 decision 6, guard 16;
+// activeNearGhostHull is untouched).
+func TestBatchExemptionDoesNotSilenceAGhost(t *testing.T) {
+	w, a := ghostPair(t, "rcs-tug", "rcs-tug", 30, 0, 0)
+	a.BatchID, a.BatchLead = 7, true
+	a.BatchClampExemptUntil = w.Clock.SimTime.Add(time.Hour)
+	w.Clock.WarpIdx = len(WarpFactors) - 1
+	if got := w.clampedWarp(); got > burnWarpCap {
+		t.Errorf("warp 30 m from a ghost inside a batch window = %v, want <= %v", got, burnWarpCap)
+	}
+}

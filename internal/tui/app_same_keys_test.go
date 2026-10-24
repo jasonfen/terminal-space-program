@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"math"
 	"regexp"
 	"strconv"
@@ -229,6 +230,9 @@ func TestModalsOwningArrowsLeaveTrimsAlone(t *testing.T) {
 		{name: "quickload confirm", enter: func(t *testing.T, a *App) { a.askQuickload() }},
 		{name: "transpose confirm", enter: func(t *testing.T, a *App) { a.askTranspose() }},
 		{name: "deploy confirm", enter: func(t *testing.T, a *App) { a.askDeploy("payload") }},
+		{name: "release batch confirm", enter: func(t *testing.T, a *App) {
+			a.askReleaseBatch("Starlink", 24, "they fan out sideways, 0.8 cm/s a seam, top 19")
+		}},
 		{name: "quit confirm", enter: func(t *testing.T, a *App) { a.armQuit() }},
 		{name: "boss shell", enter: func(t *testing.T, a *App) { a.Update(keyRunes("`")) }},
 	}
@@ -577,5 +581,75 @@ func TestOptionZXFineThrottleWithoutShift(t *testing.T) {
 	a.Update(keyRunes("z"))
 	if !near(c.Throttle, 1) {
 		t.Errorf("z: throttle %v, want 1 (full)", c.Throttle)
+	}
+}
+
+// batchApp is a 140x40 App with the Falcon 9 + Starlink x24 stack in orbit and
+// the stack turned angleDeg off the velocity (90 = radial).
+func batchApp(t *testing.T, angleDeg float64) (*App, *spacecraft.Spacecraft) {
+	t.Helper()
+	testStateDirs(t)
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	c, err := a.world.SpawnCraft(sim.SpawnSpec{LoadoutID: "Falcon-9-Starlink-24", ParentBodyID: "earth", AltitudeM: 500e3})
+	if err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	// The spent F9-S1 goes first, so the carrier is the 8-row F9-S2.
+	if _, _, err := a.world.StageActive(a.world.ActiveCraftIdx); err != nil {
+		t.Fatalf("StageActive: %v", err)
+	}
+	c = a.world.ActiveCraft()
+	c.ReconcileDockedComponents()
+	th := angleDeg * math.Pi / 180
+	r := c.State.R.Unit()
+	c.CurrentAttitudeDir = c.State.V.Unit().Scale(math.Cos(th)).Add(r.Scale(math.Sin(th)))
+	c.AttitudeMode = spacecraft.BurnRadialOut
+	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	a.View()
+	return a, c
+}
+
+// U on a batch asks (ADR 0059 decision 3): the card names the count and the
+// fan, esc leaves the stack whole, y y releases and the flash counts the slate.
+func TestReleaseBatchCardAsksThenReleases(t *testing.T) {
+	a, c := batchApp(t, 90)
+	n := len(a.world.Crafts)
+	a.Update(keyRunes("U"))
+	if len(a.world.Crafts) != n {
+		t.Fatal("U released the batch on the spot, it must ask first")
+	}
+	view := a.View()
+	for _, want := range []string{"Release all 24 Starlink?", "they fan out sideways, 0.8 cm/s a", "seam, top 19", "release", "cancel"} {
+		if !cardKindUp(a, cardReleaseBatch) || !strings.Contains(view, want) {
+			t.Fatalf("U card lacks %q:\n%s", want, view)
+		}
+	}
+	a.Update(keyType(tea.KeyEsc))
+	if cardKindUp(a, cardReleaseBatch) || len(a.world.Crafts) != n || a.world.ActiveCraft() != c || len(c.DockedComponents) != 25 {
+		t.Fatal("esc did not leave the stack whole")
+	}
+	a.Update(keyRunes("U"))
+	pressTwice(a, 'y')
+	if want := n - 1 + 25; len(a.world.Crafts) != want {
+		t.Fatalf("slate = %d, want %d", len(a.world.Crafts), want)
+	}
+	if want := fmt.Sprintf("released 24, %d vessels on the slate", n-1+25); a.statusMsg != want {
+		t.Errorf("flash = %q, want %q", a.statusMsg, want)
+	}
+}
+
+// Inside 10 degrees of the velocity U refuses with the reason and asks nothing.
+func TestReleaseBatchRefusesAlongTheVelocity(t *testing.T) {
+	a, _ := batchApp(t, 9)
+	n := len(a.world.Crafts)
+	a.Update(keyRunes("U"))
+	if cardKindUp(a, cardReleaseBatch) || len(a.world.Crafts) != n {
+		t.Fatal("U asked or released with the stack along the velocity")
+	}
+	if a.statusMsg != "release: stack along the velocity; hold radial (q) first" {
+		t.Errorf("flash = %q", a.statusMsg)
 	}
 }

@@ -58,6 +58,7 @@ func helpPhraseRows() []helpPhrase {
 		{name: "pitch trim both directions", token: "← / →", before: "back from", after: "toward your heading"},
 		{name: "heading trim both directions", section: "MANUAL FLIGHT", token: "↑ / ↓", before: "north", after: "south"},
 		{name: "nav mode skip rule", token: ";", hasFold: []string{"skip"}},
+		{name: "U releases a batch in a fan, refused near the velocity", section: "VESSEL", token: "U (batch)", has: []string{"fan", "10°", "[q]"}},
 		{name: "E ends a crashed flight", token: "E", anyFold: []string{"end flight", "crashed"}},
 		// ADR 0051: F2 hides all eight boxes and the navball.
 		{name: "F2 declutter", token: "F2", has: []string{"instrument boxes", "navball", "Centerline scope", "ENGINE", "PROPELLANT"}, not: []string{"core column", "chips"}},

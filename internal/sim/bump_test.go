@@ -3,6 +3,7 @@ package sim
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
@@ -506,5 +507,60 @@ func TestBumpSlowTouchOutsidePortGateBumps(t *testing.T) {
 	}
 	if got := opening(a, b); got < 0.05-1e-9 {
 		t.Errorf("opening after a 0.05 m/s touch = %.3f m/s, want the 0.05 m/s floor", got)
+	}
+}
+
+// The batch's own pieces do not hold the 10x clamp on each other for one orbit
+// after the release (ADR 0059 decision 6, guard 16). Foreign hulls still do,
+// the window is a stored instant, and the clamp is back the tick the clock
+// reaches it. The save round trip of the instant is pinned in
+// internal/save (TestBatchTagCountersAndRaiseOrderRoundTrip).
+func TestBatchClampExemptionLastsOneOrbit(t *testing.T) {
+	w, idx, _, sats := releasedFan(t, 90, true)
+	lead := w.Crafts[idx]
+	top := WarpFactors[len(WarpFactors)-1]
+	w.Clock.WarpIdx = len(WarpFactors) - 1
+	until := sats[0].BatchClampExemptUntil
+	if d := craftHullDistanceM(lead, sats[0]); d > DockingDistM {
+		t.Fatalf("fixture: sat 1 is %.1f m off, want inside the clamp zone", d)
+	}
+
+	if got := w.clampedWarp(); got != top {
+		t.Errorf("warp the tick after a radial release = %v, want the top factor %v (the sats are inside 50 m)", got, top)
+	}
+
+	// A foreign (non-batch) hull 30 m off still clamps.
+	foreign := spacecraft.NewFromLoadout("S-IVB-1")
+	foreign.Primary, foreign.SystemIdx = lead.Primary, lead.SystemIdx
+	foreign.CurrentAttitudeDir = lead.CurrentAttitudeDir
+	foreign.State = physics.StateVector{R: lead.State.R.Add(orbital.Vec3{Z: 30}), V: lead.State.V, M: foreign.TotalMass()}
+	w.Crafts = append(w.Crafts, foreign)
+	if got := w.clampedWarp(); got != burnWarpCap {
+		t.Errorf("warp with a foreign hull at 30 m = %v, want %v", got, burnWarpCap)
+	}
+	w.Crafts = w.Crafts[:len(w.Crafts)-1]
+
+	// One period later (the window is half open: the instant itself clamps).
+	w.Clock.SimTime = until.Add(-time.Second)
+	if got := w.clampedWarp(); got != top {
+		t.Errorf("warp a second before the window ends = %v, want %v", got, top)
+	}
+	w.Clock.SimTime = until
+	if got := w.clampedWarp(); got != burnWarpCap {
+		t.Errorf("warp at the end of the window with sat 1 inside 50 m = %v, want %v", got, burnWarpCap)
+	}
+
+	// With every piece past 50 m (sat 1 at 70 m, the rest a long way off) the
+	// top factor is back.
+	axis := stackAxis(lead)
+	for i, s := range sats {
+		off := 5000.0 + 10*float64(i)
+		if i == 0 {
+			off = 70
+		}
+		s.State.R = lead.State.R.Add(axis.Scale(off))
+	}
+	if got := w.clampedWarp(); got != top {
+		t.Errorf("warp one period on with sat 1 at 70 m = %v, want %v", got, top)
 	}
 }

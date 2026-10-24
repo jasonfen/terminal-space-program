@@ -373,6 +373,11 @@ func (w *World) activeNearOtherHull() bool {
 		if a.SystemIdx != b.SystemIdx || a.Primary.ID != b.Primary.ID {
 			continue
 		}
+		// ADR 0059 decision 6: a batch does not clamp warp against its own
+		// pieces for one orbit after the release. Foreign hulls still do.
+		if a.BatchID != 0 && a.BatchID == b.BatchID && w.Clock != nil && w.Clock.SimTime.Before(a.BatchClampExemptUntil) {
+			continue
+		}
 		if craftHullDistanceM(a, b) <= DockingDistM {
 			return true
 		}
