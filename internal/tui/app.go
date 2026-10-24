@@ -1846,8 +1846,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// there is no third branch that falls through in silence.
 			if reason := a.world.UndockRefusal(a.world.ActiveCraftIdx); reason != "" {
 				a.flash(reason)
-			} else if a.world.Undock(a.world.ActiveCraftIdx) {
-				a.flash(fmt.Sprintf("undocked into %d components", len(a.world.Crafts)))
+			} else if before := len(a.world.Crafts); a.world.Undock(a.world.ActiveCraftIdx) {
+				// The stack becomes its pieces: the slate grows by pieces-1 (#709).
+				a.flash(fmt.Sprintf("undocked into %d components", len(a.world.Crafts)-before+1))
 				a.world.RecordAction(missions.ActionUndock) // ADR 0025 §7
 			}
 			return a, nil
