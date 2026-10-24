@@ -65,7 +65,7 @@ func TestDerivedSpriteRows_MonotonicAndClamped(t *testing.T) {
 // neutral one, so a stack of different stages reads as different blocks.
 func TestDerivedSpriteColor_DistinctPerChemistry(t *testing.T) {
 	seen := map[string]string{}
-	for _, ft := range []string{FuelTypeKerolox, FuelTypeHydrolox, FuelTypeHypergolic, FuelTypeSolid, ""} {
+	for _, ft := range []string{FuelTypeKerolox, FuelTypeHydrolox, FuelTypeHypergolic, FuelTypeSolid, FuelTypeArgon, ""} {
 		c := derivedSpriteColor(ft)
 		if c == "" {
 			t.Fatalf("no colour for %q", ft)

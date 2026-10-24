@@ -53,6 +53,34 @@ func TestNewFromLoadoutResolvedGolden(t *testing.T) {
 	if sm := byName["SM"]; sm.Color != "#C0C0FF" {
 		t.Errorf("Apollo SM color = %q, want #C0C0FF (distinct from catalog service-module)", sm.Color)
 	}
+
+	// ADR 0059 S1: Falcon 9 + Starlink x24 is the two Falcon stages and 24
+	// seamed satellites; each satellite is 740 kg dry, 20 kg of argon on a
+	// 0.17 N / 2400 s thruster, a 5,000 km relay, plus the default RCS pool.
+	sl := NewFromLoadout("Falcon-9-Starlink-24")
+	if len(sl.Stages) != 26 {
+		t.Fatalf("Falcon-9-Starlink-24 stages = %d, want 26 (2 Falcon + 24 Starlink)", len(sl.Stages))
+	}
+	var dry float64
+	for _, s := range sl.Stages {
+		dry += s.DryMass
+	}
+	if dry != 47260 {
+		t.Errorf("Falcon-9-Starlink-24 dry mass = %g, want 47260", dry)
+	}
+	mono, monoCap, rcsThr, rcsIsp := DefaultRCSLoadout(740)
+	for i := 2; i < 26; i++ {
+		s := sl.Stages[i]
+		if s.Name != "Starlink" || s.DryMass != 740 || s.FuelMass != 20 || s.FuelCapacity != 20 ||
+			s.Thrust != 0.17 || s.Isp != 2400 || s.FuelType != FuelTypeArgon ||
+			s.MonopropMass != mono || s.MonopropCap != monoCap || s.RCSThrust != rcsThr || s.RCSIsp != rcsIsp ||
+			s.CommandSource != CommandProbe || s.AntennaKind != AntennaRelay || s.AntennaRangeM != 5e6 {
+			t.Errorf("stage %d = %+v, want the Starlink part", i, s)
+		}
+	}
+	if math.Abs(mono-48.4) > 0.05 {
+		t.Errorf("Starlink monoprop = %g, want 48.4", mono)
+	}
 }
 
 // TestCatalogShape: the catalog invariants every consumer relies on, one
@@ -110,6 +138,15 @@ func TestCatalogShape(t *testing.T) {
 			for id, m := range StageCatalog {
 				if m.thrust > 0 && m.fuelType == "" {
 					t.Errorf("catalog stage %q has Thrust=%v but no FuelType set", id, m.thrust)
+				}
+			}
+		}},
+		// ADR 0059 S1: every propellant chemistry has a body colour, so a new
+		// FuelType cannot ship drawn in the neutral grey of a tankless stage.
+		{"fuel types have a body colour", func(t *testing.T) {
+			for id, m := range StageCatalog {
+				if m.fuelType != "" && derivedSpriteColor(m.fuelType) == derivedSpriteColor("") {
+					t.Errorf("part %q: fuel type %q has no derivedSpriteColor", id, m.fuelType)
 				}
 			}
 		}},

@@ -364,8 +364,8 @@ func TestVABPaletteRowsAreDistinct(t *testing.T) {
 	v := realVAB(t)
 	seen := map[string]string{}
 	for _, it := range v.palette {
-		if it.isComponent {
-			continue
+		if it.isComponent || it.subassemblyID != "" {
+			continue // a block sits under its own header; Starlink is both a part and a block (ADR 0059)
 		}
 		_, label := v.paletteItemLabel(it)
 		if prev, dup := seen[label]; dup {
