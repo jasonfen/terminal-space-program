@@ -2,11 +2,13 @@ package screens
 
 import (
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
@@ -28,8 +30,8 @@ import (
 // Every row is always present (decision 2): with no active craft at all,
 // every cell reads a dash rather than the box vanishing.
 func (v *OrbitView) buildEngineBox(w *sim.World) []string {
-	title := v.theme.Primary.Render("ENGINE") + v.vesselBurnBadge(w)
 	c := w.ActiveCraft()
+	title := v.theme.Primary.Render("ENGINE") + v.vesselBurnBadge(w) + v.vesselRaiseBadge(c)
 	title += v.engineBoosterBadge(c)
 	title = v.engineTitleWithQueue(title, w, c)
 	if c == nil {
@@ -103,6 +105,9 @@ func (v *OrbitView) engineThrottleLabelAt(w *sim.World, c *spacecraft.Spacecraft
 		// #466 (G5 Q1): the throttle is a standing order; the lit tank is
 		// dry, so say so. [space] relights the next engine at this setting.
 		return base + " " + v.theme.Warning.Render("✕ DRY")
+	}
+	if c.Raise != nil && c.Raise.Started && c.ManualBurn == nil {
+		return "100%" // the order thrusts at full throttle whatever the setting
 	}
 	if !sim.StackMidBurn(c) {
 		return base + v.theme.Dim.Render(" idle")
@@ -207,6 +212,8 @@ func (v *OrbitView) engineNodeLine(w *sim.World, c *spacecraft.Spacecraft) strin
 	case nodeBranchBurn:
 		line, _ := v.engineBurnLine(w, c)
 		return chipRowAt("node:", line, engineCols.value1)
+	case nodeBranchRaise:
+		return chipRowAt("node:", v.engineRaiseLine(w, c), engineCols.value1)
 	case nodeBranchBraking:
 		stopDat := v.cachedDescentStop(w, c)
 		line := fmt.Sprintf("%s braking burn at %s  %s", hudNodeMarker,
@@ -227,6 +234,7 @@ const (
 	nodeBranchBurn
 	nodeBranchBraking
 	nodeBranchQueued
+	nodeBranchRaise // a commanded orbit raise or lower (ADR 0059 decision 4)
 )
 
 // engineNodeBranch is the ONE place the precedence lives, shared by the
@@ -237,6 +245,9 @@ func (v *OrbitView) engineNodeBranch(w *sim.World, c *spacecraft.Spacecraft) nod
 	}
 	if c.ActiveBurn != nil {
 		return nodeBranchBurn
+	}
+	if c.Raise != nil {
+		return nodeBranchRaise
 	}
 	if _, descending := sim.DescentCorridorFor(c, sim.DescentPredictHorizon); descending {
 		if v.cachedDescentStop(w, c).hasBurnAt {
@@ -328,4 +339,39 @@ func nodeEventLabel(e spacecraft.TriggerEvent) string {
 		return "next approach"
 	}
 	return e.String()
+}
+
+// vesselRaiseBadge is ENGINE's title badge while the active vessel has a
+// commanded raise (ADR 0059 decision 4). Per vessel, unlike the slate-wide
+// `● BURN`: a raise never caps warp, so nothing else needs the badge.
+func (v *OrbitView) vesselRaiseBadge(c *spacecraft.Spacecraft) string {
+	if c == nil || c.Raise == nil {
+		return ""
+	}
+	return v.theme.Warning.Render("  ● RAISE")
+}
+
+// engineRaiseLine is the node row's raise branch: "▸ raise → 550 km  now 412
+// km  T-4d06h" while it climbs (T- is the speed still to shed at the current
+// acceleration), "▸ raise → 550 km  starts in 4h12m" while it waits, "lower"
+// for a lower target.
+func (v *OrbitView) engineRaiseLine(w *sim.World, c *spacecraft.Spacecraft) string {
+	o := c.Raise
+	mu := c.Primary.GravitationalParameter()
+	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+	nowAlt := el.A - c.Primary.RadiusMeters()
+	verb := "raise"
+	if o.TargetAltM < nowAlt {
+		verb = "lower"
+	}
+	head := fmt.Sprintf("%s %s → %s", hudNodeMarker, verb, AltitudeKm(o.TargetAltM))
+	if !o.Started {
+		return v.theme.Warning.Render(fmt.Sprintf("%s  starts in %s", head, readout.Duration(o.StartAt.Sub(w.Clock.SimTime))))
+	}
+	line := fmt.Sprintf("%s  now %s", head, fmt.Sprintf("%.0f km", nowAlt/1000))
+	if aT := c.Thrust / c.TotalMass(); aT > 0 {
+		dv := math.Abs(math.Sqrt(mu/el.A) - math.Sqrt(mu/(c.Primary.RadiusMeters()+o.TargetAltM)))
+		line += "  " + readout.Countdown(secondsToDuration(dv/aT))
+	}
+	return v.theme.Warning.Render(line)
 }

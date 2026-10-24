@@ -193,6 +193,10 @@ type Keymap struct {
 	// Undock switches to the released vessel and Deploy keeps the carrier.
 	Deploy key.Binding
 
+	// SetOrbitAltitude (ADR 0059 decision 4): order the vessel to a typed
+	// orbit altitude, or stop the raise under way. Free in every flight view.
+	SetOrbitAltitude key.Binding
+
 	// TransferControl (v0.28 S5, ADR 0034 §6): hand a cross-player docked
 	// stack from its owner to the guest, instantly (roles swap; refused
 	// mid-burn). Bound to `J` — free in the keymap and in the uppercase
@@ -458,6 +462,7 @@ func DefaultKeymap() Keymap {
 		ReArmDock:           key.NewBinding(key.WithKeys("alt+u"), key.WithHelp("alt+u", "re-arm docking (clear the local re-arm latch)")),
 		Transpose:           key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "transpose (SM → firing core, LM → nose payload)")),
 		Deploy:              key.NewBinding(key.WithKeys("Y"), key.WithHelp("Y", "deploy top payload (keep carrier)")),
+		SetOrbitAltitude:    key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "orbit altitude: raise or lower, again stops")),
 		TransferControl:     key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "transfer control of a cross-player stack")),
 		CycleTarget:         key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "cycle target (body / vessel)")),
 		ClearTarget:         key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "clear target")),

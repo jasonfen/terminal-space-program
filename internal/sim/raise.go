@@ -40,6 +40,17 @@ func (w *World) queueRaiseEvent(c *spacecraft.Spacecraft, format string, a ...an
 // the surface, now. The error text is the refusal, ready to flash; a refused
 // order leaves nothing behind. A raise already under way is replaced.
 func (w *World) CommandRaise(idx int, altM float64) error {
+	if err := w.RaiseRefusal(idx, altM); err != nil {
+		return err
+	}
+	w.Crafts[idx].Raise = &spacecraft.RaiseOrder{TargetAltM: altM, StartAt: w.Clock.SimTime, Started: true}
+	return nil
+}
+
+// RaiseRefusal is CommandRaise's checks without the order: nil when craft idx
+// could be ordered to altM now. The L key asks it before opening the box and
+// again before the card, so a refusal never leaves a box or a card behind.
+func (w *World) RaiseRefusal(idx int, altM float64) error {
 	if idx < 0 || idx >= len(w.Crafts) || w.Crafts[idx] == nil {
 		return errors.New("raise: no vessel")
 	}
@@ -73,8 +84,23 @@ func (w *World) CommandRaise(idx int, altM float64) error {
 	if !w.canCommand(c) {
 		return errors.New("NO SIGNAL")
 	}
-	c.Raise = &spacecraft.RaiseOrder{TargetAltM: altM, StartAt: w.Clock.SimTime, Started: true}
 	return nil
+}
+
+// RaisePlan is what a raise of craft c to altM costs: the Δv, the propellant
+// by the rocket equation, and the thrust time at full throttle. The card
+// prints it; it is the same arithmetic raiseChunk integrates.
+func RaisePlan(c *spacecraft.Spacecraft, altM float64) (dv, propKg float64, dur time.Duration) {
+	mu := c.Primary.GravitationalParameter()
+	dv = math.Abs(math.Sqrt(mu/orbitalA(c)) - math.Sqrt(mu/(c.Primary.RadiusMeters()+altM)))
+	mdot := c.MassFlowRateAt(1)
+	if mdot <= 0 {
+		return dv, 0, 0
+	}
+	ve := c.Thrust / mdot
+	m0 := c.TotalMass()
+	propKg = m0 * (1 - math.Exp(-dv/ve))
+	return dv, propKg, time.Duration(propKg / mdot * float64(time.Second))
 }
 
 // StopRaise cancels craft idx's raise, running or waiting; it coasts where it

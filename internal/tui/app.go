@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/charmbracelet/x/ansi"
 	"io/fs"
+	"math"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/keylayout"
 	"github.com/jasonfen/terminal-space-program/internal/missions"
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
@@ -41,6 +43,9 @@ func (a *App) currentAskContext() askContext {
 // top of every Update, so a tick, click or key after the change drops it
 // before anything can answer it.
 func (a *App) dropStaleAsks() {
+	if a.altBox.CapturingText() && a.altStamp != a.currentAskContext() {
+		a.altBox.Close()
+	}
 	if a.card == nil || !a.card.stamped {
 		return
 	}
@@ -146,6 +151,11 @@ type App struct {
 	// or a flight ask (end flight, transpose, deploy, quickload), drawn
 	// over the dimmed screen. nil = no question is up.
 	card     *appCard
+	// altBox is the L key's typed-altitude box (ADR 0059 decision 4); altStamp
+	// is what it was opened about, lastRaiseKm the altitude last typed.
+	altBox      *screens.AltitudeBox
+	altStamp    askContext
+	lastRaiseKm float64
 	missions *screens.Missions
 	spawn    *screens.SpawnCraft
 
@@ -298,6 +308,7 @@ func New(scenario *sim.StartScenario) (*App, error) {
 		bodyInfo:   screens.NewBodyInfo(sth),
 		help:       screens.NewHelp(sth),
 		maneuver:   screens.NewManeuver(sth),
+		altBox:     screens.NewAltitudeBox(sth),
 		porkchop:   screens.NewPorkchop(sth),
 		menu:       screens.NewMenu(sth),
 		missions:   screens.NewMissions(sth),
@@ -490,6 +501,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		a.world.PendingBurnFinishedEvents = nil
+		// ADR 0059 decision 4: a commanded raise ends with its own flash
+		// (complete, argon exhausted, stopped), joined with the burn lines.
+		for _, e := range a.world.PendingRaiseEvents {
+			burnMsgs = append(burnMsgs, e.Text)
+		}
+		a.world.PendingRaiseEvents = nil
 		for c := range boostersLit {
 			if !sim.BoosterSolidsLit(c) && len(c.Stages) > 0 && c.Stages[0].LitWithAbove && c.Stages[0].FuelMass <= 0 {
 				burnMsgs = append(burnMsgs, "boosters burned out")
@@ -942,6 +959,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Quit above stays honored from the gated state.
 		if a.sizeGated() {
 			return a, nil
+		}
+		// The altitude box (ADR 0059): while it is up every key is text or an
+		// editing action, so no flight key slips through a half-typed number.
+		if a.altBox.CapturingText() {
+			return a.handleAltBoxKey(m)
 		}
 		// Boss key: a single global keypress (backtick) swaps the whole
 		// screen to a fake developer shell, and swaps back on
@@ -1910,6 +1932,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			a.flash("transfer: not flying a cross-player stack")
 			return a, nil
+		case key.Matches(m, a.keys.SetOrbitAltitude):
+			a.startOrbitAltitude()
+			return a, nil
 		case key.Matches(m, a.keys.Deploy):
 			// v0.23 / ADR 0028: release the top carried payload, keep flying the
 			// carrier (drop-and-continue). ADR 0052 decision 7: ask first, but
@@ -2306,6 +2331,8 @@ const (
 	cardTranspose
 	cardDeploy
 	cardReleaseBatch
+	cardRaise
+	cardStopRaise
 	cardQuickload
 )
 
@@ -2504,6 +2531,92 @@ func (a *App) askReleaseBatch(name string, n int, note string) {
 			return a, nil
 		})
 	c.stamp, c.stamped = a.currentAskContext(), true
+}
+
+// startOrbitAltitude is the L key (ADR 0059 decision 4): a raise in progress
+// asks to stop; otherwise a vessel that could climb gets the altitude box,
+// and one that could not says why and opens nothing.
+func (a *App) startOrbitAltitude() {
+	idx := a.world.ActiveCraftIdx
+	c := a.world.ActiveCraft()
+	if c == nil {
+		a.flash("raise: no vessel")
+		return
+	}
+	if c.Raise != nil {
+		a.askStopRaise(c.Name)
+		return
+	}
+	now := (orbitalSemiMajor(c) - c.Primary.RadiusMeters()) / 1000
+	if err := a.world.RaiseRefusal(idx, now*1000); err != nil {
+		a.flash(err.Error())
+		return
+	}
+	def := a.lastRaiseKm
+	if def <= 0 {
+		def = math.Round(now)
+	}
+	a.altStamp = a.currentAskContext()
+	a.altBox.Open("raise to:", def)
+}
+
+// handleAltBoxKey routes a key to the altitude box; enter on a number checks
+// the order and raises the card, which is the second place a refusal can land.
+func (a *App) handleAltBoxKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
+	done, ok, altM := a.altBox.HandleKey(m)
+	if !done || !ok {
+		return a, nil
+	}
+	idx, c := a.world.ActiveCraftIdx, a.world.ActiveCraft()
+	a.lastRaiseKm = altM / 1000
+	if err := a.world.RaiseRefusal(idx, altM); err != nil {
+		a.flash(err.Error())
+		return a, nil
+	}
+	a.askRaise(c, altM)
+	return a, nil
+}
+
+// askRaise raises the raise card: the order, then what it costs. It has no
+// undo to speak of (L again stops it), but the ▸ opens on the action as the
+// box already was the deliberate step.
+func (a *App) askRaise(c *spacecraft.Spacecraft, altM float64) {
+	dv, prop, dur := sim.RaisePlan(c, altM)
+	note := fmt.Sprintf("%s · %.1f kg argon\n%s at %.2f N", readout.DeltaV(dv), prop, readout.Duration(dur), c.Thrust)
+	if have := c.ActiveStageFuel(); prop > have {
+		note = fmt.Sprintf("%s · %.1f kg argon, tank holds %.1f kg", readout.DeltaV(dv), prop, have)
+	}
+	verb := "Raise"
+	if altM < orbitalSemiMajor(c)-c.Primary.RadiusMeters() {
+		verb = "Lower"
+	}
+	idx := a.world.ActiveCraftIdx
+	k := a.raiseCard(cardRaise, screens.NewCard(a.screensTheme(), fmt.Sprintf("%s %s to %s?", verb, c.Name, screens.AltitudeKm(altM)), note,
+		[]screens.CardRow{yesRow(strings.ToLower(verb)), outRow("cancel")}, 0),
+		func(a *App, id string) (tea.Model, tea.Cmd) {
+			if id != rowYes {
+				return a, nil
+			}
+			if err := a.world.CommandRaise(idx, altM); err != nil {
+				a.flash(err.Error())
+			}
+			return a, nil
+		})
+	k.stamp, k.stamped = a.currentAskContext(), true
+}
+
+// askStopRaise raises the stop card for the active vessel's raise.
+func (a *App) askStopRaise(name string) {
+	idx := a.world.ActiveCraftIdx
+	k := a.raiseCard(cardStopRaise, screens.NewCard(a.screensTheme(), "Stop the raise?", name+" coasts where it is",
+		[]screens.CardRow{yesRow("stop"), outRow("keep climbing")}, 0),
+		func(a *App, id string) (tea.Model, tea.Cmd) {
+			if id == rowYes {
+				a.world.StopRaise(idx)
+			}
+			return a, nil
+		})
+	k.stamp, k.stamped = a.currentAskContext(), true
 }
 
 // askQuickload raises the F9 card: a load discards everything since the last
@@ -2988,6 +3101,9 @@ func (a *App) capturingText() bool {
 	// omission (a new interactive surface never added here let the boss
 	// key fire mid-edit).
 	if a.orbitView.RendezvousPickerOpen() {
+		return true
+	}
+	if a.altBox.CapturingText() {
 		return true
 	}
 	switch a.active {
@@ -3938,6 +4054,8 @@ func (a *App) View() string {
 			base = a.flightUnderCard()
 		}
 		base = a.cardOver(base, a.card.Render(), screens.CardW)
+	} else if a.altBox.CapturingText() {
+		base = a.cardOver(base, a.altBox.Render(), screens.CardW)
 	} else if c := a.screenCard(); c != nil {
 		// A screen's own ask (the roster's, ADR 0054) is composited the same
 		// way, over the screen's own rendering.
@@ -4378,4 +4496,9 @@ func (a *App) doRefinePlan() {
 		a.flash(fmt.Sprintf("refined — correction %.1f m/s, arrival %.1f m/s", corr, arr))
 	}
 	a.world.RecordAction(missions.ActionRefinePlan) // ADR 0025 §7
+}
+
+// orbitalSemiMajor is craft c's semi-major axis about its primary, metres.
+func orbitalSemiMajor(c *spacecraft.Spacecraft) float64 {
+	return orbital.ElementsFromState(c.State.R, c.State.V, c.Primary.GravitationalParameter()).A
 }

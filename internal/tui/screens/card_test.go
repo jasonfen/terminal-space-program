@@ -291,3 +291,14 @@ func TestCardSetCursorPointsTheArrow(t *testing.T) {
 		t.Errorf("enter on row b = (%d,%v), want the confirm step", row, done)
 	}
 }
+
+// A "\n" in the note is a deliberate line break (the raise card's cost on one
+// line, its duration and thrust on the next); without it the greedy wrap
+// leaves "0.17 N" orphaned on a line of its own.
+func TestCardNoteHonoursAnExplicitBreak(t *testing.T) {
+	c := NewCard(sessionTheme(), "Raise Starlink-7 to 550 km?", "147 m/s · 5.0 kg argon\n8d01h at 0.17 N", testRows(), 0)
+	got := c.noteLines()
+	if len(got) != 2 || got[0] != "147 m/s · 5.0 kg argon" || got[1] != "8d01h at 0.17 N" {
+		t.Errorf("noteLines = %q", got)
+	}
+}

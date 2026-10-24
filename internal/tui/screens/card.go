@@ -177,7 +177,10 @@ func (c *Card) Letter(s string) (row int, done, ok bool) {
 
 // noteLines is the note wrapped to the card, at most two lines.
 func (c *Card) noteLines() []string {
-	ls := wrapText(c.note, cardNoteW)
+	var ls []string
+	for _, para := range strings.Split(c.note, "\n") { // a "\n" is a deliberate break
+		ls = append(ls, wrapText(para, cardNoteW)...)
+	}
 	if len(ls) > 2 {
 		ls = ls[:2]
 	}
