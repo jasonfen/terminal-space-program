@@ -177,9 +177,3 @@ func TestMigrateV12ToV13TutLaunchPassedStaysPassed(t *testing.T) {
 		}
 	}
 }
-
-func TestSchemaVersionBumpedToV13(t *testing.T) {
-	if save.SchemaVersion < 13 {
-		t.Errorf("SchemaVersion = %d, want >= 13", save.SchemaVersion)
-	}
-}

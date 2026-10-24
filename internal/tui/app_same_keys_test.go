@@ -360,19 +360,6 @@ func TestTransposeAsksBeforeActing(t *testing.T) {
 	}
 }
 
-// TestTransposeRefusesBeforeAsking: a stack that is not transpose-ready is
-// refused first; no ask is raised for a verb that would refuse anyway.
-func TestTransposeRefusesBeforeAsking(t *testing.T) {
-	a, _ := padApp(t) // Saturn V on the pad, not [Descent Ascent SM CM]
-	a.Update(keyRunes("D"))
-	if a.card != nil || strings.Contains(a.View(), "[y/n]") {
-		t.Error("D asked about a transpose that would refuse")
-	}
-	if !strings.Contains(a.statusMsg, "transpose:") {
-		t.Errorf("D gave no refusal, statusMsg = %q", a.statusMsg)
-	}
-}
-
 func deployApp(t *testing.T) (*App, *spacecraft.Spacecraft) {
 	t.Helper()
 	testStateDirs(t)
@@ -419,15 +406,24 @@ func TestDeployAsksBeforeActing(t *testing.T) {
 	}
 }
 
-// TestDeployRefusesBeforeAsking: a vessel with no payload is refused first.
-func TestDeployRefusesBeforeAsking(t *testing.T) {
-	a, _ := padApp(t)
-	a.Update(keyRunes("Y"))
-	if a.card != nil || strings.Contains(a.View(), "[y/n]") {
-		t.Error("Y asked about a deploy that would refuse")
-	}
-	if !strings.Contains(a.statusMsg, "deploy:") {
-		t.Errorf("Y gave no refusal, statusMsg = %q", a.statusMsg)
+// TestVerbRefusesBeforeAsking: a verb that would refuse is refused first;
+// no ask is raised. Deploy with no payload; transpose on a stack that is
+// not transpose-ready (Saturn V on the pad, not [Descent Ascent SM CM]).
+func TestVerbRefusesBeforeAsking(t *testing.T) {
+	for _, c := range []struct{ name, key, refusal string }{
+		{"deploy", "Y", "deploy:"},
+		{"transpose", "D", "transpose:"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			a, _ := padApp(t)
+			a.Update(keyRunes(c.key))
+			if a.card != nil || strings.Contains(a.View(), "[y/n]") {
+				t.Errorf("%s asked about a %s that would refuse", c.key, c.name)
+			}
+			if !strings.Contains(a.statusMsg, c.refusal) {
+				t.Errorf("%s gave no refusal, statusMsg = %q", c.key, a.statusMsg)
+			}
+		})
 	}
 }
 

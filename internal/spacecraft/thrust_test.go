@@ -254,7 +254,7 @@ func TestThrustAccelFnAtWithTargetAppliesPitchBeforeHeading(t *testing.T) {
 	natural := vSurf.Scale(1 / vSurf.Norm())
 
 	want := ApplyTrims(natural, r, spinAxis, sc.PitchTrim, sc.HeadingTrim)
-	headingFirst := ApplyPitchTrim(ApplyHeadingTrim(natural, r, spinAxis, sc.HeadingTrim), r, spinAxis, sc.PitchTrim)
+	headingFirst := pitchAboutNorth(ApplyHeadingTrim(natural, r, spinAxis, sc.HeadingTrim), r, spinAxis, sc.PitchTrim)
 	if want.Sub(headingFirst).Norm() < 1e-6 {
 		t.Fatalf("test setup doesn't distinguish order: ApplyTrims %+v ~= heading-then-pitch-about-north %+v", want, headingFirst)
 	}

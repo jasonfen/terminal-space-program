@@ -21,42 +21,15 @@ func testEarth() bodies.CelestialBody {
 	}
 }
 
-// TestApplyPitchTrimZeroIsNoop — zero trim returns dir unchanged.
-func TestApplyPitchTrimZeroIsNoop(t *testing.T) {
-	r := orbital.Vec3{X: 6.371e6}
-	dir := orbital.Vec3{X: 1}
-	got := ApplyPitchTrim(dir, r, orbital.Vec3{Z: 1}, 0)
-	if got != dir {
-		t.Errorf("zero trim altered dir: got %+v, want %+v", got, dir)
+// pitchAboutNorth is the review's WRONG pitch order (rotate about local
+// north, after the heading steer), kept only so the order guards below can
+// prove their inputs distinguish it from ApplyTrims.
+func pitchAboutNorth(dir, r, spinAxis orbital.Vec3, pitchRad float64) orbital.Vec3 {
+	east, up, _, ok := localHorizonFrame(r, spinAxis)
+	if !ok || pitchRad == 0 {
+		return dir
 	}
-}
-
-// TestApplyPitchTrimEastTiltsRadialEast — at the equator on +X,
-// trimming +90° east should rotate radial+ (X-axis) to point along
-// east (+Y axis). Confirms the rotation direction convention.
-func TestApplyPitchTrimEastTiltsRadialEast(t *testing.T) {
-	r := orbital.Vec3{X: 6.371e6}
-	radialOut := orbital.Vec3{X: 1}
-	got := ApplyPitchTrim(radialOut, r, orbital.Vec3{Z: 1}, math.Pi/2)
-	if math.Abs(got.X) > 1e-9 || math.Abs(got.Y-1) > 1e-9 || math.Abs(got.Z) > 1e-9 {
-		t.Errorf("90° east trim of radial+: got %+v, want (0, 1, 0)", got)
-	}
-}
-
-// TestApplyPitchTrimSmallEastBoost — at the equator, trimming +5°
-// east gives a vector mostly +X with a small +Y component.
-func TestApplyPitchTrimSmallEastBoost(t *testing.T) {
-	r := orbital.Vec3{X: 6.371e6}
-	radialOut := orbital.Vec3{X: 1}
-	got := ApplyPitchTrim(radialOut, r, orbital.Vec3{Z: 1}, 5*math.Pi/180)
-	wantX := math.Cos(5 * math.Pi / 180)
-	wantY := math.Sin(5 * math.Pi / 180)
-	if math.Abs(got.X-wantX) > 1e-9 {
-		t.Errorf("5° east trim: X = %.6f, want %.6f", got.X, wantX)
-	}
-	if math.Abs(got.Y-wantY) > 1e-9 {
-		t.Errorf("5° east trim: Y = %.6f, want %.6f", got.Y, wantY)
-	}
+	return leanAlong(dir, east, up, pitchRad)
 }
 
 // TestApplyHeadingTrimZeroIsNoop — zero offset (commanded heading ==
@@ -73,7 +46,7 @@ func TestApplyHeadingTrimZeroIsNoop(t *testing.T) {
 // TestApplyHeadingTrimPoleIsNoop pins the pole no-op ApplyHeadingTrim
 // inherits from the shared localHorizonFrame helper: at the pole (r
 // parallel to spinAxis) east is undefined, so the rotation silently
-// no-ops rather than dividing by zero, exactly like ApplyPitchTrim's
+// no-ops rather than dividing by zero, exactly like the pitch lean's
 // own pole guard.
 func TestApplyHeadingTrimPoleIsNoop(t *testing.T) {
 	r := orbital.Vec3{Z: 6.371e6} // north pole, parallel to spinAxis.
@@ -86,14 +59,14 @@ func TestApplyHeadingTrimPoleIsNoop(t *testing.T) {
 
 // TestApplyHeadingTrimNorthOffsetTiltsToNorth and its south mirror below
 // pin ApplyHeadingTrim's actual rotation direction, the same way
-// TestApplyPitchTrimEastTiltsRadialEast pins ApplyPitchTrim's. The
+// TestBurnDirectionAppliesPitchTrim pins the pitch lean's. The
 // inclination identity alone cannot: h_z = r×dir only picks up dir's
 // EASTWARD component (sin β), so cos i = sin β · cos φ is provably
 // insensitive to whether the north/south component rotates the right
 // way — heading 000° and 180° both land on i = 90° by that formula
 // regardless of which one a sign error swapped. At the equator on +X,
 // this frame's north resolves to +Z (matching
-// TestApplyPitchTrimEastTiltsRadialEast's frame); commanding due north
+// TestBurnDirectionAppliesPitchTrim's frame); commanding due north
 // (offset -90° from east) must rotate the natural east direction (+Y)
 // onto exactly +Z, not -Z.
 func TestApplyHeadingTrimNorthOffsetTiltsToNorth(t *testing.T) {
@@ -236,7 +209,9 @@ func TestBurnDirectionAppliesPitchTrim(t *testing.T) {
 	s.State.V = v
 	s.PitchTrim = 5 * math.Pi / 180
 	got := s.BurnDirection(BurnRadialOut)
-	want := ApplyPitchTrim(orbital.Vec3{X: 1}, r, orbital.Vec3{Z: 1}, 5*math.Pi/180)
+	// At the equator on +X, +5 deg east leans radial+ (X) toward east (+Y):
+	// (cos 5, sin 5, 0). Analytic, so the oracle is not the code under test.
+	want := orbital.Vec3{X: math.Cos(5 * math.Pi / 180), Y: math.Sin(5 * math.Pi / 180)}
 	if math.Abs(got.X-want.X) > 1e-9 || math.Abs(got.Y-want.Y) > 1e-9 || math.Abs(got.Z-want.Z) > 1e-9 {
 		t.Errorf("pitch trim on radial+: got %+v, want %+v", got, want)
 	}
@@ -268,7 +243,7 @@ func TestBurnDirectionAppliesPitchBeforeHeading(t *testing.T) {
 
 	got := s.BurnDirection(BurnSurfacePrograde)
 
-	headingFirst := ApplyPitchTrim(ApplyHeadingTrim(natural, r, spinAxis, s.HeadingTrim), r, spinAxis, s.PitchTrim)
+	headingFirst := pitchAboutNorth(ApplyHeadingTrim(natural, r, spinAxis, s.HeadingTrim), r, spinAxis, s.PitchTrim)
 	want := ApplyTrims(natural, r, spinAxis, s.PitchTrim, s.HeadingTrim)
 
 	if got.Sub(want).Norm() > 1e-9 {

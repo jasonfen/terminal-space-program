@@ -1,7 +1,7 @@
 // Package sim — tests for the integrated stop-burn forecast (issue
 // #377): PredictPoweredStop, PredictBurnAt, and DeriveMarginState. See
-// descent_test.go for the ballistic-forecast (PredictImpact) and
-// ComputeBurnMargin arithmetic tests this file complements.
+// descent_test.go for the ballistic-forecast (PredictImpact) tests this
+// file complements.
 
 package sim
 
@@ -154,8 +154,8 @@ func TestPredictPoweredStopMatchesAnalyticConstantGCase(t *testing.T) {
 // 1600 m/s of HORIZONTAL speed plus a mundane 41 m/s vertical descent
 // rate at 100 km altitude.
 //
-// BEFORE (today's frozen-scalar ComputeBurnMargin, which only ever sees
-// the VERTICAL descent rate): the ratio is enormous — the model has no
+// BEFORE (the old frozen-scalar estimate, which only ever saw the
+// VERTICAL descent rate): the ratio is enormous — the model has no
 // idea 1.6 km/s of horizontal speed exists at all, so it reads
 // comfortably OK.
 //
@@ -204,18 +204,16 @@ func TestPredictPoweredStopLunaHorizontalRegression(t *testing.T) {
 	c.State.V = orbital.Vec3{X: -vertMps, Y: horizMps}
 	c.State.M = c.TotalMass()
 
-	// BEFORE: the frozen-scalar model, fed only the vertical rate — the
-	// exact call DescentCorridorFor used to make (pre-#377).
-	before := ComputeBurnMargin(c.Thrust, c.TotalMass(), moonG, vertMps, altM, c.RemainingDeltaV())
-	if before.State != MarginOK {
-		t.Fatalf("setup: want the OLD model to call this comfortably OK (that's the point of the regression), got State=%v Ratio=%.2f",
-			before.State, before.Ratio)
+	// BEFORE: the old frozen-scalar estimate, a_net / (v^2/2h) on the
+	// VERTICAL rate only (the call DescentCorridorFor made pre-#377),
+	// computed inline now that the function is gone. It must read
+	// comfortably OK (ratio >= 5), blind to the horizontal speed.
+	netAccel := c.Thrust/c.TotalMass() - moonG
+	before := netAccel / (vertMps * vertMps / (2 * altM))
+	if before < 5 {
+		t.Fatalf("setup: want the OLD vertical-only model's ratio to read comfortably OK (>=5), got %.2f, scenario isn't dramatic enough", before)
 	}
-	if before.Ratio < 5 {
-		t.Fatalf("setup: want the OLD model's ratio to read \"comfortably\" OK (≥5), got %.2f — scenario isn't dramatic enough", before.Ratio)
-	}
-	t.Logf("BEFORE (frozen-scalar, vertical-only): Ratio=%.2f State=%v — comfortably OK, blind to the %.0f m/s horizontal component",
-		before.Ratio, before.State, horizMps)
+	t.Logf("BEFORE (frozen-scalar, vertical-only): Ratio=%.2f, blind to the %.0f m/s horizontal component", before, horizMps)
 
 	// AFTER: integrate the real burn.
 	after, ok := PredictPoweredStop(c, DescentPredictHorizon)

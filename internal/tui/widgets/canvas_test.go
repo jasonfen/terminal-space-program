@@ -4,6 +4,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -284,11 +285,17 @@ func TestRingOutlineHugeRadiusDoesNotHang(t *testing.T) {
 	c.SetScale(1)
 	c.Center(orbital.Vec3{})
 	c.Clear()
-	c.RingColoredOutline(orbital.Vec3{}, 1_000_000, lipgloss.Color("#FF0000"))
-	// If we get here, the cap held. Without it the test would never
-	// finish (or OOM the map). Sanity: at least one pixel got tagged.
-	if c.pixelTags.count() == 0 {
-		t.Skip("ring entirely off-canvas — test setup issue, not a regression")
+	done := make(chan struct{})
+	go func() {
+		// 1e9 px radius: uncapped, 8e9 loop iterations. The ring is wholly
+		// off-canvas by design; the oracle is that the call returns.
+		c.RingColoredOutline(orbital.Vec3{}, 1_000_000_000, lipgloss.Color("#FF0000"))
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("RingColoredOutline with a 1e9 px radius did not return: the samples cap is gone")
 	}
 }
 

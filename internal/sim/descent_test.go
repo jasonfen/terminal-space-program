@@ -163,103 +163,6 @@ func TestPredictImpactNoneForStableOrbit(t *testing.T) {
 	}
 }
 
-// TestComputeBurnMarginThrustLimited pins the arithmetic on a seeded
-// scenario with round numbers:
-//
-//	F/m = 2000/1000 = 2 m/s²,  g = 1 m/s²  → a_net = 1 m/s²
-//	v = 20 m/s over h = 100 m  → a_req = 400/200 = 2 m/s²
-//	accel ratio = 1/2 = 0.50
-//	stop Δv     = 20 · 2/1 = 40 m/s, of 100 available → 2.50
-//
-// The thrust side is the smaller, so it binds — and at 0.50 the stack
-// cannot stop: the alarm state.
-func TestComputeBurnMarginThrustLimited(t *testing.T) {
-	m := ComputeBurnMargin(2000, 1000, 1, 20, 100, 100)
-	if m.Ratio != 0.5 {
-		t.Errorf("Ratio = %v, want 0.50", m.Ratio)
-	}
-	if m.Limiter != LimitThrust {
-		t.Errorf("Limiter = %v, want thrust", m.Limiter)
-	}
-	if m.State != MarginInsufficient {
-		t.Errorf("State = %v, want MarginInsufficient (ratio < 1)", m.State)
-	}
-	if m.NetAccelMps2 != 1 || m.ReqAccelMps2 != 2 || m.ReqDVMps != 40 {
-		t.Errorf("net=%v req=%v dv=%v, want 1 / 2 / 40", m.NetAccelMps2, m.ReqAccelMps2, m.ReqDVMps)
-	}
-}
-
-// TestComputeBurnMarginFuelLimited: same stack, half the descent rate,
-// so the acceleration side is comfortable (a_net 1 vs a_req 0.5 → 2.00)
-// but the 30 m/s of propellant left only just covers the 20 m/s stop
-// burn (30/20 = 1.50). The smaller ratio wins and names FUEL, and 1.50
-// sits exactly on the OK/TIGHT boundary — pinned here so the band edge
-// can't drift silently.
-func TestComputeBurnMarginFuelLimited(t *testing.T) {
-	m := ComputeBurnMargin(2000, 1000, 1, 10, 100, 30)
-	if m.Ratio != 1.5 {
-		t.Errorf("Ratio = %v, want 1.50", m.Ratio)
-	}
-	if m.Limiter != LimitFuel {
-		t.Errorf("Limiter = %v, want fuel", m.Limiter)
-	}
-	if m.State != MarginOK {
-		t.Errorf("State = %v, want MarginOK at exactly the 1.5 boundary", m.State)
-	}
-	if m.ReqDVMps != 20 {
-		t.Errorf("ReqDVMps = %v, want 20", m.ReqDVMps)
-	}
-}
-
-// TestComputeBurnMarginTightBand: between 1.0 and 1.5 the stop is
-// flyable but the reserve is thin — the middle rung of the alarm ladder.
-func TestComputeBurnMarginTightBand(t *testing.T) {
-	// a_net = 2 − 1 = 1; a_req = 100/200 = 0.5 → 2.00 on thrust.
-	// Δv: stop costs 10·2/1 = 20 m/s, of 25 available → 1.25 on fuel.
-	m := ComputeBurnMargin(2000, 1000, 1, 10, 100, 25)
-	if m.Ratio != 1.25 {
-		t.Errorf("Ratio = %v, want 1.25", m.Ratio)
-	}
-	if m.State != MarginTight {
-		t.Errorf("State = %v, want MarginTight in [1, 1.5)", m.State)
-	}
-}
-
-// TestComputeBurnMarginCannotHover: a stack that can't out-thrust local
-// gravity has no altitude at which the stop is flyable — ratio 0 and the
-// alarm, never a soothing large number from the propellant side.
-func TestComputeBurnMarginCannotHover(t *testing.T) {
-	m := ComputeBurnMargin(500, 1000, 1.6, 5, 10_000, 5000)
-	if m.Ratio != 0 {
-		t.Errorf("Ratio = %v, want 0 for a sub-hover TWR", m.Ratio)
-	}
-	if m.State != MarginInsufficient || m.Limiter != LimitThrust {
-		t.Errorf("State/Limiter = %v/%v, want insufficient/thrust", m.State, m.Limiter)
-	}
-	if !math.IsInf(m.ReqDVMps, 1) {
-		t.Errorf("ReqDVMps = %v, want +Inf (the stop can't be flown at all)", m.ReqDVMps)
-	}
-}
-
-// TestComputeBurnMarginUndefinedInputs: not descending / no altitude /
-// no mass yields MarginNone, so the readout can print an em dash rather
-// than a fabricated ratio.
-func TestComputeBurnMarginUndefinedInputs(t *testing.T) {
-	for _, c := range []struct {
-		name                                        string
-		thrust, mass, g, descent, altitude, availDV float64
-	}{
-		{"not descending", 2000, 1000, 1, 0, 100, 100},
-		{"on the ground", 2000, 1000, 1, 20, 0, 100},
-		{"no mass", 2000, 0, 1, 20, 100, 100},
-	} {
-		m := ComputeBurnMargin(c.thrust, c.mass, c.g, c.descent, c.altitude, c.availDV)
-		if m.State != MarginNone {
-			t.Errorf("%s: State = %v, want MarginNone", c.name, m.State)
-		}
-	}
-}
-
 // TestDescentCorridorForGating: the corridor is gated on the FORECAST,
 // not on a phase label — it stands up for a falling vessel that reaches
 // the ground inside the horizon, and stands down for one that is
@@ -311,7 +214,7 @@ func TestDescentCorridorForGating(t *testing.T) {
 // vessel falling fast with very little altitude left, thrust or not,
 // integrates to MarginInsufficient via DeriveMarginState — the state the
 // surface view paints red. Issue #377 moved the corridor's Margin off
-// ComputeBurnMargin's frozen scalars, so this now drives the alarm chain
+// the old frozen scalars, so this now drives the alarm chain
 // through PredictPoweredStop + DeriveMarginState directly rather than via
 // DescentCorridorFor (which no longer computes Margin at all — see its
 // doc comment).

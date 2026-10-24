@@ -194,30 +194,28 @@ func TestTutorialDefaultsOnChallengesDefaultOff(t *testing.T) {
 	}
 }
 
-func TestLoadMissingFileYieldsTutorialOn(t *testing.T) {
-	// An absent settings.json — the fresh-install case — must read as
-	// Flight School on, not just Default() in memory.
-	withConfigRoot(t, "")
-	got, warnings := Load()
-	if len(warnings) != 0 {
-		t.Fatalf("warnings = %v, want none", warnings)
-	}
-	if !got.TutorialOn() {
-		t.Error("Load() with no file: Tutorial should read ON")
-	}
-}
-
-func TestLegacyTutorialEnabledTrueStillOn(t *testing.T) {
-	// A pre-#425 on-disk file that explicitly recorded true (possible if
-	// hand-edited, or from a build where the field briefly round-tripped
-	// true) must still read on under the new pointer representation.
-	withConfigRoot(t, `{"tutorialEnabled": true}`)
-	got, warnings := Load()
-	if len(warnings) != 0 {
-		t.Fatalf("warnings = %v, want none", warnings)
-	}
-	if !got.TutorialOn() {
-		t.Error("legacy tutorialEnabled:true should still read ON")
+// TestLoadReadsTutorialOn: every on-disk state short of an explicit off
+// reads Flight School as ON.
+func TestLoadReadsTutorialOn(t *testing.T) {
+	for _, c := range []struct{ name, file string }{
+		// An absent settings.json — the fresh-install case — must read as
+		// Flight School on, not just Default() in memory.
+		{"missing file", ""},
+		// A pre-#425 file that explicitly recorded true (hand-edited, or
+		// from a build where the field briefly round-tripped true) must
+		// still read on under the new pointer representation.
+		{"legacy tutorialEnabled true", `{"tutorialEnabled": true}`},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			withConfigRoot(t, c.file)
+			got, warnings := Load()
+			if len(warnings) != 0 {
+				t.Fatalf("warnings = %v, want none", warnings)
+			}
+			if !got.TutorialOn() {
+				t.Error("Tutorial should read ON")
+			}
+		})
 	}
 }
 

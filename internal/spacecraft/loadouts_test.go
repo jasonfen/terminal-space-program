@@ -55,41 +55,79 @@ func TestNewFromLoadoutResolvedGolden(t *testing.T) {
 	}
 }
 
-// TestLoadoutsCatalogShape — every entry in LoadoutOrder must map
-// to a non-empty Loadouts entry, and each entry must have non-empty
-// ID / Name / Glyph / Color so the HUD render path can rely on them.
-func TestLoadoutsCatalogShape(t *testing.T) {
-	for _, id := range LoadoutOrder {
-		l, ok := Loadouts[id]
-		if !ok {
-			t.Errorf("LoadoutOrder references %q but Loadouts has no entry", id)
-			continue
-		}
-		if l.ID != id {
-			t.Errorf("loadout %q: ID field = %q, mismatched", id, l.ID)
-		}
-		if l.Name == "" || l.Glyph == "" || l.Color == "" {
-			t.Errorf("loadout %q: empty visual field — Name=%q Glyph=%q Color=%q",
-				id, l.Name, l.Glyph, l.Color)
-		}
-	}
-}
-
-// TestLoadoutsStagesHaveLaunchSprites — v0.11.3 Slice 4 parity: every
-// stage of every canonical loadout (S-IVB-1, ICPS, RCS-Tug, Lander,
-// Saturn-V, SLS, Falcon-9, Apollo-Stack) must carry a non-zero
-// LaunchSpriteRowsPx so the chase-cam launch view renders the
-// composed braille silhouette, not a single fallback glyph. Catalog-
-// side coverage lives in TestStageCatalogShape.
-func TestLoadoutsStagesHaveLaunchSprites(t *testing.T) {
-	for _, id := range LoadoutOrder {
-		l := Loadouts[id]
-		for i, s := range l.Stages {
-			if s.LaunchSpriteRowsPx <= 0 {
-				t.Errorf("loadout %q stage %d (%q): LaunchSpriteRowsPx = %d, want > 0",
-					id, i, s.Name, s.LaunchSpriteRowsPx)
+// TestCatalogShape: the catalog invariants every consumer relies on, one
+// sweep per row. A new loadout or part that lands in the embedded data
+// without one of these fields fails the row that names it.
+func TestCatalogShape(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		check func(t *testing.T)
+	}{
+		// Every LoadoutOrder entry maps to a Loadouts entry with non-empty
+		// ID / Name / Glyph / Color so the HUD render path can rely on them.
+		{"loadouts have id and visuals", func(t *testing.T) {
+			for _, id := range LoadoutOrder {
+				l, ok := Loadouts[id]
+				if !ok {
+					t.Errorf("LoadoutOrder references %q but Loadouts has no entry", id)
+					continue
+				}
+				if l.ID != id {
+					t.Errorf("loadout %q: ID field = %q, mismatched", id, l.ID)
+				}
+				if l.Name == "" || l.Glyph == "" || l.Color == "" {
+					t.Errorf("loadout %q: empty visual field: Name=%q Glyph=%q Color=%q",
+						id, l.Name, l.Glyph, l.Color)
+				}
 			}
-		}
+		}},
+		// ADR 0031 / S8: the spawn-form CRAFT TYPE picker groups by
+		// Category; a blank one silently drops a loadout into "Other".
+		{"loadouts have a category", func(t *testing.T) {
+			for _, id := range LoadoutOrder {
+				if Loadouts[id].Category == "" {
+					t.Errorf("loadout %q has no category (data/loadouts.json)", id)
+				}
+			}
+		}},
+		// v0.11.3 Slice 4: every stage of every loadout carries a non-zero
+		// LaunchSpriteRowsPx so the chase-cam renders the composed braille
+		// silhouette, not a single fallback glyph.
+		{"loadout stages have launch sprites", func(t *testing.T) {
+			for _, id := range LoadoutOrder {
+				for i, s := range Loadouts[id].Stages {
+					if s.LaunchSpriteRowsPx <= 0 {
+						t.Errorf("loadout %q stage %d (%q): LaunchSpriteRowsPx = %d, want > 0",
+							id, i, s.Name, s.LaunchSpriteRowsPx)
+					}
+				}
+			}
+		}},
+		// v0.11.5 sub-scope 4: every catalog stage with Thrust > 0 carries
+		// a FuelType so a new stage can't ship without its flame colour.
+		// The pure-monoprop RCS Tug (no main engine) is the exception.
+		{"engine-bearing parts have a fuel type", func(t *testing.T) {
+			for id, m := range StageCatalog {
+				if m.thrust > 0 && m.fuelType == "" {
+					t.Errorf("catalog stage %q has Thrust=%v but no FuelType set", id, m.thrust)
+				}
+			}
+		}},
+		// ADR 0056 S2: the VAB palette groups parts by tier, so every part
+		// in the real catalog needs one of the five.
+		{"parts have a tier", func(t *testing.T) {
+			ok := map[string]bool{"booster": true, "sustainer": true, "transfer": true, "payload": true, "tug": true}
+			if len(StageCatalog) < 50 {
+				t.Fatalf("catalog has %d parts, the real one did not load", len(StageCatalog))
+			}
+			for id, m := range StageCatalog {
+				if !ok[m.Tier] {
+					t.Errorf("part %q has tier %q, want one of booster/sustainer/transfer/payload/tug", id, m.Tier)
+				}
+			}
+		}},
+	} {
+		t.Run(c.name, c.check)
 	}
 }
 

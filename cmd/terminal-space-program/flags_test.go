@@ -195,45 +195,33 @@ func TestStartAltitudeClampNoteReportsLower(t *testing.T) {
 	}
 }
 
-// TestStartAltitudeClampNoteEmptyForInBand — the common case: a
-// requested altitude already inside the band reports nothing.
-func TestStartAltitudeClampNoteEmptyForInBand(t *testing.T) {
+// TestStartAltitudeClampNoteEmpty: every case that must report nothing.
+func TestStartAltitudeClampNoteEmpty(t *testing.T) {
 	systems := loadFlagsTestCatalog(t)
-	s := &sim.StartScenario{BodyID: "earth", AltitudeM: 400_000}
-	if note := startAltitudeClampNote(systems, s); note != "" {
-		t.Errorf("note = %q, want empty (in-band altitude)", note)
-	}
-}
-
-// TestStartAltitudeClampNoteEmptyForSurface — a surface (launchpad)
-// scenario never clamps; the helper must not even try to resolve a body
-// for it.
-func TestStartAltitudeClampNoteEmptyForSurface(t *testing.T) {
-	systems := loadFlagsTestCatalog(t)
-	s := &sim.StartScenario{BodyID: "earth", Surface: true}
-	if note := startAltitudeClampNote(systems, s); note != "" {
-		t.Errorf("note = %q, want empty (surface scenario)", note)
-	}
-}
-
-// TestStartAltitudeClampNoteEmptyForEmptyBand — "--orbit phobos" must not
-// print a garbled "altitude <note>" line here; SpawnCraft's own refusal
-// (surfaced through ApplyStartScenario -> tui.New -> main's normal error
-// path) is the single message this scenario should ever produce.
-func TestStartAltitudeClampNoteEmptyForEmptyBand(t *testing.T) {
-	systems := loadFlagsTestCatalog(t)
-	s := &sim.StartScenario{BodyID: "phobos", AltitudeM: 50_000}
-	if note := startAltitudeClampNote(systems, s); note != "" {
-		t.Errorf("note = %q, want empty (Empty band is a refusal, not a report-here move)", note)
-	}
-}
-
-// TestStartAltitudeClampNoteEmptyForNilScenario — the default-start path
-// (no scenario flags) must not panic or resolve anything.
-func TestStartAltitudeClampNoteEmptyForNilScenario(t *testing.T) {
-	systems := loadFlagsTestCatalog(t)
-	if note := startAltitudeClampNote(systems, nil); note != "" {
-		t.Errorf("note = %q, want empty (nil scenario)", note)
+	for _, c := range []struct {
+		name string
+		s    *sim.StartScenario
+	}{
+		// The common case: a requested altitude already inside the band.
+		{"in band", &sim.StartScenario{BodyID: "earth", AltitudeM: 400_000}},
+		// A surface (launchpad) scenario never clamps; the helper must not
+		// even try to resolve a body for it.
+		{"surface", &sim.StartScenario{BodyID: "earth", Surface: true}},
+		// "--orbit phobos" must not print a garbled "altitude <note>" line:
+		// SpawnCraft's own refusal (surfaced through ApplyStartScenario ->
+		// tui.New -> main's normal error path) is the single message this
+		// scenario should ever produce. Empty band is a refusal, not a
+		// report-here move.
+		{"empty band", &sim.StartScenario{BodyID: "phobos", AltitudeM: 50_000}},
+		// The default-start path (no scenario flags) must not panic or
+		// resolve anything.
+		{"nil scenario", nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if note := startAltitudeClampNote(systems, c.s); note != "" {
+				t.Errorf("note = %q, want empty", note)
+			}
+		})
 	}
 }
 
