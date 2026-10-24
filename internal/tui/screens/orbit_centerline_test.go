@@ -698,3 +698,19 @@ func TestCenterlineClampKeepsLeanDirectionInsideWindow(t *testing.T) {
 		})
 	}
 }
+
+// F2 declutter hides the scope with the navball and the chips, and it comes
+// back when declutter clears (v0.60.0 batch review F1).
+func TestCenterlineHidesUnderDeclutter(t *testing.T) {
+	w := ringWorld(t, 1, 0.6, 0)
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(DesignWidth, DesignHeight)
+	v.SetDeclutter(true)
+	if out := ansi.Strip(v.Render(w, 0, DesignWidth, DesignHeight)); strings.Contains(out, "CENTERLINE") {
+		t.Error("scope drawn while F2 declutter is on")
+	}
+	v.SetDeclutter(false)
+	if out := ansi.Strip(v.Render(w, 0, DesignWidth, DesignHeight)); !strings.Contains(out, "CENTERLINE") {
+		t.Error("scope missing after declutter cleared")
+	}
+}
