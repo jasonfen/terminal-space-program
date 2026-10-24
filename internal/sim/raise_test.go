@@ -340,3 +340,49 @@ func TestWaitingRaiseStartsAtStartAt(t *testing.T) {
 		t.Error("StopRaise with no order returned true")
 	}
 }
+
+// RaiseRefusal is CommandRaise's checks with no order: the same text for every
+// refusal, nothing set on success. RaisePlan is the arithmetic the card prints:
+// 290 to 550 km is 146.7 m/s, 5.0 kg and 695,4xx s (8d01h). The ADR's 8d 02h
+// divided the rounded 147 m/s; S4's 697,5xx s held the starting mass; the
+// mass falls 5 kg of 808 over the climb, so the run takes 0.3% less.
+func TestRaiseRefusalAndPlan(t *testing.T) {
+	w, c := raiseSat(t, 290e3)
+	if err := w.RaiseRefusal(0, 550e3); err != nil || c.Raise != nil {
+		t.Fatalf("RaiseRefusal = %v, order %+v: it must refuse nothing and set nothing", err, c.Raise)
+	}
+	for _, alt := range []float64{50e3, 550e3} {
+		w2, c2 := raiseSat(t, 290e3)
+		if alt == 550e3 {
+			c2.Thrust = 1e6 // chemical
+		}
+		want := w2.RaiseRefusal(0, alt)
+		got := w2.CommandRaise(0, alt)
+		if (want == nil) != (got == nil) || (want != nil && want.Error() != got.Error()) {
+			t.Errorf("alt %.0f: RaiseRefusal %v, CommandRaise %v", alt, want, got)
+		}
+		if want != nil && c2.Raise != nil {
+			t.Errorf("alt %.0f: a refused order left %+v", alt, c2.Raise)
+		}
+	}
+	dv, kg, dur := RaisePlan(c, 550e3)
+	if math.Abs(dv-146.7) > 0.1 || math.Abs(kg-5.04) > 0.05 || dur.Seconds() < 695000 || dur.Seconds() > 696000 {
+		t.Errorf("RaisePlan = %.1f m/s, %.2f kg, %.0f s", dv, kg, dur.Seconds())
+	}
+	// The card must agree with the run: the same argon, and the finish within
+	// the one 5,000 s tick the top warp steps by.
+	fuel0 := c.ActiveStageFuel()
+	if err := w.CommandRaise(0, 550e3); err != nil {
+		t.Fatal(err)
+	}
+	ticks := runRaise(t, w, c)
+	if used := fuel0 - c.ActiveStageFuel(); math.Abs(used-kg) > 0.01 {
+		t.Errorf("run burned %.3f kg, the plan said %.3f", used, kg)
+	}
+	if got := float64(ticks) * 5000; math.Abs(got-dur.Seconds()) > 5000 {
+		t.Errorf("run took %v s (%d ticks), the plan said %.0f", got, ticks, dur.Seconds())
+	}
+	if dvL, kgL, durL := RaisePlan(c, 200e3); dvL <= 0 || kgL <= 0 || durL <= 0 {
+		t.Errorf("a lowering costs too: %.1f m/s %.2f kg %v", dvL, kgL, durL)
+	}
+}

@@ -398,6 +398,17 @@ func engineWorstCaseFixtures(t *testing.T) []vabStagesFixture {
 			add(fmt.Sprintf("braking descent from %.0f m with a queue", alt), v.buildEngineBox(bw))
 		}
 	}
+	// ADR 0059 S5: the raise branch at its widest: the longest altitudes
+	// (geosynchronous, five digits), the longest countdown a Hall thruster
+	// gives (a lowering from there, three-digit days), waiting and climbing.
+	for _, tc := range []struct{ from, to float64 }{{412e3, 550e3}, {35786e3, 400e3}, {400e3, 35786e3}, {35786e3, 35786e3 + 1000e3}} {
+		rw := starlinkEngineWorld(t, tc.from)
+		rc := rw.ActiveCraft()
+		rc.Raise = &spacecraft.RaiseOrder{TargetAltM: tc.to, StartAt: rw.Clock.SimTime, Started: true}
+		add(fmt.Sprintf("raise %.0f to %.0f", tc.from, tc.to), v.buildEngineBox(rw))
+		rc.Raise = &spacecraft.RaiseOrder{TargetAltM: tc.to, StartAt: rw.Clock.SimTime.Add(365*24*time.Hour + 23*time.Hour)}
+		add(fmt.Sprintf("raise %.0f to %.0f waiting", tc.from, tc.to), v.buildEngineBox(rw))
+	}
 	// Extreme braking readouts through the same format (the fixtures only
 	// reach a few of them).
 	for _, tc := range []struct{ alt, sec float64 }{{4000, 300}, {999999, 360000}} {
@@ -414,14 +425,14 @@ func TestEngineWorstCaseFixturesReachEveryBranch(t *testing.T) {
 	joined := map[string]bool{}
 	for _, r := range engineWorstCaseFixtures(t) {
 		for _, l := range r.lines {
-			for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "braking burn", "+10 [m]", "⚠", "Surf ", "Tgt "} {
+			for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "braking burn", "+10 [m]", "⚠", "Surf ", "Tgt ", "▸ raise", "▸ lower", "starts in", "● RAISE"} {
 				if strings.Contains(l, want) {
 					joined[want] = true
 				}
 			}
 		}
 	}
-	for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "braking burn", "+10 [m]", "⚠", "Surf ", "Tgt "} {
+	for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "braking burn", "+10 [m]", "⚠", "Surf ", "Tgt ", "▸ raise", "▸ lower", "starts in", "● RAISE"} {
 		if !joined[want] {
 			t.Errorf("worst-case ENGINE fixtures never rendered %q", want)
 		}

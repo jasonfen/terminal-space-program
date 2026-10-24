@@ -59,6 +59,11 @@ func helpPhraseRows() []helpPhrase {
 		{name: "heading trim both directions", section: "MANUAL FLIGHT", token: "↑ / ↓", before: "north", after: "south"},
 		{name: "nav mode skip rule", token: ";", hasFold: []string{"skip"}},
 		{name: "U releases a batch in a fan, refused near the velocity", section: "VESSEL", token: "U (batch)", has: []string{"fan", "10°", "[q]"}},
+		// ADR 0059 decision 12: L orders an orbit altitude; a raise neither caps warp nor is chased by G.
+		{name: "L orders an orbit altitude, asks, again stops", section: "VESSEL", token: "L", has: []string{"altitude", "any warp", "asks first", "stop"}},
+		{name: "a raise never caps warp", section: "TIME & WARP", token: "warp caps", has: []string{"a raise never caps"}},
+		{name: "G chases burns, not a raise", token: "G", section: "TIME & WARP", has: []string{"not a raise"}},
+		{name: "glossary names raise / lower", section: "READOUT GLOSSARY", token: "raise / lower", has: []string{"node row", "T-", "RAISE"}},
 		{name: "E ends a crashed flight", token: "E", anyFold: []string{"end flight", "crashed"}},
 		// ADR 0051: F2 hides all eight boxes and the navball.
 		{name: "F2 declutter", token: "F2", has: []string{"instrument boxes", "navball", "Centerline scope", "ENGINE", "PROPELLANT"}, not: []string{"core column", "chips"}},
@@ -254,7 +259,7 @@ func TestHelpSectionOrder(t *testing.T) {
 // retired `dir` in favour of `pro / retro` (same row, new token) and
 // added two: the frame-spelling entry and the `rcs` line ADR 0049's own
 // decision-6 comment always meant to include, for 19. G8 Q3 (#507) added
-// `heading: / hdg` (commanded vs measured), for 20, and #592 added the navball's `[MAN] / [AUT]` and `RCS` tags, for 22, and #600 the STAGES pips, for 23, and the amber hold frame word, for 24, and ADR 0057 S4 the `cargo / hold` row, for 25, and ADR 0058 S5 the `boosters / core` row, for 26. Tightened from
+// `heading: / hdg` (commanded vs measured), for 20, and #592 added the navball's `[MAN] / [AUT]` and `RCS` tags, for 22, and #600 the STAGES pips, for 23, and the amber hold frame word, for 24, and ADR 0057 S4 the `cargo / hold` row, for 25, and ADR 0058 S5 the `boosters / core` row, for 26, and ADR 0059 S5 the `raise / lower` row, for 27. Tightened from
 // the original loose "at least 7" bound to an exact count so a stray
 // addition or removal is caught rather than silently absorbed.
 func TestHelpGlossarySection(t *testing.T) {
@@ -262,7 +267,7 @@ func TestHelpGlossarySection(t *testing.T) {
 		if s.header != "READOUT GLOSSARY" {
 			continue
 		}
-		const want = 26
+		const want = 27
 		if len(s.rows) != want {
 			t.Errorf("READOUT GLOSSARY has %d rows, want exactly %d", len(s.rows), want)
 		}

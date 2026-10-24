@@ -653,3 +653,177 @@ func TestReleaseBatchRefusesAlongTheVelocity(t *testing.T) {
 		t.Errorf("flash = %q", a.statusMsg)
 	}
 }
+
+// starlinkApp is a 140x40 App whose active vessel is a lone Starlink (0.17 N
+// argon Hall thruster, 20 kg of argon) on a circular equatorial orbit at altM,
+// with a network link, named Starlink-7.
+func starlinkApp(t *testing.T, altM float64) (*App, *spacecraft.Spacecraft) {
+	t.Helper()
+	a, c := batchApp(t, 90)
+	c.Stages = []spacecraft.Stage{spacecraft.NewFromLoadout("Falcon-9-Starlink-24").Stages[2]}
+	c.Name, c.DockedComponents, c.Nodes = "Starlink-7", nil, nil
+	c.SyncFields()
+	r := c.Primary.RadiusMeters() + altM
+	c.State.R = orbital.Vec3{X: r}
+	c.State.V = orbital.Vec3{Y: math.Sqrt(c.Primary.GravitationalParameter() / r)}
+	c.State.M = c.TotalMass()
+	a.world.Crafts = []*spacecraft.Spacecraft{c}
+	a.world.EnsureCraftIDs()
+	a.world.SetActiveCraftIdx(0)
+	a.world.CommGraph = &sim.CommGraph{Connected: map[uint64]bool{c.ID: true}}
+	a.View()
+	return a, c
+}
+
+// typeAltitude presses L, types s into the box, and presses enter.
+func typeAltitude(a *App, s string) {
+	a.Update(keyRunes("L"))
+	for i := 0; i < 12; i++ { // clear the default
+		a.Update(keyType(tea.KeyBackspace))
+	}
+	for _, r := range s {
+		a.Update(keyRunes(string(r)))
+	}
+	a.Update(keyType(tea.KeyEnter))
+}
+
+// L opens the altitude box; enter on a number asks with the computed cost; two
+// y orders the raise. The 290 km fixture's 147 m/s and 5.0 kg are the ADR's;
+// the time is 697,5xx s (8d01h), not the ADR's 8d 02h, which divided the
+// rounded 147 m/s (S4 log).
+func TestLRaiseBoxThenCardThenOrder(t *testing.T) {
+	a, c := starlinkApp(t, 290e3)
+	a.Update(keyRunes("L"))
+	if !a.altBox.CapturingText() || !a.capturingText() {
+		t.Fatal("L did not open the altitude box as a free-text surface")
+	}
+	if view := a.View(); !strings.Contains(view, "raise to:") || !strings.Contains(view, "290") {
+		t.Fatalf("box lacks its label or default:\n%s", view)
+	}
+	for i := 0; i < 12; i++ {
+		a.Update(keyType(tea.KeyBackspace))
+	}
+	for _, r := range "x5q50" { // letters are not an altitude
+		a.Update(keyRunes(string(r)))
+	}
+	if got := a.altBox.Value(); got != "550" {
+		t.Fatalf("box value = %q, want 550", got)
+	}
+	a.Update(keyType(tea.KeyEnter))
+	if a.altBox.CapturingText() || !cardKindUp(a, cardRaise) {
+		t.Fatal("enter did not swap the box for the raise card")
+	}
+	view := a.View()
+	for _, want := range []string{"Raise Starlink-7 to 550 km?", "147 m/s · 5.0 kg argon", "8d01h at 0.17 N", "raise", "cancel"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("raise card lacks %q:\n%s", want, view)
+		}
+	}
+	a.Update(keyType(tea.KeyEsc))
+	if c.Raise != nil || a.card != nil {
+		t.Fatal("esc left an order or a card behind")
+	}
+	typeAltitude(a, "550")
+	pressTwice(a, 'y')
+	if c.Raise == nil || c.Raise.TargetAltM != 550e3 || !c.Raise.Started {
+		t.Fatalf("y y did not order the raise: %+v", c.Raise)
+	}
+	// The next L opens at the altitude last typed, once the order is stopped.
+	c.Raise = nil
+	a.Update(keyRunes("L"))
+	if got := a.altBox.Value(); got != "550" {
+		t.Errorf("default = %q, want the last typed 550", got)
+	}
+}
+
+// A flight key typed into the box is text, not a flight key.
+func TestLRaiseBoxSwallowsFlightKeys(t *testing.T) {
+	a, c := starlinkApp(t, 290e3)
+	c.Throttle = 0.5
+	a.Update(keyRunes("L"))
+	a.Update(keyRunes("z"))
+	a.Update(keyRunes("x"))
+	if c.Throttle != 0.5 {
+		t.Errorf("z/x reached the throttle through the open box: %v", c.Throttle)
+	}
+	a.Update(keyType(tea.KeyEsc))
+	if a.altBox.CapturingText() || c.Raise != nil {
+		t.Fatal("esc did not close the box cleanly")
+	}
+}
+
+// L while a raise runs asks to stop; stop leaves the sat coasting where it is,
+// keep climbing leaves the order.
+func TestLWhileRaisingAsksToStop(t *testing.T) {
+	a, c := starlinkApp(t, 290e3)
+	if err := a.world.CommandRaise(0, 550e3); err != nil {
+		t.Fatal(err)
+	}
+	a.Update(keyRunes("L"))
+	if !cardKindUp(a, cardStopRaise) || a.altBox.CapturingText() {
+		t.Fatal("L on a climbing sat did not raise the stop card")
+	}
+	view := a.View()
+	for _, want := range []string{"Stop the raise?", "Starlink-7 coasts where it is", "stop", "keep climbing"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("stop card lacks %q:\n%s", want, view)
+		}
+	}
+	a.Update(keyType(tea.KeyEsc))
+	if c.Raise == nil {
+		t.Fatal("keep climbing dropped the order")
+	}
+	a.Update(keyRunes("L"))
+	pressTwice(a, 'y')
+	if c.Raise != nil {
+		t.Fatal("stop left the order")
+	}
+	if got := drainText(a.world); !strings.Contains(got, "Starlink-7: raise stopped at 290 km") {
+		t.Errorf("stop queued %q", got)
+	}
+}
+
+func drainText(w *sim.World) string {
+	var out []string
+	for _, e := range w.PendingRaiseEvents {
+		out = append(out, e.Text)
+	}
+	return strings.Join(out, " | ")
+}
+
+// A chemical vessel is refused before any box: the flash says why.
+func TestLRefusedOnAChemicalVessel(t *testing.T) {
+	a, c := starlinkApp(t, 290e3)
+	c.Stages = []spacecraft.Stage{spacecraft.NewFromLoadout("Falcon-9-Starlink-24").Stages[1]} // F9-S2
+	c.SyncFields()
+	a.Update(keyRunes("L"))
+	if a.altBox.CapturingText() || a.card != nil {
+		t.Fatal("L opened a box or a card on a chemical vessel")
+	}
+	if a.statusMsg != "raise: thrust too high for a spiral" {
+		t.Errorf("flash = %q", a.statusMsg)
+	}
+}
+
+// A refusal that depends on the typed altitude (inside the atmosphere) lands
+// after enter, with no card and no order.
+func TestLRefusesATargetInTheAtmosphere(t *testing.T) {
+	a, c := starlinkApp(t, 290e3)
+	typeAltitude(a, "50")
+	if a.card != nil || c.Raise != nil {
+		t.Fatal("a target inside the atmosphere asked or ordered")
+	}
+	if a.statusMsg != "raise: below the atmosphere" {
+		t.Errorf("flash = %q", a.statusMsg)
+	}
+}
+
+// The end-of-order flashes the sim queues reach the footer on the next tick.
+func TestRaiseEventsDrainToTheFlash(t *testing.T) {
+	a, c := starlinkApp(t, 290e3)
+	a.world.PendingRaiseEvents = []sim.RaiseEvent{{CraftName: c.Name, Text: "Starlink-7: raise complete, 550 km"}}
+	a.Update(sim.TickMsg{})
+	if !strings.Contains(a.statusMsg, "Starlink-7: raise complete, 550 km") || len(a.world.PendingRaiseEvents) != 0 {
+		t.Errorf("flash = %q, pending = %d", a.statusMsg, len(a.world.PendingRaiseEvents))
+	}
+}

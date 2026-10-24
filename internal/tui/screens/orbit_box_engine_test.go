@@ -9,6 +9,8 @@
 package screens
 
 import (
+	"fmt"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -16,9 +18,11 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // TestEngineBoxNodeRowDashWithNoCraftActivity: the pad, no node, no burn,
@@ -350,4 +354,98 @@ func TestEngineNodeRowOrangeWhileBurning(t *testing.T) {
 
 func (v *OrbitView) engineThrottleLabel(w *sim.World, c *spacecraft.Spacecraft) string {
 	return v.engineThrottleLabelAt(w, c, c.EffectiveThrottle())
+}
+
+// starlinkEngineWorld is a world whose active vessel is a lone Starlink (0.17
+// N argon Hall thruster) on a circular equatorial orbit at altM.
+func starlinkEngineWorld(t *testing.T, altM float64) *sim.World {
+	t.Helper()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := w.ActiveCraft()
+	c.Stages = []spacecraft.Stage{spacecraft.NewFromLoadout("Falcon-9-Starlink-24").Stages[2]}
+	c.Name, c.DockedComponents, c.Nodes, c.Landed = "Starlink-7", nil, nil, false
+	c.SyncFields()
+	r := c.Primary.RadiusMeters() + altM
+	c.State.R = orbital.Vec3{X: r}
+	c.State.V = orbital.Vec3{Y: math.Sqrt(c.Primary.GravitationalParameter() / r)}
+	c.State.M = c.TotalMass()
+	return w
+}
+
+// ADR 0059 decision 4 / guard 10: ENGINE's raise forms at the plain theme,
+// cell for cell. T- is (v now - v target) / a_T at the current mass; the
+// hand arithmetic is repeated below from the primary's constants so the pin
+// does not just echo the code.
+func TestEngineBoxRaiseForms(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w := starlinkEngineWorld(t, 412e3)
+	c := w.ActiveCraft()
+	node := func() string { return strings.TrimRight(v.buildEngineBox(w)[3], " ") }
+	title := func() string { return v.buildEngineBox(w)[0] }
+
+	if got, want := node(), "  node:     —"; got != want || title() != "ENGINE" {
+		t.Fatalf("before the order: node %q title %q", got, title())
+	}
+
+	// Hand arithmetic: dv = sqrt(mu/(R+412e3)) - sqrt(mu/(R+550e3)); aT = 0.17 / m.
+	mu, r := c.Primary.GravitationalParameter(), c.Primary.RadiusMeters()
+	dv := math.Sqrt(mu/(r+412e3)) - math.Sqrt(mu/(r+550e3))
+	secs := dv / (c.Thrust / c.TotalMass())
+	if secs < 4*86400 || secs > 12*86400 {
+		t.Fatalf("hand arithmetic out of range: %.0f s", secs)
+	}
+	wantT := fmt.Sprintf("T-%s", readout.Duration(time.Duration(secs*float64(time.Second))))
+
+	// Climbing.
+	c.Raise = &spacecraft.RaiseOrder{TargetAltM: 550e3, StartAt: w.Clock.SimTime, Started: true}
+	if got, want := node(), "  node:     ▸ raise → 550 km  now 412 km  "+wantT; got != want {
+		t.Errorf("climbing node = %q, want %q", got, want)
+	}
+	if got, want := title(), "ENGINE  ● RAISE"; got != want {
+		t.Errorf("title = %q, want %q", got, want)
+	}
+	if got := v.buildEngineBox(w)[1]; !strings.Contains(got, "throttle: 100%") || strings.Contains(got, "idle") || !strings.Contains(got, "mode:  main") {
+		t.Errorf("throttle row while climbing = %q", got)
+	}
+	if got := strings.TrimRight(v.buildEngineBox(w)[2], " "); got != "  TWR:      0.00" {
+		t.Errorf("TWR row = %q", got)
+	}
+
+	// Waiting for its slot.
+	c.Raise = &spacecraft.RaiseOrder{TargetAltM: 550e3, StartAt: w.Clock.SimTime.Add(4*time.Hour + 12*time.Minute)}
+	if got, want := node(), "  node:     ▸ raise → 550 km  starts in 4h12m"; got != want {
+		t.Errorf("waiting node = %q, want %q", got, want)
+	}
+	if got := v.buildEngineBox(w)[1]; !strings.Contains(got, "100% idle") {
+		t.Errorf("a waiting order is not thrusting, throttle row = %q", got)
+	}
+
+	// Lowering.
+	c.Raise = &spacecraft.RaiseOrder{TargetAltM: 200e3, StartAt: w.Clock.SimTime, Started: true}
+	if got := node(); !strings.HasPrefix(got, "  node:     ▸ lower → 200 km  now 412 km  T-") {
+		t.Errorf("lowering node = %q", got)
+	}
+
+	// Dash after completion: the order is gone.
+	c.Raise = nil
+	if got, want := node(), "  node:     —"; got != want || title() != "ENGINE" {
+		t.Errorf("after completion: node %q title %q", got, title())
+	}
+
+	// A raise is not a burn: the slate-wide badge stays off, and a second
+	// vessel's order never badges the active one.
+	c.Raise = &spacecraft.RaiseOrder{TargetAltM: 550e3, StartAt: w.Clock.SimTime, Started: true}
+	if strings.Contains(title(), "BURN") {
+		t.Errorf("a raise lit the burn badge: %q", title())
+	}
+	other := *c
+	other.Raise = nil
+	w.Crafts = append(w.Crafts, &other)
+	w.SetActiveCraftIdx(len(w.Crafts) - 1)
+	if got := title(); got != "ENGINE" {
+		t.Errorf("badge on a vessel with no order: %q", got)
+	}
 }
