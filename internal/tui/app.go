@@ -2333,6 +2333,8 @@ const (
 	cardReleaseBatch
 	cardRaise
 	cardStopRaise
+	cardSpread
+	cardStopSpread
 	cardQuickload
 )
 
@@ -2543,12 +2545,22 @@ func (a *App) startOrbitAltitude() {
 		a.flash("raise: no vessel")
 		return
 	}
-	if c.Raise != nil {
+	// A member still waiting on its scheduled order is offered "raise this one"
+	// instead; one that climbs (by hand or scheduled) asks to stop.
+	if o := c.Raise; o != nil && (o.Started || o.BatchID == 0) {
 		a.askStopRaise(c.Name)
 		return
 	}
+	if c.BatchLead {
+		if _, running := a.world.SpreadStatus(c.BatchID); running {
+			a.askStopSpread(c.BatchID)
+			return
+		}
+	}
 	now := (orbitalSemiMajor(c) - c.Primary.RadiusMeters()) / 1000
-	if err := a.world.RaiseRefusal(idx, now*1000); err != nil {
+	// The carrier is not a satellite: it only hosts the spread, so it is not
+	// asked whether it could climb itself.
+	if err := a.world.RaiseRefusal(idx, now*1000); err != nil && !c.BatchLead {
 		a.flash(err.Error())
 		return
 	}
@@ -2569,8 +2581,16 @@ func (a *App) handleAltBoxKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	idx, c := a.world.ActiveCraftIdx, a.world.ActiveCraft()
 	a.lastRaiseKm = altM / 1000
+	if c.BatchLead {
+		a.askSpread(c, altM)
+		return a, nil
+	}
 	if err := a.world.RaiseRefusal(idx, altM); err != nil {
 		a.flash(err.Error())
+		return a, nil
+	}
+	if c.BatchID != 0 && len(a.world.SpreadMembers(c.BatchID)) > 1 {
+		a.askSpread(c, altM)
 		return a, nil
 	}
 	a.askRaise(c, altM)
@@ -2599,6 +2619,64 @@ func (a *App) askRaise(c *spacecraft.Spacecraft, altM float64) {
 			}
 			if err := a.world.CommandRaise(idx, altM); err != nil {
 				a.flash(err.Error())
+			}
+			return a, nil
+		})
+	k.stamp, k.stamped = a.currentAskContext(), true
+}
+
+// askSpread raises the spread card (ADR 0059 decision 5) for the active
+// vessel's batch: the carrier's card offers the spread; a member's offers
+// raise this one above spread all N. A refused solve flashes and raises no card.
+func (a *App) askSpread(c *spacecraft.Spacecraft, altM float64) {
+	idx, id := a.world.ActiveCraftIdx, c.BatchID
+	sch, err := a.world.SpreadPlan(id, altM)
+	if err != nil {
+		a.flash(err.Error())
+		return
+	}
+	first := "now"
+	if f := sch.First(); f > 0 {
+		first = "in " + readout.Duration(f)
+	}
+	// Whole m/s and no "argon": the note wraps at 34 cells and "each 27 m/s · 0.94 kg argon · 1d12h" is 35.
+	note := fmt.Sprintf("first starts %s · last in %s\neach %.0f m/s · %.2f kg · %s",
+		first, readout.Duration(sch.Last()), sch.DV, sch.PropKg, readout.Duration(sch.Slots[0].Dur))
+	n := len(sch.Slots)
+	spreadRow := yesRow("spread")
+	rows := []screens.CardRow{spreadRow, outRow("cancel")}
+	if !c.BatchLead {
+		spreadRow = screens.CardRow{ID: "spread", Label: fmt.Sprintf("spread all %d", n), Key: "s", Letters: []string{"s", "S"}}
+		rows = []screens.CardRow{yesRow("raise this one"), spreadRow, outRow("cancel")}
+		rows[0].ID = "raise"
+	}
+	k := a.raiseCard(cardSpread, screens.NewCard(a.screensTheme(), fmt.Sprintf("Spread %d %s at %s?", n, sch.Name, screens.AltitudeKm(altM)), note, rows, 0),
+		func(a *App, rid string) (tea.Model, tea.Cmd) {
+			var err error
+			switch rid {
+			case "raise":
+				err = a.world.CommandRaise(idx, altM) // replaces this member's scheduled order
+			case "spread", rowYes:
+				err = a.world.SpreadBatch(id, altM)
+			}
+			if err != nil {
+				a.flash(err.Error())
+			}
+			return a, nil
+		})
+	k.stamp, k.stamped = a.currentAskContext(), true
+}
+
+// askStopSpread raises the stop card for a running spread: waiting orders are
+// dropped, climbing ones finish.
+func (a *App) askStopSpread(id uint64) {
+	st, _ := a.world.SpreadStatus(id)
+	k := a.raiseCard(cardStopSpread, screens.NewCard(a.screensTheme(), "Stop the spread?",
+		fmt.Sprintf("%d waiting dropped\n%d climbing finish", st.Waiting, st.Climbing),
+		[]screens.CardRow{yesRow("stop"), outRow("keep spreading")}, 0),
+		func(a *App, rid string) (tea.Model, tea.Cmd) {
+			if rid == rowYes {
+				a.flash(fmt.Sprintf("spread stopped, %d orders dropped", a.world.StopSpread(id)))
 			}
 			return a, nil
 		})

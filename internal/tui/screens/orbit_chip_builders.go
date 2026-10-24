@@ -270,6 +270,9 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// the player's warp is being held. Nil inside an agreement, where the
 	// chip above says it better.
 	add("", v.buildTimeLockChip(w))
+	// SPREAD (ADR 0059 decision 5): a released batch's raise campaign, counted
+	// off the members' orders; gone when none has one. F2 declutter clears it.
+	add("", v.buildSpreadChip(w))
 	// NO VESSEL / empty slate (#310, recovered ADR 0051 slice 3 item 3):
 	// with no active craft, every one of the eight boxes reads a bare
 	// dash row (decision 2) with no explanation. Bypasses chipEnabled
