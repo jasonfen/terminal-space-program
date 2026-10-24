@@ -17,11 +17,17 @@ import (
 // orbital plane (90 = radial). Returns the world and the carrier's slate index.
 func batchFixture(t *testing.T, angleDeg float64, dry bool) (*World, int) {
 	t.Helper()
+	return batchFixtureAt(t, 500e3, angleDeg, dry)
+}
+
+// batchFixtureAt is batchFixture at altM.
+func batchFixtureAt(t *testing.T, altM, angleDeg float64, dry bool) (*World, int) {
+	t.Helper()
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9-Starlink-24", ParentBodyID: "earth", AltitudeM: 500e3}); err != nil {
+	if _, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9-Starlink-24", ParentBodyID: "earth", AltitudeM: altM}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {

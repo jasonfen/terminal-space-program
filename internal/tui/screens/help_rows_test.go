@@ -61,6 +61,8 @@ func helpPhraseRows() []helpPhrase {
 		{name: "U releases a batch in a fan, refused near the velocity", section: "VESSEL", token: "U (batch)", has: []string{"fan", "10°", "[q]"}},
 		// ADR 0059 decision 12: L orders an orbit altitude; a raise neither caps warp nor is chased by G.
 		{name: "L orders an orbit altitude, asks, again stops", section: "VESSEL", token: "L", has: []string{"altitude", "any warp", "asks first", "stop"}},
+		// ADR 0059 decision 5: on a released batch L spreads it; again on the carrier stops the spread.
+		{name: "L on a released batch spreads it", section: "VESSEL", token: "L", has: []string{"released batch", "spreads every satellite evenly", "stop the spread"}},
 		{name: "a raise never caps warp", section: "TIME & WARP", token: "warp caps", has: []string{"a raise never caps"}},
 		{name: "G chases burns, not a raise", token: "G", section: "TIME & WARP", has: []string{"not a raise"}},
 		{name: "glossary names raise / lower", section: "READOUT GLOSSARY", token: "raise / lower", has: []string{"node row", "T-", "RAISE"}},
