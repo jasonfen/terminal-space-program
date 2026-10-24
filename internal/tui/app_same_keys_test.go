@@ -827,3 +827,144 @@ func TestRaiseEventsDrainToTheFlash(t *testing.T) {
 		t.Errorf("flash = %q, pending = %d", a.statusMsg, len(a.world.PendingRaiseEvents))
 	}
 }
+
+// spreadApp is batchApp with the stack released and every vessel linked:
+// the carrier is active, the 24 Starlinks are on the slate.
+func spreadApp(t *testing.T) (*App, uint64, []int) {
+	t.Helper()
+	a, c := batchApp(t, 90)
+	idx := a.world.ActiveCraftIdx
+	if !a.world.ReleaseBatch(idx) {
+		t.Fatal("ReleaseBatch refused")
+	}
+	id := a.world.Crafts[idx].BatchID
+	a.world.EnsureCraftIDs()
+	a.world.CommGraph = &sim.CommGraph{Connected: map[uint64]bool{}}
+	for _, x := range a.world.Crafts {
+		a.world.CommGraph.Connected[x.ID] = true
+	}
+	_ = c
+	a.View()
+	return a, id, a.world.SpreadMembers(id)
+}
+
+// L on the carrier: altitude box, then the spread card with the campaign's
+// numbers (500 to 550 km: the ADR's 5d 19h and 1d 13h, here 5d19h and 1d12h
+// because the climb is 27.53 m/s and the rocket equation, not 28 m/s), then y y
+// gives every member an order, one climbing and 23 waiting. A second L asks to
+// stop; stop drops the waiting orders and the climber keeps climbing.
+func TestLSpreadCardsFromTheCarrier(t *testing.T) {
+	a, id, members := spreadApp(t)
+	typeAltitude(a, "550")
+	if !cardKindUp(a, cardSpread) {
+		t.Fatalf("enter did not raise the spread card (flash %q)", a.statusMsg)
+	}
+	view := a.View()
+	for _, want := range []string{"Spread 24 Starlink at 550 km?", "first starts now · last in 5d19h", "each 27 m/s · 0.94 kg · 1d12h"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("spread card lacks %q:\n%s", want, view)
+		}
+	}
+	if strings.Contains(view, "raise this one") {
+		t.Errorf("the carrier's card offers raise this one:\n%s", view)
+	}
+	a.Update(keyType(tea.KeyEsc))
+	if a.world.SpreadMembers(id) == nil || a.world.Crafts[members[0]].Raise != nil {
+		t.Fatal("esc left an order")
+	}
+	typeAltitude(a, "550")
+	pressTwice(a, 'y')
+	st, ok := a.world.SpreadStatus(id)
+	if !ok || st.Climbing != 1 || st.Waiting != 23 {
+		t.Fatalf("after y y: %+v ok=%v", st, ok)
+	}
+
+	a.Update(keyRunes("L"))
+	if !cardKindUp(a, cardStopSpread) || a.altBox.CapturingText() {
+		t.Fatal("L on the carrier of a running spread did not ask to stop")
+	}
+	view = a.View()
+	for _, want := range []string{"Stop the spread?", "23 waiting dropped", "1 climbing finish", "stop", "keep spreading"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("stop card lacks %q:\n%s", want, view)
+		}
+	}
+	a.Update(keyType(tea.KeyEsc))
+	if st, _ := a.world.SpreadStatus(id); st.Waiting != 23 {
+		t.Fatalf("esc dropped orders: %+v", st)
+	}
+	a.Update(keyRunes("L"))
+	pressTwice(a, 'y')
+	st, ok = a.world.SpreadStatus(id)
+	if !ok || st.Waiting != 0 || st.Climbing != 1 {
+		t.Errorf("after stop: %+v ok=%v", st, ok)
+	}
+	if a.statusMsg != "spread stopped, 23 orders dropped" {
+		t.Errorf("flash = %q", a.statusMsg)
+	}
+}
+
+// L on a member offers raise this one above spread all 24. A hand raise on a
+// member whose scheduled order is still waiting replaces that order.
+func TestLSpreadCardFromAMember(t *testing.T) {
+	a, id, members := spreadApp(t)
+	a.world.SetActiveCraftIdx(members[3])
+	typeAltitude(a, "550")
+	if !cardKindUp(a, cardSpread) {
+		t.Fatalf("no spread card from a member (flash %q)", a.statusMsg)
+	}
+	view := a.View()
+	for _, want := range []string{"Spread 24 Starlink at 550 km?", "raise this one", "spread all 24"} {
+		if !strings.Contains(view, want) {
+			t.Fatalf("member card lacks %q:\n%s", want, view)
+		}
+	}
+	a.Update(keyRunes("s"))
+	a.Update(keyRunes("y"))
+	if st, ok := a.world.SpreadStatus(id); !ok || st.Waiting != 23 {
+		t.Fatalf("spread all from a member: %+v ok=%v", st, ok)
+	}
+
+	// A member with a waiting scheduled order: L offers the card, not the stop.
+	var c *spacecraft.Spacecraft
+	for _, i := range members {
+		if o := a.world.Crafts[i].Raise; o != nil && !o.Started {
+			c = a.world.Crafts[i]
+			a.world.SetActiveCraftIdx(i)
+			break
+		}
+	}
+	if c == nil {
+		t.Fatal("no waiting member after spread all")
+	}
+	a.Update(keyRunes("L"))
+	if cardKindUp(a, cardStopRaise) || !a.altBox.CapturingText() {
+		t.Fatal("L on a waiting member did not open the altitude box")
+	}
+	a.Update(keyType(tea.KeyEsc))
+	typeAltitude(a, "600")
+	pressTwice(a, 'y') // raise this one
+	if o := c.Raise; o == nil || o.BatchID != 0 || !o.Started || o.TargetAltM != 600e3 {
+		t.Fatalf("raise this one left %+v", o)
+	}
+	if st, _ := a.world.SpreadStatus(id); st.Waiting != 22 {
+		t.Errorf("the hand-raised member is still in the schedule: %+v", st)
+	}
+	// ...and now that it climbs, L asks to stop it.
+	a.Update(keyRunes("L"))
+	if !cardKindUp(a, cardStopRaise) {
+		t.Error("L on a climbing member did not ask to stop the raise")
+	}
+}
+
+// A refused solve flashes the reason after enter and raises no card.
+func TestLSpreadRefusalFlashes(t *testing.T) {
+	a, id, _ := spreadApp(t)
+	typeAltitude(a, "502")
+	if a.card != nil || !strings.HasPrefix(a.statusMsg, "spread: too slow from this orbit (") {
+		t.Fatalf("card %v, flash %q", a.card != nil, a.statusMsg)
+	}
+	if _, ok := a.world.SpreadStatus(id); ok {
+		t.Error("a refused spread left orders")
+	}
+}
