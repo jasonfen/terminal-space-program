@@ -126,6 +126,7 @@ func TestOrbitViewCurveCacheHitMatchesUncachedAfterPan(t *testing.T) {
 	// One shared OrbitView, panned twice, so the second render is a
 	// genuine cache MISS on an already-warm cache (not a cold first draw).
 	v := NewOrbitView(plainTheme())
+	v.Resize(120, 40) // without this the canvas stays 80x24 and the pan is invisible
 	w := newWorld(t)
 	v.Render(w, 0, 120, 40)
 	v.PanRight()
@@ -137,6 +138,7 @@ func TestOrbitViewCurveCacheHitMatchesUncachedAfterPan(t *testing.T) {
 	// World from scratch (cache never warm, so this is definitionally
 	// correct — nothing to hit yet).
 	freshV := NewOrbitView(plainTheme())
+	freshV.Resize(120, 40)
 	freshW := newWorld(t)
 	freshV.Render(freshW, 0, 120, 40)
 	freshV.PanRight()
@@ -243,4 +245,38 @@ func diffCellCount(a, b string) int {
 		diff += len(cb) - n
 	}
 	return diff
+}
+
+// TestOrbitViewCurveCacheHoldsFiftyVessels pins #729: with ~50 vessels in
+// one system (the #710 Starlink batch shape: a swarm on distinct orbits)
+// plus the body orbits, every drawn curve must fit the curve cache, so a
+// steady camera never recomputes after warm-up. At curveCacheCap = 64 the
+// LRU cycled every frame and every ellipse was re-flattened.
+func TestOrbitViewCurveCacheHoldsFiftyVessels(t *testing.T) {
+	v := NewOrbitView(plainTheme())
+	v.Resize(140, 40) // design-size floor; the default canvas is 80x24
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	for i := 0; i < 49; i++ {
+		if _, err := w.SpawnCraft(sim.SpawnSpec{AltitudeM: 400e3 + float64(i)*20e3, Inclination: float64(i % 7)}); err != nil {
+			t.Fatalf("SpawnCraft %d: %v", i, err)
+		}
+	}
+	if len(w.Crafts) < 50 {
+		t.Fatalf("precondition: %d crafts, want >= 50", len(w.Crafts))
+	}
+
+	v.Render(w, 0, 140, 40)
+	v.Render(w, 0, 140, 40) // settle the Framing Event
+	_, base := v.canvas.CurveCacheStats()
+	for i := 0; i < 100; i++ {
+		v.Render(w, 0, 140, 40)
+	}
+	_, after := v.canvas.CurveCacheStats()
+	if after != base {
+		t.Errorf("steady camera re-flattened %d curves over 100 frames (computes %d -> %d): curve cache is evicting at %d vessels",
+			after-base, base, after, len(w.Crafts))
+	}
 }
