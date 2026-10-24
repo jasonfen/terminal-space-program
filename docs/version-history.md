@@ -2,6 +2,18 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.61.0
+
+Launch 24 Starlink satellites on a Falcon 9, release them in one press, and let each one climb to its own slot round the orbit, at any warp (PRs `#785`-`#792`; tag `v0.61.0`; closes `#730`). Save schema 17.
+
+- **Falcon 9 + Starlink x24.** A new loadout in the spawn form and a `Starlink` part and subassembly in the VAB: 740 kg dry, a 0.17 N Hall thruster at Isp 2,400 s on 20 kg of the new `argon` propellant, and a 5,000 km relay antenna (`#785`).
+- **`U` releases a batch.** On a carrier with two or more payloads, `U` asks `Release all 24 Starlink?` and sends them all off in a fan: 0.75 cm/s between neighbours, up to 19.31 cm/s for the top satellite, no bump. The pieces are numbered `Starlink-1` to `-24` and join the end of the vessel list. Refused within 10° of the velocity line (`q` radial first); a docked pair undocks as before (`#789`).
+- **`L` raises or lowers a satellite.** Type an altitude; the card gives the Δv, the argon and the time (290 to 550 km: 146.7 m/s, 5.0 kg, 8d01h). The satellite then climbs on its own thruster at any warp, with no 10x cap. ENGINE shows `▸ raise → 550 km` and `● RAISE`; `L` again asks to stop (`#788`, `#791`).
+- **`L` on a batch spreads it.** One card starts every satellite at its own time so they end up evenly round the orbit, 15.0° apart for 24: from 500 km the first starts now and the last in 5d19h, one slot every 21,826 s (4,038 s from 290 km). A `SPREAD` notice counts arrived, climbing and waiting (`#792`).
+- **`t` treats a batch as one stop.** Targeting steps over a released batch as its nearest member; `j` still walks every one (`#790`).
+- **A carrier's total Δv counts the launcher only.** Falcon 9 + Starlink x24 reads 9,610 m/s, not 11,962, which added the satellites' own argon stages (`#787`).
+- **Names never repeat.** A vessel number is not reused after the vessel is gone, across saves. Save schema 17 carries the name counters, the batch a vessel came from and a waiting raise order; schema 16 saves load unchanged (`#786`).
+
 ### v0.60.3
 
 Saves keep your view and tell you when they fail, docking with friends no longer misreports or retargets, the server holds up under awkward timing, and big fleets render faster (PRs `#775`-`#778`; tag `v0.60.3`).
