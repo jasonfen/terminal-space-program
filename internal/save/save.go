@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/jasonfen/terminal-space-program/internal/atomicfile"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -106,7 +107,20 @@ import (
 // save before this ADR, so migrateV15PayloadToV16 is an identity pass; the
 // bump exists so a v15 binary refuses a v16 envelope instead of silently
 // dropping the keys and flying a mid-booster-phase SLS serial from the SRBs.
-const SchemaVersion = 16
+// ADR 0059 decision 10 bumps to v17 - Payload.name_counters and Craft.batch_id,
+// batch_lead, batch_clamp_exempt_until_unix_nano and raise. Absent decodes to no
+// counters (primed from the slate on first use), no batch, no order, so
+// migrateV16PayloadToV17 is an identity pass; the bump exists so a v16 binary
+// refuses a v17 envelope instead of dropping a satellite's raise order.
+const SchemaVersion = 17
+
+// RaiseWire is spacecraft.RaiseOrder on the wire (StartAt as UnixNano).
+type RaiseWire struct {
+	TargetAltM  float64 `json:"target_alt_m"`
+	StartAtNano int64   `json:"start_at_unix_nano,omitempty"`
+	Started     bool    `json:"started,omitempty"`
+	BatchID     uint64  `json:"batch_id,omitempty"`
+}
 
 // RendezvousPlan is spacecraft.RendezvousPlan on the wire (times as UnixNano).
 type RendezvousPlan struct {
@@ -158,6 +172,7 @@ type Payload struct {
 	Crafts         []Craft            `json:"crafts,omitempty"`
 	ActiveCraftIdx int                `json:"active_craft_idx,omitempty"`
 	NextCraftID    uint64             `json:"next_craft_id,omitempty"` // v0.14.x / schema v7: monotonic craft-ID counter (ADR 0012).
+	NameCounters   map[string]uint64  `json:"name_counters,omitempty"` // schema v17 (ADR 0059 decision 7): highest number handed out per name prefix.
 	NextNodeID     uint64             `json:"next_node_id,omitempty"`  // v0.16: monotonic node-ID counter (ADR 0016). Additive omitempty, no schema bump; EnsureNodeIDs reprimes on load.
 	Nodes          []Node             `json:"nodes,omitempty"`
 	ActiveBurn     *ActiveBurn        `json:"active_burn,omitempty"`
@@ -319,6 +334,14 @@ type Craft struct {
 	// throttle. A pointer because 0 (boosters cut) is a real value; nil
 	// follows the core. The throttle target is session state, not saved.
 	BoosterThrottle *float64 `json:"booster_throttle,omitempty"`
+
+	// BatchID / BatchLead / BatchClampExemptUntilNano / Raise (ADR 0059
+	// decisions 4, 6, 8, schema v17). Absent decodes to no batch, no
+	// exemption, no order.
+	BatchID                   uint64     `json:"batch_id,omitempty"`
+	BatchLead                 bool       `json:"batch_lead,omitempty"`
+	BatchClampExemptUntilNano int64      `json:"batch_clamp_exempt_until_unix_nano,omitempty"`
+	Raise                     *RaiseWire `json:"raise,omitempty"`
 
 	// Crashed / CanSoftLand / OnPad / LandedLatDeg / LandedLonDeg
 	// (v0.11.4+, schema v6 additive — no bump, per ADR 0004). All
@@ -762,6 +785,11 @@ func Load(path string) (*sim.World, error) {
 	if f.Version < 16 {
 		migrateV15PayloadToV16(&f.Payload)
 	}
+	// schema v17 (ADR 0059 decision 10): name counters, batch tag, raise
+	// order; absent is the truth for older saves, so an identity pass.
+	if f.Version < 17 {
+		migrateV16PayloadToV17(&f.Payload)
+	}
 	return worldFromPayload(f.Payload, systems)
 }
 
@@ -801,6 +829,7 @@ func payloadFromWorld(w *sim.World) Payload {
 	}
 	p.ActiveCraftIdx = w.ActiveCraftIdx
 	p.NextCraftID = w.NextCraftID
+	p.NameCounters = maps.Clone(w.NameCounters)
 	p.NextNodeID = w.NextNodeID
 	p.Missions = missions.Clone(w.Missions)
 	return p
@@ -880,6 +909,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 		w.Crafts = append(w.Crafts, c)
 	}
 	w.NextCraftID = p.NextCraftID
+	w.NameCounters = maps.Clone(p.NameCounters)
 	w.NextNodeID = p.NextNodeID
 	if p.ActiveCraftIdx >= 0 && p.ActiveCraftIdx < len(w.Crafts) {
 		w.ActiveCraftIdx = p.ActiveCraftIdx

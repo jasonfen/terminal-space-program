@@ -612,7 +612,9 @@ func payloadRoleForStages(stages []spacecraft.Stage) string {
 // keeps each spawned vessel visually distinguishable in HUDs.
 func (w *World) nextCraftName(proto string) string {
 	prefix, _ := splitNumericSuffix(proto)
-	highest := 0
+	// ADR 0059 decision 7: the counter stops reuse after a vessel leaves; the
+	// slate scan keeps a save from before the counters from duplicating.
+	highest := int(w.NameCounters[prefix])
 	for _, c := range w.Crafts {
 		if c == nil {
 			continue
@@ -625,7 +627,12 @@ func (w *World) nextCraftName(proto string) string {
 			highest = n
 		}
 	}
-	return fmt.Sprintf("%s-%d", prefix, highest+1)
+	highest++
+	if w.NameCounters == nil {
+		w.NameCounters = map[string]uint64{}
+	}
+	w.NameCounters[prefix] = uint64(highest)
+	return fmt.Sprintf("%s-%d", prefix, highest)
 }
 
 // splitNumericSuffix returns ("S-IVB", 3) for "S-IVB-3", or

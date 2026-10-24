@@ -25,6 +25,19 @@ type Spacecraft struct {
 	// stamps it on spawn/load. Persisted (save schema v7+).
 	ID uint64
 
+	// BatchID / BatchLead / BatchClampExemptUntil (ADR 0059 decisions 6 and 8):
+	// the launch batch this vessel belongs to (minted from NextCraftID; 0 for a
+	// vessel spawned, staged or deployed singly), whether it is the batch's
+	// carrier, and the instant until which the batch-pair clamp ignores its
+	// siblings. Persisted.
+	BatchID               uint64
+	BatchLead             bool
+	BatchClampExemptUntil time.Time
+
+	// Raise is the commanded orbit-raise order, or nil (ADR 0059 decision 4).
+	// Persisted.
+	Raise *RaiseOrder
+
 	Name    string
 	DryMass float64 // kg
 	Fuel    float64 // kg

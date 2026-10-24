@@ -197,6 +197,9 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 			GhostOwner: c.Target.GhostOwner,
 		}
 	}
+	// ADR 0059 (schema v17): batch tag and raise order.
+	wc.BatchID, wc.BatchLead, wc.Raise = c.BatchID, c.BatchLead, raiseToWire(c.Raise)
+	wc.BatchClampExemptUntilNano = timeToNano(c.BatchClampExemptUntil)
 	return wc
 }
 
@@ -475,6 +478,8 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			GhostOwner: wc.Target.GhostOwner,
 		}
 	}
+	c.BatchID, c.BatchLead, c.Raise = wc.BatchID, wc.BatchLead, raiseFromWire(wc.Raise)
+	c.BatchClampExemptUntil = timeFromNano(wc.BatchClampExemptUntilNano)
 	return c, nil
 }
 
@@ -486,4 +491,33 @@ func copyFloatPtr(p *float64) *float64 {
 	}
 	v := *p
 	return &v
+}
+
+// timeToNano / timeFromNano: the zero time is 0 on the wire (no exemption).
+func timeToNano(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixNano()
+}
+
+func timeFromNano(n int64) time.Time {
+	if n == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, n).UTC()
+}
+
+func raiseToWire(r *spacecraft.RaiseOrder) *RaiseWire {
+	if r == nil {
+		return nil
+	}
+	return &RaiseWire{TargetAltM: r.TargetAltM, StartAtNano: timeToNano(r.StartAt), Started: r.Started, BatchID: r.BatchID}
+}
+
+func raiseFromWire(w *RaiseWire) *spacecraft.RaiseOrder {
+	if w == nil {
+		return nil
+	}
+	return &spacecraft.RaiseOrder{TargetAltM: w.TargetAltM, StartAt: timeFromNano(w.StartAtNano), Started: w.Started, BatchID: w.BatchID}
 }
