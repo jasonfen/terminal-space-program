@@ -58,7 +58,16 @@ type canvasPoint struct {
 // but vessel/ghost IDs can churn over a long-running --serve process as
 // players connect and disconnect; capping keeps that churn from being a
 // slow per-process leak instead of turning it into one.
-const curveCacheCap = 64
+//
+// #729: 64 sat below vessels + body orbits at ~50 vessels (the #710
+// Starlink batch), so the LRU cycled every frame and every ellipse was
+// re-flattened (Render 5.5 ms vs 2.7 ms). 256 leaves headroom. Memory:
+// canvasPoint is 12 bytes (two int32 + a bool, padded), and a full circle
+// filling a 280x160 px canvas (140x40 cells) records 491 points = ~5.9 KB
+// (6 KB of slice capacity after append growth); a dotted curve is half
+// that. So a full cache is ~1.6 MB worst case at 140x40, growing with the
+// canvas pixel perimeter. Measured on 2026-10-24, see #729.
+const curveCacheCap = 256
 
 // curveCacheKey fingerprints everything a curve's flattened+projected pixel
 // list depends on: the orbit's shape and embedding (quantized against
