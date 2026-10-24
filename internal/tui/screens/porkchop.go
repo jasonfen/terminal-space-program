@@ -388,8 +388,8 @@ func porkchopGlyph(v, min, max float64) string {
 	return porkchopLegendRamp[idx]
 }
 
-// porkchopMin is a local re-export of planner.PorkchopMinCell so the
-// screen doesn't need to import the planner package directly.
+// porkchopMin returns the (depIdx, tofIdx, total) of the grid's lowest-Δv
+// non-NaN cell; ok is false when every cell is NaN.
 func porkchopMin(grid [][]float64) (depIdx, tofIdx int, total float64, ok bool) {
 	best := math.Inf(1)
 	for j := range grid {
