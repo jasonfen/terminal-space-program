@@ -2,6 +2,15 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.60.3
+
+Saves keep your view and tell you when they fail, docking with friends no longer misreports or retargets, the server holds up under awkward timing, and big fleets render faster (PRs `#775`-`#778`; tag `v0.60.3`).
+
+- **Saves.** A loaded game keeps the default tilted view instead of going flat. A failed autosave flashes `autosave failed: <reason>` once, then stays quiet until a save succeeds (closes `#758`). A save written against another body catalog shows `unreadable (other catalog)` in the save browser, and loading one says `save: written against another body catalog` instead of printing two hashes (`#776`).
+- **Docking with friends.** When the guest's `[U]` and the owner's `u` land at the same moment, the undock no longer shows a `release refused` chip afterwards. A guest undocking aims the stack at them, not whatever other vessel the owner is flying. The undock flash counts the pieces this undock produced, not every vessel in the game (closes `#709`; `#777`).
+- **Server.** A second terminal connecting on the same new key is refused while the first is in use, instead of both getting in and the second save wiping the first. A shutdown or restart that begins while a player is still connecting no longer risks crashing the host. `--reset-fleet` clears dock records before wiping fleets, so a run that fails partway can't leave records pointing at wiped stacks (`#775`).
+- **Big fleets render faster.** The orbit view keeps up to 256 cached orbit curves instead of 64; at 50 vessels a frame draws in about 1.3 ms instead of 3.7 ms (closes `#729`; `#778`).
+
 ### v0.60.2
 
 A node planted on the pad waits until it can lift, throttled nodes are predicted as they fly, and two readouts fit their space (PRs `#772`-`#774`; tag `v0.60.2`).
