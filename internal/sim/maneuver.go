@@ -3260,8 +3260,12 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 		// v0.11.4+ (ADR 0004): clear OnPad here too so a post-flight
 		// soft-landing doesn't trip the ViewLaunch auto-route.
 		w.noteRendezvousNodeFired(c, n)
-		c.Landed = false
-		c.OnPad = false
+		// #734: a finite node on a craft that cannot yet lift stays seated and
+		// burning (integrateOneCraft releases it), as a manual burn does.
+		if c.ActiveBurn == nil || w.canLiftOff(c) {
+			c.Landed = false
+			c.OnPad = false
+		}
 		// fired — not appended to kept.
 	}
 	c.Nodes = kept

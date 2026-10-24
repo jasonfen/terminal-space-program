@@ -1900,8 +1900,8 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	// energy that puts its periapsis way below the primary's center;
 	// warp time and the integrator flies it along that fictitious
 	// orbit (= "shoots off into space" without the engine running).
-	if c.Landed && c.ManualBurn != nil {
-		// #716: a burning craft stays seated until thrust beats weight.
+	if c.Landed && (c.ManualBurn != nil || c.ActiveBurn != nil) {
+		// #716, #734: a burning craft stays seated until thrust beats weight.
 		if w.canLiftOff(c) {
 			c.Landed = false
 			c.OnPad = false

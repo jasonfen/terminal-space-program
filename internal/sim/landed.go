@@ -77,8 +77,25 @@ func integrateLanded(w *World, c *spacecraft.Spacecraft, simDelta time.Duration)
 	}
 }
 
+// seatedThrottle is the core throttle the craft's running burn fires at, and a
+// func that undoes any override. A planted node fires at its captured throttle
+// with the player's booster throttle ignored, exactly as stepThrust runs it
+// (#734); a manual burn uses the live throttle.
+func seatedThrottle(c *spacecraft.Spacecraft) (core float64, restore func()) {
+	if c.ActiveBurn == nil {
+		return c.EffectiveThrottle(), func() {}
+	}
+	saved := c.BoosterThrottle
+	c.BoosterThrottle = nil
+	core = c.ActiveBurn.Throttle
+	if core <= 0 {
+		core = 1
+	}
+	return core, func() { c.BoosterThrottle = saved }
+}
+
 // canLiftOff reports whether the landed craft's thrust along local up beats
-// its weight at the current throttle. #716: below that the engine runs but the
+// its weight at its burn's throttle. #716: below that the engine runs but the
 // vessel stays seated; releasing it into free integration sank it into the
 // ground and classifySurfaceArrival called that a crash.
 func (w *World) canLiftOff(c *spacecraft.Spacecraft) bool {
@@ -91,16 +108,23 @@ func (w *World) canLiftOff(c *spacecraft.Spacecraft) bool {
 		nose = c.CurrentAttitudeDir
 	}
 	up := c.State.R.Scale(1 / r)
-	lift := c.Thrust * c.LitThrottle(c.EffectiveThrottle()) / m * nose.Unit().Dot(up)
+	core, restore := seatedThrottle(c)
+	defer restore()
+	lift := c.Thrust * c.LitThrottle(core) / m * nose.Unit().Dot(up)
 	return lift > c.Primary.GravitationalParameter()/(r*r)
 }
 
 // burnSeated runs a manual burn that cannot yet lift the craft: propellant is
 // spent and mass falls (so TWR rises), the craft stays pinned. A dry tank ends
-// the burn exactly as it does in flight.
+// the burn exactly as it does in flight. A planted burn's window is held (as a
+// fuel-stalled one is) so it still has its Δv to deliver once it lifts (#734).
 func (w *World) burnSeated(c *spacecraft.Spacecraft, simDelta time.Duration) {
-	c.BurnFuelAt(c.EffectiveThrottle(), simDelta.Seconds())
-	if c.ActiveStageFuel() <= 0 {
+	core, restore := seatedThrottle(c)
+	defer restore()
+	c.BurnFuelAt(core, simDelta.Seconds())
+	if c.ActiveBurn != nil {
+		c.ActiveBurn.EndTime = c.ActiveBurn.EndTime.Add(simDelta)
+	} else if c.ActiveStageFuel() <= 0 {
 		c.ManualBurn = nil
 		c.DryOrder = true
 	} else if endsCutBurn(c) {
