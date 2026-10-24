@@ -1573,3 +1573,28 @@ func activeStageFuel(c *spacecraft.Spacecraft) (pct, massKg float64, ok bool) {
 	}
 	return 100 * st.FuelMass / st.FuelCapacity, st.FuelMass, true
 }
+
+// A carrier's vehicle Δv counts the stages that push the whole stack, never a
+// payload's own thruster (Part of #730): Falcon 9 + Starlink x24 reads the
+// launcher's 9,610 m/s, not 11,962 with the 24 argon thrusters summed in.
+// Saturn V (no payloads) and Comsat Carrier x3 (payloads without thrust) are
+// the unchanged rows.
+func TestVesselDeltaVCountsLauncherOnly(t *testing.T) {
+	for _, tc := range []struct{ id, want string }{
+		{"Falcon-9-Starlink-24", "/ 9610 m/s"},
+		{spacecraft.LoadoutSaturnVID, "/ 18872 m/s"},
+		{"Comsat-Carrier-3", "/ 10515 m/s"},
+	} {
+		w, err := sim.NewWorld()
+		if err != nil {
+			t.Fatalf("NewWorld: %v", err)
+		}
+		if _, err := w.SpawnCraft(sim.SpawnSpec{LoadoutID: tc.id, ParentBodyID: "earth", Launchpad: true,
+			Latitude: sim.DefaultLaunchpadLatitude, LongitudeOffset: sim.DefaultLaunchpadLongitudeEast}); err != nil {
+			t.Fatalf("%s: SpawnCraft: %v", tc.id, err)
+		}
+		if got := deltaVReadout(w.ActiveCraft()); !strings.HasSuffix(got, tc.want) {
+			t.Errorf("%s: Δv row = %q, want suffix %q", tc.id, got, tc.want)
+		}
+	}
+}

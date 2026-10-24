@@ -934,7 +934,7 @@ func (v *OrbitView) buildVesselDestroyedChip(w *sim.World) []string {
 
 // deltaVReadout renders the VESSEL chip's Δv row per ADR 0049 decision 7:
 // the active stage's remaining Δv, then the whole remaining stack's total
-// (spacecraft.StackStats over the stages still attached), sharing one
+// (the launcher chain only, ADR 0056 decision 9), sharing one
 // trailing unit ("3518 / 9412 m/s"). A single-stage vessel prints one
 // number instead ("3518 m/s"); there is no separate vehicle total to name.
 func deltaVReadout(c *spacecraft.Spacecraft) string {
@@ -942,7 +942,11 @@ func deltaVReadout(c *spacecraft.Spacecraft) string {
 	if len(c.Stages) <= 1 {
 		return readout.DeltaV(stage)
 	}
-	vehicle := spacecraft.StackStats(c.Stages).TotalDV
+	seams := make([]bool, len(c.Stages))
+	for _, i := range sim.DockSeams(c) {
+		seams[i] = true
+	}
+	vehicle := spacecraft.StackStatsSeams(c.Stages, seams).TotalDV
 	return readout.DeltaVPair(stage, vehicle)
 }
 
