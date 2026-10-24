@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -112,9 +113,10 @@ func SavesDir() (string, error) {
 // Payload. encoding/json still tokenizes the whole file, but the
 // Payload is never decoded — no World hydration, no body-catalog hit.
 type header struct {
-	Version int   `json:"version"`
-	ClockT0 int64 `json:"clock_t0"`
-	Meta    *Meta `json:"meta"`
+	Version         int    `json:"version"`
+	ClockT0         int64  `json:"clock_t0"`
+	BodyCatalogHash string `json:"body_catalog_hash"`
+	Meta            *Meta  `json:"meta"`
 }
 
 // readRawHeader parses the envelope header without any Meta
@@ -148,6 +150,10 @@ func ReadHeader(path string) (Meta, error) {
 	if err != nil {
 		return Meta{}, err
 	}
+	return metaOf(h), nil
+}
+
+func metaOf(h header) Meta {
 	var m Meta
 	if h.Meta != nil {
 		m = *h.Meta
@@ -155,7 +161,7 @@ func ReadHeader(path string) (Meta, error) {
 	if h.ClockT0 != 0 {
 		m.SavedAt = time.Unix(0, h.ClockT0).UTC()
 	}
-	return m, nil
+	return m
 }
 
 // laneOf classifies a filename into its reserved-namespace lane.
@@ -213,13 +219,20 @@ func List() ([]SaveInfo, error) {
 		}
 		return nil, fmt.Errorf("scan saves dir: %w", err)
 	}
+	hash, hashErr := bodies.CatalogHash() // once per listing; a failure skips the mismatch mark
 	var infos []SaveInfo
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".json") {
 			continue // tmpfiles (.json.tmp) and strays
 		}
-		m, err := ReadHeader(filepath.Join(dir, name))
+		h, err := readRawHeader(filepath.Join(dir, name))
+		if err == nil && hashErr == nil && h.BodyCatalogHash != hash {
+			// Header is sound: keep the Meta columns so the row still says what it is.
+			infos = append(infos, SaveInfo{ID: name, Meta: metaOf(h), Lane: laneOf(name),
+				Unreadable: true, Note: unreadableNote(ErrCatalogMismatch)})
+			continue
+		}
 		if err != nil {
 			infos = append(infos, SaveInfo{
 				ID:         name,
@@ -229,7 +242,7 @@ func List() ([]SaveInfo, error) {
 			})
 			continue
 		}
-		infos = append(infos, SaveInfo{ID: name, Meta: m, Lane: laneOf(name)})
+		infos = append(infos, SaveInfo{ID: name, Meta: metaOf(h), Lane: laneOf(name)})
 	}
 	sort.Slice(infos, func(i, j int) bool {
 		ti, tj := infos[i].Meta.SavedAt, infos[j].Meta.SavedAt
@@ -250,6 +263,8 @@ func unreadableNote(err error) string {
 	switch {
 	case errors.Is(err, ErrSchemaMismatch):
 		return "newer version"
+	case errors.Is(err, ErrCatalogMismatch):
+		return "other catalog"
 	case errors.Is(err, os.ErrPermission):
 		return "no access"
 	default:

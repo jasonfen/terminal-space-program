@@ -597,7 +597,7 @@ type ActiveBurn struct {
 // Errors returned by Load.
 var (
 	ErrSchemaMismatch  = errors.New("save: schema version mismatch")
-	ErrCatalogMismatch = errors.New("save: body catalog hash mismatch")
+	ErrCatalogMismatch = errors.New("save: written against another body catalog")
 	ErrCraftPrimary    = errors.New("save: vessel primary not found in loaded systems")
 )
 
@@ -698,7 +698,7 @@ func Load(path string) (*sim.World, error) {
 		return nil, err
 	}
 	if f.BodyCatalogHash != currentHash {
-		return nil, fmt.Errorf("%w: save=%s current=%s", ErrCatalogMismatch, f.BodyCatalogHash, currentHash)
+		return nil, ErrCatalogMismatch
 	}
 	// v0.14.x / schema v7 (ADR 0012): pre-v7 saves bind targets by slate
 	// index; rewrite them to stable craft IDs on the wire payload before
@@ -839,6 +839,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 		Systems:   systems,
 		SystemIdx: p.SystemIdx,
 		Clock:     clock,
+		ViewTilt:  sim.DefaultViewTilt(), // not persisted; NewWorld seeds it, so a load must too
 		Focus: sim.Focus{
 			Kind:    sim.FocusKind(p.Focus.Kind),
 			BodyIdx: p.Focus.BodyIdx,
