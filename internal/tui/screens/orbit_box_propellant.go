@@ -129,14 +129,16 @@ func (v *OrbitView) deltaVToCircLabel(c *spacecraft.Spacecraft) string {
 	if dvCirc <= 0 {
 		return "—"
 	}
-	label := readout.DeltaV(dvCirc)
+	// The unit goes: the cell has 12 cells of room at the pinned column and
+	// "41542 m/s  8m32s" needs 17 (#746); the Δv: row above already says m/s.
+	label := strings.TrimSuffix(readout.DeltaV(dvCirc), " m/s")
 	// The rocket-equation time at max thrust (C5, never the current
 	// throttle), the same BurnTimeForDV the C key plants and the burn then
 	// flies. It was Δv·m/F at today's mass, which ignores the fuel the burn
 	// sheds and read long: 1m11s for a burn that flew 1m01s on an S-IVB
 	// (Jason 2026-10-10: "doesn't seem to align to actual").
 	if d := c.BurnTimeForDV(dvCirc); d > 0 {
-		label += "  " + readout.Duration(d)
+		label += " " + readout.Duration(d)
 	}
 	return label
 }
