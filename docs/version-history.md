@@ -2,6 +2,15 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.60.2
+
+A node planted on the pad waits until it can lift, throttled nodes are predicted as they fly, and two readouts fit their space (PRs `#772`-`#774`; tag `v0.60.2`).
+
+- **A pad node below TWR 1 stays on the pad.** A planted node that fired on the pad lifted the vessel whatever its thrust. It now stays seated and burning until thrust beats weight, as a manual burn already did, then lifts and delivers the node's full Δv (closes `#734`).
+- **Throttled nodes are predicted at their throttle.** The predicted orbit after a throttled-down node assumed full thrust, so at half throttle it missed the flown orbit by about 130 m/s. It now matches the burn the executor flies (closes `#691`).
+- **PROPELLANT fits its box during a climb.** The `Δv→circ:` cell pushed the row to 57 cells. It drops the unit (the `Δv:` reading to its left already shows m/s) and reads `7502 3m20s` (closes `#746`).
+- **The Centerline scope stops growing on very tall terminals.** It now takes the navball's width cap instead of running off the left edge. Orion's launch sprite is pinned in the sprite test (closes `#769`, `#770`).
+
 ### v0.60.1
 
 Long vessels and Orion dock at the port gate instead of bumping apart (PR `#771`; tag `v0.60.1`).
