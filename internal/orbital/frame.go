@@ -73,8 +73,7 @@ func PlaneNormalOK(n Vec3, omega, radiusMeters float64) bool {
 // axis is assumed to be a unit vector; the caller is responsible for
 // normalizing it (the v0.10.0 slew integrator picks a unit perpendicular
 // before calling). This is the only general axis-angle rotation in the
-// tree — PerifocalToInertial is a fixed Euler matrix and ApplyPitchTrim
-// is a 2-D local-frame rotation, neither reusable here.
+// tree — PerifocalToInertial is a fixed Euler matrix, not reusable here.
 //
 // v0.10.0+ (rate-limited attitude).
 func Rotate(v, axis Vec3, theta float64) Vec3 {

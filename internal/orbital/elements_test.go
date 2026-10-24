@@ -130,3 +130,41 @@ func TestInclinedOrbit(t *testing.T) {
 		t.Errorf("i = %.6f rad, want %.6f rad", el.I, incWant)
 	}
 }
+
+// TestElementsFromStateDegenerateAngles pins the angle conventions on the
+// exact edges where a quantity is undefined or sits on a branch cut: the
+// guard must pick "undefined means 0" (no NaN), and an angle that is exactly
+// 0 must stay 0 rather than wrap to 2π. Each row is one boundary comparison
+// in ElementsFromState.
+func TestElementsFromStateDegenerateAngles(t *testing.T) {
+	const mu = 3.986e14
+	const rp = 7e6
+	vPeri := 1.2 * math.Sqrt(mu/rp) // e ≈ 0.44, periapsis at the start point
+	cases := []struct {
+		name                string
+		r, v                Vec3
+		wantI, wantO, wantW float64
+	}{
+		// h = 0: no orbit plane, so inclination is 0, not acos(0/0).
+		{"radial: h=0 gives i=0", Vec3{X: rp}, Vec3{X: 1e3}, 0, 0, math.NaN()},
+		// n = ẑ×h = 0: no node, so Ω is 0, not acos(0/0).
+		{"equatorial: n=0 gives Ω=0", Vec3{X: rp}, Vec3{Y: vPeri}, 0, 0, 0},
+		// Polar, h along −Y: node vector on +X with n.Y == 0 exactly, so Ω
+		// is 0 and must not wrap to 2π; periapsis on that node line with
+		// e_z == 0 exactly, so ω is 0 and must not wrap to 2π.
+		{"polar, periapsis at the ascending node", Vec3{X: rp}, Vec3{Z: vPeri}, math.Pi / 2, 0, 0},
+	}
+	for _, c := range cases {
+		el := ElementsFromState(c.r, c.v, mu)
+		if math.IsNaN(el.I) || math.IsNaN(el.Omega) || math.IsNaN(el.Arg) {
+			t.Errorf("%s: NaN angle in %+v", c.name, el)
+			continue
+		}
+		if math.Abs(el.I-c.wantI) > 1e-9 || el.Omega != c.wantO {
+			t.Errorf("%s: i=%v Ω=%v, want i=%v Ω=%v", c.name, el.I, el.Omega, c.wantI, c.wantO)
+		}
+		if !math.IsNaN(c.wantW) && el.Arg != c.wantW {
+			t.Errorf("%s: ω=%v, want exactly %v", c.name, el.Arg, c.wantW)
+		}
+	}
+}

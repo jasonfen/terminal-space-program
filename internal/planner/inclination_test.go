@@ -279,3 +279,15 @@ func TestPlanInclinationRetrogradeReachesTarget(t *testing.T) {
 		})
 	}
 }
+
+// TestPlanInclinationTargetRangeIsInclusive: the allowed range is the closed
+// interval [0, π]; a polar-retrograde-flip target of exactly π is a valid
+// (if expensive) request, not a range error.
+func TestPlanInclinationTargetRangeIsInclusive(t *testing.T) {
+	state := circularInclinedState(rLEO, 28.5*math.Pi/180, muEarth)
+	for _, tgt := range []float64{0, math.Pi} {
+		if _, err := PlanInclinationChange(state, muEarth, tgt, "earth"); err != nil {
+			t.Errorf("target %.4f: unexpected err %v", tgt, err)
+		}
+	}
+}

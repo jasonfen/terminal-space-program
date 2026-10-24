@@ -663,3 +663,82 @@ func TestRecommendRendezvousLadderAfter_Crossing_NoIntersectionRefuses(t *testin
 		t.Fatalf("err=%v want ErrRendezvousNoCrossing", err)
 	}
 }
+
+// TestRecommendRendezvousLadder_RejectsNonPositiveMu: zero is the edge of the
+// gravitational-parameter guard, for every rendezvous place.
+func TestRecommendRendezvousLadder_RejectsNonPositiveMu(t *testing.T) {
+	a := circularStateAtRadius(rendezvousCalibrationRadius, 0, muEarth)
+	b := circularStateAtRadius(rendezvousCalibrationRadius, 0.5, muEarth)
+	for _, mu := range []float64{0, -muEarth} {
+		for _, place := range []RendezvousOrbit{RendezvousCrossing, RendezvousTheirOrbit, RendezvousYourOrbit} {
+			if _, err := RecommendRendezvousLadder(a, b, bodies.CelestialBody{}, mu, place, 4*3600, -1); !errors.Is(err, errRendezvousInvalidInput) {
+				t.Errorf("mu=%v place=%v: err = %v, want errRendezvousInvalidInput", mu, place, err)
+			}
+		}
+	}
+}
+
+// TestRendezvousLadderCoreRejectsDegenerateMover: a mover with no velocity
+// (zero is the edge) or no position has no tangential burn direction.
+func TestRendezvousLadderCoreRejectsDegenerateMover(t *testing.T) {
+	holder := circularStateAtRadius(rendezvousCalibrationRadius, 0.5, muEarth)
+	good := circularStateAtRadius(rendezvousCalibrationRadius, 0, muEarth)
+	for name, mover := range map[string]orbital.Vec3State{
+		"no velocity": {R: good.R},
+		"no position": {V: good.V},
+	} {
+		if _, err := rendezvousLadderCore(mover, holder, bodies.CelestialBody{}, muEarth, -1); !errors.Is(err, errRendezvousInvalidInput) {
+			t.Errorf("%s: err = %v, want errRendezvousInvalidInput", name, err)
+		}
+	}
+}
+
+// TestRecommendRendezvousLadder_BudgetEdges: the Δv budget is inclusive and
+// zero is a real budget, not "unlimited" (only a negative budget means no
+// limit). A row priced at exactly the remaining Δv is affordable; the same
+// row with 1e-6 m/s less is shown but not plantable; a zero budget makes
+// every burning row unaffordable.
+func TestRecommendRendezvousLadder_BudgetEdges(t *testing.T) {
+	r := rendezvousCalibrationRadius
+	mu := muEarth
+	target := circularStateAtRadius(r, 0, mu)
+	chaser := circularStateAtRadius(r, -math.Pi/2, mu)
+	ladderWith := func(budget float64) RendezvousLadder {
+		l, err := RecommendRendezvousLadder(chaser, target, bodies.CelestialBody{}, mu, RendezvousTheirOrbit, 4*3600, budget)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return l
+	}
+	var pick *RendezvousBurnOption
+	free := ladderWith(-1)
+	for i := range free.Rows {
+		if free.Rows[i].Ok && free.Rows[i].DV > 0 {
+			pick = &free.Rows[i]
+			break
+		}
+	}
+	if pick == nil {
+		t.Fatalf("setup: no Ok burning row in %+v", free.Rows)
+	}
+	rowAt := func(l RendezvousLadder) RendezvousBurnOption {
+		for _, row := range l.Rows {
+			if row.Laps == pick.Laps {
+				return row
+			}
+		}
+		t.Fatalf("laps=%d missing", pick.Laps)
+		return RendezvousBurnOption{}
+	}
+	if row := rowAt(ladderWith(pick.DV)); !row.Ok {
+		t.Errorf("laps=%d: budget == DV (%.6f) must be affordable, got Reason=%q", pick.Laps, pick.DV, row.Reason)
+	}
+	if row := rowAt(ladderWith(pick.DV - 1e-6)); row.Ok || row.Reason != "unaffordable" {
+		t.Errorf("laps=%d: budget just under DV must be unaffordable, got Ok=%v Reason=%q", pick.Laps, row.Ok, row.Reason)
+	}
+	for _, row := range ladderWith(0).Rows {
+		if row.DV > 0 && row.Ok {
+			t.Errorf("laps=%d: zero budget but Ok with DV=%.3f", row.Laps, row.DV)
+		}
+	}
+}

@@ -142,6 +142,10 @@ func TestPlanMoonEscapeRejectsBadInputs(t *testing.T) {
 		{"zero parent mu", muLuna, 0, rLunaSOI, rEarthLEO},
 		{"SOI ≤ rPark", muLuna, muEarth, rLowLunarOrbit, rEarthLEO},
 		{"perigee above moon distance", muLuna, muEarth, rLunaSOI, aLuna * 2},
+		// The bounds themselves: a perigee at exactly the moon's distance is
+		// not "below" it, and a zero perigee is not positive.
+		{"perigee equals moon distance", muLuna, muEarth, rLunaSOI, aLuna},
+		{"zero perigee", muLuna, muEarth, rLunaSOI, 0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -159,4 +163,18 @@ func absDuration(d time.Duration) time.Duration {
 		return -d
 	}
 	return d
+}
+
+// TestHyperbolicTimeToRadiusDegenerateInputsAreZero: no excess speed (vInf=0)
+// or a non-hyperbolic eccentricity (e=1) has no escape arc to time, so the
+// helper reports 0 instead of dividing by zero.
+func TestHyperbolicTimeToRadiusDegenerateInputsAreZero(t *testing.T) {
+	for _, c := range []struct{ vInf, e float64 }{{0, 1.5}, {1000, 1}, {-1, 1.5}, {1000, 0.5}} {
+		if got := hyperbolicTimeToRadius(muLuna, c.vInf, c.e, rLunaSOI); got != 0 {
+			t.Errorf("vInf=%v e=%v: got %v, want 0", c.vInf, c.e, got)
+		}
+	}
+	if got := hyperbolicTimeToRadius(muLuna, 1000, 1.5, rLunaSOI); !(got > 0) {
+		t.Errorf("a real escape arc must take time: got %v", got)
+	}
 }

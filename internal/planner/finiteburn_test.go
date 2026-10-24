@@ -240,3 +240,67 @@ func TestSolveFiniteBurnKeepsTheBestIterate(t *testing.T) {
 		t.Errorf("best residual %.0f m is no better than the guess's %.0f m", sol.Residual, r0)
 	}
 }
+
+// TestSimulateFiniteBurnNonPositiveInputsReturnInit: the doc contract is
+// "init unchanged when any input is non-positive". Zero is the edge: thrust=0
+// and mu=0 would otherwise integrate (a division by zero burn time, and a
+// burn with no gravity), so the guard has to be inclusive of zero.
+func TestSimulateFiniteBurnNonPositiveInputsReturnInit(t *testing.T) {
+	init := circularLEOState(51000)
+	cases := []struct {
+		name                   string
+		mu, thrust, isp, dv, m float64
+	}{
+		{"dv=0", muEarth, 1023e3, 421, 0, 51000},
+		{"thrust=0", muEarth, 0, 421, 50, 51000},
+		{"isp=0", muEarth, 1023e3, 0, 50, 51000},
+		{"mass=0", muEarth, 1023e3, 421, 50, 0},
+		{"mu=0", 0, 1023e3, 421, 50, 51000},
+		{"dv<0", muEarth, 1023e3, 421, -50, 51000},
+	}
+	for _, c := range cases {
+		in := init
+		in.M = c.m
+		if got := SimulateFiniteBurn(in, c.mu, c.thrust, c.isp, c.dv, progradeUnit); got != in {
+			t.Errorf("%s: state changed: %+v", c.name, got)
+		}
+	}
+}
+
+// TestSolveFiniteBurnToleranceIsInclusive: a residual exactly at the
+// tolerance counts as converged, both on an in-loop evaluation and on the
+// final post-loop one. The residual is scripted so the equality is exact
+// (a real orbit never lands on a float boundary by chance).
+func TestSolveFiniteBurnToleranceIsInclusive(t *testing.T) {
+	init := circularLEOState(51000)
+	script := func(vals ...float64) ResidualFn {
+		i := 0
+		return func(physics.StateVector, float64) float64 {
+			v := vals[min(i, len(vals)-1)]
+			i++
+			return v
+		}
+	}
+	// In-loop: first evaluation is exactly at tol.
+	sol, err := SolveFiniteBurn(init, muEarth, 1023e3, 421, 100, progradeUnit, script(2), 2, 5)
+	if err != nil || !sol.Converged || sol.Iterations != 0 {
+		t.Errorf("in-loop: err=%v converged=%v iterations=%d, want converged at iteration 0", err, sol.Converged, sol.Iterations)
+	}
+	// Post-loop: one Newton step (10 -> nudged 5), then the unevaluated last
+	// step lands exactly at tol.
+	sol, err = SolveFiniteBurn(init, muEarth, 1023e3, 421, 100, progradeUnit, script(10, 5, 2), 2, 1)
+	if err != nil || !sol.Converged {
+		t.Errorf("post-loop: err=%v converged=%v, want converged on the final evaluation", err, sol.Converged)
+	}
+}
+
+// TestSolveFiniteBurnRejectsZeroGuess: a zero initial guess is as unusable as
+// a negative one (the Newton step is capped relative to dv, so 0 never moves).
+func TestSolveFiniteBurnRejectsZeroGuess(t *testing.T) {
+	init := circularLEOState(51000)
+	for _, g := range []float64{0, -1} {
+		if _, err := SolveFiniteBurn(init, muEarth, 1023e3, 421, g, progradeUnit, TargetApoapsis(1e7), 1, 5); err == nil {
+			t.Errorf("guess %v: want error", g)
+		}
+	}
+}

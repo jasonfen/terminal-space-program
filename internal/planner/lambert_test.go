@@ -301,3 +301,28 @@ func TestLambertHyperbolicWalkExhaustion(t *testing.T) {
 		t.Errorf("err = %q, want the bracket-exhaustion message (caught at bracket stage, not Newton)", err)
 	}
 }
+
+// TestLambertRejectsNonPositiveDtAndMu: zero is the edge for both the time
+// of flight and the gravitational parameter (the guards are `<= 0`), and a
+// zero position vector has no transfer angle.
+func TestLambertRejectsNonPositiveDtAndMu(t *testing.T) {
+	r1 := orbital.Vec3{X: 7e6}
+	r2 := orbital.Vec3{X: -1e7, Y: 1e6}
+	cases := []struct {
+		name   string
+		r1, r2 orbital.Vec3
+		dt, mu float64
+	}{
+		{"dt=0", r1, r2, 0, 398600e9},
+		{"dt<0", r1, r2, -1, 398600e9},
+		{"mu=0", r1, r2, 3600, 0},
+		{"mu<0", r1, r2, 3600, -1},
+		{"r1=0", orbital.Vec3{}, r2, 3600, 398600e9},
+		{"r2=0", r1, orbital.Vec3{}, 3600, 398600e9},
+	}
+	for _, c := range cases {
+		if _, _, err := LambertSolveRev(c.r1, c.r2, c.dt, c.mu, 0, false, false); err == nil {
+			t.Errorf("%s: want error", c.name)
+		}
+	}
+}

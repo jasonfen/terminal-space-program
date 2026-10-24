@@ -58,9 +58,9 @@ func TestPorkchopGridCenterMatchesHohmann(t *testing.T) {
 		false, 0, false,
 	)
 
-	depIdx, tofIdx, total, ok := PorkchopMinCell(grid)
+	depIdx, tofIdx, total, ok := porkchopMinCell(grid)
 	if !ok {
-		t.Fatal("PorkchopMinCell: entire grid was NaN")
+		t.Fatal("porkchopMinCell: entire grid was NaN")
 	}
 
 	// Analytical Hohmann total: ~3.61 km/s departure + ~2.09 km/s arrival
@@ -94,4 +94,26 @@ func TestPorkchopGridMarksInvalidCellsNaN(t *testing.T) {
 	// Non-zero TOF at least shouldn't panic (may or may not converge
 	// given the contrived static ephemeris).
 	_ = grid[1][0]
+}
+
+// porkchopMinCell scans a grid for the (depIdx, tofIdx, total) of the
+// lowest-Δv non-NaN cell; ok=false if the whole grid is NaN. Test-only: the
+// porkchop screen keeps its own copy (screens.porkchopMin).
+func porkchopMinCell(grid [][]float64) (depIdx, tofIdx int, total float64, ok bool) {
+	best := math.Inf(1)
+	for j := range grid {
+		for i, v := range grid[j] {
+			if math.IsNaN(v) {
+				continue
+			}
+			if v < best {
+				best = v
+				depIdx = i
+				tofIdx = j
+				ok = true
+			}
+		}
+	}
+	total = best
+	return
 }

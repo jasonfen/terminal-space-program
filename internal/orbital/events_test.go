@@ -68,6 +68,13 @@ func TestTimeToTrueAnomalyHyperbolic(t *testing.T) {
 	if got := TimeToTrueAnomaly(0, math.Pi, 1e7, 0.5, 0); got != -1 {
 		t.Errorf("μ=0: got %.3f, want -1", got)
 	}
+	// The edges themselves: e = 1 (parabola) and a = 0 are unreachable too.
+	if got := TimeToTrueAnomaly(0, math.Pi, 1e7, 1, muEarth); got != -1 {
+		t.Errorf("e=1: got %.3f, want -1", got)
+	}
+	if got := TimeToTrueAnomaly(0, math.Pi, 0, 0.5, muEarth); got != -1 {
+		t.Errorf("a=0: got %.3f, want -1", got)
+	}
 }
 
 // TestTimeToPeriapsisAndApoapsis: using a state-at-known-ν fixture.

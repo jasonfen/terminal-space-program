@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 )
 
@@ -101,5 +102,38 @@ func TestRecommendRendezvousLadder_DifferentShape_RefusesPointingAtCircularize(t
 	msg := ErrRendezvousShapeMismatch.Error()
 	if !strings.Contains(msg, "[C]") || strings.Contains(msg, "[H]") {
 		t.Errorf("shape refusal %q must point at [C] and never at [H]", msg)
+	}
+}
+
+// TestRendezvousLadderResizeGuardEdges: the exact edges of the resize
+// preconditions. The holder counts as stretched at e == rendezvousRoundE (the
+// comparison is >=, so the threshold itself is already a shape mismatch); a
+// mover with no position or no velocity has no burn direction and no
+// altitude to leave.
+func TestRendezvousLadderResizeGuardEdges(t *testing.T) {
+	mu := muEarth
+	mover := circularStateAtRadius(6.371e6+500e3, 0, mu)
+	holder := circularStateAtRadius(6.371e6+700e3, 1, mu)
+	hEl := orbital.ElementsFromState(holder.R, holder.V, mu)
+	primary := bodies.CelestialBody{}
+
+	atThreshold := hEl
+	atThreshold.E = rendezvousRoundE
+	if _, err := rendezvousLadderResize(mover, holder, atThreshold, primary, mu, -1); !errors.Is(err, ErrRendezvousShapeMismatch) {
+		t.Errorf("holder e == %v: err = %v, want ErrRendezvousShapeMismatch", rendezvousRoundE, err)
+	}
+	justRound := hEl
+	justRound.E = rendezvousRoundE * 0.99
+	if _, err := rendezvousLadderResize(mover, holder, justRound, primary, mu, -1); errors.Is(err, ErrRendezvousShapeMismatch) {
+		t.Errorf("holder e just under %v was refused as a shape mismatch", rendezvousRoundE)
+	}
+
+	for name, bad := range map[string]orbital.Vec3State{
+		"mover at the origin": {R: orbital.Vec3{}, V: mover.V},
+		"mover with no speed": {R: mover.R, V: orbital.Vec3{}},
+	} {
+		if _, err := rendezvousLadderResize(bad, holder, hEl, primary, mu, -1); !errors.Is(err, errRendezvousInvalidInput) {
+			t.Errorf("%s: err = %v, want errRendezvousInvalidInput", name, err)
+		}
 	}
 }

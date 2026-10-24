@@ -236,3 +236,33 @@ func TestNextClosestApproachPositionsInvalidInputs(t *testing.T) {
 		t.Error("zero mu: expected err")
 	}
 }
+
+// TestNextClosestApproachMinimumAtTheHorizonEdges: when the separation only
+// grows (minimum is "now") or only shrinks (minimum is at or past the
+// horizon), the parabolic refinement has no bracketing neighbours on one
+// side and must be skipped, reporting t=0 and t=horizon respectively
+// rather than indexing off the end of the sample grid.
+func TestNextClosestApproachMinimumAtTheHorizonEdges(t *testing.T) {
+	const horizon = 600.0
+	r := 7.0e6
+	cases := []struct {
+		name  string
+		a, b  orbital.Vec3State
+		wantT float64
+	}{
+		// B in a higher, slower orbit starting alongside: only drifts apart.
+		{"receding: minimum now", circularState(r, 0, muEarth), circularState(r*1.05, 0, muEarth), 0},
+		// A in the lower orbit, 0.2 rad behind B, catching up: alignment is
+		// ~2500 s away, so the closest sample is the last one.
+		{"closing: minimum at the horizon", circularState(r, 0, muEarth), circularState(r*1.05, 0.2, muEarth), horizon},
+	}
+	for _, c := range cases {
+		tCA, _, _, err := NextClosestApproach(c.a, c.b, bodies.CelestialBody{}, muEarth, horizon)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if math.Abs(tCA-c.wantT) > 1e-6 {
+			t.Errorf("%s: t=%.6f, want %.1f", c.name, tCA, c.wantT)
+		}
+	}
+}
