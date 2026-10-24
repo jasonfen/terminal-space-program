@@ -59,6 +59,8 @@ func helpPhraseRows() []helpPhrase {
 		{name: "heading trim both directions", section: "MANUAL FLIGHT", token: "↑ / ↓", before: "north", after: "south"},
 		{name: "nav mode skip rule", token: ";", hasFold: []string{"skip"}},
 		{name: "U releases a batch in a fan, refused near the velocity", section: "VESSEL", token: "U (batch)", has: []string{"fan", "10°", "[q]"}},
+		// ADR 0059 decision 9: a released batch is one stop for [t]; the map stays quick to about 30 vessels per player.
+		{name: "batch is one stop for t, about 30 vessels", section: "VESSEL", token: "batch", has: []string{"[t] steps over it as one stop", "About 30 vessels per player"}},
 		// ADR 0059 decision 12: L orders an orbit altitude; a raise neither caps warp nor is chased by G.
 		{name: "L orders an orbit altitude, asks, again stops", section: "VESSEL", token: "L", has: []string{"altitude", "any warp", "asks first", "stop"}},
 		// ADR 0059 decision 5: on a released batch L spreads it; again on the carrier stops the spread.

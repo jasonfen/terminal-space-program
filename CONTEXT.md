@@ -291,8 +291,8 @@ whole with `a` from the palette's `· subassembly ·` section. It carries its
 internal **Dock Seam** and **Fuse** marks and a role for the whole block: a
 **payload** (released with `Y`, one at a time, or `U`) or a **stage** (fires in
 the chain). The same catalog fragment as a **Design** plus `subassembly_role`,
-stored under `$XDG_CONFIG_HOME/terminal-space-program/subassemblies/`; three
-ship (Comsat, LM, CSM+LM) as embedded data a user file can replace by ID. A
+stored under `$XDG_CONFIG_HOME/terminal-space-program/subassemblies/`; seven
+ship (Comsat, Starlink, LM, CSM+LM, Dragon, Cargo Dragon, Orion) as embedded data a user file can replace by ID. A
 released payload block is named after the subassembly (`Comsat-1`).
 _Avoid_: Design (a whole vehicle the spawn form lists), Part (one catalog
 stage), Module, Block, Kit, Bundle, Sub-assembly (hyphenated).
@@ -769,7 +769,8 @@ their kind-less defaults.
 
 **Target Cycle** (grilled 2026-09-04, #425): the order `t` walks. **Nearest
 first**: none, then the moons of the Vessel's current Primary, then other
-Vessels (nearest first), then the remaining Bodies outward in catalog order with their
+Vessels (nearest first; a **Batch** counts once, as its nearest member, and
+its carrier counts on its own), then the remaining Bodies outward in catalog order with their
 moons after them; the Vessel's own Primary is skipped (it is never a
 useful aim). From LEO the first press is the Moon; from lunar orbit it is
 Earth. The order re-derives when the Primary changes, but the bound
@@ -1701,7 +1702,8 @@ The act of fusing two Vessels into one **Composite** (Docking) and the
 inverse (Undocking). Docking fires when the **Docking Gate** holds at a
 **Docking Port** for one tick and the **Magnet** then closes the last half
 metre; it never fires at a distance. Undocking fires on `U` against a
-Composite.
+Composite. On a **Batch** `U` asks first and numbers the pieces (ADR 0059);
+on a pair it is unchanged.
 
 Docking keeps the lead partner's position (its hull does not move), takes
 the momentum-conserving velocity, sums the pools and concatenates the
@@ -1951,7 +1953,9 @@ for in-flight docking composites that rendezvoused and docked. Deploy
 reuses the same Undock release mechanism (separation push, Spring Release,
 new craft ID stamped) — the only code difference is which Vessel stays
 active. Deploy is blocked on a Vessel with no carried payload (guard
-prompt rather than no-op).
+prompt rather than no-op). A **Batch** (two or more payloads) is released
+all at once with `U` instead, which asks first, numbers the pieces and
+records `deploy` once per piece (ADR 0059).
 _Avoid_: Undock (distinct verb — different active-craft post-release
 behaviour and different tutorial/objective vocabulary), Release (valid
 prose, but Deploy is the canonical noun for this specific verb).
@@ -1960,7 +1964,9 @@ prose, but Deploy is the canonical noun for this specific verb).
 A **Vessel** (typically a relay tug or upper stage) whose **Nose Payload
 Plan** carries one or more **Deployable Payloads**. The Carrier stays
 active after each **Deploy** press, allowing a single launch to deploy a
-full constellation by pressing `Y` repeatedly in sequence. No special
+full constellation: `Y` one at a time, or `U` all at once on a **Batch**
+(ADR 0059). After a batch release the carrier carries its **Batch Id** as
+the lead, and `L` on it opens the **Spread**. No special
 type or flag — "Carrier" is a descriptive role (see **Role**) for any
 Vessel that has a Payload Stack mounted on its nose.
 _Avoid_: Tug (the relay-tug loadout is a Carrier, but not all Carriers
@@ -1977,6 +1983,116 @@ core itself).
 _Avoid_: Payload manifest (that implies an inert-cargo model; this is
 docked-component identity), Multi-payload stack (verbose; Payload Stack
 is the canonical noun).
+
+**Batch** (ADR 0059):
+A **Payload Stack** with two or more payloads above its lead, released
+all at once with `U` after a card, whatever built it (the catalog
+`Falcon 9 + Starlink x24`, a VAB stack of `Starlink` subassemblies, the
+Comsat Carrier x3). The pieces leave by the **Batch Fan**, not the
+docking spring; they are numbered by the world's **Name Counter**,
+appended to the end of the slate so digit slots keep their vessels, each
+records a `deploy` **Action**, and every piece and the carrier carry one
+**Batch Id** minted from the craft-id counter. The **Re-arm Latch** holds
+every pair apart as it does for an undocked pair (300 latches for 24
+Starlinks and their carrier). The release refuses while the stack is
+within 10° of the velocity line (hold radial, `q`, first). A composite
+with one component above the lead is not a Batch: `U` undocks it as
+before, spring and all. For `t` a Batch is one stop (its nearest member);
+`j` still walks every member.
+_Avoid_: Constellation (what a Batch becomes once spread; several
+launches may share one), Group (the real-world launch designation,
+`Group 6-61`, not a game noun), Stack (the pre-release Composite).
+
+**Batch Fan** (ADR 0059):
+How a **Batch** separates: the composite is treated as tumbling end over
+end at 2.5e-3 rad/s (one turn in 42 min) about its centre of mass,
+perpendicular to the stack, in the plane of the stack and the velocity;
+at release each piece keeps the sideways speed of its height in the
+stack (0.75 cm/s between neighbours; for 24 Starlinks 2.06 cm/s for the
+first satellite up to 19.31 cm/s for the last, relative to the carrier,
+with the centre of mass 35.2 m up the stack) and the carrier recoils the
+other way. Momentum is conserved; the residual spin is not modelled;
+nothing is random. The pieces keep the composite's attitude mode through
+the release (otherwise they slew and touch); at 10° off the velocity the
+nearest pair still passes at 0.35 m, with no bump. For one orbital period
+after the release the Batch's pieces do not hold the 50 m warp clamp on
+each other or the carrier (a stored instant on each piece); any other
+hull inside 50 m clamps as always.
+_Avoid_: Spring Release (the docked pair's 0.15 m/s axial push, which a
+Batch does not use), Spin-up, Ejection, Deployer.
+
+**Batch Id** (ADR 0059):
+The number stamped on a **Batch**'s carrier (`BatchLead`) and members at
+release, from `World.NextCraftID`. It groups the members for the **Target
+Cycle** and the **Spread**; a singly spawned, staged or deployed Vessel
+has none.
+_Avoid_: Group id, Launch id, Constellation id.
+
+**Name Counter** (ADR 0059):
+The per-world, per-prefix counter behind every numbered Vessel name
+(`Starlink-25`, `Relay Comsat-4`, `S-IVB-3`): the next number is the
+larger of the counter and the highest suffix on the slate, plus one, and a
+number is never reused once a Vessel carrying it is gone. Persisted in the
+save (`name_counters`, save schema 17); a save without it primes from the
+slate. Each World counts on its own, so two players can both own a
+`Starlink-1`.
+_Avoid_: Serial (the catalogue's `STARLINK-NNNN` is the model, not the
+word), Registry, Tail number.
+
+**Commanded Raise** (ADR 0059):
+An order on an electric Vessel (full-thrust acceleration under 1 mm/s²: a
+Hall or ion thruster, not the Ion Keeper's 2,500 N) to climb or descend to
+a typed circular altitude by itself. Set with `L` (an altitude box, then a
+card). The Vessel flies an analytic tangential-thrust spiral, propagated
+per tick in closed form like a Kepler coast, so warp is never capped: it
+is not a **Burn** (no `ActiveBurn`, no 10x cap, `G` ignores it). Argon is
+debited from the lit tank as it goes (the mass falls with it; 290 km to
+550 km takes 146.7 m/s, 5.0 kg and 8d01h at 0.17 N). It ends with an
+Event Flash (`raise complete, 550 km`; a descent reads `lower complete,
+N km`), on `L` again (`raise stopped at 412 km`) or when the tank is dry
+(`argon exhausted at 412 km`). ENGINE's title reads `● RAISE` and its node
+row `▸ raise → 550 km  now 412 km  T-4d06h` (`starts in 4h12m` while the
+order waits); a descent reads `lower →` and wears the same badge.
+Refused, with the reason flashed, on a chemical engine (`raise: thrust
+too high for a spiral`), no engine, an orbit with e > 0.05, a target
+below the atmosphere or beyond half the SOI, a vessel that is landed,
+docked or mid-burn (`raise: not free`), and for a probe with no link
+(`NO SIGNAL`). A node burn pauses a running raise; it resumes after.
+_Avoid_: Autopilot (it is an order the sat executes, not a hold), Burn
+(it is not one; nothing caps warp), Spiral (the mechanism, fine in prose),
+Electric burn, Low-thrust burn.
+
+**Spread** (ADR 0059):
+One command on a **Batch** (`L` on its carrier or a member, an altitude
+box, then a card) that gives every member a **Commanded Raise** to one
+altitude and solves each member's start time from its own longitude,
+mean motion and climb (its final angle in the target orbit's frame is
+linear in its wait), so the members arrive 360°/N apart around the orbit.
+Slots go to the members in cyclic order of their start-now phases, with
+the member taken as the zero-wait anchor that makes the campaign
+shortest, so no wait is negative and the first start is now. For a batch
+just released this is close to one start every (360° / N) / (n_start −
+n_end): 4,038 s (1.12 h) a slot for 24 from 290 km to 550 km, 21,826 s
+(6.06 h) from 500 km; the card prints the first and last start. A SPREAD
+notice stands while any member is waiting or climbing. A member raised by
+hand leaves the schedule; `L` on the carrier again asks to stop it, which
+drops the waiting orders and lets the climbing ones finish. Refused when
+the members are not in one plane (0.5°) or on one orbit, when one is
+already at the target (within 1 km), when one's raise would be refused,
+or when the campaign would exceed 60 days. Distinct from carrier-driven
+auto-phasing (the backlog item in which the carrier flies resonant orbits
+and drops engineless comsats with `Y`), which stays separate.
+_Avoid_: Auto-phasing (the carrier-driven backlog item), Deployment
+(the release is one press; the Spread is the timing), Phasing (fine for
+the mechanism; the command is Spread), Constellation planner.
+
+**Argon** (ADR 0059):
+The fifth `FuelType` (`argon`), the propellant of the `starlink` part's
+Hall thruster (0.17 N at Isp 2,400 s; 20 kg aboard, 5.0 kg per raise from
+290 km to 550 km). Reads in PROPELLANT like any tank; sprite colour
+`#9FA8FF`.
+_Avoid_: Krypton (the first-generation gas, not modelled), Xenon, Electric
+propellant.
 
 **Role**:
 A descriptive UI string on `Spacecraft` and `Loadout` (`"relay-sat"`,
@@ -1997,7 +2113,10 @@ typically one deployed from a **Carrier** via **Deploy**. Its relay
 behaviour comes from having `antenna: {kind: relay}` on its probe stage;
 once in range and unoccluded it automatically joins the **CommNet** relay
 graph as a forwarding node, extending coverage without any player "enable
-relay" action. The relay comsat loadout is the canonical starter unit.
+relay" action. The relay comsat loadout is the canonical starter unit. The `starlink`
+part is a relay sat with a 5,000 km antenna: it forwards for its siblings
+and for low-orbit vessels outside the home blanket, never for the Moon
+(ADR 0059 decision 1).
 _Avoid_: Relay satellite (verbose; Relay Sat is the canonical short form
 in prose), Relay drone, Comm sat.
 
@@ -2189,7 +2308,8 @@ many orders of magnitude in coast). Distinguish two values:
 
 Effective ≤ Selected always; when they differ, the HUD reflects the
 effective rate. Preserve every clamp when touching warp code — each
-exists for a specific failure mode.
+exists for a specific failure mode. A **Commanded Raise** never caps warp
+(ADR 0059).
 _Avoid_: Time acceleration, Speed, Fast-forward.
 
 **Auto-Warp**:
@@ -2214,6 +2334,8 @@ start, leaving the sim at 1× so the player can watch the Burn arm and fire.
   **Heading Trim** to the window's heading when engaged (#574). It
   disengages if the target is cleared or the Vessel lifts off. Inside the
   window's last 30 s, `G` does not engage: it re-trims the heading and says so.
+- It ignores a **Commanded Raise**: a raise is not a Burn and has no start
+  to warp to (ADR 0059).
 
 Distinct from the *node-approach ramp* (a clamp that caps Effective Warp
 near any Burn so the integrator can't alias past it): the ramp is passive

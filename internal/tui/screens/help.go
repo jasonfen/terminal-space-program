@@ -169,6 +169,7 @@ var helpSections = []helpSection{
 		{"1-9", "jump to vessel N (no-op when the slot is empty)"},
 		{"U", "undock the active composite: the pieces come back port to port 1.5 to 3 m apart, parting at 0.15 m/s"},
 		{"U (batch)", "a carrier with two or more payloads: asks, then releases them all in a fan, parting sideways at cm/s; refused within 10° of the velocity ([q] radial first)"},
+		{"batch", "U releases a stack of payloads at once; [t] steps over it as one stop. About 30 vessels per player keeps the map quick"},
 		{"U (cross-player)", "release your partner's vessel from a shared stack; theirs comes back even if they're offline"},
 		{"L", "orbit altitude: type an altitude and an electric vessel raises or lowers its orbit by itself at any warp; asks first; again while it climbs: stop. On a released batch it spreads every satellite evenly round the orbit, each starting at its own time; on the carrier again: stop the spread"},
 		{"u", "hand over cargo: while docked to a stack with a Cargo Hold, every cargo load aboard moves into it, one way; the flash states the mass"},
