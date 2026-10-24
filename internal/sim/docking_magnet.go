@@ -211,11 +211,15 @@ func (w *World) stepDockMagnet() (int, int, bool) {
 	// Close the gap by the fraction of what is left that this tick covers:
 	// linear to zero, and robust to the other vessel's own drift.
 	ga, gb := VesselPortGeometry(puller), VesselPortGeometry(other)
-	gap := gb.PortPoint(other.State.R, 0).Sub(ga.PortPoint(puller.State.R, 0))
-	puller.State.R = puller.State.R.Add(gap.Scale(frac))
+	pa := ga.PortPoint(puller.State.R, 0)
+	gap := gb.PortPoint(other.State.R, 0).Sub(pa)
 	// Turn the nose onto the port axis (anti-parallel to theirs) by the same
-	// fraction of the remaining angle.
+	// fraction of the remaining angle, about the port point: the stack pivots
+	// on its bottom, so on a long stack a turn about State.R swings the port
+	// sideways out of the gate.
 	puller.CurrentAttitudeDir = turnToward(puller.CurrentAttitudeDir, gb.Axis.Scale(-1), frac)
+	puller.State.R = puller.State.R.Add(pa.Sub(VesselPortGeometry(puller).PortPoint(puller.State.R, 0)))
+	puller.State.R = puller.State.R.Add(gap.Scale(frac))
 
 	if now.Sub(m.startedAt) < DockMagnetDuration {
 		return 0, 0, false
