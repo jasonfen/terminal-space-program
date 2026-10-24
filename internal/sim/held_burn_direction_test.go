@@ -34,12 +34,19 @@ func angleDeg(a, b orbital.Vec3) float64 {
 // the default vessel and flies it tick by tick.
 func flyPlantedBurn(t *testing.T, mode spacecraft.BurnMode, dv float64) plantedBurnRun {
 	t.Helper()
+	return flyPlantedBurnAt(t, mode, dv, 0)
+}
+
+// flyPlantedBurnAt is flyPlantedBurn for a node set to throttle (0 = full),
+// its window sized at that throttle as the maneuver screen does (#748).
+func flyPlantedBurnAt(t *testing.T, mode spacecraft.BurnMode, dv, throttle float64) plantedBurnRun {
+	t.Helper()
 	w := mustWorld(t)
 	c := w.ActiveCraft()
 	mu := c.Primary.GravitationalParameter()
 	n := spacecraft.ManeuverNode{
 		TriggerTime: w.Clock.SimTime.Add(10 * time.Minute),
-		Mode:        mode, DV: dv, Duration: c.BurnTimeForDV(dv), PrimaryID: c.Primary.ID,
+		Mode:        mode, DV: dv, Duration: c.BurnTimeForDVAt(dv, throttle), Throttle: throttle, PrimaryID: c.Primary.ID,
 	}
 	if n.Duration < 60*time.Second {
 		t.Fatalf("burn of %v is too short to tell a held direction from a followed one", n.Duration)
@@ -275,5 +282,28 @@ func TestPlanChainMemoCoversTheHoldRule(t *testing.T) {
 	final()
 	if w.PlanChainWalks() != base+1 {
 		t.Errorf("a plane-change angle change did not re-walk the chain: stale memo")
+	}
+}
+
+// #691: a node set below full throttle is predicted at that throttle. The
+// predictor flew it at full thrust, so a half-throttle burn was modelled as a
+// half-length one and the post-burn orbit missed by the finite-burn difference.
+func TestPredictedThrottledNodeStateIsTheFlownOne(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		mode     spacecraft.BurnMode
+		dv       float64
+		throttle float64
+	}{
+		{"Prograde half", spacecraft.BurnPrograde, 1500, 0.5},
+		{"Normal+ third", spacecraft.BurnNormalPlus, 1500, 0.33},
+	} {
+		run := flyPlantedBurnAt(t, tc.mode, tc.dv, tc.throttle)
+		dV := run.predicted.V.Sub(run.flown.V).Norm()
+		dR := run.predicted.R.Sub(run.flown.R).Norm()
+		t.Logf("%s: predicted vs flown at the node epoch: velocity %.2f m/s, position %.2f km", tc.name, dV, dR/1e3)
+		if dV > 3 || dR > 10e3 {
+			t.Errorf("%s: predicted post-burn state is %.2f m/s and %.1f km from the flown one", tc.name, dV, dR/1e3)
+		}
 	}
 }

@@ -40,7 +40,17 @@ func (w *World) nodeBurnState(state physics.StateVector, primary bodies.Celestia
 	if c == nil {
 		return impulsive
 	}
-	return finiteNodeState(state, primary.GravitationalParameter(), n, c.Thrust, c.Isp, impulsive)
+	return finiteNodeState(state, primary.GravitationalParameter(), n, nodeThrust(c, n), c.Isp, impulsive)
+}
+
+// nodeThrust is the thrust the executor delivers while firing n: the lit set
+// at the node's throttle, with the player's booster throttle ignored as
+// stepThrust ignores it for an ActiveBurn (#691).
+func nodeThrust(c *spacecraft.Spacecraft, n spacecraft.ManeuverNode) float64 {
+	saved := c.BoosterThrottle
+	c.BoosterThrottle = nil
+	defer func() { c.BoosterThrottle = saved }()
+	return c.Thrust * c.LitThrottle(n.EffectiveThrottle())
 }
 
 // finiteNodeState is nodeBurnState's burn model with the engine passed in,
