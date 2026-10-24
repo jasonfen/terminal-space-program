@@ -3,6 +3,7 @@ package sim
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -384,5 +385,346 @@ func TestRaiseRefusalAndPlan(t *testing.T) {
 	}
 	if dvL, kgL, durL := RaisePlan(c, 200e3); dvL <= 0 || kgL <= 0 || durL <= 0 {
 		t.Errorf("a lowering costs too: %.1f m/s %.2f kg %v", dvL, kgL, durL)
+	}
+}
+
+// spreadBatch releases a fresh Falcon 9 + Starlink x24 at altM (stack angleDeg
+// off the velocity, dry carrier), links every vessel, and returns the world,
+// the batch id and the 24 members' slate indices.
+func spreadBatch(t *testing.T, altM, angleDeg float64) (*World, uint64, []int) {
+	t.Helper()
+	w, idx := batchFixtureAt(t, altM, angleDeg, true)
+	if !w.ReleaseBatch(idx) {
+		t.Fatalf("ReleaseBatch refused at %v degrees", angleDeg)
+	}
+	w.EnsureCraftIDs()
+	w.CommGraph = &CommGraph{Connected: map[uint64]bool{}}
+	for _, c := range w.Crafts {
+		w.CommGraph.Connected[c.ID] = true
+	}
+	id := w.Crafts[idx].BatchID
+	return w, id, w.SpreadMembers(id)
+}
+
+// colocate puts every member on member 0's exact state: the ADR's "co-located
+// members", with no fan spread to confuse a hand-computed stagger.
+func colocate(w *World, m []int) {
+	for _, i := range m[1:] {
+		w.Crafts[i].State = w.Crafts[m[0]].State
+	}
+}
+
+// rotateAbout turns v by ang radians about the unit axis (Rodrigues).
+func rotateAbout(v, axis orbital.Vec3, ang float64) orbital.Vec3 {
+	c, s := math.Cos(ang), math.Sin(ang)
+	return v.Scale(c).Add(axis.Cross(v).Scale(s)).Add(axis.Scale(axis.Dot(v) * (1 - c)))
+}
+
+// ringGaps is the sorted in-plane neighbour gaps, in degrees, of the members now.
+func ringGaps(w *World, m []int) []float64 {
+	c0 := w.Crafts[m[0]]
+	n := c0.State.R.Cross(c0.State.V).Unit()
+	x := c0.State.R.Unit()
+	y := n.Cross(x)
+	var angs []float64
+	for _, i := range m {
+		r := w.Crafts[i].State.R
+		a := math.Atan2(r.Dot(y), r.Dot(x)) * 180 / math.Pi
+		angs = append(angs, math.Mod(a+360, 360))
+	}
+	sort.Float64s(angs)
+	gaps := make([]float64, len(angs))
+	for i := range angs {
+		gaps[i] = math.Mod(angs[(i+1)%len(angs)]-angs[i]+360, 360)
+	}
+	return gaps
+}
+
+// flySpread ticks at the top warp until no member has an order. Returns the
+// seconds one tick advanced (the claim "5,000 s ticks" is read, not assumed).
+func flySpread(t *testing.T, w *World, m []int) float64 {
+	t.Helper()
+	w.Clock.WarpIdx = len(WarpFactors) - 1
+	t0 := w.Clock.SimTime
+	w.Tick()
+	tick := w.Clock.SimTime.Sub(t0).Seconds()
+	for n := 0; n < 400; n++ {
+		busy := false
+		for _, i := range m {
+			busy = busy || w.Crafts[i].Raise != nil
+		}
+		if !busy {
+			return tick
+		}
+		w.Tick()
+	}
+	t.Fatal("spread still running after 400 ticks")
+	return 0
+}
+
+func checkEvenRing(t *testing.T, w *World, m []int) {
+	t.Helper()
+	for i, g := range ringGaps(w, m) {
+		if math.Abs(g-15) > 1 {
+			t.Errorf("gap %d = %.3f deg, want 15 +- 1", i, g)
+		}
+	}
+}
+
+func sortedWaits(s SpreadSchedule) []float64 {
+	var ws []float64
+	for _, sl := range s.Slots {
+		ws = append(ws, sl.Wait.Seconds())
+	}
+	sort.Float64s(ws)
+	return ws
+}
+
+// Guard 17, waits: co-located members stagger by one slot over the rate at
+// which a member outruns the target orbit. The reference is computed here from
+// mu and the radii, not copied from the ADR, whose 4,034 s / 21,800 s are
+// rounded (the code and this arithmetic give 4,038.4 s / 21,826.2 s; the
+// ADR's +-300 s at 500 km is passed by j = 11 and missed by j = 23).
+func TestSpreadWaitsAreTheStagger(t *testing.T) {
+	for _, alt := range []float64{290e3, 500e3} {
+		t.Run(fmt.Sprintf("%.0f km", alt/1000), func(t *testing.T) {
+			w, id, m := spreadBatch(t, alt, 10)
+			colocate(w, m)
+			sch, err := w.SpreadPlan(id, 550e3)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := w.Crafts[m[0]]
+			mu, R := c.Primary.GravitationalParameter(), c.Primary.RadiusMeters()
+			n := func(a float64) float64 { return math.Sqrt(mu / (a * a * a)) }
+			slot := (2 * math.Pi / 24) / (n(orbitalA(c)) - n(R+550e3)) // the members' own a, which the spawn leaves a few hundred m off R+alt
+			for j, got := range sortedWaits(sch) {
+				if want := float64(j) * slot; math.Abs(got-want) > 1 {
+					t.Errorf("wait %d = %.1f s, want %.1f", j, got, want)
+				}
+			}
+			if sch.First() != 0 {
+				t.Errorf("first start %v, want now", sch.First())
+			}
+		})
+	}
+}
+
+// Guard 17, the ring: release at 10 degrees off the velocity and radial, spread
+// and fly at the top warp to completion; every neighbour gap is 15 +- 1.
+func TestSpreadEvensTheRing(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		alt   float64
+		angle float64
+	}{{"500 km, 10 deg", 500e3, 10}, {"500 km, radial", 500e3, 90}, {"290 km, 10 deg", 290e3, 10}, {"290 km, radial", 290e3, 90}} {
+		t.Run(tc.name, func(t *testing.T) {
+			w, id, m := spreadBatch(t, tc.alt, tc.angle)
+			if err := w.SpreadBatch(id, 550e3); err != nil {
+				t.Fatal(err)
+			}
+			if tick := flySpread(t, w, m); math.Abs(tick-5000) > 1 {
+				t.Fatalf("tick = %.1f s, want 5000", tick)
+			}
+			checkEvenRing(t, w, m)
+			for _, i := range m {
+				if a := semiMajor(w.Crafts[i]) - w.Crafts[i].Primary.RadiusMeters(); math.Abs(a-550e3) > 1 {
+					t.Errorf("%s ended at %.1f m", w.Crafts[i].Name, a)
+				}
+			}
+		})
+	}
+}
+
+// A member 5 degrees ahead of the rest takes the slot ahead and no wait is
+// negative; a member 2% off in semi-major axis (a lowering) lands on its slot.
+func TestSpreadMemberOffTheBatch(t *testing.T) {
+	t.Run("5 degrees ahead", func(t *testing.T) {
+		w, id, m := spreadBatch(t, 500e3, 10)
+		colocate(w, m)
+		ahead := w.Crafts[m[11]]
+		n := ahead.State.R.Cross(ahead.State.V).Unit()
+		ahead.State.R = rotateAbout(ahead.State.R, n, 5*math.Pi/180)
+		ahead.State.V = rotateAbout(ahead.State.V, n, 5*math.Pi/180)
+		sch, err := w.SpreadPlan(id, 550e3)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range sch.Slots {
+			if s.Wait < 0 {
+				t.Errorf("%s waits %v", w.Crafts[s.Idx].Name, s.Wait)
+			}
+		}
+		// Last in the cyclic order, it takes the last slot 5 degrees early.
+		mu, R := ahead.Primary.GravitationalParameter(), ahead.Primary.RadiusMeters()
+		rate := math.Sqrt(mu/math.Pow(orbitalA(ahead), 3)) - math.Sqrt(mu/math.Pow(R+550e3, 3))
+		var got time.Duration
+		for _, s := range sch.Slots {
+			if s.Idx == m[11] {
+				got = s.Wait
+			}
+		}
+		want := 23*(2*math.Pi/24)/rate - 5*math.Pi/180/rate
+		if math.Abs(got.Seconds()-want) > 1 {
+			t.Errorf("the member 5 deg ahead waits %.1f s, want %.1f (the last slot less 5 deg)", got.Seconds(), want)
+		}
+		if err := w.SpreadBatch(id, 550e3); err != nil {
+			t.Fatal(err)
+		}
+		flySpread(t, w, m)
+		checkEvenRing(t, w, m)
+	})
+	t.Run("2 percent off in a", func(t *testing.T) {
+		w, id, m := spreadBatch(t, 500e3, 10)
+		off := w.Crafts[m[7]]
+		s := off.State
+		off.State.R = s.R.Scale(1.02)
+		off.State.V = s.V.Scale(1 / math.Sqrt(1.02))
+		if err := w.SpreadBatch(id, 550e3); err != nil {
+			t.Fatal(err)
+		}
+		flySpread(t, w, m)
+		checkEvenRing(t, w, m)
+	})
+}
+
+// Guard 17, the refusals, each with its equal case at the threshold: 0.5 deg
+// off the median plane goes, 0.51 refuses; a member 1 km from the target
+// refuses, 1.001 km goes; 60 d goes, 60 d and a second refuses; 500 to 502 km
+// is too slow, to 505 km it goes.
+func TestSpreadRefusals(t *testing.T) {
+	tilt := func(deg float64) func(*World, []int) {
+		return func(w *World, m []int) {
+			colocate(w, m)
+			c := w.Crafts[m[4]]
+			c.State.V = rotateAbout(c.State.V, c.State.R.Unit(), deg*math.Pi/180)
+		}
+	}
+	// within puts member 2 on a circle d metres above the 550 km target, in its own plane.
+	within := func(d float64) func(*World, []int) {
+		return func(w *World, m []int) {
+			colocate(w, m)
+			c := w.Crafts[m[2]]
+			f := (c.Primary.RadiusMeters() + 550e3 + d) / orbitalA(c)
+			c.State.R, c.State.V = c.State.R.Scale(f), c.State.V.Scale(1/math.Sqrt(f))
+		}
+	}
+	cases := []struct {
+		name   string
+		mutate func(*World, []int)
+		alt    float64
+		want   string // "" = accepted
+	}{
+		{"even batch", func(w *World, m []int) { colocate(w, m) }, 550e3, ""},
+		{"0.5 deg off the plane", tilt(0.5), 550e3, ""},
+		{"0.51 deg off the plane", tilt(0.51), 550e3, "spread: not in one plane"},
+		{"member 1 km from the target", within(1000), 550e3, "spread: Starlink-3 already at 550 km"},
+		{"member 1.001 km from the target", within(1001), 550e3, ""}, // outside the rule; its tiny phase rate is served by starting it first
+		{"500 to 502 km", func(w *World, m []int) { colocate(w, m) }, 502e3, "spread: too slow from this orbit"},
+		{"500 to 505 km", func(w *World, m []int) { colocate(w, m) }, 505e3, ""},
+		{"a member with no engine", func(w *World, m []int) { w.Crafts[m[6]].Stages[0].Thrust = 0; w.Crafts[m[6]].SyncFields() }, 550e3, "spread: Starlink-7: no engine"},
+		{"a member with no link", func(w *World, m []int) { w.CommGraph.Connected[w.Crafts[m[9]].ID] = false }, 550e3, "spread: Starlink-10: NO SIGNAL"},
+		{"below the atmosphere", func(*World, []int) {}, 100e3, "spread: Starlink-1: below the atmosphere"},
+		{"one member only", func(w *World, m []int) {
+			for _, i := range m[1:] {
+				w.Crafts[i].BatchID = 0
+			}
+		}, 550e3, "spread: not on one orbit"},
+		{"two bodies", func(w *World, m []int) { w.Crafts[m[3]].Primary.ID = "luna" }, 550e3, "spread: not on one orbit"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w, id, m := spreadBatch(t, 500e3, 10)
+			tc.mutate(w, m)
+			err := w.SpreadBatch(id, tc.alt)
+			if tc.want == "" {
+				if err != nil {
+					t.Fatalf("want accepted, got %v", err)
+				}
+				return
+			}
+			if err == nil || !strings.HasPrefix(err.Error(), tc.want) {
+				t.Fatalf("err %v, want prefix %q", err, tc.want)
+			}
+			for _, i := range m {
+				if w.Crafts[i].Raise != nil {
+					t.Fatalf("a refused spread left an order on %s", w.Crafts[i].Name)
+				}
+			}
+		})
+	}
+	t.Run("the days in the refusal", func(t *testing.T) {
+		w, id, m := spreadBatch(t, 500e3, 10)
+		colocate(w, m)
+		err := w.SpreadBatch(id, 502e3)
+		if err == nil || !strings.Contains(err.Error(), "(") {
+			t.Fatalf("err %v", err)
+		}
+		t.Log(err)
+	})
+	t.Run("60 d is the edge", func(t *testing.T) {
+		if spreadTooSlow(60 * 24 * time.Hour) {
+			t.Error("exactly 60 d refused")
+		}
+		if !spreadTooSlow(60*24*time.Hour + time.Second) {
+			t.Error("60 d and a second went")
+		}
+	})
+}
+
+// Stop the spread drops the waiting orders and keeps the climbing ones; a hand
+// raise replaces a member's scheduled order and leaves the schedule; the
+// status counts come off the orders and the notice is gone when none is left.
+func TestSpreadStopHandRaiseAndStatus(t *testing.T) {
+	w, id, m := spreadBatch(t, 500e3, 10)
+	if _, ok := w.SpreadStatus(id); ok {
+		t.Fatal("status before any spread")
+	}
+	if err := w.SpreadBatch(id, 550e3); err != nil {
+		t.Fatal(err)
+	}
+	st, ok := w.SpreadStatus(id)
+	if !ok || st.Total != 24 || st.Climbing != 1 || st.Waiting != 23 || st.Arrived != 0 || st.Name != "Starlink" || st.TargetAltM != 550e3 {
+		t.Fatalf("status at the start: %+v ok=%v", st, ok)
+	}
+	if st.NextName == "" || st.NextIn <= 0 {
+		t.Errorf("next = %q in %v", st.NextName, st.NextIn)
+	}
+
+	var waiting int
+	for _, i := range m {
+		if o := w.Crafts[i].Raise; o != nil && !o.Started {
+			waiting = i
+			break
+		}
+	}
+	if err := w.CommandRaise(waiting, 600e3); err != nil {
+		t.Fatal(err)
+	}
+	if o := w.Crafts[waiting].Raise; o.BatchID != 0 || !o.Started || o.TargetAltM != 600e3 {
+		t.Errorf("hand raise left %+v, want a started order with no batch id", o)
+	}
+	if st, _ := w.SpreadStatus(id); st.Waiting != 22 || st.Climbing != 1 || st.Stopped != 1 {
+		t.Errorf("after a hand raise: %+v", st)
+	}
+
+	w.Clock.WarpIdx = len(WarpFactors) - 1
+	for n := 0; n < 100; n++ {
+		if st, _ := w.SpreadStatus(id); st.Climbing >= 3 {
+			break
+		}
+		w.Tick()
+	}
+	before, _ := w.SpreadStatus(id)
+	if n := w.StopSpread(id); n != before.Waiting {
+		t.Errorf("StopSpread dropped %d, want the %d waiting", n, before.Waiting)
+	}
+	after, ok := w.SpreadStatus(id)
+	if !ok || after.Waiting != 0 || after.Climbing != before.Climbing {
+		t.Errorf("after stop: %+v (was %+v)", after, before)
+	}
+	flySpread(t, w, m)
+	if _, ok := w.SpreadStatus(id); ok {
+		t.Error("status after every order ended")
 	}
 }

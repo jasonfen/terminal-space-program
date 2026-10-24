@@ -14,12 +14,26 @@ For a Starlink-style batch the carrier does not have to phase at all.
    leaves at once in a slow sideways fan, a few cm/s apart, and the carrier
    keeps flying. The pieces are named `Starlink-1`, `Starlink-2` and so on and
    join the end of the vessel list.
-3. Raise each vessel on its own thruster with `L` (a raise order: the vessel
-   burns itself up to the altitude you give it, and warp is not capped while it
-   does). This ships with the batch work; check the F1 help for the key on your
-   build.
-4. Spread the batch around the orbit. That step is coming and is not in the
-   game yet; until then, use the phasing method below.
+3. Press `L` on the carrier (or on any member) and type the altitude. The card
+   `Spread 24 Starlink at 550 km?` says when the first and the last satellite
+   start and what each climb costs. Answer `y` twice. Every satellite gets its
+   own start, solved from where it is now, so they sit 15 degrees apart (360
+   over 24) when the last one arrives. They climb on their own thrusters; warp is
+   yours up to 100000x and is not capped by the climb.
+4. Watch the `SPREAD` notice: `arrived`, `climbing` and `waiting` counts and the
+   next start. `L` on the carrier while it runs asks `Stop the spread?`: the
+   waiting satellites are dropped, the climbing ones finish. `L` on a member
+   offers `raise this one` (that satellite leaves the schedule and climbs now)
+   above `spread all 24`; `L` on a satellite that is already climbing asks
+   `Stop the raise?`.
+
+A spread is refused with `spread: not in one plane` (a member more than 0.5
+degrees off the others' plane), `spread: Starlink-3 already at 550 km` (a member
+within 1 km of the target), `spread: too slow from this orbit (87 d)` (the
+campaign would take over 60 days; a small step is slow, because the satellites
+only drift apart by the difference in their orbital rates, so the closer the
+target the longer the wait) and `spread: not on one orbit`. From 500 km to 550
+km the last satellite starts about 5 days 19 hours in.
 
 The released batch is one stop on the `t` target cycle: `t` lands on the
 nearest member, and the carrier is its own stop. To aim at one particular
