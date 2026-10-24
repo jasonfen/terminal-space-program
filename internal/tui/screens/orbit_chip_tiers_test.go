@@ -21,6 +21,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/missions"
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -97,6 +98,13 @@ func tierReadings(t *testing.T) []tierReading {
 	// station before and after u, and an absurdly heavy hold, so the pin
 	// is measured against the row's widest real values.
 	for _, r := range cargoRowFixtures(t) {
+		add(&steady, chipTierTopLeft, "PROPELLANT/"+r.source, r.lines)
+	}
+
+	// PROPELLANT's Δv→circ cell lives only on a suborbital climb, a phase
+	// no other fixture reaches (#746): a 4-digit Earth climb and a 5-digit
+	// Jupiter climb, each with its burn time.
+	for _, r := range climbRowFixtures(t) {
 		add(&steady, chipTierTopLeft, "PROPELLANT/"+r.source, r.lines)
 	}
 
@@ -473,5 +481,25 @@ func cargoRowFixtures(t *testing.T) []vabStagesFixture {
 	}
 	heavy.ActiveCraft().SyncFields()
 	out = append(out, vabStagesFixture{"heavy cargo and hold", v.buildPropellantBox(heavy)})
+	return out
+}
+
+// climbRowFixtures builds PROPELLANT mid-climb (suborbital, apoapsis above
+// the surface) so the Δv→circ cell carries a figure and its burn time:
+// 4 digits on Earth, 5 digits on Jupiter (#746).
+func climbRowFixtures(t *testing.T) []vabStagesFixture {
+	t.Helper()
+	v := NewOrbitView(launchThemeForTest())
+	var out []vabStagesFixture
+	for _, body := range []string{"earth", "jupiter"} {
+		w := ascendingCraftWorld(t, body, 80_000, 800, orbital.Vec3{Z: 1})
+		c := w.ActiveCraft()
+		c.State.V = c.State.V.Add(orbital.Vec3{Y: 1000})
+		lines := v.buildPropellantBox(w)
+		if !strings.Contains(lines[2], "m/s") || strings.HasSuffix(strings.TrimSpace(lines[2]), "—") {
+			t.Fatalf("%s climb fixture draws no Δv→circ figure: %q", body, lines[2])
+		}
+		out = append(out, vabStagesFixture{"climb " + body, lines})
+	}
 	return out
 }

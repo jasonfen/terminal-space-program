@@ -38,11 +38,11 @@ func TestCircReadoutBurnTimeMatchesTheFlownBurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(cell, readout.DeltaV(plan.DV)) {
+	if dv := strings.TrimSuffix(readout.DeltaV(plan.DV), " m/s"); !strings.HasPrefix(cell, dv) {
 		t.Fatalf("setup: Δv→circ %q does not lead with the C burn's %s", cell, readout.DeltaV(plan.DV))
 	}
 	planted := c.BurnTimeForDV(plan.DV)
-	if want := "  " + readout.Duration(planted); !strings.HasSuffix(cell, want) {
+	if want := " " + readout.Duration(planted); !strings.HasSuffix(cell, want) {
 		t.Errorf("Δv→circ reads %q; the C burn plants %s", cell, readout.Duration(planted))
 	}
 
