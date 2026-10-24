@@ -51,7 +51,13 @@ type localReArm struct {
 // identity. The composite's Nodes / ActiveBurn / ManualBurn /
 // AttitudeMode / EngineMode are dropped — they were tied to the
 // composite, which no longer exists.
-func (w *World) Undock(idx int) bool {
+func (w *World) Undock(idx int) bool { return w.undockSplit(idx, false) }
+
+// undockSplit is the split Undock and ReleaseBatch share. batch swaps the
+// spring for the rotation fan (batch_fan.go), names and appends the pieces
+// above the lead, stamps the batch id and the clamp exemption, and records one
+// deploy per piece (ADR 0059 decision 3).
+func (w *World) undockSplit(idx int, batch bool) bool {
 	// A stack that lost bottom stages without its breakdown following (a
 	// state a pre-#707 build could produce) is repaired first, so it tiles.
 	if idx >= 0 && idx < len(w.Crafts) {
@@ -104,10 +110,7 @@ func (w *World) Undock(idx int) bool {
 	// into a gap the pilot can watch. The re-arm latch below, not distance,
 	// keeps them from re-fusing; with a 0.5 m / 4 degree gate an accidental
 	// re-dock needs a flown approach anyway (#343's secular-drift worry).
-	axis := c.CurrentAttitudeDir.Unit()
-	if axis.Norm() == 0 {
-		axis = progradeUnit(c)
-	}
+	axis := stackAxis(c)
 
 	restored := make([]*spacecraft.Spacecraft, 0, len(c.DockedComponents))
 	stageOffset := 0 // running index into c.Stages for the breakdown path
@@ -174,12 +177,28 @@ func (w *World) Undock(idx int) bool {
 					r = r.Add(axis.Scale(float64(top-1) * DockStrideM))
 				}
 			}
-			v = v.Add(axis.Scale(float64(i) * UndockSpringMS))
+			if !batch {
+				v = v.Add(axis.Scale(float64(i) * UndockSpringMS))
+			}
 			att = axis.Scale(-1)
 		}
 		s := w.restoreComponentCraft(c, comp, stages, r, v)
 		s.CurrentAttitudeDir = att
+		if batch {
+			// A held stack stays a stack: the pieces keep the composite's
+			// pointing mode, and a one-row piece (its hull is the same both
+			// ways round) keeps the stack's direction, so a radial hold does
+			// not swing 24 hulls round through the carrier's nose.
+			s.AttitudeMode = c.AttitudeMode
+			if StackRows(stages) == 1 {
+				s.CurrentAttitudeDir = axis
+			}
+		}
 		restored = append(restored, s)
+	}
+
+	if batch {
+		w.applyBatchFan(c, restored, axis)
 	}
 
 	// Each restored component is a fresh vessel — stamp new stable IDs
@@ -210,10 +229,24 @@ func (w *World) Undock(idx int) bool {
 		}
 	}
 
-	// Replace composite slot with restored components in place.
-	tail := append([]*spacecraft.Spacecraft{}, w.Crafts[idx+1:]...)
-	w.Crafts = append(w.Crafts[:idx], restored...)
-	w.Crafts = append(w.Crafts, tail...)
+	if batch {
+		// The lead replaces the composite in place so digit slots keep their
+		// vessels; the pieces follow at the end of the slate (ADR 0059 Q9 C).
+		for _, s := range restored[1:] {
+			s.Name = w.nextCraftName(s.Name)
+		}
+		w.stampBatch(c, restored)
+		w.Crafts[idx] = restored[0]
+		w.Crafts = append(w.Crafts, restored[1:]...)
+		for range restored[1:] {
+			w.RecordAction(missions.ActionDeploy)
+		}
+	} else {
+		// Replace composite slot with restored components in place.
+		tail := append([]*spacecraft.Spacecraft{}, w.Crafts[idx+1:]...)
+		w.Crafts = append(w.Crafts[:idx], restored...)
+		w.Crafts = append(w.Crafts, tail...)
+	}
 
 	// Active craft becomes the first restored component (matches
 	// the "you keep flying the lead vessel" convention from

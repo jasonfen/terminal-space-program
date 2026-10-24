@@ -1848,6 +1848,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// there is no third branch that falls through in silence.
 			if reason := a.world.UndockRefusal(a.world.ActiveCraftIdx); reason != "" {
 				a.flash(reason)
+			} else if idx := a.world.ActiveCraftIdx; a.world.IsBatch(idx) {
+				// ADR 0059 decision 3: two or more payloads above the lead is a
+				// batch. Refuse first (stack along the velocity), then ask.
+				if reason := sim.BatchFanRefusal(a.world.Crafts[idx]); reason != "" {
+					a.flash(reason)
+				} else if name, n, note, ok := a.world.BatchReleaseCard(idx); ok {
+					a.askReleaseBatch(name, n, note)
+				}
 			} else if before := len(a.world.Crafts); a.world.Undock(a.world.ActiveCraftIdx) {
 				// The stack becomes its pieces: the slate grows by pieces-1 (#709).
 				a.flash(fmt.Sprintf("undocked into %d components", len(a.world.Crafts)-before+1))
@@ -2297,6 +2305,7 @@ const (
 	cardEndFlight
 	cardTranspose
 	cardDeploy
+	cardReleaseBatch
 	cardQuickload
 )
 
@@ -2474,6 +2483,23 @@ func (a *App) askDeploy(name string) {
 				a.flash(fmt.Sprintf("deployed payload, %d vessels on the slate", len(a.world.Crafts)))
 			} else {
 				a.flash("deploy: no payload to release (carrier carries no docked payload)")
+			}
+			return a, nil
+		})
+	c.stamp, c.stamped = a.currentAskContext(), true
+}
+
+// askReleaseBatch raises the U card for a batch (ADR 0059 decision 3). It has
+// no undo, so the ▸ opens on the way out.
+func (a *App) askReleaseBatch(name string, n int, note string) {
+	c := a.raiseCard(cardReleaseBatch, screens.NewCard(a.screensTheme(), fmt.Sprintf("Release all %d %s?", n, name), note,
+		[]screens.CardRow{yesRow("release"), outRow("cancel")}, 1),
+		func(a *App, id string) (tea.Model, tea.Cmd) {
+			if id != rowYes {
+				return a, nil
+			}
+			if a.world.ReleaseBatch(a.world.ActiveCraftIdx) {
+				a.flash(fmt.Sprintf("released %d, %d vessels on the slate", n, len(a.world.Crafts)))
 			}
 			return a, nil
 		})
