@@ -2,6 +2,8 @@ package tui
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -164,5 +166,56 @@ func TestHostingAutosaveFloorCapsALongSetting(t *testing.T) {
 	a.maybeAutosave(now)
 	if acked != 1 {
 		t.Errorf("a 30-minute setting while hosting did not hit the 5-minute floor")
+	}
+}
+
+// #758: a failing solo autosave tells the player once, stays quiet while
+// it keeps failing, and speaks again after a save has succeeded.
+func TestSoloAutosaveFailureFlashesOnce(t *testing.T) {
+	dir := testStateDirs(t)
+	a, err := New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a.world.Clock.Paused = false
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir, nil, 0o644); err != nil { // a file where the saves dir must be
+		t.Fatal(err)
+	}
+	fire := func() {
+		now := time.Now()
+		a.lastAutosave = now.Add(-24 * time.Hour)
+		a.maybeAutosave(now)
+	}
+	fire()
+	if !strings.HasPrefix(a.statusMsg, "autosave failed: ") {
+		t.Fatalf("statusMsg = %q, want \"autosave failed: <reason>\"", a.statusMsg)
+	}
+	if strings.Contains(a.statusMsg, "/") {
+		t.Errorf("notice carries a path: %q", a.statusMsg)
+	}
+	a.statusMsg = ""
+	fire()
+	if a.statusMsg != "" {
+		t.Errorf("second failure repeated the notice: %q", a.statusMsg)
+	}
+	if err := os.Remove(dir); err != nil {
+		t.Fatal(err)
+	}
+	fire() // succeeds
+	if a.statusMsg != "" {
+		t.Errorf("a good save flashed: %q", a.statusMsg)
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fire() // fails again after a success
+	if !strings.HasPrefix(a.statusMsg, "autosave failed: ") {
+		t.Errorf("failure after recovery was silent: %q", a.statusMsg)
 	}
 }

@@ -202,6 +202,8 @@ type App struct {
 	statusMsg     string
 	statusExpires time.Time
 
+	// autosaveFailing: the last solo autosave failed and the player was told.
+	autosaveFailing bool
 	// lastAutosave is the wall-clock time of the last periodic-autosave
 	// check anchor (v0.26 S4 / ADR 0033 §E): armed by the first physics
 	// tick, reset on every interval fire. Deliberately wall-clock — the
@@ -2597,7 +2599,17 @@ func (a *App) maybeAutosave(now time.Time) {
 		_ = a.guestSave(a.world)
 		return
 	}
-	_ = a.persistNow()
+	// Tell the player once per failing streak, not every interval (#758).
+	err := a.persistNow()
+	if err != nil && !a.autosaveFailing {
+		reason := err.Error()
+		var pe *fs.PathError
+		if errors.As(err, &pe) {
+			reason = pe.Err.Error() // "no space left on device", not the path chain
+		}
+		a.flash("autosave failed: " + reason)
+	}
+	a.autosaveFailing = err != nil
 }
 
 // portTrim is the arrow keys' PORT branch (ADR 0055 decision 4): with
