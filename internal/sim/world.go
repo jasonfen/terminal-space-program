@@ -42,6 +42,11 @@ type World struct {
 	// initialises it to len(Crafts)+1 and stamps any unstamped craft.
 	NextCraftID uint64
 
+	// NameCounters is the highest number ever handed out per name prefix
+	// (ADR 0059 decision 7), so nextCraftName never reuses a number after its
+	// vessel leaves the slate. Persisted; nil primes from the slate on first use.
+	NameCounters map[string]uint64
+
 	// NextNodeID is the monotonic source of stable ManeuverNode.IDs
 	// (v0.16 / ADR 0016). Stamped onto each node as it is planted; never
 	// decremented or reused, so a feature that follows one specific node

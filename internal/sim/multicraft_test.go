@@ -315,3 +315,22 @@ func TestMultiCraftIntegrateAdvancesBothByAFullTick(t *testing.T) {
 		t.Errorf("non-active craft moved only %.0f m in 60 s — expected > %.0f m", d2, minMove)
 	}
 }
+
+// ADR 0059 guard 3 (S2): a number once used is never handed out again, even
+// after its vessel leaves the slate; a world with no counters (an old save)
+// primes from the slate, so Starlink-7 is followed by Starlink-8.
+func TestNextCraftNameNeverReusesANumber(t *testing.T) {
+	w, _ := NewWorld()
+	w.NameCounters = nil // a save from before the counters
+	w.Crafts = append(w.Crafts, &spacecraft.Spacecraft{Name: "Starlink-7"})
+	if got := w.nextCraftName("Starlink"); got != "Starlink-8" {
+		t.Fatalf("primed from the slate: %q, want Starlink-8", got)
+	}
+	// Starlink-8 is deorbited (never joins the slate here); the slate's top is 7 again.
+	if got := w.nextCraftName("Starlink-1"); got != "Starlink-9" {
+		t.Errorf("after the top number left: %q, want Starlink-9", got)
+	}
+	if got := w.nextCraftName("Relay Comsat"); got != "Relay Comsat-1" {
+		t.Errorf("other prefix: %q, want Relay Comsat-1", got)
+	}
+}

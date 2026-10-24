@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
@@ -1537,5 +1538,44 @@ func TestCommsAttributesRoundtrip(t *testing.T) {
 	}
 	if !got2.Crafts[0].Controllable {
 		t.Error("pre-comms craft should be backfilled to controllable on load")
+	}
+}
+
+// ADR 0059 guard 9 (S2): name counters, the batch tag and a waiting raise
+// order survive a save/load and the single-craft wire (relay, dock payloads).
+func TestBatchTagCountersAndRaiseOrderRoundTrip(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.Crafts[0]
+	start := w.Clock.SimTime.Add(90 * time.Minute)
+	c.BatchID, c.BatchLead = 42, true
+	c.BatchClampExemptUntil = w.Clock.SimTime.Add(10 * time.Minute)
+	c.Raise = &spacecraft.RaiseOrder{TargetAltM: 550e3, StartAt: start, BatchID: 42}
+	w.NameCounters = map[string]uint64{"Starlink": 24, "Relay Comsat": 3}
+
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.NameCounters, w.NameCounters) {
+		t.Errorf("counters after load = %v, want %v", got.NameCounters, w.NameCounters)
+	}
+	wire, err := save.CraftFromWire(save.CraftToWire(c), []bodies.System(w.Systems))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, lc := range map[string]*spacecraft.Spacecraft{"save": got.Crafts[0], "wire": wire} {
+		if lc.BatchID != 42 || !lc.BatchLead || !lc.BatchClampExemptUntil.Equal(c.BatchClampExemptUntil) {
+			t.Errorf("%s: batch tag = %d lead=%v until %v", name, lc.BatchID, lc.BatchLead, lc.BatchClampExemptUntil)
+		}
+		if lc.Raise == nil || *lc.Raise != *c.Raise || !lc.Raise.StartAt.Equal(start) {
+			t.Errorf("%s: raise order = %+v, want %+v", name, lc.Raise, c.Raise)
+		}
 	}
 }
