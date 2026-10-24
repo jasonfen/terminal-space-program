@@ -214,19 +214,22 @@ func TestRendezvousPassesWithinRangeAndSpeed(t *testing.T) {
 	}
 }
 
-func TestRendezvousInProgressTooFar(t *testing.T) {
+func TestRendezvousInProgressTooFarOrTooFast(t *testing.T) {
 	o := Objective{Kind: KindRendezvous, Params: Params{RangeM: 100, RelSpeedMs: 0.5}}
-	ctx := EvalContext{HasTargetCraft: true, TargetRangeM: 200, TargetRelSpeedMs: 0.1}
-	if got := o.Evaluate(ctx); got != InProgress {
-		t.Fatalf("200 m (too far): got %v, want InProgress", got)
-	}
-}
-
-func TestRendezvousInProgressTooFast(t *testing.T) {
-	o := Objective{Kind: KindRendezvous, Params: Params{RangeM: 100, RelSpeedMs: 0.5}}
-	ctx := EvalContext{HasTargetCraft: true, TargetRangeM: 50, TargetRelSpeedMs: 2.0}
-	if got := o.Evaluate(ctx); got != InProgress {
-		t.Fatalf("2.0 m/s (too fast): got %v, want InProgress", got)
+	for _, c := range []struct {
+		name  string
+		rng   float64
+		speed float64
+	}{
+		{"200 m (too far)", 200, 0.1},
+		{"2.0 m/s (too fast)", 50, 2.0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := EvalContext{HasTargetCraft: true, TargetRangeM: c.rng, TargetRelSpeedMs: c.speed}
+			if got := o.Evaluate(ctx); got != InProgress {
+				t.Fatalf("got %v, want InProgress", got)
+			}
+		})
 	}
 }
 

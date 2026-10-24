@@ -157,7 +157,7 @@ func (s *Spacecraft) applyTrims(dir orbital.Vec3) orbital.Vec3 {
 // component onto the commanded bearing (ApplyHeadingTrim), then PitchTrim
 // leans the result within that bearing's vertical plane, positive
 // downrange (toward the bearing, →) and negative back (away from it, ←).
-// At the default due-east heading this is exactly ApplyPitchTrim.
+// At the default due-east heading the lean is a rotation about local north.
 //
 // Item4-B review round 1 (findings 1-2) had pitch first, about local
 // north, then heading as a steer: heading-before-pitch-about-north was a
@@ -228,7 +228,7 @@ func (s *Spacecraft) BurnDirectionForBurnAtt(mode BurnMode, rT, vT, aT orbital.V
 
 // localHorizonFrame builds the (east, up, north) local frame at
 // position r on a body spinning about spinAxis. Shared by
-// ApplyPitchTrim and ApplyHeadingTrim so the two trims always agree on
+// ApplyTrims and ApplyHeadingTrim so the two trims always agree on
 // which way is east.
 //
 // Frame:
@@ -269,33 +269,6 @@ func localHorizonFrame(r, spinAxis orbital.Vec3) (east, up, north orbital.Vec3, 
 	return east, up, north, true
 }
 
-// ApplyPitchTrim rotates dir about the local-north axis at position
-// r by pitchRad (radians, positive = east). Used by BurnDirection to
-// fold the player's pitch-trim setting into any burn mode's natural
-// direction. Public so tests can exercise the rotation math directly.
-//
-// Rotation about north tilts the thrust vector east (+pitch) or west
-// (-pitch) without changing the heading component. At the poles
-// (where east is undefined) the rotation is a no-op — see
-// localHorizonFrame.
-//
-// v0.9.2+. v0.9.4+: spin-axis param so the trim's east axis matches
-// the launchpad spawn frame on tilted bodies (Earth: 23.5°).
-func ApplyPitchTrim(dir, r, spinAxis orbital.Vec3, pitchRad float64) orbital.Vec3 {
-	if pitchRad == 0 {
-		return dir
-	}
-	east, up, _, ok := localHorizonFrame(r, spinAxis)
-	if !ok {
-		// No defined east (zero position, or a pole): the trim
-		// silently no-ops rather than divide by zero. The player
-		// won't be trimming a launch from the pole anyway.
-		return dir
-	}
-
-	return leanAlong(dir, east, up, pitchRad)
-}
-
 // PitchTrimNoseDownSign is +1 when positive PitchTrim (→) lowers the
 // nose against hold and -1 when it raises it, so a readout can say the
 // lean as up or down against the hold (Jason 2026-10-09). ApplyTrims
@@ -321,8 +294,8 @@ func PitchTrimNoseDownSign(hold, r, spinAxis orbital.Vec3, headingOffsetRad floa
 
 // leanAlong rotates dir within the vertical plane spanned by the unit
 // horizontal fwd and up, by pitchRad toward fwd, leaving the component
-// across that plane untouched: ApplyPitchTrim with fwd = east, and
-// ApplyTrims with fwd = the commanded bearing.
+// across that plane untouched: fwd = east at the default heading, the
+// commanded bearing in ApplyTrims.
 func leanAlong(dir, fwd, up orbital.Vec3, pitchRad float64) orbital.Vec3 {
 	f := dir.X*fwd.X + dir.Y*fwd.Y + dir.Z*fwd.Z
 	u := dir.X*up.X + dir.Y*up.Y + dir.Z*up.Z
@@ -339,7 +312,7 @@ func leanAlong(dir, fwd, up orbital.Vec3, pitchRad float64) orbital.Vec3 {
 // commanded ABSOLUTE compass bearing (HeadingTrimDueEastRad +
 // headingOffsetRad), preserving dir's vertical (up) component and its
 // horizontal magnitude exactly, so dir's elevation above (or below) the
-// local horizon is unchanged. Sibling of ApplyPitchTrim: where pitch
+// local horizon is unchanged. Sibling of the pitch lean: where pitch
 // tilts a direction's vertical component, heading re-aims its
 // horizontal component at a fixed compass bearing. Public so tests can
 // exercise the rotation math directly.
@@ -376,7 +349,7 @@ func leanAlong(dir, fwd, up orbital.Vec3, pitchRad float64) orbital.Vec3 {
 // horizontal component first, divide-by-zero) direction.
 //
 // At the poles (where east/north are undefined) the rotation is a
-// no-op, the same guard ApplyPitchTrim uses via localHorizonFrame.
+// no-op, the same guard ApplyTrims uses via localHorizonFrame.
 //
 // v0.42+ (ADR 0049 decision 8, #453). v0.42.1: switched from a
 // relative rotation to this absolute steer-and-hold (item4-B review

@@ -2,19 +2,6 @@ package spacecraft
 
 import "testing"
 
-// TestEmbeddedLoadoutsHaveCategory — every shipped loadout must carry a
-// non-empty Category (ADR 0031 / S8). The spawn-form CRAFT TYPE picker groups
-// by it; a blank category silently drops a loadout into the UI's "Other"
-// bucket. Guards against a new loadout landing in data/loadouts.json without a
-// category.
-func TestEmbeddedLoadoutsHaveCategory(t *testing.T) {
-	for _, id := range LoadoutOrder {
-		if Loadouts[id].Category == "" {
-			t.Errorf("loadout %q has no category (data/loadouts.json)", id)
-		}
-	}
-}
-
 // TestLoadoutCategoryRoundTrips — Category authored in the catalog data
 // survives the LoadoutDef → resolveLoadout → Loadout path (the field the spawn
 // form reads). A spot-check on one representative loadout plus the

@@ -65,29 +65,15 @@ func TestMigrateV9PayloadToV10IsIdentity(t *testing.T) {
 	}
 }
 
-// TestSchemaVersionBumpedToV10 pinned SchemaVersion == 10 at the time of
-// the #294 finding-6 bump. ADR 0049 decision 8 (#453) has since bumped
-// again to v11 (Craft.HeadingTrim; see save_migrate_v10_to_v11.go and
-// TestSchemaVersionBumpedToV11), so this pin now asserts "at least 10" —
-// still true, and it keeps the finding-6 history readable without
-// re-litigating whether that bump happened.
-func TestSchemaVersionBumpedToV10(t *testing.T) {
-	if SchemaVersion < 10 {
-		t.Errorf("SchemaVersion = %d, want >= 10", SchemaVersion)
-	}
-}
-
 // TestLoadAcceptsV10Envelope — Load's version gate ([1, SchemaVersion])
 // must accept a freshly-written v10 envelope (Version == SchemaVersion,
-// pinned to 10 above) without routing it through the (identity) v9→v10
+// a v10 envelope) without routing it through the (identity) v9→v10
 // migration in a way that loses data — exercised here with the exact
 // finding-6 shape, a ghost Target. A real "does an OLD binary refuse a
-// v10 file" check can't run inside this binary (its own SchemaVersion
-// IS 10) — that half of finding 6 is structural: Load's existing
-// `f.Version > SchemaVersion` gate refuses anything above whatever
-// SchemaVersion the reading binary was built with, and
-// TestSchemaVersionBumpedToV10 above pins that a pre-fix binary's
-// SchemaVersion of 9 is now less than a fixed save's 10.
+// v10 file" check can't run inside this binary — that half of finding 6
+// is structural: Load's existing `f.Version > SchemaVersion` gate
+// refuses anything above whatever SchemaVersion the reading binary was
+// built with.
 func TestLoadAcceptsV10Envelope(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {

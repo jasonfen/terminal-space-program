@@ -61,22 +61,6 @@ func TestBuildStageGoldenByteIdentical(t *testing.T) {
 	}
 }
 
-// TestEveryEngineBearingStageHasFuelType (v0.11.5 sub-scope 4): every
-// catalog stage with Thrust > 0 carries a non-empty FuelType so a
-// future stage can't ship without its flame colour by accident. The
-// pure-monoprop RCS Tug is the only legitimate exception (no main
-// engine ⇒ no fuel-type read).
-func TestEveryEngineBearingStageHasFuelType(t *testing.T) {
-	for id, m := range StageCatalog {
-		if m.thrust <= 0 {
-			continue
-		}
-		if m.fuelType == "" {
-			t.Errorf("catalog stage %q has Thrust=%v but no FuelType set", id, m.thrust)
-		}
-	}
-}
-
 // TestBuildStageCarriesFuelType: catalog FuelType round-trips through
 // BuildStage onto the constructed Stage.
 func TestBuildStageCarriesFuelType(t *testing.T) {

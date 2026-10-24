@@ -281,12 +281,6 @@ const (
 	MarginInsufficient
 )
 
-// marginTightBelow is the ratio under which a survivable margin still
-// warrants a warning. 1.5× is one and a half times the deceleration the
-// stop needs — below that, a few seconds of hesitation (or the mass the
-// burn itself has yet to shed) eats the whole reserve.
-const marginTightBelow = 1.5
-
 // MarginLimiter names which of the two capabilities binds the margin:
 // the thrust available to decelerate, or the propellant left to spend on
 // it. Reported so the alarm says what to fix, not just that something is
@@ -316,40 +310,9 @@ func (l MarginLimiter) String() string {
 
 // BurnMargin answers the descent question "can the remaining thrust kill
 // this velocity in the altitude left", as a ratio of capability to
-// requirement (≥ 1 means yes).
-//
-// Two independent capabilities have to hold, so the reported Ratio is
-// the smaller of the two and Limiter says which one bound it:
-//
-//   - Acceleration. Nulling a descent rate v within altitude h needs a
-//     net deceleration of at least v²/2h. The stack's net deceleration
-//     at full thrust is a_net = F/m − g_local (gravity keeps pulling
-//     through the burn), so the acceleration ratio is a_net / (v²/2h).
-//     A stack that can't out-thrust local gravity (a_net ≤ 0) has ratio
-//     0 — it cannot stop at any altitude.
-//   - Propellant. The stop takes t = v/a_net seconds at full thrust, and
-//     the engine spends Δv at F/m per second the whole time, so it costs
-//     v·(F/m)/a_net m/s of the budget — strictly more than v, because
-//     part of every second is spent holding the vehicle up. The
-//     propellant ratio is RemainingDeltaV over that.
-//
-// Both are the idealised constant-mass, straight-down, frozen-g bound:
-// no attitude error, no throttle ramp, no mass shed mid-burn, g_local
-// frozen at the instant evaluated, and v the VERTICAL descent rate only
-// (issue #377). That is NOT "optimistic only in the mass term" — ignoring
-// mass loss is the one place this model is conservative (a real burn
-// gets lighter, so a_net actually grows through the burn). The other two
-// idealisations run the other way: freezing g at the current altitude
-// overstates it by ~10-20% over a real descent (g grows as r shrinks),
-// and dropping the horizontal component entirely is the dangerous one —
-// a craft carrying serious downrange speed reads as comfortably OK here
-// while nowhere near actually being able to stop. DescentCorridorFor no
-// longer wires this into the corridor's Margin field for exactly that
-// reason: PredictPoweredStop integrates the real burn (mass loss, g(r),
-// the horizontal component, and drag) instead of hand-deriving
-// corrections for each. ComputeBurnMargin stays as a cheap, pure,
-// still-tested piece of arithmetic — just not the corridor's answer to
-// "can this still be stopped".
+// requirement (≥ 1 means yes). DeriveMarginState fills it from the
+// integrated stop burn (PredictPoweredStop, issue #377); Limiter says
+// which capability, thrust or propellant, bound the Ratio.
 type BurnMargin struct {
 	Ratio        float64
 	State        MarginState
@@ -358,59 +321,6 @@ type BurnMargin struct {
 	ReqAccelMps2 float64 // v²/2h, the deceleration the stop requires
 	ReqDVMps     float64 // the stop burn's Δv cost (+Inf when it can't be flown)
 	AvailDVMps   float64 // the stack's remaining Δv
-}
-
-// ComputeBurnMargin evaluates the margin from SI scalars. Pure, so the
-// arithmetic can be pinned exactly by tests without seeding a World.
-//
-// Superseded by PredictPoweredStop (issue #377) as the corridor's actual
-// margin — DescentCorridorFor no longer calls this at all (see its doc
-// comment). It is kept only as the frozen-scalar BASELINE
-// TestPredictPoweredStopLunaHorizontalRegression pins its "before"
-// number against — that regression is the evidence the whole slice
-// rests on, so the old arithmetic needs to keep existing and keep being
-// exactly this, not because anything should call it live again. Do not
-// wire this back into DescentCorridorFor or any other live code path.
-func ComputeBurnMargin(thrustN, massKg, gLocalMps2, descentRateMps, altitudeM, availDVMps float64) BurnMargin {
-	if massKg <= 0 || altitudeM <= 0 || descentRateMps <= 0 {
-		return BurnMargin{AvailDVMps: availDVMps}
-	}
-	aAvail := thrustN / massKg
-	aNet := aAvail - gLocalMps2
-	reqAccel := descentRateMps * descentRateMps / (2 * altitudeM)
-	m := BurnMargin{
-		NetAccelMps2: aNet,
-		ReqAccelMps2: reqAccel,
-		ReqDVMps:     math.Inf(1),
-		AvailDVMps:   availDVMps,
-	}
-	if aNet <= 0 || reqAccel <= 0 {
-		// Can't out-thrust gravity: no altitude and no propellant makes
-		// this stop flyable, so the thrust side binds at zero.
-		m.Ratio = 0
-		m.State = MarginInsufficient
-		m.Limiter = LimitThrust
-		return m
-	}
-	accelRatio := aNet / reqAccel
-	m.ReqDVMps = descentRateMps * aAvail / aNet
-	dvRatio := math.Inf(1)
-	if m.ReqDVMps > 0 {
-		dvRatio = availDVMps / m.ReqDVMps
-	}
-	m.Ratio, m.Limiter = accelRatio, LimitThrust
-	if dvRatio < accelRatio {
-		m.Ratio, m.Limiter = dvRatio, LimitFuel
-	}
-	switch {
-	case m.Ratio < 1:
-		m.State = MarginInsufficient
-	case m.Ratio < marginTightBelow:
-		m.State = MarginTight
-	default:
-		m.State = MarginOK
-	}
-	return m
 }
 
 // stdGravityMps2 is standard gravity, used to convert Isp (seconds) to
@@ -984,7 +894,7 @@ const descentRateFloorMps = 0.1
 // cached) fills these two fields plus Margin before handing the struct to
 // the renderer. Margin is still String()able / colour-drivable exactly as
 // before (MarginState / MarginLimiter survive unchanged) — only ITS
-// source changed, from ComputeBurnMargin's frozen scalars to
+// source changed, from the old frozen-scalar estimate to
 // DeriveMarginState reading the integrated Stop/BurnAt result.
 type DescentCorridor struct {
 	AltitudeM      float64

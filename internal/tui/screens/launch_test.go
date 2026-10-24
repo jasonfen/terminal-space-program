@@ -521,7 +521,7 @@ func TestSiblingCraftInSOIRenders(t *testing.T) {
 // staging path's data correctness (slate population, fuel transfer,
 // retrograde offset) is fully covered by staging_test.go; the
 // dropped-stage cmd inheritance is pinned by
-// TestStageActivePreservesAttitudeOnDroppedStage.
+// TestStageActiveOnSaturnVPopsBottomStage (internal/sim).
 func TestDroppedStageVisibleAfterDecouple(t *testing.T) {
 	w, active := spawnSaturnVOnPad(t)
 	if len(active.Stages) < 2 {

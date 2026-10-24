@@ -88,18 +88,33 @@ func driveNoisyCoast(t *testing.T, w *World, lead, noise float64, step, total ti
 //     scaling alone cannot absorb the ~30 km the estimate converges by as the
 //     horizon shrinks. Only re-basing against a RECENT measure keeps slow
 //     convergence from accumulating into a trip.
+//
+// The 1 m/s rows are the playtest's size, but their whole walk (~33 km) sits
+// just under the 35 km floor, so they stay green even with both #251
+// defences removed (measured). The two stress rows are sized so each defence
+// is load-bearing, shown by disabling it in cowarp.go:
+//   - distant, 30 m/s: the estimate walks ~1,000 km, with up to ~110 km
+//     inside one re-base window. Re-basing absorbs the total, the
+//     proportional bar (5% of ~4,000 km) absorbs the per-window creep; with
+//     the bar pinned to the 35 km floor it false-fires.
+//   - close, 2 m/s: the estimate climbs ~60 km to the true chord. Re-basing
+//     keeps each window's creep under the floor; with re-basing off the
+//     baseline stays at the low coast-start capture and it false-fires.
 func TestRendezvousDegradeToleratesRelayNoise(t *testing.T) {
 	cases := []struct {
-		name string
-		lead float64
+		name  string
+		lead  float64
+		noise float64 // relayed prograde velocity error, m/s
 	}{
-		{"distant", 600},
-		{"close", 8},
+		{"distant", 600, 1.0},
+		{"close", 8, 1.0},
+		{"distant stress", 600, 30.0},
+		{"close stress", 8, 2.0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			w, _, _ := anchorWorld(t)
-			fired := driveNoisyCoast(t, w, c.lead, 1.0, 3*time.Minute, 3*time.Hour)
+			fired := driveNoisyCoast(t, w, c.lead, c.noise, 3*time.Minute, 3*time.Hour)
 			if len(fired) > 0 {
 				t.Errorf("degrade false-fired on estimator noise/convergence at ticks %v (%s encounter, no maneuver)", fired, c.name)
 			}

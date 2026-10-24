@@ -280,23 +280,28 @@ func TestClickingAnotherVesselsOrbitLineInspectsInsteadOfPlanting(t *testing.T) 
 	// on far fewer cells at the floor size, so the cell the fixture picks
 	// there is a tighter constraint on the click router than the wide case
 	// — and the floor is where two lines are most likely to share one.
-	for _, size := range []struct{ w, h int }{
-		{200, 60},
-		{screens.MinTerminalWidth, screens.MinTerminalHeight},
+	// scale is the sister's orbit scale: at the floor size the default 1.6
+	// leaves no untied cell on the sister's line, 2.5 does (probed).
+	for _, size := range []struct {
+		w, h  int
+		scale float64
+	}{
+		{200, 60, sisterScale},
+		{screens.MinTerminalWidth, screens.MinTerminalHeight, 2.5},
 	} {
 		t.Run(fmt.Sprintf("%dx%d", size.w, size.h), func(t *testing.T) {
-			clickSistersOrbitLine(t, size.w, size.h)
+			clickSistersOrbitLine(t, size.w, size.h, size.scale)
 		})
 	}
 }
 
-func clickSistersOrbitLine(t *testing.T, width, height int) {
+func clickSistersOrbitLine(t *testing.T, width, height int, scale float64) {
 	t.Helper()
-	a, sister := sisterApp(t, width, height)
+	a, sister := sisterAppScaled(t, width, height, scale)
 	want := screens.InspectRef{Kind: screens.InspectVessel, CraftID: sister.ID}
 	col, row, ok := findOwnerCell(a, want.OwnerKey())
 	if !ok {
-		t.Skip("the sister vessel's orbit line did not land on the canvas")
+		t.Fatal("the sister vessel's orbit line did not land on the canvas")
 	}
 
 	nodesBefore := len(a.world.ActiveCraft().Nodes)
@@ -322,6 +327,17 @@ func clickSistersOrbitLine(t *testing.T, width, height int) {
 // EnsureCraftIDs, so read it back off the pointer, never assume 2).
 func sisterApp(t *testing.T, width, height int) (*App, *spacecraft.Spacecraft) {
 	t.Helper()
+	return sisterAppScaled(t, width, height, sisterScale)
+}
+
+// sisterScale is the default ratio of the sister's orbit to the active
+// vessel's.
+const sisterScale = 1.6
+
+// sisterAppScaled is sisterApp with the sister's orbit scale chosen, for
+// the tests that need a particular overlap geometry.
+func sisterAppScaled(t *testing.T, width, height int, scale float64) (*App, *spacecraft.Spacecraft) {
+	t.Helper()
 	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -336,8 +352,8 @@ func sisterApp(t *testing.T, width, height int) (*App, *spacecraft.Spacecraft) {
 	sister := *active
 	sister.Name = "Sister"
 	sister.ID = 0
-	sister.State.R = active.State.R.Scale(1.6)
-	sister.State.V = active.State.V.Scale(1 / 1.6)
+	sister.State.R = active.State.R.Scale(scale)
+	sister.State.V = active.State.V.Scale(1 / scale)
 	a.world.Crafts = append(a.world.Crafts, &sister)
 	a.world.EnsureCraftIDs()
 	a.world.Focus = sim.Focus{Kind: sim.FocusCraft}
@@ -393,11 +409,17 @@ func TestClickingTheSameOrbitCellAlwaysAnswersTheSame(t *testing.T) {
 // Inspect identity ON DEMAND, so an ambiguous point-and-ask must never
 // cash out as a mode change.
 func TestClickingAnAmbiguousOrbitCellNeverOpensThePlanner(t *testing.T) {
-	a, _ := sisterApp(t, 200, 60)
+	// 1.4 is a scale at which the two ellipses share a cell evenly at
+	// 200x60 (probed: the default 1.6 has no tied cell).
+	a, _ := sisterAppScaled(t, 200, 60, 1.4)
 
-	col, row, ok := findTiedOwnerCell(a)
+	// The tied cell must name the ACTIVE vessel as its owner: that is the
+	// only reading that can cash out as planting a burn, so it is the one
+	// the tie veto in app.go has to stop.
+	own := screens.InspectRef{Kind: screens.InspectVessel, CraftID: a.world.ActiveCraft().ID}.OwnerKey()
+	col, row, ok := findTiedOwnerCell(a, own)
 	if !ok {
-		t.Skip("the two ellipses did not share a cell evenly on this canvas")
+		t.Fatal("no cell is tied with the active vessel as its owner: the fixture no longer reaches the ambiguous case")
 	}
 
 	nodesBefore := len(a.world.ActiveCraft().Nodes)
@@ -416,13 +438,13 @@ func TestClickingAnAmbiguousOrbitCellNeverOpensThePlanner(t *testing.T) {
 }
 
 // findTiedOwnerCell scans for an orbit-line cell whose owners split the
-// pixel count evenly — the ambiguous case, deliberately sought here
-// rather than avoided.
-func findTiedOwnerCell(a *App) (col, row int, ok bool) {
+// pixel count evenly and whose tie-break landed on owner — the ambiguous
+// case, deliberately sought here rather than avoided.
+func findTiedOwnerCell(a *App, owner string) (col, row int, ok bool) {
 	for r := 2; r < a.height-1; r++ {
 		for c := 1; c < a.width-1; c++ {
 			hit := a.orbitView.HitAt(c, r)
-			if hit.OwnerTied && hit.BodyID == "" && !hit.IsVessel && hit.NodeIdx == 0 {
+			if hit.OwnerTied && hit.Owner == owner && hit.BodyID == "" && !hit.IsVessel && hit.NodeIdx == 0 {
 				return c, r, true
 			}
 		}

@@ -35,11 +35,33 @@ jobs:
 
       # internal/sim has no goroutines or sync in production code, so -race
       # finds nothing there and costs ~8x; every other package keeps it.
+      # -json output is tee'd for the skip gate below and rendered back to
+      # the usual quiet text by jq (RUN/PASS lines dropped; failures, skips and
+      # package results stay).
       - name: go test (race)
-        run: go test -race -count=1 $(go list ./... | grep -v '/internal/sim$')
+        shell: bash
+        run: |
+          go test -race -count=1 -json $(go list ./... | grep -v '/internal/sim$') | tee test-race.json | jq -Rrj 'fromjson? | .Output // empty | select(test("^(=== |\\s*--- PASS|PASS$)") | not)'
 
       - name: go test (internal/sim)
-        run: go test -count=1 ./internal/sim
+        shell: bash
+        run: |
+          go test -count=1 -json ./internal/sim | tee test-sim.json | jq -Rrj 'fromjson? | .Output // empty | select(test("^(=== |\\s*--- PASS|PASS$)") | not)'
+
+      # A skip is not a pass: a test that skips (or a subtest that does)
+      # reads green while checking nothing. The only skips allowed are the
+      # two env-gated diagnostics; everything else must run or be deleted.
+      - name: no unexpected skips
+        shell: bash
+        run: |
+          bad=$(jq -Rr 'fromjson? | select(.Action == "skip" and .Test != null)
+            | select((.Test | split("/")[0]) | IN("TestDiagFastSweep", "TestSOIEntryPredictionEval") | not)
+            | "\(.Package) \(.Test)"' test-race.json test-sim.json)
+          if [ -n "$bad" ]; then
+            echo "::error::tests skipped unexpectedly (fix the fixture or delete the test):"
+            echo "$bad"
+            exit 1
+          fi
 
   govulncheck:
     name: govulncheck

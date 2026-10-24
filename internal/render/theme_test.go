@@ -68,39 +68,24 @@ func TestLoadThemeUIOverride(t *testing.T) {
 	}
 }
 
-func TestLoadThemeBodyOverrideWinsOverColorField(t *testing.T) {
-	withThemeFile(t, `{"bodies": {"earth": "#aabbcc"}}`)
-	defer LoadTheme()
-
-	if _, _, err := LoadTheme(); err != nil {
-		t.Fatalf("LoadTheme: %v", err)
-	}
-	b := bodies.CelestialBody{
-		ID:       "earth",
-		BodyType: "Planet",
-		Color:    "#5BB3FF", // would normally win post-v0.7.1
-	}
-	got := ColorFor(b)
-	if string(got) != "#aabbcc" {
-		t.Errorf("ColorFor with body override = %q, want #aabbcc", string(got))
-	}
-}
-
-func TestLoadThemeBodyOverrideMissingBody(t *testing.T) {
-	withThemeFile(t, `{"bodies": {"mars": "#123456"}}`)
-	defer LoadTheme()
-
-	if _, _, err := LoadTheme(); err != nil {
-		t.Fatalf("LoadTheme: %v", err)
-	}
-	b := bodies.CelestialBody{
-		ID:       "earth",
-		BodyType: "Planet",
-		Color:    "#5BB3FF",
-	}
-	got := ColorFor(b)
-	if string(got) != "#5BB3FF" {
-		t.Errorf("non-overridden body = %q, want #5BB3FF", string(got))
+func TestLoadThemeBodyOverride(t *testing.T) {
+	earth := bodies.CelestialBody{ID: "earth", BodyType: "Planet", Color: "#5BB3FF"}
+	for _, c := range []struct{ name, theme, want string }{
+		// The override beats the body's own Color field (which would
+		// normally win post-v0.7.1).
+		{"wins over Color field", `{"bodies": {"earth": "#aabbcc"}}`, "#aabbcc"},
+		{"other body's override leaves earth alone", `{"bodies": {"mars": "#123456"}}`, "#5BB3FF"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			withThemeFile(t, c.theme)
+			defer LoadTheme()
+			if _, _, err := LoadTheme(); err != nil {
+				t.Fatalf("LoadTheme: %v", err)
+			}
+			if got := ColorFor(earth); string(got) != c.want {
+				t.Errorf("ColorFor = %q, want %s", string(got), c.want)
+			}
+		})
 	}
 }
 

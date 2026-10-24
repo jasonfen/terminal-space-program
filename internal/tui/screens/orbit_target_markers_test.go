@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"testing"
@@ -245,19 +246,27 @@ func tiltedPlaneWorld(t *testing.T) *sim.World {
 // marker's pinned color (render.ColorMarkerAscendingNode /
 // ColorMarkerDescendingNode via SetCellOverlayColored) is unique to the
 // canvas glyph.
+//
+// Run at the roomy 200x60 canvas and at 80x24, the narrow-glyph size a
+// past lesson flagged, so a cramped canvas can't silently drop the node
+// markers (they need the tilted-plane fixture).
 func TestTargetPlaneNodesRenderDiamonds(t *testing.T) {
-	v := NewOrbitView(Theme{HUDBox: lipgloss.NewStyle()})
-	v.Resize(200, 60)
-	w := tiltedPlaneWorld(t)
+	for _, size := range []struct{ w, h int }{{200, 60}, {80, 24}} {
+		t.Run(fmt.Sprintf("%dx%d", size.w, size.h), func(t *testing.T) {
+			v := NewOrbitView(Theme{HUDBox: lipgloss.NewStyle()})
+			v.Resize(size.w, size.h)
+			w := tiltedPlaneWorld(t)
 
-	v.Render(w, 0, 200, 60)
-	anColor := render.MarkerColor(render.MarkerAscendingNode, render.MarkerNominal, "")
-	dnColor := render.MarkerColor(render.MarkerDescendingNode, render.MarkerNominal, "")
-	if got := v.canvas.CountOverlayColor(anColor); got == 0 {
-		t.Error("ascending-node marker did not render")
-	}
-	if got := v.canvas.CountOverlayColor(dnColor); got == 0 {
-		t.Error("descending-node marker did not render")
+			v.Render(w, 0, size.w, size.h)
+			anColor := render.MarkerColor(render.MarkerAscendingNode, render.MarkerNominal, "")
+			dnColor := render.MarkerColor(render.MarkerDescendingNode, render.MarkerNominal, "")
+			if got := v.canvas.CountOverlayColor(anColor); got == 0 {
+				t.Error("ascending-node marker did not render")
+			}
+			if got := v.canvas.CountOverlayColor(dnColor); got == 0 {
+				t.Error("descending-node marker did not render")
+			}
+		})
 	}
 }
 
@@ -338,24 +347,6 @@ func TestApsisMarkersRenderDimmedAtNarrowCanvas(t *testing.T) {
 	targetApo := render.MarkerColor(render.MarkerApoapsis, render.MarkerCounterfactual, "")
 	if got := v.canvas.CountOverlayColor(targetApo); got == 0 {
 		t.Error("target apoapsis did not render dimmed at 80x24")
-	}
-}
-
-// TestTargetPlaneNodesRenderAtNarrowCanvas mirrors the above for the
-// ◇/◆ node markers, which need a different (tilted-plane) world fixture.
-func TestTargetPlaneNodesRenderAtNarrowCanvas(t *testing.T) {
-	v := NewOrbitView(Theme{HUDBox: lipgloss.NewStyle()})
-	v.Resize(80, 24)
-	w := tiltedPlaneWorld(t)
-
-	v.Render(w, 0, 80, 24)
-	anColor := render.MarkerColor(render.MarkerAscendingNode, render.MarkerNominal, "")
-	dnColor := render.MarkerColor(render.MarkerDescendingNode, render.MarkerNominal, "")
-	if got := v.canvas.CountOverlayColor(anColor); got == 0 {
-		t.Error("ascending-node marker missing at 80x24")
-	}
-	if got := v.canvas.CountOverlayColor(dnColor); got == 0 {
-		t.Error("descending-node marker missing at 80x24")
 	}
 }
 
