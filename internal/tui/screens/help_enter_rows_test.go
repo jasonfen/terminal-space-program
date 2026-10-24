@@ -13,43 +13,6 @@ import (
 // GK Q6 (#589): F1 says what Enter does on every screen that uses it, and
 // no key label overflows F1's 20-cell key column or cuts its row at 140x40.
 
-func TestHelpSaysWhatEnterDoesPerScreen(t *testing.T) {
-	want := map[string][]string{
-		"GENERAL":                                     {"enter (any screen)"},
-		"SPAWN FORM (n)":                              {"enter", "enter (box open)", "esc (box open)"},
-		"VEHICLE ASSEMBLY (VAB)":                      {"enter", "enter (name box)", "enter (Δv box)", "enter (design list)", "x (design list)"},
-		"SAVES (menu → Save / Load Game)":             {"enter", "enter (name box)"},
-		"MULTIPLAYER (session screen, open with O)":   {"enter (invite box)"},
-		"PAUSE MENU (esc from the map)":               {"in Settings", "in Keyboard layout"},
-		"PLAN BURNS":                                  {"enter"},
-		"NAVIGATION":                                  {"enter"},
-		"RENDEZVOUS PLANNER (map chip, opens from K)": {"enter"},
-	}
-	for header, labels := range want {
-		var sec *helpSection
-		for i := range helpSections {
-			if helpSections[i].header == header {
-				sec = &helpSections[i]
-			}
-		}
-		if sec == nil {
-			t.Errorf("no %q section", header)
-			continue
-		}
-		for _, l := range labels {
-			found := false
-			for _, r := range sec.rows {
-				if r[0] == l {
-					found = true
-				}
-			}
-			if !found {
-				t.Errorf("%s has no %q row", header, l)
-			}
-		}
-	}
-}
-
 func TestHelpKeyLabelsFitTheKeyColumnAndRowsFitDesignSize(t *testing.T) {
 	// Every label fits the 20-cell key column.
 	for _, s := range helpSections {

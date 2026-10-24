@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/keylayout"
 	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -28,63 +30,178 @@ func helpRow(t *testing.T, token string) (section, desc string) {
 	return "", ""
 }
 
-// TestHelpQuitRowIsMenuScoped (#423): `q` is AttitudeRadialOut on the
-// flight screen — it only quits inside the pause menu (menu.go). The
-// overlay used to open with "q — quit (confirm + autosave)" in GENERAL,
-// which is the first line a player reads and the one that misleads worst.
-func TestHelpQuitRowIsMenuScoped(t *testing.T) {
-	for _, s := range helpSections {
-		if s.header != "GENERAL" {
-			continue
-		}
-		for _, r := range s.rows {
-			if r[0] == "q" {
-				t.Errorf("GENERAL still lists a bare `q` row (%q) — on the flight screen q is radial+, not quit", r[1])
+// helpPhrase is one wording pin on an authored F1 row. section is a header
+// prefix ("" = first row with the token anywhere, as helpRow does); token is
+// the key cell. has is case-sensitive, hasFold is case-insensitive, anyFold
+// needs at least one, not must be absent. before/after assert reading order
+// within the row. absent flips the row: it must not exist. exists lists
+// further key cells that must be present in the same section.
+type helpPhrase struct {
+	name, section, token       string
+	sectionHasFold             string
+	has, hasFold, anyFold, not []string
+	before, after              string
+	absent                     bool
+	exists                     []string
+}
+
+func helpPhraseRows() []helpPhrase {
+	var views []string
+	for _, m := range sim.ProjectionViewModes {
+		views = append(views, m.Label())
+	}
+	return []helpPhrase{
+		// #423: q quits only inside the pause menu; on the flight screen it is radial+.
+		{name: "no bare q in GENERAL", section: "GENERAL", token: "q", absent: true},
+		{name: "q is menu-scoped quit", token: "q", sectionHasFold: "menu", has: []string{"quit"}},
+		// #423 / ADR 0052: left leans back from the heading, right toward it, in key order.
+		{name: "pitch trim both directions", token: "← / →", before: "back from", after: "toward your heading"},
+		{name: "heading trim both directions", section: "MANUAL FLIGHT", token: "↑ / ↓", before: "north", after: "south"},
+		{name: "nav mode skip rule", token: ";", hasFold: []string{"skip"}},
+		{name: "E ends a crashed flight", token: "E", anyFold: []string{"end flight", "crashed"}},
+		// ADR 0051: F2 hides all eight boxes and the navball.
+		{name: "F2 declutter", token: "F2", has: []string{"instrument boxes", "navball", "Centerline scope", "ENGINE", "PROPELLANT"}, not: []string{"core column", "chips"}},
+		{name: "K re-solves the planner", section: "RENDEZVOUS PLANNER", token: "K", has: []string{"re-solve"}},
+		{name: "v names the screen's views", token: "v", has: []string{"cycle view (" + strings.Join(views, " / ") + ")"}},
+		// ADR 0058 decision 14: c is a throttle row on MANUAL FLIGHT; C is documented under PLAN BURNS.
+		{name: "c throttle target", section: "MANUAL FLIGHT", token: "c", has: []string{"throttle target", "all / core / boosters", "one throttle"}},
+		{name: "no C on MANUAL FLIGHT", section: "MANUAL FLIGHT", token: "C", absent: true},
+		{name: "PLAN BURNS C", section: "PLAN BURNS", token: "C", has: []string{"circularize"}},
+		{name: "PLAN BURNS c", section: "PLAN BURNS", token: "c", has: []string{"throttle target"}},
+		{name: "z/x selected throttle", section: "MANUAL FLIGHT", token: "z / x", has: []string{"selected throttle"}},
+		{name: "Z/X selected throttle", section: "MANUAL FLIGHT", token: "Z / X", has: []string{"selected throttle"}},
+		{name: "alt+z/x selected throttle", section: "MANUAL FLIGHT", token: "alt+z / alt+x", has: []string{"selected throttle"}},
+		{name: "b cuts liquid engines", section: "MANUAL FLIGHT", token: "b", has: []string{"liquid"}},
+		// GK Q6 (#589): F1 says what Enter does on every screen that uses it.
+		{name: "enter GENERAL", section: "GENERAL", exists: []string{"enter (any screen)"}},
+		{name: "enter SPAWN", section: "SPAWN FORM (n)", exists: []string{"enter", "enter (box open)", "esc (box open)"}},
+		{name: "enter VAB", section: "VEHICLE ASSEMBLY (VAB)", exists: []string{"enter", "enter (name box)", "enter (Δv box)", "enter (design list)", "x (design list)"}},
+		{name: "enter SAVES", section: "SAVES (menu → Save / Load Game)", exists: []string{"enter", "enter (name box)"}},
+		{name: "enter MULTIPLAYER", section: "MULTIPLAYER (session screen, open with O)", exists: []string{"enter (invite box)"}},
+		{name: "enter PAUSE MENU", section: "PAUSE MENU (esc from the map)", exists: []string{"in Settings", "in Keyboard layout"}},
+		{name: "enter PLAN BURNS", section: "PLAN BURNS", exists: []string{"enter"}},
+		{name: "enter NAVIGATION", section: "NAVIGATION", exists: []string{"enter"}},
+		{name: "enter RENDEZVOUS PLANNER", section: "RENDEZVOUS PLANNER (map chip, opens from K)", exists: []string{"enter"}},
+		// DOCKING quotes the sim's own constants, not copies: a retuned gate goes red here.
+		{name: "docking gate", section: "DOCKING", token: "the gate", has: []string{
+			fmt.Sprintf("%.1f m", sim.DockPortRangeM), fmt.Sprintf("%.1f m/s", sim.DockingVMS), fmt.Sprintf("%.0f°", sim.DockAlignDeg)}},
+		{name: "docking magnet", section: "DOCKING", token: "magnet", has: []string{"five-second"}},
+		{name: "docking U spring", section: "DOCKING", token: "U", has: []string{fmt.Sprintf("%.2f m/s", sim.UndockSpringMS)}},
+		{name: "docking bump", section: "DOCKING", token: "bump", has: []string{fmt.Sprintf("re-approach under %.2f m/s", sim.DockingVMS)}},
+		// ADR 0049 stage A3a glossary (readout codes), then later glossary rows.
+		{name: "gloss fpa", token: "fpa", hasFold: []string{"flight path angle"}},
+		{name: "gloss Q", token: "Q", hasFold: []string{"dynamic pressure"}},
+		{name: "gloss TCA", token: "TCA", hasFold: []string{"closest approach"}},
+		{name: "gloss TWR", token: "TWR", hasFold: []string{"thrust to weight"}},
+		{name: "gloss Ap/Pe", token: "Ap / Pe", hasFold: []string{"height above the surface"}},
+		{name: "gloss dv/dincl", token: "Δv / Δincl", hasFold: []string{"delta-v", "relative inclination"}},
+		{name: "gloss T-/T+", token: "T- / T+", hasFold: []string{"T- counts down", "T+ counts up"}},
+		{name: "gloss Ap arrow", token: "Ap ↑ / ↓", hasFold: []string{"climbing", "falling"}},
+		{name: "gloss becomes", token: "→", hasFold: []string{"becomes"}},
+		{name: "gloss node warn", token: "⚠ (node)", hasFold: []string{"Δv budget"}},
+		{name: "gloss plan", token: "plan", hasFold: []string{"planned burn's numbers are measured from"}},
+		{name: "gloss pro/retro", token: "pro / retro", hasFold: []string{"prograde or retrograde"}},
+		{name: "gloss frames", token: "(ORBIT/SURF/TGT)", hasFold: []string{"one spelling everywhere", "target or PORT"}},
+		{name: "gloss rcs", token: "rcs", hasFold: []string{"RCS thrusters"}},
+		{name: "gloss speed", token: "speed", hasFold: []string{"navball frame"}},
+		{name: "gloss max N", token: "(max N)", hasFold: []string{"full throttle"}},
+		{name: "gloss ORBIT READY", token: "● ORBIT READY [C]", hasFold: []string{"orbit floor"}},
+		// Wave C review: which heading figure is commanded and which measured.
+		{name: "gloss hdg", token: "heading: / hdg", has: []string{"commanded", "measured", "on the pad", "out of the orbit plane"}},
+		// #592 remainder: the navball's attitude tag and RCS toggle.
+		{name: "gloss MAN/AUT", token: "[MAN] / [AUT]", has: []string{"rate-limited", "instant"}},
+		{name: "gloss RCS", token: "RCS", has: []string{"thrusters"}},
+		// Review #629 M1: hold:'s amber frame word.
+		{name: "gloss amber", section: "READOUT GLOSSARY", token: "amber (SURF)", has: []string{"amber", "hold:", "nav:"}},
+	}
+}
+
+// TestHelpRowPhrases is the one wording table for the F1 overlay: each row
+// pins the phrases a review once found missing or wrong. Add a row here, not
+// a new test, for the next wording finding. It reads the authored sections
+// (not a rendered frame), so it is independent of scroll and width.
+func TestHelpRowPhrases(t *testing.T) {
+	for _, c := range helpPhraseRows() {
+		t.Run(c.name, func(t *testing.T) {
+			var sec *helpSection
+			var desc string
+			found := false
+			for i := range helpSections {
+				s := &helpSections[i]
+				if c.section != "" && !strings.HasPrefix(s.header, c.section) {
+					continue
+				}
+				if c.token == "" {
+					sec = s
+					found = true
+					break
+				}
+				for _, r := range s.rows {
+					if r[0] == c.token {
+						sec, desc, found = s, r[1], true
+						break
+					}
+				}
+				if found {
+					break
+				}
 			}
-		}
+			if c.absent {
+				if found {
+					t.Errorf("row %q exists in %q: %q", c.token, sec.header, desc)
+				}
+				return
+			}
+			if !found {
+				t.Fatalf("no help row for section %q token %q", c.section, c.token)
+			}
+			for _, k := range c.exists {
+				has := false
+				for _, r := range sec.rows {
+					has = has || r[0] == k
+				}
+				if !has {
+					t.Errorf("%s has no %q row", sec.header, k)
+				}
+			}
+			if c.sectionHasFold != "" && !strings.Contains(strings.ToLower(sec.header), c.sectionHasFold) {
+				t.Errorf("row %q sits under %q, want a header naming %q", c.token, sec.header, c.sectionHasFold)
+			}
+			for _, w := range c.has {
+				if !strings.Contains(desc, w) {
+					t.Errorf("row %q = %q, lacks %q", c.token, desc, w)
+				}
+			}
+			for _, w := range c.hasFold {
+				if !strings.Contains(strings.ToLower(desc), strings.ToLower(w)) {
+					t.Errorf("row %q = %q, lacks %q", c.token, desc, w)
+				}
+			}
+			if len(c.anyFold) > 0 {
+				ok := false
+				for _, w := range c.anyFold {
+					ok = ok || strings.Contains(strings.ToLower(desc), w)
+				}
+				if !ok {
+					t.Errorf("row %q = %q, names none of %v", c.token, desc, c.anyFold)
+				}
+			}
+			for _, w := range c.not {
+				if strings.Contains(desc, w) {
+					t.Errorf("row %q = %q, still says %q", c.token, desc, w)
+				}
+			}
+			if c.before != "" {
+				b, a := strings.Index(desc, c.before), strings.Index(desc, c.after)
+				if b < 0 || a < 0 || b > a {
+					t.Errorf("row %q = %q, want %q before %q", c.token, desc, c.before, c.after)
+				}
+			}
+		})
 	}
-	section, desc := helpRow(t, "q")
-	if !strings.Contains(strings.ToLower(section), "menu") {
-		t.Errorf("the quit `q` row sits under %q; it must be in a clearly menu-scoped section", section)
-	}
-	if !strings.Contains(desc, "quit") {
-		t.Errorf("menu-scoped `q` row no longer describes quit: %q", desc)
-	}
-}
-
-// TestHelpPitchTrimNamesBothDirections (#423, keys moved by ADR 0052): ←
-// leans back from your heading, → toward it (2026-10-09; it said west /
-// east, true only at the default due-east heading). The row once named only
-// one direction while showing the keys in ←-then-→ order.
-func TestHelpPitchTrimNamesBothDirections(t *testing.T) {
-	_, desc := helpRow(t, "← / →")
-	back := strings.Index(desc, "back from")
-	toward := strings.Index(desc, "toward your heading")
-	if back < 0 || toward < 0 {
-		t.Fatalf("pitch trim row names only one direction: %q", desc)
-	}
-	if back > toward {
-		t.Errorf("pitch trim row reads toward-before-back (%q) but the keys are ← back then → toward", desc)
-	}
-}
-
-// TestHelpNavModeStatesSkipRule (#423): the `;` cycle skips Target when no
-// vessel target is bound, so a player watching it toggle Orbit⇄Surface with
-// a body targeted otherwise concludes the key is broken. docs/controls.md
-// already says this.
-func TestHelpNavModeStatesSkipRule(t *testing.T) {
-	_, desc := helpRow(t, ";")
-	if !strings.Contains(strings.ToLower(desc), "skip") {
-		t.Errorf("NavMode row omits the skip-Target rule: %q", desc)
-	}
-}
-
-// TestHelpDocumentsEndFlight (#423): `E` is the only way to clear a crashed
-// vessel and was absent from the overlay entirely.
-func TestHelpDocumentsEndFlight(t *testing.T) {
-	_, desc := helpRow(t, "E")
-	if !strings.Contains(strings.ToLower(desc), "end flight") && !strings.Contains(strings.ToLower(desc), "crashed") {
-		t.Errorf("`E` row does not describe ending the flight of a crashed vessel: %q", desc)
+	// The magnet row quotes five seconds in words; the constant must still be 5.
+	if got := sim.DockMagnetDuration.Seconds(); got != 5 {
+		t.Errorf("DockMagnetDuration = %v, the DOCKING magnet row says five-second", sim.DockMagnetDuration)
 	}
 }
 
@@ -104,7 +221,7 @@ func TestHelpSectionOrder(t *testing.T) {
 		"RENDEZVOUS PLANNER (map chip, opens from K)",
 		"VESSEL",
 		"DOCKING (port to port)", // ADR 0053 slice F
-		"SPAWN FORM (n)", // GK Q3, #589: the spawn form had no page
+		"SPAWN FORM (n)",         // GK Q3, #589: the spawn form had no page
 		"VEHICLE ASSEMBLY (VAB)",
 		"MISSIONS (ladder screen, open with M)", // #426, screen-scoped, after VAB
 		"SAVES (menu → Save / Load Game)",
@@ -123,45 +240,6 @@ func TestHelpSectionOrder(t *testing.T) {
 	for i := range want {
 		if got[i] != want[i] {
 			t.Errorf("section %d: got %q, want %q\nfull order: %v", i, got[i], want[i], got)
-		}
-	}
-}
-
-// TestHelpGlossaryBlockContent (ADR 0049 stage A3a): the six codes that
-// survive the readout contract each get a one-line explanation, plus the
-// two facts the contract otherwise strips off every panel: apsides are
-// already height above the surface, and countdowns read T- until an
-// event, T+ since it.
-func TestHelpGlossaryBlockContent(t *testing.T) {
-	cases := []struct {
-		token, want string
-	}{
-		{"fpa", "flight path angle"},
-		{"Q", "dynamic pressure"},
-		{"TCA", "closest approach"},
-		{"TWR", "thrust to weight"},
-		{"Ap / Pe", "height above the surface"},
-		{"Δv / Δincl", "delta-v"},
-		{"Δv / Δincl", "relative inclination"},
-		{"T- / T+", "T- counts down"},
-		{"T- / T+", "T+ counts up"},
-		{"Ap ↑ / ↓", "climbing"},
-		{"Ap ↑ / ↓", "falling"},
-		{"→", "becomes"},
-		{"⚠ (node)", "Δv budget"},
-		{"plan", "planned burn's numbers are measured from"},
-		{"pro / retro", "prograde or retrograde"},
-		{"(ORBIT/SURF/TGT)", "one spelling everywhere"},
-		{"(ORBIT/SURF/TGT)", "target or PORT"},
-		{"rcs", "RCS thrusters"},
-		{"speed", "navball frame"},
-		{"(max N)", "full throttle"},
-		{"● ORBIT READY [C]", "orbit floor"},
-	}
-	for _, c := range cases {
-		_, desc := helpRow(t, c.token)
-		if !strings.Contains(strings.ToLower(desc), strings.ToLower(c.want)) {
-			t.Errorf("glossary row %q = %q, want it to mention %q", c.token, desc, c.want)
 		}
 	}
 }
@@ -192,22 +270,6 @@ func TestHelpGlossarySection(t *testing.T) {
 	t.Fatal("no READOUT GLOSSARY section in helpSections")
 }
 
-// TestHelpDeclutterRowNamesInstrumentBoxes: since ADR 0051 (v0.44.0) F2
-// hides all eight instrument boxes and the navball; there is no "core
-// column" that stays. The only exception is ENGINE and PROPELLANT while
-// an engine is lit (docs/controls.md says the same).
-func TestHelpDeclutterRowNamesInstrumentBoxes(t *testing.T) {
-	_, desc := helpRow(t, "F2")
-	if strings.Contains(desc, "core column") || strings.Contains(desc, "chips") {
-		t.Errorf("F2 row still describes the pre-ADR-0051 chips/core column: %q", desc)
-	}
-	for _, want := range []string{"instrument boxes", "navball", "Centerline scope", "ENGINE", "PROPELLANT"} {
-		if !strings.Contains(desc, want) {
-			t.Errorf("F2 row omits %q: %q", want, desc)
-		}
-	}
-}
-
 // TestHelpIndexSectionsHaveWhenClauses (#494): every section is on the
 // index with a when-you-would-open-this clause, so a new section can't
 // ship as a bare name.
@@ -230,48 +292,6 @@ func TestHelpFirstFlightLayoutTranslation(t *testing.T) {
 	if out := h.Render(120, 40, keylayout.QWERTZ); !strings.Contains(out, "y   ") || !strings.Contains(out, "on the pad, throttle to full") {
 		t.Errorf("first-flight key column not layout-translated:\n%s", out)
 	}
-}
-
-// TestHelpHeadingTrimNamesBothDirections: ↑ is north, ↓ is south (ADR 0052
-// decision 2, the heading half of the trim pair).
-func TestHelpHeadingTrimNamesBothDirections(t *testing.T) {
-	var hdesc string
-	for _, sec := range helpSections {
-		if sec.header != "MANUAL FLIGHT" {
-			continue
-		}
-		for _, r := range sec.rows {
-			if r[0] == "↑ / ↓" {
-				hdesc = r[1]
-			}
-		}
-	}
-	if hdesc == "" {
-		t.Fatal("no heading-trim row in MANUAL FLIGHT")
-	}
-	north := strings.Index(hdesc, "north")
-	south := strings.Index(hdesc, "south")
-	if north < 0 || south < 0 || north > south {
-		t.Errorf("heading trim row must name north then south for ↑ then ↓: %q", hdesc)
-	}
-}
-
-// TestHelpRendezvousPlannerNamesKReSolve (v0.48.0 docs parity): `K` inside
-// the open Rendezvous Planner re-solves every row from now (review fix
-// #541); docs/controls.md says so, and F1 is the source of truth.
-func TestHelpRendezvousPlannerNamesKReSolve(t *testing.T) {
-	for _, s := range helpSections {
-		if !strings.HasPrefix(s.header, "RENDEZVOUS PLANNER") {
-			continue
-		}
-		for _, r := range s.rows {
-			if r[0] == "K" && strings.Contains(r[1], "re-solve") {
-				return
-			}
-		}
-		t.Fatalf("RENDEZVOUS PLANNER section has no `K` re-solve row: %v", s.rows)
-	}
-	t.Fatal("no RENDEZVOUS PLANNER section")
 }
 
 // markerKeySection returns the F1 section that keys the map's marker glyphs.
@@ -388,19 +408,10 @@ func TestMarkerKeyWording(t *testing.T) {
 	}
 }
 
-// TestHelpExpandsManAndRcsTags (#592 remainder, clarity 26): the navball's
-// [MAN] / [AUT] attitude tag and its RCS toggle were never spelled out in F1.
-func TestHelpExpandsManAndRcsTags(t *testing.T) {
-	_, man := helpRow(t, "[MAN] / [AUT]")
-	for _, want := range []string{"rate-limited", "instant"} {
-		if !strings.Contains(man, want) {
-			t.Errorf("[MAN] / [AUT] row omits %q: %q", want, man)
-		}
-	}
-	_, rcs := helpRow(t, "RCS")
-	if !strings.Contains(rcs, "thrusters") {
-		t.Errorf("RCS row does not say what it arms: %q", rcs)
-	}
+// TestHelpManAndRcsRowsSurviveDesignSize (#592 remainder, clarity 26): the
+// navball's [MAN] / [AUT] and RCS glossary rows (their wording is in
+// TestHelpRowPhrases) must not be cut at the design size.
+func TestHelpManAndRcsRowsSurviveDesignSize(t *testing.T) {
 	// Both rows must survive the design size untruncated.
 	h := NewHelp(chipTestTheme())
 	for n := 0; n < helpPageCount(); n++ {
@@ -416,24 +427,6 @@ func TestHelpExpandsManAndRcsTags(t *testing.T) {
 			t.Errorf("glossary row truncated at 140x40: %q", ln)
 		}
 	}
-}
-
-// TestHelpExplainsGuidanceAmberFrameWord: GUIDANCE's hold: frame word turns
-// amber when it differs from nav: (review #629 M1); F1 must say what that
-// means, in the glossary.
-func TestHelpExplainsGuidanceAmberFrameWord(t *testing.T) {
-	for _, s := range helpSections {
-		if s.header != "READOUT GLOSSARY" {
-			continue
-		}
-		for _, r := range s.rows {
-			if strings.Contains(r[1], "amber") && strings.Contains(r[1], "hold:") && strings.Contains(r[1], "nav:") {
-				return
-			}
-		}
-		t.Fatal("READOUT GLOSSARY has no row explaining hold:'s amber frame word")
-	}
-	t.Fatal("no READOUT GLOSSARY section in helpSections")
 }
 
 // TestHelpAmberRowSurvivesDesignSize: the `amber (SURF)` glossary row, as

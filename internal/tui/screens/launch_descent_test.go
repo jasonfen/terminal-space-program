@@ -98,7 +98,8 @@ func TestDescentArcIsPlannedDashed(t *testing.T) {
 // TestDescentArcAlarmRecolours: colour is the semantic axis (ADR 0041),
 // so an unstoppable descent turns the whole arc alert-red rather than
 // hiding the alarm in the chip's margin row alone. The impact marker
-// promotes to MarkerAlarm with it.
+// promotes to MarkerAlarm with it. drawDescentArc reads only Margin.State, so the
+// margins are literal states, not computed ones.
 func TestDescentArcAlarmRecolours(t *testing.T) {
 	pts := []orbital.Vec3{{X: -100}, {X: 100}}
 	draw := func(margin sim.BurnMargin) *widgets.Canvas {
@@ -115,7 +116,7 @@ func TestDescentArcAlarmRecolours(t *testing.T) {
 		return v.canvas
 	}
 
-	okCanvas := draw(sim.ComputeBurnMargin(2000, 1000, 1, 10, 100, 100))
+	okCanvas := draw(sim.BurnMargin{State: sim.MarginOK})
 	if n := okCanvas.CountColor(render.ColorPredictedPath); n == 0 {
 		t.Error("nominal descent arc inked no planned-cyan cells")
 	}
@@ -123,7 +124,7 @@ func TestDescentArcAlarmRecolours(t *testing.T) {
 		t.Errorf("nominal impact marker inked %d cells, want 1", n)
 	}
 
-	alarmCanvas := draw(sim.ComputeBurnMargin(2000, 1000, 1, 20, 100, 100))
+	alarmCanvas := draw(sim.BurnMargin{State: sim.MarginInsufficient})
 	if n := alarmCanvas.CountColor(render.ColorAlert); n == 0 {
 		t.Error("unstoppable descent arc inked no alert-red cells")
 	}

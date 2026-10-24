@@ -43,135 +43,84 @@ func extractDepart(t *testing.T, joined string) (value float64, best float64, ha
 	return v, b, true
 }
 
-// TestLandedPadShowsDepartRowWithEarthSwingAndBest pins ADR 0050
-// decisions 1, 2, 4: an Earth pad's `depart:` row (measured against
-// the plane Earth itself travels in around the Sun, decision 2) reads
-// somewhere in the `5.17°..52.05°` swing the ADR derives for a
-// 28.6083° due-east pad (Earth's obliquity 23.44° composed with the
-// pad's own launch inclination), and always carries `(best 5.17°)`,
-// the low end of that swing, since waiting can only improve a launch
-// window, never worsen it. Verified independently against the real
-// catalog before this test was written (cmd/verifydepart, ADR
-// progress log): closed form and a 3600-sample sweep over a full
-// rotation agree to two decimals with the ADR's own numbers.
-func TestLandedPadShowsDepartRowWithEarthSwingAndBest(t *testing.T) {
-	w, _ := spawnLandedOnEarthAt28p6(t)
-	v := NewOrbitView(chipTestTheme())
-	rows := v.buildNavigationBox(w)
-	joined := strings.Join(rows, "\n")
-	value, best, hasBest := extractDepart(t, joined)
-	if !hasBest {
-		t.Fatalf("expected the pad's depart: row to carry a '(best N°)' suffix; got:\n%s", joined)
+// TestPadDepartRowSwingAndBest pins ADR 0050 decisions 1, 2, 4 per pad: the
+// `depart:` row (measured against the plane the pad's body itself travels in
+// around its primary, decision 2) reads somewhere inside the ADR's table swing
+// and always carries `(best N°)`, the low end of that swing, since waiting can
+// only improve a launch window, never worsen it. Earth's 5.17..52.05 is the
+// closed form (obliquity 23.44 composed with the 28.6083 pad's launch
+// inclination), verified against a 3600-sample sweep (cmd/verifydepart). Luna
+// and Glyph are airless pads, whose row sits on the same NAVIGATION box (ADR
+// 0050 insertion point 9a). Glyph, like Kern, only resolves via ParentBodyID
+// once the view has browsed to Lumen; Mars is in the Sol system.
+func TestPadDepartRowSwingAndBest(t *testing.T) {
+	spawn := func(t *testing.T, w *sim.World, loadout, parent string) *spacecraft.Spacecraft {
+		t.Helper()
+		c, err := w.SpawnCraft(sim.SpawnSpec{
+			LoadoutID:       loadout,
+			ParentBodyID:    parent,
+			Launchpad:       true,
+			Latitude:        sim.DefaultLaunchpadLatitude,
+			LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
+		})
+		if err != nil {
+			t.Fatalf("SpawnCraft: %v", err)
+		}
+		if c.Primary.ID != parent {
+			t.Fatalf("setup: expected craft primary = %s, got %q", parent, c.Primary.ID)
+		}
+		return c
 	}
-	if value < 5.17-0.01 || value > 52.05+0.01 {
-		t.Errorf("depart value %.2f° outside the ADR's Earth swing 5.17..52.05", value)
+	cases := []struct {
+		name         string
+		world        func(t *testing.T) *sim.World
+		lo, hi, best float64
+	}{
+		{"Earth", func(t *testing.T) *sim.World { w, _ := spawnLandedOnEarthAt28p6(t); return w }, 5.17, 52.05, 5.17},
+		{"Luna", func(t *testing.T) *sim.World {
+			w, _ := spawnLandedOnMoon(t, sim.DefaultLaunchpadLatitude, sim.DefaultLaunchpadLongitudeEast)
+			return w
+		}, 23.46, 33.75, 23.46},
+		{"Mars", func(t *testing.T) *sim.World {
+			w, err := sim.NewWorld()
+			if err != nil {
+				t.Fatalf("NewWorld: %v", err)
+			}
+			spawn(t, w, spacecraft.LoadoutSaturnVID, "mars")
+			return w
+		}, 4.80, 52.42, 4.80},
+		{"Glyph", func(t *testing.T) *sim.World {
+			w, err := sim.NewWorld()
+			if err != nil {
+				t.Fatalf("NewWorld: %v", err)
+			}
+			for i := 0; i < len(w.Systems) && w.Systems[w.SystemIdx].Name != "Lumen"; i++ {
+				w.CycleSystem()
+			}
+			if w.Systems[w.SystemIdx].Name != "Lumen" {
+				t.Fatalf("could not browse to Lumen (stuck viewing %q)", w.Systems[w.SystemIdx].Name)
+			}
+			if c := spawn(t, w, spacecraft.LoadoutKernStackID, "glyph"); c.Primary.Atmosphere != nil {
+				t.Fatalf("setup: expected Glyph to be airless; got %+v", c.Primary.Atmosphere)
+			}
+			return w
+		}, 22.61, 34.61, 22.61},
 	}
-	if best < 5.16 || best > 5.18 {
-		t.Errorf("depart best = %.2f°, want 5.17° (the ADR's Earth pad best)", best)
-	}
-}
-
-// TestAirlessPadShowsDepartRowWithLunaSwingAndBest pins the same
-// decisions on an AIRLESS pad's DESCENT chip (buildDescentChip, ADR
-// 0050's own insertion point 9a: "one insertion covers atmospheric and
-// airless pads"): a Luna pad's depart: row (against the plane the Moon
-// itself travels in around Earth) reads within the ADR's
-// 23.46°..33.75° swing and carries best 23.46°.
-func TestAirlessPadShowsDepartRowWithLunaSwingAndBest(t *testing.T) {
-	w, _ := spawnLandedOnMoon(t, sim.DefaultLaunchpadLatitude, sim.DefaultLaunchpadLongitudeEast)
-	v := NewOrbitView(chipTestTheme())
-	rows := v.buildNavigationBox(w)
-	joined := strings.Join(rows, "\n")
-	value, best, hasBest := extractDepart(t, joined)
-	if !hasBest {
-		t.Fatalf("expected the Luna pad's depart: row to carry a '(best N°)' suffix; got:\n%s", joined)
-	}
-	if value < 23.46-0.01 || value > 33.75+0.01 {
-		t.Errorf("depart value %.2f° outside the ADR's Luna swing 23.46..33.75", value)
-	}
-	if best < 23.45 || best > 23.47 {
-		t.Errorf("depart best = %.2f°, want 23.46° (the ADR's Luna pad best)", best)
-	}
-}
-
-// TestLandedPadShowsDepartRowWithMarsSwingAndBest is
-// TestLandedPadShowsDepartRowWithEarthSwingAndBest's Mars sibling
-// (ADR 0050's table: 4.80°..52.42°, best 4.80°). Mars is in the Sol
-// system (the default view), unlike Kern/Glyph below.
-func TestLandedPadShowsDepartRowWithMarsSwingAndBest(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c, err := w.SpawnCraft(sim.SpawnSpec{
-		LoadoutID:       spacecraft.LoadoutSaturnVID,
-		ParentBodyID:    "mars",
-		Launchpad:       true,
-		Latitude:        sim.DefaultLaunchpadLatitude,
-		LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
-	})
-	if err != nil {
-		t.Fatalf("SpawnCraft: %v", err)
-	}
-	if c.Primary.ID != "mars" {
-		t.Fatalf("setup: expected craft primary = mars, got %q", c.Primary.ID)
-	}
-	v := NewOrbitView(chipTestTheme())
-	joined := strings.Join(v.buildNavigationBox(w), "\n")
-	value, best, hasBest := extractDepart(t, joined)
-	if !hasBest {
-		t.Fatalf("expected the Mars pad's depart: row to carry a '(best N°)' suffix; got:\n%s", joined)
-	}
-	if value < 4.80-0.01 || value > 52.42+0.01 {
-		t.Errorf("depart value %.2f° outside the ADR's Mars swing 4.80..52.42", value)
-	}
-	if best < 4.79 || best > 4.81 {
-		t.Errorf("depart best = %.2f°, want 4.80° (the ADR's Mars pad best)", best)
-	}
-}
-
-// TestAirlessPadShowsDepartRowWithGlyphSwingAndBest is
-// TestAirlessPadShowsDepartRowWithLunaSwingAndBest's Lumen sibling
-// (ADR 0050's table: 22.61°..34.61°, best 22.61°). Glyph, like Kern,
-// only resolves via ParentBodyID once the view has browsed to Lumen.
-func TestAirlessPadShowsDepartRowWithGlyphSwingAndBest(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	for i := 0; i < len(w.Systems) && w.Systems[w.SystemIdx].Name != "Lumen"; i++ {
-		w.CycleSystem()
-	}
-	if w.Systems[w.SystemIdx].Name != "Lumen" {
-		t.Fatalf("could not browse to Lumen (stuck viewing %q)", w.Systems[w.SystemIdx].Name)
-	}
-	c, err := w.SpawnCraft(sim.SpawnSpec{
-		LoadoutID:       spacecraft.LoadoutKernStackID,
-		ParentBodyID:    "glyph",
-		Launchpad:       true,
-		Latitude:        sim.DefaultLaunchpadLatitude,
-		LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
-	})
-	if err != nil {
-		t.Fatalf("SpawnCraft: %v", err)
-	}
-	if c.Primary.ID != "glyph" {
-		t.Fatalf("setup: expected craft primary = glyph, got %q", c.Primary.ID)
-	}
-	if c.Primary.Atmosphere != nil {
-		t.Fatalf("setup: expected Glyph to be airless; got %+v", c.Primary.Atmosphere)
-	}
-	v := NewOrbitView(chipTestTheme())
-	joined := strings.Join(v.buildNavigationBox(w), "\n")
-	value, best, hasBest := extractDepart(t, joined)
-	if !hasBest {
-		t.Fatalf("expected the Glyph pad's depart: row to carry a '(best N°)' suffix; got:\n%s", joined)
-	}
-	if value < 22.61-0.01 || value > 34.61+0.01 {
-		t.Errorf("depart value %.2f° outside the ADR's Glyph swing 22.61..34.61", value)
-	}
-	if best < 22.60 || best > 22.62 {
-		t.Errorf("depart best = %.2f°, want 22.61° (the ADR's Glyph pad best)", best)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			v := NewOrbitView(chipTestTheme())
+			joined := strings.Join(v.buildNavigationBox(c.world(t)), "\n")
+			value, best, hasBest := extractDepart(t, joined)
+			if !hasBest {
+				t.Fatalf("expected the %s pad's depart: row to carry a '(best N°)' suffix; got:\n%s", c.name, joined)
+			}
+			if value < c.lo-0.01 || value > c.hi+0.01 {
+				t.Errorf("depart value %.2f° outside the ADR's %s swing %.2f..%.2f", value, c.name, c.lo, c.hi)
+			}
+			if best < c.best-0.01 || best > c.best+0.01 {
+				t.Errorf("depart best = %.2f°, want %.2f° (the ADR's %s pad best)", best, c.best, c.name)
+			}
+		})
 	}
 }
 
