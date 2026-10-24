@@ -101,6 +101,11 @@ type Server struct {
 	// final persist) so shutdown can wait for payload writes instead
 	// of racing process exit (review follow-up).
 	sessions sync.WaitGroup
+	// drainMu guards draining: once waitSessionsOn has started, no handler
+	// may sessions.Add, since an Add racing Wait panics ("WaitGroup misuse")
+	// and would take every player's session down with the host.
+	drainMu  sync.Mutex
+	draining bool
 
 	// live is the session registry the Reprieve sweeper works from (ADR
 	// 0036): fingerprint → the connection behind it. Deliberately holds no
@@ -327,6 +332,9 @@ func (s *Server) Wait(timeout time.Duration) {
 // limit fires (false). The drop passes its clock's channel so tests need no
 // real waits.
 func (s *Server) waitSessionsOn(limit <-chan time.Time) bool {
+	s.drainMu.Lock()
+	s.draining = true
+	s.drainMu.Unlock()
 	done := make(chan struct{})
 	go func() {
 		s.sessions.Wait()
@@ -338,6 +346,18 @@ func (s *Server) waitSessionsOn(limit <-chan time.Time) bool {
 	case <-limit:
 		return false
 	}
+}
+
+// enterSession registers a session handler with the drain's WaitGroup, or
+// reports false once a drain has begun.
+func (s *Server) enterSession() bool {
+	s.drainMu.Lock()
+	defer s.drainMu.Unlock()
+	if s.draining {
+		return false
+	}
+	s.sessions.Add(1)
+	return true
 }
 
 // Context keys stashed on the ssh session so the persist middleware
@@ -384,7 +404,11 @@ func (s *Server) sessionHandler(sess ssh.Session) (tea.Model, []tea.ProgramOptio
 	defer s.admit.enter(fp)()
 
 	reclaimed := false
-	if s.presence.isOnline(fp) {
+	// An unenrolled key is never online (presence is marked at enroll
+	// commit) yet already holds a registry slot: the registry is the check
+	// that covers it, or a second terminal on a new key is admitted too.
+	_, held := s.live.get(fp)
+	if held || s.presence.isOnline(fp) {
 		switch s.displaceAbsent(fp) {
 		case reclaimRefused:
 			wish.Fatalln(sess, "terminal-space-program: this key already has a live session — disconnect it first")
@@ -538,7 +562,12 @@ func (s *Server) joinTime() (time.Time, bool) {
 // visitors (flow abandoned) leave nothing behind.
 func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 	return func(sess ssh.Session) {
-		s.sessions.Add(1)
+		if !s.enterSession() {
+			// Draining: this connection (still handshaking when the drain
+			// began) is about to be closed by ssh.Close, and nothing has
+			// been loaded for it yet.
+			return
+		}
 		defer s.sessions.Done()
 		// Opened before the session runs and closed last of all, after the
 		// payload write below (ADR 0036): a connection reclaiming this slot

@@ -120,6 +120,20 @@ func (s *Store) ResetFleet(epoch time.Time) ([]FleetResetEntry, error) {
 		}
 	}
 
+	// Cross-player docks reference craft that are about to be wiped from
+	// every payload; a reconnect must not resume docked-as-guest into a
+	// wiped stack. Cleared BEFORE the loop, so a run that dies partway
+	// (disk full on the third payload) cannot leave records naming stacks
+	// it already wiped. Safe: the parked payloads on these records are
+	// wiped by design, and every check that can refuse the whole reset has
+	// already run above. Roster and invites are deliberately untouched.
+	if len(m.Docks) > 0 {
+		m.Docks = nil
+		if err := s.writeMeta(m); err != nil {
+			return nil, err
+		}
+	}
+
 	backupStamp := time.Now().UTC().Format(backupStampLayout)
 	entries := make([]FleetResetEntry, 0, n)
 	for i, p := range ordered {
@@ -172,15 +186,6 @@ func (s *Store) ResetFleet(epoch time.Time) ([]FleetResetEntry, error) {
 		entries = append(entries, e)
 	}
 
-	// Cross-player docks reference craft that no longer exist in any
-	// payload; a reconnect must not resume docked-as-guest into a
-	// wiped stack. Roster and invites are deliberately untouched.
-	if len(m.Docks) > 0 {
-		m.Docks = nil
-		if err := s.writeMeta(m); err != nil {
-			return nil, err
-		}
-	}
 	return entries, nil
 }
 
