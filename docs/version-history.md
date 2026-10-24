@@ -2,6 +2,12 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.60.1
+
+Long vessels and Orion dock at the port gate instead of bumping apart (PR `#771`; tag `v0.60.1`).
+
+- **The docking magnet no longer swings your port out of the gate.** It turned your nose about the bottom of the stack, so on Orion or a long stack (Apollo Stack, Falcon 9 + Dragon, SLS + Orion) the port drifted past 0.5 m mid-pull; the pull let go with the hulls touching and the pair bumped apart. The nose now turns about the port, and the gap only closes (`#771`).
+
 ### v0.60.0
 
 SLS flies with Orion on top, and the Centerline view becomes a scope in the Proximity view's top-right corner (PRs `#762`-`#766`, `#768`; tag `v0.60.0`).
