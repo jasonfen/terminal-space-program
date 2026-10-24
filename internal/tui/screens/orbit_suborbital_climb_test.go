@@ -22,151 +22,103 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// TestIsSubOrbitalClimbApolloOffMoonPad: an Apollo-Stack a few metres off the
-// Moon pad, climbing: periapsis of that suborbital arc is deep below the
-// surface and the craft is climbing outward. True.
-func TestIsSubOrbitalClimbApolloOffMoonPad(t *testing.T) {
+// TestIsSubOrbitalClimb: one row per situation, each pinning the predicate's
+// answer for a craft at a given state around a named body.
+func TestIsSubOrbitalClimb(t *testing.T) {
 	w, err := sim.NewWorld()
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
-	moon := sysBody(t, w, "Moon")
-	c := spacecraft.NewFromLoadout(spacecraft.LoadoutApolloStackID)
-	c.Primary = *moon
-	c.Landed = false
-	c.State = physics.StateVector{
-		R: orbital.Vec3{X: moon.RadiusMeters() + 10, Y: 0, Z: 0},
-		V: orbital.Vec3{X: 50, Y: 0, Z: 0}, // climbing straight up
+	// A shallow lunar ellipse: periapsis 2 km below the surface, apoapsis
+	// 25 km above it.
+	shallow := func(moon *bodies.CelestialBody) (rp, ra, a, mu float64) {
+		mu = moon.GravitationalParameter()
+		rp = moon.RadiusMeters() - 2_000
+		ra = moon.RadiusMeters() + 25_000
+		return rp, ra, (rp + ra) / 2, mu
 	}
-	c.State.M = c.TotalMass()
-	if !isSubOrbitalClimb(c) {
-		t.Error("Apollo-Stack climbing off the Moon pad: got false, want true")
+	cases := []struct {
+		name    string
+		loadout string
+		body    string
+		landed  bool
+		state   func(b *bodies.CelestialBody) (r, v orbital.Vec3)
+		want    bool
+	}{
+		// An Apollo-Stack a few metres off the Moon pad, climbing: periapsis of
+		// that suborbital arc is deep below the surface. True.
+		{"Apollo-Stack climbing off the Moon pad", spacecraft.LoadoutApolloStackID, "Moon", false,
+			func(b *bodies.CelestialBody) (orbital.Vec3, orbital.Vec3) {
+				return orbital.Vec3{X: b.RadiusMeters() + 10}, orbital.Vec3{X: 50}
+			}, true},
+		// A circular 210 km lunar orbit has periapsis well above the surface. False.
+		{"stable 210 km lunar orbit", spacecraft.LoadoutLanderID, "Moon", false,
+			func(b *bodies.CelestialBody) (orbital.Vec3, orbital.Vec3) {
+				r := b.RadiusMeters() + 210_000
+				return orbital.Vec3{X: r}, orbital.Vec3{Y: math.Sqrt(b.GravitationalParameter() / r)}
+			}, false},
+		// Descending (radial-in velocity). False regardless of periapsis.
+		{"lander falling toward the Moon", spacecraft.LoadoutLanderID, "Moon", false,
+			func(b *bodies.CelestialBody) (orbital.Vec3, orbital.Vec3) {
+				return orbital.Vec3{X: b.RadiusMeters() + 20_000}, orbital.Vec3{X: -120, Y: 30}
+			}, false},
+		// C4's own scenario: climbing back toward apoapsis after a deorbit burn
+		// or hop, periapsis still below the surface. True: the same situation
+		// as an ascent. Placed a hair past periapsis with a small radial-out
+		// component, still deep in the same low ellipse.
+		{"climb after a deorbit hop", spacecraft.LoadoutLanderID, "Moon", false,
+			func(b *bodies.CelestialBody) (orbital.Vec3, orbital.Vec3) {
+				rp, _, a, mu := shallow(b)
+				r := rp + 1_000
+				return orbital.Vec3{X: r}, orbital.Vec3{X: 5, Y: math.Sqrt(mu * (2/r - 1/a))}
+			}, true},
+		// No atmosphere test of its own: an Earth ascent reads exactly like a
+		// Moon ascent. True.
+		{"Earth ascent", spacecraft.LoadoutLanderID, "Earth", false,
+			func(b *bodies.CelestialBody) (orbital.Vec3, orbital.Vec3) {
+				return orbital.Vec3{X: b.RadiusMeters() + 8_000}, orbital.Vec3{X: 200, Y: 400}
+			}, true},
+		// A Landed vessel is never ascending, whatever its stale/co-rotation
+		// state vector would otherwise say.
+		{"landed vessel", spacecraft.LoadoutApolloStackID, "Moon", true,
+			func(b *bodies.CelestialBody) (orbital.Vec3, orbital.Vec3) {
+				return orbital.Vec3{X: b.RadiusMeters()}, orbital.Vec3{}
+			}, false},
+		// At the exact instant of apoapsis (vUp == 0) on a low ellipse with
+		// periapsis below the surface the predicate still reads true: the craft
+		// has not started descending. Mirrors deriveFlightPhase's vUp >= 0.
+		{"exactly at apoapsis (vUp == 0)", spacecraft.LoadoutLanderID, "Moon", false,
+			func(b *bodies.CelestialBody) (orbital.Vec3, orbital.Vec3) {
+				_, ra, a, mu := shallow(b)
+				return orbital.Vec3{X: ra}, orbital.Vec3{Y: math.Sqrt(mu * (2/ra - 1/a))}
+			}, true},
 	}
-}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			b := sysBody(t, w, c.body)
+			cr := spacecraft.NewFromLoadout(c.loadout)
+			cr.Primary = *b
+			cr.Landed = c.landed
+			r, v := c.state(b)
+			cr.State = physics.StateVector{R: r, V: v}
+			cr.State.M = cr.TotalMass()
+			if got := isSubOrbitalClimb(cr); got != c.want {
+				t.Errorf("isSubOrbitalClimb = %v, want %v", got, c.want)
+			}
+		})
+	}
 
-// TestIsSubOrbitalClimbStableLunarOrbit: a circular 210 km lunar orbit has
-// periapsis well above the surface. False.
-func TestIsSubOrbitalClimbStableLunarOrbit(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	moon := sysBody(t, w, "Moon")
-	mu := moon.GravitationalParameter()
-	r := moon.RadiusMeters() + 210_000
-	vCirc := math.Sqrt(mu / r)
-	c := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
-	c.Primary = *moon
-	c.Landed = false
-	c.State = physics.StateVector{
-		R: orbital.Vec3{X: r, Y: 0, Z: 0},
-		V: orbital.Vec3{X: 0, Y: vCirc, Z: 0},
-	}
-	c.State.M = c.TotalMass()
-	if isSubOrbitalClimb(c) {
-		t.Error("stable 210 km lunar orbit: got true, want false (periapsis above the surface)")
-	}
-}
-
-// TestIsSubOrbitalClimbLanderFallingTowardMoon: descending (radial-in
-// velocity). False regardless of periapsis.
-func TestIsSubOrbitalClimbLanderFallingTowardMoon(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	moon := sysBody(t, w, "Moon")
-	c := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
-	c.Primary = *moon
-	c.Landed = false
-	c.State = physics.StateVector{
-		R: orbital.Vec3{X: moon.RadiusMeters() + 20_000, Y: 0, Z: 0},
-		V: orbital.Vec3{X: -120, Y: 30, Z: 0}, // falling
-	}
-	c.State.M = c.TotalMass()
-	if isSubOrbitalClimb(c) {
-		t.Error("lander falling toward the Moon: got true, want false (descending)")
-	}
-}
-
-// TestIsSubOrbitalClimbClimbAfterDeorbitHop: C4's own scenario, a lander
-// climbing back toward an apoapsis after a deorbit burn or hop, periapsis
-// still below the surface. True: "it is the same situation" as an ascent.
-func TestIsSubOrbitalClimbClimbAfterDeorbitHop(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	moon := sysBody(t, w, "Moon")
-	mu := moon.GravitationalParameter()
-	// A shallow ellipse: periapsis 2 km below the surface, apoapsis 25 km
-	// above it. Place the craft near periapsis, past it, climbing out.
-	rp := moon.RadiusMeters() - 2_000
-	ra := moon.RadiusMeters() + 25_000
-	a := (rp + ra) / 2
-	// vis-viva at r = rp (periapsis speed, all tangential there); nudge the
-	// evaluation point slightly outbound so vUp > 0 without leaving the
-	// ellipse's energy: use r a hair past periapsis and derive velocity as
-	// mostly tangential plus a small radial-out component consistent with
-	// still being deep in this same low ellipse (below the 25 km apoapsis).
-	r := rp + 1_000
-	vTangential := math.Sqrt(mu * (2/r - 1/a))
-	c := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
-	c.Primary = *moon
-	c.Landed = false
-	c.State = physics.StateVector{
-		R: orbital.Vec3{X: r, Y: 0, Z: 0},
-		V: orbital.Vec3{X: 5, Y: vTangential, Z: 0}, // small radial-out (climbing)
-	}
-	c.State.M = c.TotalMass()
-	if !isSubOrbitalClimb(c) {
-		t.Error("climb to apoapsis after a deorbit burn/hop: got false, want true (same situation as ascent, C4)")
-	}
-}
-
-// TestIsSubOrbitalClimbEarthAscent: the predicate carries no atmosphere test
-// of its own, so an Earth ascent (periapsis deep below the surface,
-// climbing) reads exactly the same as a Moon ascent: true. Slice 2, not
-// this slice, decides how this combines with shouldShowLaunchHUD's
-// atmosphere-gated branch at the call site.
-func TestIsSubOrbitalClimbEarthAscent(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	earth := sysBody(t, w, "Earth")
-	c := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
-	c.Primary = *earth
-	c.Landed = false
-	c.State = physics.StateVector{
-		R: orbital.Vec3{X: earth.RadiusMeters() + 8_000, Y: 0, Z: 0},
-		V: orbital.Vec3{X: 200, Y: 400, Z: 0},
-	}
-	c.State.M = c.TotalMass()
-	if !isSubOrbitalClimb(c) {
-		t.Error("Earth ascent: got false, want true (no atmosphere test, same rule as an airless ascent)")
-	}
-}
-
-// TestIsSubOrbitalClimbLandedIsFalse: a Landed vessel is never ascending,
-// whatever its stale/co-rotation state vector would otherwise say.
-func TestIsSubOrbitalClimbLandedIsFalse(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	moon := sysBody(t, w, "Moon")
-	c := spacecraft.NewFromLoadout(spacecraft.LoadoutApolloStackID)
-	c.Primary = *moon
-	c.Landed = true
-	c.State = physics.StateVector{
-		R: orbital.Vec3{X: moon.RadiusMeters(), Y: 0, Z: 0},
-		V: orbital.Vec3{},
-	}
-	c.State.M = c.TotalMass()
-	if isSubOrbitalClimb(c) {
-		t.Error("Landed vessel: got true, want false")
-	}
+	// Robustness only: a hyperbolic/degenerate state (well past escape,
+	// radial) must not panic. The answer is not specified by the ADR.
+	t.Run("hyperbolic state does not panic", func(t *testing.T) {
+		moon := sysBody(t, w, "Moon")
+		r := moon.RadiusMeters() + 5_000
+		cr := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
+		cr.Primary = *moon
+		cr.State = physics.StateVector{R: orbital.Vec3{X: r}, V: orbital.Vec3{X: math.Sqrt(2*moon.GravitationalParameter()/r) * 1.5}}
+		cr.State.M = cr.TotalMass()
+		_ = isSubOrbitalClimb(cr)
+	})
 }
 
 // TestIsSubOrbitalClimbNilCraft: nil-safe, matching the sibling predicates
@@ -175,64 +127,6 @@ func TestIsSubOrbitalClimbNilCraft(t *testing.T) {
 	if isSubOrbitalClimb(nil) {
 		t.Error("nil craft: got true, want false")
 	}
-}
-
-// TestIsSubOrbitalClimbNearApoapsisEdge: at the exact instant of apoapsis
-// (vUp == 0) on a low ellipse whose periapsis is below the surface, the
-// predicate still reads true: the craft hasn't started descending yet,
-// and C4's "it is the same situation" throughout the climb includes its
-// peak. Mirrors deriveFlightPhase's own vUp >= 0 (not > 0) choice for its
-// atmospheric-ascent branch.
-func TestIsSubOrbitalClimbNearApoapsisEdge(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	moon := sysBody(t, w, "Moon")
-	mu := moon.GravitationalParameter()
-	rp := moon.RadiusMeters() - 2_000
-	ra := moon.RadiusMeters() + 25_000
-	a := (rp + ra) / 2
-	vApo := math.Sqrt(mu * (2/ra - 1/a)) // purely tangential at apoapsis
-	c := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
-	c.Primary = *moon
-	c.Landed = false
-	c.State = physics.StateVector{
-		R: orbital.Vec3{X: ra, Y: 0, Z: 0},
-		V: orbital.Vec3{X: 0, Y: vApo, Z: 0}, // vUp == 0 exactly
-	}
-	c.State.M = c.TotalMass()
-	if !isSubOrbitalClimb(c) {
-		t.Error("exactly at apoapsis (vUp == 0), periapsis below surface: got false, want true")
-	}
-}
-
-// TestIsSubOrbitalClimbHyperbolicNoPanic: a hyperbolic/degenerate state must
-// not panic. It exists purely as a robustness guard; the returned answer
-// isn't specified by the ADR for this state.
-func TestIsSubOrbitalClimbHyperbolicNoPanic(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	moon := sysBody(t, w, "Moon")
-	mu := moon.GravitationalParameter()
-	r := moon.RadiusMeters() + 5_000
-	vEsc := math.Sqrt(2 * mu / r)
-	c := spacecraft.NewFromLoadout(spacecraft.LoadoutLanderID)
-	c.Primary = *moon
-	c.Landed = false
-	c.State = physics.StateVector{
-		R: orbital.Vec3{X: r, Y: 0, Z: 0},
-		V: orbital.Vec3{X: vEsc * 1.5, Y: 0, Z: 0}, // well past escape, radial
-	}
-	c.State.M = c.TotalMass()
-	defer func() {
-		if rec := recover(); rec != nil {
-			t.Fatalf("isSubOrbitalClimb panicked on a hyperbolic/degenerate state: %v", rec)
-		}
-	}()
-	_ = isSubOrbitalClimb(c)
 }
 
 // sysBody looks up a body by name in w's default system, addressable so

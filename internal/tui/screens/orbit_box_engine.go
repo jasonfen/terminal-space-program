@@ -80,7 +80,7 @@ func (v *OrbitView) engineTitleWithQueue(title string, w *sim.World, c *spacecra
 	return title + strings.Repeat(" ", pad) + suffix
 }
 
-// engineThrottleLabel renders the throttle row's value: the commanded
+// engineThrottleLabelAt renders the throttle row's value: the commanded
 // throttle setting is always shown (never gated), with a trailing state
 // telling whether an engine is actually lit right now and, while it is,
 // how long it has been firing. Mirrors the pre-ADR-0051 throttleRow/
@@ -95,12 +95,8 @@ func (v *OrbitView) engineTitleWithQueue(title string, w *sim.World, c *spacecra
 // (engineBurnLine's "... left"), so this cell drops its clock there
 // rather than showing a second, oppositely-signed one; a manual burn has
 // no node row to carry that information, so it keeps its own.
-func (v *OrbitView) engineThrottleLabel(w *sim.World, c *spacecraft.Spacecraft) string {
-	return v.engineThrottleLabelAt(w, c, c.EffectiveThrottle())
-}
-
-// engineThrottleLabelAt is engineThrottleLabel for a chosen group's throttle
-// (the throttle target's, ADR 0058 decision 6).
+// It takes a chosen group's throttle (the throttle target's, ADR 0058
+// decision 6).
 func (v *OrbitView) engineThrottleLabelAt(w *sim.World, c *spacecraft.Spacecraft, throttle float64) string {
 	base := fmt.Sprintf("%.0f%%", throttle*100)
 	if sim.StackDryArmed(c) {

@@ -75,17 +75,62 @@ func plantProgradeNode(w *sim.World, c *spacecraft.Spacecraft, dv float64, prima
 	}}
 }
 
-// TestNavigationPlanRowDashWithNoPlan is the tracer bullet: no nodes at
-// all, plan: reads a bare dash (unchanged from
-// TestNavigationPlanRowIsPermanentDash: kept as its own vertical-slice
-// proof that the new plan-row machinery doesn't fire without a plan).
-func TestNavigationPlanRowDashWithNoPlan(t *testing.T) {
-	v := NewOrbitView(launchThemeForTest())
-	w := inclinedCircularEarthOrbitCraft(t, 45, 500e3)
-	lines := v.buildNavigationBox(w)
-	planRow := lines[7]
-	if !strings.Contains(planRow, "plan:") || !strings.Contains(planRow, "—") {
-		t.Errorf("plan row with no nodes = %q, want plan: —", planRow)
+// TestNavigationQuietRows: NAVIGATION rows that must stay quiet when there
+// is nothing to say. plan: reads a bare dash with no nodes (the tracer
+// bullet for the plan-row machinery, and again on the default world with the
+// box at its 8-line shape); impact:/stop: always present, dash when there is
+// nothing to forecast (decision 2); horiz: carries no CRASH-on-contact alert
+// in a stable 500 km orbit (C3: gate on the live descent corridor, matching
+// impact:/stop:; sabotage-first proof it goes RED against an unconditional
+// vHoriz > sim.CrashVCritMps check).
+func TestNavigationQuietRows(t *testing.T) {
+	defaultWorld := func(t *testing.T) *sim.World {
+		w, err := sim.NewWorld()
+		if err != nil {
+			t.Fatalf("NewWorld: %v", err)
+		}
+		return w
+	}
+	cases := []struct {
+		name  string
+		world func(t *testing.T) *sim.World
+		row   int
+		check func(t *testing.T, lines []string, row string)
+	}{
+		{"plan dash with no nodes", func(t *testing.T) *sim.World { return inclinedCircularEarthOrbitCraft(t, 45, 500e3) }, 7,
+			func(t *testing.T, _ []string, row string) {
+				if !strings.Contains(row, "plan:") || !strings.Contains(row, "—") {
+					t.Errorf("plan row with no nodes = %q, want plan: —", row)
+				}
+			}},
+		{"plan dash on the default world", defaultWorld, 7,
+			func(t *testing.T, lines []string, row string) {
+				if len(lines) != 8 {
+					t.Fatalf("buildNavigationBox returned %d lines, want 8 (title + 7 rows)", len(lines))
+				}
+				if !strings.Contains(row, "plan:") || !strings.Contains(row, "—") {
+					t.Errorf("plan row = %q, want plan: —", row)
+				}
+			}},
+		{"impact/stop dash on the pad", defaultWorld, 6,
+			func(t *testing.T, _ []string, row string) {
+				if !strings.HasSuffix(strings.TrimRight(row, " "), "—") {
+					t.Errorf("impact/stop row on the pad = %q, want dash cells", row)
+				}
+			}},
+		{"no CRASH alert in a stable orbit", func(t *testing.T) *sim.World { return circularEarthOrbitCraft(t, 500_000) }, 2,
+			func(t *testing.T, _ []string, row string) {
+				if strings.Contains(row, "CRASH") {
+					t.Errorf("horiz row in a stable 500 km orbit = %q, want no CRASH alert", row)
+				}
+			}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			v := NewOrbitView(launchThemeForTest())
+			lines := v.buildNavigationBox(c.world(t))
+			c.check(t, lines, lines[c.row])
+		})
 	}
 }
 
@@ -347,42 +392,6 @@ func TestNavigationTitleDescentAlarmUsesShortForm(t *testing.T) {
 	}
 }
 
-// TestNavigationImpactStopDashOutsideDescent: decision 2, the row is
-// always present, dash when there's nothing to forecast.
-func TestNavigationImpactStopDashOutsideDescent(t *testing.T) {
-	v := NewOrbitView(launchThemeForTest())
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	lines := v.buildNavigationBox(w)
-	stopRow := lines[6]
-	if !strings.HasSuffix(strings.TrimRight(stopRow, " "), "—") {
-		t.Errorf("impact/stop row on the pad = %q, want dash cells", stopRow)
-	}
-}
-
-// TestNavigationDepartDashWhenFrozen: C1, a world whose sweep is frozen
-// (departRowHidden) reads depart:, rather than the row disappearing.
-// Kern's spin is slow enough to trip departRowHidden's epsilon; this
-// test only asserts the DASH behaviour where the underlying helper
-// already reports hidden, not the specific body.
-func TestNavigationPlanRowIsPermanentDash(t *testing.T) {
-	v := NewOrbitView(launchThemeForTest())
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	lines := v.buildNavigationBox(w)
-	if len(lines) != 8 {
-		t.Fatalf("buildNavigationBox returned %d lines, want 8 (title + 7 rows)", len(lines))
-	}
-	planRow := lines[7]
-	if !strings.Contains(planRow, "plan:") || !strings.Contains(planRow, "—") {
-		t.Errorf("plan row = %q, want plan: — (slice 3 fills the contents)", planRow)
-	}
-}
-
 // subOrbitalClimbCraft parks the world's active craft on Earth in a
 // sub-orbital climbing arc (positive radial velocity, periapsis below
 // the surface, the impactor shape isSubOrbitalClimb requires) with its
@@ -497,23 +506,6 @@ func fastLowMoonDescentCraft(t *testing.T, altM, vDownMps, vHorizMps float64) *s
 	c.State.V = orbital.Vec3{X: -vDownMps, Y: vHorizMps}
 	c.State.M = c.TotalMass()
 	return w
-}
-
-// TestNavigationHorizNoCrashAlertInStableOrbit: item 1, C3. A 500 km
-// circular orbit has plenty of horizontal speed (well past
-// sim.CrashVCritMps) but is nowhere near the ground and the descent
-// corridor is not live for it. The horiz: cell must not carry the
-// CRASH-on-contact alert here: sabotage-first proof that this test
-// goes RED against the unfixed behaviour (an unconditional
-// vHoriz > sim.CrashVCritMps check with no descent gate).
-func TestNavigationHorizNoCrashAlertInStableOrbit(t *testing.T) {
-	w := circularEarthOrbitCraft(t, 500_000)
-	v := NewOrbitView(launchThemeForTest())
-	lines := v.buildNavigationBox(w)
-	horizRow := lines[2]
-	if strings.Contains(horizRow, "CRASH") {
-		t.Errorf("horiz row in a stable 500 km orbit = %q, want no CRASH alert (C3: gate on the live descent corridor, matching impact:/stop:)", horizRow)
-	}
 }
 
 // TestNavigationHorizCrashAlertDuringFastLowDescent: item 1's "not

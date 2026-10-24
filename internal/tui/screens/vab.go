@@ -1341,26 +1341,6 @@ func (v *VAB) targetReadout(stats spacecraft.VehicleStats) string {
 		stats.TotalDV, carrier, stats.TotalMass/1000, stats.LiftoffTWR)
 }
 
-// sigmaWithTank returns the whole-stack Σ Δv if `extra` more of compID were in
-// stage i (ADR 0032 §8 — computed against Σ, since adding a tank to one stage
-// lowers every stage below it, so a per-stage number would lie).
-func (v *VAB) sigmaWithTank(i int, compID string, extra int) float64 {
-	stages := make([]spacecraft.Stage, len(v.stages))
-	for k, vs := range v.stages {
-		if k == i && !vs.isCatalog() {
-			comps := append([]string(nil), vs.components...)
-			for e := 0; e < extra; e++ {
-				comps = append(comps, compID)
-			}
-			st, _ := spacecraft.ComposeStage(comps, v.comps)
-			stages[k] = st
-		} else {
-			stages[k] = v.resolveStage(vs)
-		}
-	}
-	return v.statsOf(stages).TotalDV
-}
-
 // tankHint is the optional one-line hint under the stats strip when a target is
 // set and the cursor is on a tank row (ADR 0032 §8): the count of that tank to
 // add to close the Σ gap ("FT-9000: +2 → Σ ≈ 9280 ✓"), or "unreachable with

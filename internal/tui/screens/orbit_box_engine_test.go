@@ -347,3 +347,7 @@ func TestEngineNodeRowOrangeWhileBurning(t *testing.T) {
 		t.Errorf("node row while burning = %q, want it styled in the theme's Warning colour (escape %q missing)", nodeRow, openSeq)
 	}
 }
+
+func (v *OrbitView) engineThrottleLabel(w *sim.World, c *spacecraft.Spacecraft) string {
+	return v.engineThrottleLabelAt(w, c, c.EffectiveThrottle())
+}

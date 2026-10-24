@@ -88,56 +88,59 @@ func spawnSaturnVOnPad(t testing.TB) (*sim.World, *spacecraft.Spacecraft) {
 //
 // downrange/Q: themselves still route through internal/tui/readout like
 // every other flight readout.
-func TestFormatLaunchHUDTracerBullet(t *testing.T) {
-	got := formatLaunchHUD(
-		2*time.Minute+34*time.Second,
-		15_400.0,
-		18_345.0,
-		24_500.0,
-		"",
-	)
-	want := "T+ 00:02:34  downrange: 15.40 km  Q: 18.34 kPa (max 24.50)"
-	if got != want {
-		t.Errorf("\n got: %q\nwant: %q", got, want)
+func TestFormatLaunchHUD(t *testing.T) {
+	cases := []struct {
+		name      string
+		t         time.Duration
+		downrange float64
+		q, qMax   float64
+		cue, want string
+	}{
+		{"tracer bullet", 2*time.Minute + 34*time.Second, 15_400, 18_345, 24_500, "",
+			"T+ 00:02:34  downrange: 15.40 km  Q: 18.34 kPa (max 24.50)"},
+		// At T+0 with the rocket still on the pad: zeros, no cue.
+		{"pad idle", 0, 0, 0, 0, "",
+			"T+ 00:00:00  downrange: 0 m  Q: 0.000 kPa (max 0.000)"},
+		// T+ above the hour boundary rolls cleanly past HH.
+		{"across the hour boundary", time.Hour + 9*time.Minute + 5*time.Second, 300_000, 0, 500, "",
+			"T+ 01:09:05  downrange: 300.0 km  Q: 0.000 kPa (max 0.500)"},
+		// A non-empty badge appends after Q's max with the strip's two-space
+		// gap; same numbers as the tracer bullet, so only the badge differs.
+		{"orbit ready badge", 2*time.Minute + 34*time.Second, 15_400, 18_345, 24_500, "● ORBIT READY [C]",
+			"T+ 00:02:34  downrange: 15.40 km  Q: 18.34 kPa (max 24.50)  ● ORBIT READY [C]"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := formatLaunchHUD(c.t, c.downrange, c.q, c.qMax, c.cue); got != c.want {
+				t.Errorf("\n got: %q\nwant: %q", got, c.want)
+			}
+		})
 	}
 }
 
-// At T+0 with the rocket still on the pad: T+ zeros, downrange/Q all
-// zero, no cue.
-func TestFormatLaunchHUDPadIdle(t *testing.T) {
-	got := formatLaunchHUD(0, 0, 0, 0, "")
-	want := "T+ 00:00:00  downrange: 0 m  Q: 0.000 kPa (max 0.000)"
-	if got != want {
-		t.Errorf("\n got: %q\nwant: %q", got, want)
+// Pad marker depth-cull: the launch pad is body-fixed and the camera
+// rotates with the rocket as it ascends. When the pad sits on the near
+// hemisphere (positive dot product with the camera position vector from
+// body centre) it must render; on the far hemisphere it must cull,
+// otherwise it draws on top of the body from behind (v0.11 Slice 1 grill
+// resolution). On the limb (exactly orthogonal to the camera direction)
+// the cull is a tie: pick "visible" so the horizon-edge marker is drawn
+// rather than disappearing as the body rotates.
+func TestPadMarkerHemisphereCull(t *testing.T) {
+	cam := orbital.Vec3{X: 6.5e6}
+	cases := []struct {
+		name    string
+		pad     orbital.Vec3
+		visible bool
+	}{
+		{"near hemisphere", orbital.Vec3{X: 6.371e6}, true},
+		{"far hemisphere (antipode)", orbital.Vec3{X: -6.371e6}, false},
+		{"limb (tie is visible)", orbital.Vec3{Y: 6.371e6}, true},
 	}
-}
-
-// T+ above the hour boundary rolls cleanly past HH; the cue badge, when
-// non-empty, appends after Q's max reading (decision 3's worked mock).
-func TestFormatLaunchHUDDescentAcrossHourBoundary(t *testing.T) {
-	got := formatLaunchHUD(time.Hour+9*time.Minute+5*time.Second, 300_000, 0, 500, "")
-	want := "T+ 01:09:05  downrange: 300.0 km  Q: 0.000 kPa (max 0.500)"
-	if got != want {
-		t.Errorf("\n got: %q\nwant: %q", got, want)
-	}
-}
-
-// TestFormatLaunchHUDAppendsOrbitReadyBadge: a non-empty badge string
-// appends after Q's max reading, with the two-space gap every other
-// field on this strip uses. Same numeric inputs as
-// TestFormatLaunchHUDTracerBullet, so the only difference in `want` is
-// the appended badge.
-func TestFormatLaunchHUDAppendsOrbitReadyBadge(t *testing.T) {
-	got := formatLaunchHUD(
-		2*time.Minute+34*time.Second,
-		15_400.0,
-		18_345.0,
-		24_500.0,
-		"● ORBIT READY [C]",
-	)
-	want := "T+ 00:02:34  downrange: 15.40 km  Q: 18.34 kPa (max 24.50)  ● ORBIT READY [C]"
-	if got != want {
-		t.Errorf("\n got: %q\nwant: %q", got, want)
+	for _, c := range cases {
+		if got := isNearHemisphere(c.pad, cam); got != c.visible {
+			t.Errorf("%s: visible = %v, want %v", c.name, got, c.visible)
+		}
 	}
 }
 
@@ -221,39 +224,6 @@ func TestLaunchStripOrbitReadyThreshold(t *testing.T) {
 	dark := render(t, 165_000)
 	if strings.Contains(dark, "ORBIT READY") {
 		t.Errorf("Ap 165 km on Earth (below the 175 km Orbit Floor): strip lit ORBIT READY: %q", dark)
-	}
-}
-
-// Pad marker depth-cull: the launch pad is body-fixed and the camera
-// rotates with the rocket as it ascends. When the pad sits on the
-// near hemisphere (positive dot product with the camera position
-// vector from body centre) it must render; when it's on the far
-// hemisphere it must cull, otherwise it draws on top of the body
-// from behind. v0.11 Slice 1 grill resolution.
-func TestPadMarkerNearHemisphereVisible(t *testing.T) {
-	camFromBody := orbital.Vec3{X: 6.5e6, Y: 0, Z: 0}
-	padFromBody := orbital.Vec3{X: 6.371e6, Y: 0, Z: 0} // same hemisphere as camera
-	if !isNearHemisphere(padFromBody, camFromBody) {
-		t.Errorf("pad on near hemisphere: got cull, want visible")
-	}
-}
-
-func TestPadMarkerFarHemisphereCulled(t *testing.T) {
-	camFromBody := orbital.Vec3{X: 6.5e6, Y: 0, Z: 0}
-	padFromBody := orbital.Vec3{X: -6.371e6, Y: 0, Z: 0} // antipode
-	if isNearHemisphere(padFromBody, camFromBody) {
-		t.Errorf("pad on far hemisphere: got visible, want cull")
-	}
-}
-
-// On the limb (exactly orthogonal to the camera direction) the cull
-// is a tie. Pick "visible" so the horizon-edge marker is drawn
-// rather than disappearing as the body rotates.
-func TestPadMarkerLimbVisible(t *testing.T) {
-	camFromBody := orbital.Vec3{X: 6.5e6, Y: 0, Z: 0}
-	padFromBody := orbital.Vec3{X: 0, Y: 6.371e6, Z: 0} // exact limb
-	if !isNearHemisphere(padFromBody, camFromBody) {
-		t.Errorf("pad on limb: got cull, want visible (tie → visible)")
 	}
 }
 

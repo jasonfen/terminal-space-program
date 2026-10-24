@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -55,31 +56,22 @@ func assertSpawnChromeVisible(t *testing.T, out string, height int) {
 	}
 }
 
-// TestSpawnFormFitsAndKeepsCursorVisibleAt104x24 is the #373 repro at the
-// Playable Floor. Before the windowed-list fix, Render dumped the entire
-// CRAFT TYPE catalog (headers + every loadout) unconditionally, so at
-// 104x24 the title, the cursor, and the footer were routinely pushed off
-// the top of the pane.
-func TestSpawnFormFitsAndKeepsCursorVisibleAt104x24(t *testing.T) {
-	s := spawnFormMidCatalog(t)
-	assertSpawnChromeVisible(t, s.Render(104, 24), 24)
-}
-
-// TestSpawnFormFitsAndKeepsCursorVisibleAt120x36 pins the 2026-09-03
-// reopen evidence directly: the same scrolling failure reproduced at
-// 120x36, well above the size #373 was originally (wrongly) closed
-// against, because the form is 46-52 rows regardless of terminal size.
-func TestSpawnFormFitsAndKeepsCursorVisibleAt120x36(t *testing.T) {
-	s := spawnFormMidCatalog(t)
-	assertSpawnChromeVisible(t, s.Render(120, 36), 36)
-}
-
-// TestSpawnFormFitsAt140x40DesignSize checks the ADR 0046 Design Size
-// too: the form (46-52 rows) still overflows 140x40 on its own, so the
-// windowed catalog must still be doing work even well above the floor.
-func TestSpawnFormFitsAt140x40DesignSize(t *testing.T) {
-	s := spawnFormMidCatalog(t)
-	assertSpawnChromeVisible(t, s.Render(140, 40), 40)
+// TestSpawnFormFitsAndKeepsCursorVisible: the spawn form keeps its chrome and
+// the cursor row inside the terminal height at each size. 104x24 is the #373
+// repro at the Playable Floor: before the windowed-list fix, Render dumped the
+// entire CRAFT TYPE catalog unconditionally, so the title, cursor and footer
+// were routinely pushed off the top. 120x36 pins the 2026-09-03 reopen
+// evidence (the form is 46-52 rows regardless of terminal size, so the same
+// failure reproduced well above the size #373 was first closed against).
+// 140x40 is the ADR 0046 Design Size, which the form still overflows on its
+// own, so the windowed catalog must still be doing work there.
+func TestSpawnFormFitsAndKeepsCursorVisible(t *testing.T) {
+	for _, sz := range [][2]int{{104, 24}, {120, 36}, {140, 40}} {
+		t.Run(fmt.Sprintf("%dx%d", sz[0], sz[1]), func(t *testing.T) {
+			s := spawnFormMidCatalog(t)
+			assertSpawnChromeVisible(t, s.Render(sz[0], sz[1]), sz[1])
+		})
+	}
 }
 
 // TestSpawnFormWindowActuallyHidesRowsAtFloor confirms the catalog is

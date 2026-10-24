@@ -4,6 +4,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // S3 / ADR 0032 §8 — the session Σ Δv target and the tank-row count hint.
@@ -182,4 +184,24 @@ func parsePlusN(t *testing.T, hint string) int {
 		t.Fatalf("bad +N in hint %q: %v", hint, err)
 	}
 	return n
+}
+
+// sigmaWithTank returns the whole-stack Σ Δv if `extra` more of compID were in
+// stage i (ADR 0032 §8 — computed against Σ, since adding a tank to one stage
+// lowers every stage below it, so a per-stage number would lie).
+func (v *VAB) sigmaWithTank(i int, compID string, extra int) float64 {
+	stages := make([]spacecraft.Stage, len(v.stages))
+	for k, vs := range v.stages {
+		if k == i && !vs.isCatalog() {
+			comps := append([]string(nil), vs.components...)
+			for e := 0; e < extra; e++ {
+				comps = append(comps, compID)
+			}
+			st, _ := spacecraft.ComposeStage(comps, v.comps)
+			stages[k] = st
+		} else {
+			stages[k] = v.resolveStage(vs)
+		}
+	}
+	return v.statsOf(stages).TotalDV
 }

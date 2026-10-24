@@ -862,25 +862,6 @@ func (v *OrbitView) chipEnabled(id settings.Chip) bool {
 	return v.settings.ChipEnabled(id)
 }
 
-// activeStageFuel reports the firing (bottom) stage's fuel as a percentage
-// of its capacity plus its mass in kg — the tank the player is actually
-// burning and watches to know when to stage. The whole-stack aggregate is
-// misleading on a multi-stage rocket: a spent first stage reads ~21%
-// "total" while every upper stage is full, looking alarmingly low even
-// though that's normal staging (the S-IC is ~79% of all propellant). ok is
-// false when there's no firing stage with capacity, so the caller falls
-// back to a kg-only readout from c.Fuel.
-func activeStageFuel(c *spacecraft.Spacecraft) (pct, massKg float64, ok bool) {
-	if len(c.Stages) == 0 {
-		return 0, 0, false
-	}
-	st := c.Stages[c.LitStage()]
-	if st.FuelCapacity <= 0 {
-		return 0, 0, false
-	}
-	return 100 * st.FuelMass / st.FuelCapacity, st.FuelMass, true
-}
-
 // vesselBurnBadge is the VESSEL chip header's `● BURN` badge (decision
 // 2, grilled 2026-09-06: "the whole screen says an engine is lit").
 // Originally a canvas-border color swap plus a title-bar badge — a

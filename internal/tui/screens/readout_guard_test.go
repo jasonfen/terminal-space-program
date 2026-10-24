@@ -4,7 +4,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strconv"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -60,7 +60,7 @@ import (
 // pass found trivially spoofable: `fmt.Sprintf("... %.0fs", a) // Isp`
 // passes regardless of what `a` actually is, since a trailing comment
 // is not a safe key: anyone can write one. Re-keyed to an explicit
-// file:line allowlist (ispExceptionLines) of the real Isp sites, with
+// file:function allowlist (ispExceptionFuncs) of the real Isp sites, with
 // the old text check kept only as a second, AND'd guard against a
 // stale entry: if code moves and the allowlisted line number no
 // longer actually prints Isp, the exception no longer applies and the
@@ -123,12 +123,16 @@ func TestReadoutDialectGuard(t *testing.T) {
 			t.Fatalf("ReadFile(%q): %v", path, err)
 		}
 		lines := strings.Split(string(data), "\n")
+		fn := ""
 		for i, line := range lines {
+			if m := funcDeclRe.FindStringSubmatch(line); m != nil {
+				fn = m[1]
+			}
 			for _, p := range patterns {
 				if !strings.Contains(line, p) {
 					continue
 				}
-				if isIspException(p, path, i+1, line) {
+				if isIspException(p, path, fn, line) {
 					continue
 				}
 				t.Errorf("%s:%d: found old-dialect pattern %q, route this readout through internal/tui/readout instead", path, i+1, p)
@@ -137,34 +141,35 @@ func TestReadoutDialectGuard(t *testing.T) {
 	}
 }
 
-// ispExceptionLines is the exhaustive allowlist of source lines where
-// `%.0fs` is specific impulse, keyed "basename.go:line", not a
-// trailing comment, which any line could carry regardless of what it
-// prints. Three real sites as of this PR: vab_render.go's stage header
-// and spawn.go's two per-stage engine summaries pass a `.Isp` struct
-// field as the format argument on the same line. Update this map,
-// not isIspException, when a real Isp call site moves or a new one is
-// added.
-var ispExceptionLines = map[string]bool{
-	"vab_render.go:1085": true,
-	"spawn.go:1386":      true,
-	"spawn.go:1406":      true,
+// funcDeclRe captures the name of a top-level func or method declaration,
+// so a hit can be attributed to its enclosing function.
+var funcDeclRe = regexp.MustCompile(`^func (?:\([^)]*\) )?(\w+)`)
+
+// ispExceptionFuncs is the allowlist of functions where `%.0fs` is
+// specific impulse, keyed "basename.go:funcName" (not a line number, which
+// moved twice in one batch, #694; not a trailing comment, which any line
+// could carry). Real sites: vab_render.go's stage header and spawn.go's
+// stackLines (two per-stage engine summaries), each passing a `.Isp` field
+// as the format argument on the same line. Update this map, not
+// isIspException, when a real Isp call site moves or a new one is added.
+var ispExceptionFuncs = map[string]bool{
+	"vab_render.go:stageHeaderLine": true,
+	"spawn.go:stackLines":           true,
 }
 
 // isIspException reports whether a `%.0fs` hit at path:lineNo is
 // specific impulse (Isp), not a raw-seconds duration reading. Keyed by
-// file:line against ispExceptionLines (gate review: a trailing `//
-// Isp` comment is spoofable, a line number naming a specific,
-// reviewed call site is not), then double-checked against the line's
+// file:function against ispExceptionFuncs (gate review: a trailing `//
+// Isp` comment is spoofable, a named, reviewed function is not), then double-checked against the line's
 // own code (comment stripped) for the field or word an Isp line
 // actually prints, so a stale allowlist entry (code moved, a
-// different line now sits at that number) fails loudly instead of
+// different line now sits in that function) fails loudly instead of
 // silently exempting whatever is there now.
-func isIspException(pattern, path string, lineNo int, line string) bool {
+func isIspException(pattern, path, fn, line string) bool {
 	if pattern != `%.0fs` {
 		return false
 	}
-	if !ispExceptionLines[filepath.Base(path)+":"+strconv.Itoa(lineNo)] {
+	if !ispExceptionFuncs[filepath.Base(path)+":"+fn] {
 		return false
 	}
 	code := line
