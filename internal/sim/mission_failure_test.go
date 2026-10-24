@@ -10,20 +10,6 @@ import (
 // prove the fail-condition inputs are wired from real World state (the
 // Active Vessel) and that a fail_on objective fails through the Tick path.
 
-// TestMissionEvalContextWiresTotalFuel — out_of_fuel reads TotalFuelKg, the
-// summed propellant across every stage (c.Fuel), NOT the active-stage fuel.
-func TestMissionEvalContextWiresTotalFuel(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c := w.ActiveCraft()
-	ctx := w.missionEvalContext()
-	if ctx.TotalFuelKg != c.Fuel {
-		t.Errorf("TotalFuelKg: got %v want %v (summed all-stage fuel)", ctx.TotalFuelKg, c.Fuel)
-	}
-}
-
 // TestTickFailsOnCrash — the integration path: a fail_on: [crashed] mission
 // transitions to Failed through Tick→evaluateMissions once the active craft
 // is Crashed.

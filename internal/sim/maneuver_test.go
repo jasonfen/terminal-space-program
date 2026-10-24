@@ -968,43 +968,6 @@ func TestPlanTransferIntraPrimaryPhasingMatchesArrival(t *testing.T) {
 	_ = transferSecs
 }
 
-// TestPlanTransferIntraPrimaryBurnIsCentered: v0.5.14+ — the planted
-// departure node's TriggerTime IS the burn-center (planner's intended
-// moment), and BurnStart = TriggerTime - Duration/2 must be ≥ now so
-// the integrator doesn't have to fire retroactively. Pre-v0.5.14
-// TriggerTime was the burn START and we asserted "TriggerTime + Dur/2
-// ≈ planner OffsetTime"; new semantics simplify to "TriggerTime ≈
-// planner OffsetTime".
-func TestPlanTransferIntraPrimaryBurnIsCentered(t *testing.T) {
-	w := mustWorld(t)
-	sys := w.System()
-	moonIdx := -1
-	for i := range sys.Bodies {
-		if sys.Bodies[i].ID == "moon" {
-			moonIdx = i
-			break
-		}
-	}
-	if moonIdx < 0 {
-		t.Skip("Moon missing from Sol")
-	}
-	now := w.Clock.SimTime
-	plan, err := w.PlanTransfer(moonIdx)
-	if err != nil {
-		t.Fatalf("PlanTransfer: %v", err)
-	}
-	dep := w.ActiveCraft().Nodes[0]
-	wantCenter := now.Add(plan.Departure.OffsetTime)
-	delta := dep.TriggerTime.Sub(wantCenter)
-	if delta < -time.Second || delta > time.Second {
-		t.Errorf("trigger off by %v (trigger=%v, want_center=%v)",
-			delta, dep.TriggerTime, wantCenter)
-	}
-	if dep.BurnStart().Before(now) {
-		t.Errorf("BurnStart %v before now %v — planner failed to pad", dep.BurnStart(), now)
-	}
-}
-
 // TestIntraPrimaryHohmannReachesLunaApoapsis: v0.5.13+ — end-to-end.
 // Plant Hohmann to Luna with the S-IVB-1 default vessel (J-2 thrust,
 // ~110 s TLI), simulate forward through the burn, check the post-burn
@@ -1068,6 +1031,13 @@ func TestIntraPrimaryHohmannReachesLunaApoapsis(t *testing.T) {
 // trans-lunar injection Δv (~3 km/s departure) rather than the
 // pre-v0.5.7 nonsense from heliocentric Hohmann math interpreting
 // Luna's parent-relative semimajor as a heliocentric distance.
+//
+// Also pins, on the same plan: the moon-escape branch must not steal
+// dispatch from the intra-primary branch (departure stays geocentric,
+// arrival is the Moon's), and v0.5.14+ burn centring: the planted departure
+// node's TriggerTime IS the burn-center (planner's intended moment, within
+// 1 s of OffsetTime) and BurnStart = TriggerTime - Duration/2 must be ≥ now
+// so the integrator doesn't have to fire retroactively.
 func TestPlanTransferIntraPrimaryHohmannForMoon(t *testing.T) {
 	w := mustWorld(t)
 	sys := w.System()
@@ -1081,6 +1051,7 @@ func TestPlanTransferIntraPrimaryHohmannForMoon(t *testing.T) {
 	if moonIdx < 0 {
 		t.Skip("Moon missing from Sol")
 	}
+	now := w.Clock.SimTime
 	plan, err := w.PlanTransfer(moonIdx)
 	if err != nil {
 		t.Fatalf("PlanTransfer to Luna: %v", err)
@@ -1095,6 +1066,21 @@ func TestPlanTransferIntraPrimaryHohmannForMoon(t *testing.T) {
 	}
 	if arr < 200 || arr > 1500 {
 		t.Errorf("Earth → Luna arrival Δv = %.0f m/s, want ~700 (Luna-orbit insertion)", arr)
+	}
+	if plan.Departure.PrimaryID != "earth" {
+		t.Errorf("intra-primary departure PrimaryID = %q, want %q (LEO→Luna stays geocentric)",
+			plan.Departure.PrimaryID, "earth")
+	}
+	if plan.Arrival.PrimaryID != "moon" {
+		t.Errorf("intra-primary arrival PrimaryID = %q, want %q", plan.Arrival.PrimaryID, "moon")
+	}
+	node := w.ActiveCraft().Nodes[0]
+	wantCenter := now.Add(plan.Departure.OffsetTime)
+	if delta := node.TriggerTime.Sub(wantCenter); delta < -time.Second || delta > time.Second {
+		t.Errorf("trigger off by %v (trigger=%v, want_center=%v)", delta, node.TriggerTime, wantCenter)
+	}
+	if node.BurnStart().Before(now) {
+		t.Errorf("BurnStart %v before now %v — planner failed to pad", node.BurnStart(), now)
 	}
 }
 
@@ -2235,43 +2221,6 @@ func TestPreviewBurnStateFiniteVsImpulsiveAtLunaPeri(t *testing.T) {
 	periDelta := math.Abs(impEl.Periapsis() - finEl.Periapsis())
 	if periDelta > 50e3 {
 		t.Errorf("PE impulsive vs finite differ by %.0f km — expected < 50 km for ~10 s burn at peri", periDelta/1000)
-	}
-}
-
-// TestPlanTransferMoonEscapeIntraPrimaryStillFires: regression guard —
-// the new moon-escape branch must not steal dispatch from the
-// intra-primary branch. From LEO targeting Luna (target.ParentID ==
-// craft.Primary.ID), the intra-primary Hohmann path must still fire
-// and plant a non-trivial geocentric departure.
-func TestPlanTransferMoonEscapeIntraPrimaryStillFires(t *testing.T) {
-	w := mustWorld(t)
-	sys := w.System()
-	moonIdx := -1
-	for i, b := range sys.Bodies {
-		if b.ID == "moon" {
-			moonIdx = i
-			break
-		}
-	}
-	if moonIdx < 0 {
-		t.Skip("Moon missing from Sol")
-	}
-	plan, err := w.PlanTransfer(moonIdx)
-	if err != nil {
-		t.Fatalf("PlanTransfer(moon) from LEO: %v", err)
-	}
-	if plan.Departure.PrimaryID != "earth" {
-		t.Errorf("intra-primary departure PrimaryID = %q, want %q (LEO→Luna stays geocentric)",
-			plan.Departure.PrimaryID, "earth")
-	}
-	if plan.Arrival.PrimaryID != "moon" {
-		t.Errorf("intra-primary arrival PrimaryID = %q, want %q",
-			plan.Arrival.PrimaryID, "moon")
-	}
-	// Δv should be in TLI ballpark — well above the moon-escape
-	// figure (~30 m/s). Pick a generous lower bound.
-	if plan.Departure.DV < 2000 {
-		t.Errorf("LEO→Luna departure Δv = %.0f m/s, want ≥ 2000 (TLI scale)", plan.Departure.DV)
 	}
 }
 

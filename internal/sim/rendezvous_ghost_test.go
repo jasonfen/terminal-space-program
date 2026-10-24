@@ -37,7 +37,7 @@ func ghostRendezvousWorld(t *testing.T, relR, relV orbital.Vec3) *World {
 // primary-relative state. A coasting ghost is Kepler-exact between
 // reports, so plan quality is craft-to-craft identical.
 func TestRendezvousNudge_GhostMatchesCraft(t *testing.T) {
-	craftW := rendezvousTwoCraftWorld(t)
+	craftW := rendezvousSmallLagWorld(t)
 	sister := craftW.Crafts[1]
 	admCraft, okCraft := craftW.RecommendedRendezvousBurn()
 
@@ -68,16 +68,13 @@ func TestRendezvousNudge_GhostMatchesCraft(t *testing.T) {
 // refuses. It plants a node carrying the node-level ghost ref (owner +
 // remote craft id).
 func TestPlanRendezvousNudge_GhostRefusalPathsGone(t *testing.T) {
-	craftW := rendezvousTwoCraftWorld(t)
+	craftW := rendezvousSmallLagWorld(t)
 	sister := craftW.Crafts[1]
 	w := ghostRendezvousWorld(t, sister.State.R, sister.State.V)
 	c := w.ActiveCraft()
 
 	adv, err := w.PlanRendezvousNudge()
 	if err != nil {
-		if rendezvousGeometryNotUseful(err) {
-			t.Skipf("ghost geometry yielded no useful nudge (%v); not a regression", err)
-		}
 		t.Fatalf("PlanRendezvousNudge against ghost: %v (refusal path not gone)", err)
 	}
 	if adv == nil || !adv.Ok {
@@ -99,12 +96,9 @@ func TestPlanRendezvousNudge_GhostRefusalPathsGone(t *testing.T) {
 // leaves TargetGhostOwner empty, so the omitempty save path and the
 // "owner==\"\" ⇒ local ref" dispatch stay intact.
 func TestPlanRendezvousNudge_LocalCraftHasNoGhostOwner(t *testing.T) {
-	w := rendezvousTwoCraftWorld(t)
+	w := rendezvousSmallLagWorld(t)
 	c := w.ActiveCraft()
 	if _, err := w.PlanRendezvousNudge(); err != nil {
-		if rendezvousGeometryNotUseful(err) {
-			t.Skipf("no useful nudge in this geometry (%v)", err)
-		}
 		t.Fatalf("PlanRendezvousNudge: %v", err)
 	}
 	if len(c.Nodes) != 1 {
@@ -151,15 +145,12 @@ func TestPlanRendezvousNudge_GhostDifferentPrimary(t *testing.T) {
 // NOT the plan. The node struct must be untouched by any report/recompute
 // after plant. Replanting is the player's move.
 func TestRendezvousGhostNode_StaleNoAutoUpdate(t *testing.T) {
-	craftW := rendezvousTwoCraftWorld(t)
+	craftW := rendezvousSmallLagWorld(t)
 	sister := craftW.Crafts[1]
 	w := ghostRendezvousWorld(t, sister.State.R, sister.State.V)
 	c := w.ActiveCraft()
 
 	if _, err := w.PlanRendezvousNudge(); err != nil {
-		if rendezvousGeometryNotUseful(err) {
-			t.Skipf("no useful nudge in this geometry (%v)", err)
-		}
 		t.Fatalf("PlanRendezvousNudge: %v", err)
 	}
 	if len(c.Nodes) != 1 {

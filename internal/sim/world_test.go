@@ -310,23 +310,6 @@ func TestPausedTickDoesNothing(t *testing.T) {
 	}
 }
 
-// TestNewWorldSeedsMissions: NewWorld populates World.Missions from
-// the embedded starter catalog with every mission InProgress.
-func TestNewWorldSeedsMissions(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	if len(w.Missions) == 0 {
-		t.Fatal("NewWorld did not seed missions from default catalog")
-	}
-	for _, m := range w.Missions {
-		if m.Status != missions.InProgress {
-			t.Errorf("mission %q: expected InProgress at spawn, got %v", m.ID, m.Status)
-		}
-	}
-}
-
 // TestTickPassesCircularizeAtTarget: pumping the craft into a perfect
 // 1000 km circular Earth orbit and ticking once should mark the
 // circularize mission Passed via the Tick → evaluateMissions path.
@@ -389,3 +372,57 @@ func TestActiveMissionPicksFirstInProgress(t *testing.T) {
 		t.Errorf("ActiveMission returned %q, want %q (first InProgress)", got.ID, w.Missions[1].ID)
 	}
 }
+
+// What a freshly constructed World opens with. Each row pins one default a
+// player sees from the first frame.
+func TestNewWorldDefaults(t *testing.T) {
+	cases := []struct {
+		name  string
+		check func(t *testing.T, w *World)
+	}{
+		// v0.10.6+: θ=25°, φ=0, the values the design pass and the grilled
+		// spec committed to. Bumping these is a player-visible behaviour
+		// change and should require updating this test deliberately.
+		{"view tilt matches grilled spec", func(t *testing.T, w *World) {
+			if w.ViewTilt.Theta != 25 {
+				t.Errorf("Theta = %v, want 25", w.ViewTilt.Theta)
+			}
+			if w.ViewTilt.Phi != 0 {
+				t.Errorf("Phi = %v, want 0", w.ViewTilt.Phi)
+			}
+			if w.ViewMode != ViewTilted {
+				t.Errorf("ViewMode = %v, want ViewTilted (the new zero-value default)", w.ViewMode)
+			}
+		}},
+		// v0.6.1: the camera starts focused on the craft so the live orbit +
+		// maneuver previews are immediately in frame. Pre-v0.6.1 the default
+		// was FocusSystem, which dropped the player into a heliocentric view
+		// where the craft's LEO collapsed to a sub-pixel.
+		{"focus is the craft", func(t *testing.T, w *World) {
+			if w.Focus.Kind != FocusCraft {
+				t.Errorf("default focus kind: got %v, want FocusCraft", w.Focus.Kind)
+			}
+		}},
+		// C2-3: GroundStations come from the catalog, both home-body DSN rings.
+		{"ground stations loaded", func(t *testing.T, w *World) {
+			if len(w.GroundStations) != 6 {
+				t.Errorf("World.GroundStations = %d, want 6 (Earth + Kern DSN rings)", len(w.GroundStations))
+			}
+		}},
+		// Missions come from the embedded starter catalog, every one InProgress.
+		{"missions seeded in progress", func(t *testing.T, w *World) {
+			if len(w.Missions) == 0 {
+				t.Fatal("NewWorld did not seed missions from default catalog")
+			}
+			for _, m := range w.Missions {
+				if m.Status != missions.InProgress {
+					t.Errorf("mission %q: expected InProgress at spawn, got %v", m.ID, m.Status)
+				}
+			}
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) { c.check(t, mustWorld(t)) })
+	}
+}
+

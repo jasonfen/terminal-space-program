@@ -26,6 +26,12 @@ import (
 // World.Tick, the Landed-transition detection (wasActiveLanded
 // false→true) fires, and the three primary observable session-state
 // fields are written.
+//
+// Also pins (Slice 1 regression) that a fresh launchpad spawn sets
+// OnPad=true alongside Landed=true, so the route fires with the OnPad gate
+// satisfied, and that the one tick which opens the session seeds exactly one
+// trail sample (the empty-buffer special case in the cadence rule) whose
+// SampledAt is the post-tick sim-time.
 func TestLaunchRouteOnLandedTransition(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -59,6 +65,15 @@ func TestLaunchRouteOnLandedTransition(t *testing.T) {
 	if w.PrevViewMode != priorView {
 		t.Errorf("PrevViewMode = %v, want %v (the ViewMode at the moment of route)",
 			w.PrevViewMode, priorView)
+	}
+	if !w.ActiveCraft().OnPad {
+		t.Error("launchpad spawn should set OnPad=true")
+	}
+	if len(w.LaunchTrail) != 1 {
+		t.Fatalf("LaunchTrail len = %d, want 1 (empty-buffer first sample)", len(w.LaunchTrail))
+	}
+	if p := w.LaunchTrail[0]; !p.SampledAt.Equal(w.Clock.SimTime) {
+		t.Errorf("SampledAt = %v, want %v (post-tick sim-time)", p.SampledAt, w.Clock.SimTime)
 	}
 }
 

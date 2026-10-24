@@ -8,30 +8,6 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// TestSpawnLaunchpadPrimaryStaysEarth — regression for the
-// v0.9.2-fix-1 bug: pre-fix surfaceSpawnPosVel returned heliocentric
-// coords into c.State.R, the SOI walker saw a craft at ~2× Earth's
-// heliocentric distance, and re-parented it to Sun. Verify the
-// spawned craft's primary stays as the requested body.
-func TestSpawnLaunchpadPrimaryStaysEarth(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c, err := w.SpawnCraft(SpawnSpec{
-		LoadoutID:    spacecraft.LoadoutSaturnVID,
-		ParentBodyID: "earth",
-		Launchpad:    true,
-		Latitude:     28.6,
-	})
-	if err != nil {
-		t.Fatalf("SpawnCraft: %v", err)
-	}
-	if c.Primary.ID != "earth" {
-		t.Errorf("primary after launchpad spawn: got %q, want %q", c.Primary.ID, "earth")
-	}
-}
-
 // TestSpawnAfterEmptySlate — spawning a fresh vessel after end-flight
 // removed the last one must work. Regression: SpawnCraft required a
 // non-nil active craft up front (errNoActiveCraftToCopy), so every
@@ -93,34 +69,6 @@ func TestSpawnEmptySlateNoParentFallsBackToSystemPrimary(t *testing.T) {
 	}
 }
 
-// TestSpawnLaunchpadAtAltitudeZero — a launchpad spawn at the
-// default latitude must put the craft at altitude 0. c.State.R is
-// primary-relative; |R| should equal the primary's mean radius.
-func TestSpawnLaunchpadAtAltitudeZero(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c, err := w.SpawnCraft(SpawnSpec{
-		LoadoutID:    spacecraft.LoadoutSaturnVID,
-		ParentBodyID: "earth",
-		Launchpad:    true,
-		Latitude:     28.6,
-	})
-	if err != nil {
-		t.Fatalf("SpawnCraft: %v", err)
-	}
-	primaryR := c.Primary.RadiusMeters()
-	rNorm := c.State.R.Norm()
-	if math.Abs(rNorm-primaryR) > 1.0 {
-		t.Errorf("launchpad |R| = %.3f m, want %.3f m (within 1 m)", rNorm, primaryR)
-	}
-	// Altitude helper should also report ~0 m AGL.
-	if alt := c.Altitude(); math.Abs(alt) > 1.0 {
-		t.Errorf("c.Altitude() = %.3f m, want ≈ 0 (within 1 m)", alt)
-	}
-}
-
 // TestSpawnLaunchpadCoRotatesWithSurface — the primary-relative
 // velocity equals ω × R (surface co-rotation about the body's
 // tilted spin axis). Magnitude depends on the angle between R and
@@ -155,6 +103,51 @@ func TestSpawnLaunchpadCoRotatesWithSurface(t *testing.T) {
 		t.Errorf("equatorial co-rotation |V|: got %.1f m/s, want 250–500 m/s "+
 			"(Earth equatorial surface speed range, accounting for spawn coordinate "+
 			"system trade-offs)", gotSpeed)
+	}
+}
+
+// TestSpawnLaunchpadEarthPad — one Saturn V launchpad spawn at lat 28.6 on
+// Earth, three invariants of the result:
+//
+//   - primary stays Earth: regression for the v0.9.2-fix-1 bug where
+//     surfaceSpawnPosVel returned heliocentric coords into c.State.R, the SOI
+//     walker saw a craft at ~2x Earth's heliocentric distance, and re-parented
+//     it to Sun.
+//   - altitude 0: c.State.R is primary-relative, so |R| is the primary's mean
+//     radius and Altitude() reads ~0 m AGL.
+//   - v0.9.4+: World.NavMode auto-snaps to NavSurface so the player's w/s SAS
+//     keys route to surface-prograde / -retrograde without an explicit `;`
+//     cycle (mirrors v0.9.3's reconcileNavMode: NavMode follows the frame the
+//     player will be flying in).
+func TestSpawnLaunchpadEarthPad(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if w.NavMode != NavOrbit {
+		t.Fatalf("precondition: NewWorld should land in NavOrbit, got %v", w.NavMode)
+	}
+	c, err := w.SpawnCraft(SpawnSpec{
+		LoadoutID:    spacecraft.LoadoutSaturnVID,
+		ParentBodyID: "earth",
+		Launchpad:    true,
+		Latitude:     28.6,
+	})
+	if err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	if c.Primary.ID != "earth" {
+		t.Errorf("primary after launchpad spawn: got %q, want %q", c.Primary.ID, "earth")
+	}
+	primaryR := c.Primary.RadiusMeters()
+	if rNorm := c.State.R.Norm(); math.Abs(rNorm-primaryR) > 1.0 {
+		t.Errorf("launchpad |R| = %.3f m, want %.3f m (within 1 m)", rNorm, primaryR)
+	}
+	if alt := c.Altitude(); math.Abs(alt) > 1.0 {
+		t.Errorf("c.Altitude() = %.3f m, want ≈ 0 (within 1 m)", alt)
+	}
+	if w.NavMode != NavSurface {
+		t.Errorf("NavMode after launchpad spawn: got %v, want %v", w.NavMode, NavSurface)
 	}
 }
 
@@ -213,33 +206,6 @@ func TestSpawnLaunchpadAlignsWithTexture(t *testing.T) {
 // TestSpawnLaunchpadAlignsWithTexture above, which round-trips the
 // spawn position through the renderer and confirms the (lat, lon)
 // reconstructs correctly.
-
-// TestSpawnLaunchpadAutoSnapsNavSurface — v0.9.4+: a launchpad spawn
-// auto-snaps World.NavMode to NavSurface so the player's `w`/`s` SAS
-// keys route to surface-prograde / -retrograde without an explicit
-// `;` cycle. Mirrors v0.9.3's reconcileNavMode pattern (NavMode
-// follows the frame the player will be flying in).
-func TestSpawnLaunchpadAutoSnapsNavSurface(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	if w.NavMode != NavOrbit {
-		t.Fatalf("precondition: NewWorld should land in NavOrbit, got %v", w.NavMode)
-	}
-	if _, err := w.SpawnCraft(SpawnSpec{
-		LoadoutID:    spacecraft.LoadoutSaturnVID,
-		ParentBodyID: "earth",
-		Launchpad:    true,
-		Latitude:     28.6,
-	}); err != nil {
-		t.Fatalf("SpawnCraft: %v", err)
-	}
-	if w.NavMode != NavSurface {
-		t.Errorf("NavMode after launchpad spawn: got %v, want %v",
-			w.NavMode, NavSurface)
-	}
-}
 
 // TestSpawnLaunchpadLeavesExistingSurfaceModeUntouched — when the
 // world is already in NavSurface (e.g. a previous launchpad spawn

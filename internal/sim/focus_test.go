@@ -7,21 +7,6 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
-// TestFocusDefaultsToCraft: v0.6.1 spawns the camera focused on the
-// craft so the live orbit + maneuver previews are immediately in
-// frame. Pre-v0.6.1 the default was FocusSystem, which dropped the
-// player into a heliocentric view where the craft's LEO collapsed
-// to a sub-pixel.
-func TestFocusDefaultsToCraft(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	if w.Focus.Kind != FocusCraft {
-		t.Errorf("default focus kind: got %v, want FocusCraft", w.Focus.Kind)
-	}
-}
-
 func TestCycleFocusForwardWrapsThroughBodiesAndCraftAndBack(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -29,7 +14,7 @@ func TestCycleFocusForwardWrapsThroughBodiesAndCraftAndBack(t *testing.T) {
 	}
 	// Reset to FocusSystem before exercising the cycle so this test
 	// stays focused on cycling behavior rather than NewWorld's
-	// default-focus choice (covered by TestFocusDefaultsToCraft).
+	// default-focus choice (covered by TestNewWorldDefaults).
 	w.ResetFocus()
 	nBodies := len(w.System().Bodies)
 	expected := []Focus{{Kind: FocusSystem}}

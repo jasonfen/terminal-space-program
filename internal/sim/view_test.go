@@ -42,24 +42,6 @@ func TestViewModeStringDistinct(t *testing.T) {
 	}
 }
 
-// TestDefaultViewTiltMatchesGrilledSpec (v0.10.6+): the freshly
-// constructed World opens at θ=25°, φ=0 — the values the
-// design pass and the grilled spec committed to. Bumping these
-// defaults is a player-visible behaviour change and should require
-// updating this test deliberately.
-func TestDefaultViewTiltMatchesGrilledSpec(t *testing.T) {
-	w := mustWorld(t)
-	if w.ViewTilt.Theta != 25 {
-		t.Errorf("Theta = %v, want 25", w.ViewTilt.Theta)
-	}
-	if w.ViewTilt.Phi != 0 {
-		t.Errorf("Phi = %v, want 0", w.ViewTilt.Phi)
-	}
-	if w.ViewMode != ViewTilted {
-		t.Errorf("ViewMode = %v, want ViewTilted (the new zero-value default)", w.ViewMode)
-	}
-}
-
 // TestNudgeViewTiltThetaClamps (v0.10.6+): shift+↑/↓ keys come in
 // as ±5° nudges through NudgeViewTiltTheta; the clamp must keep
 // Theta inside [ViewTiltThetaMinDeg, ViewTiltThetaMaxDeg] so a

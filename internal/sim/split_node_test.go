@@ -169,46 +169,6 @@ func TestPlanTransferSplitArrivesCoplanar(t *testing.T) {
 	}
 }
 
-// TestPlanTransferSplitBurnsAreDistinct: the plane change and capture
-// must be planted at distinct times — the plane change in the Earth frame
-// before SOI entry, the capture at perilune. Pre-fix both were stacked at
-// the apoapsis instant, which the executor can't fly as two burns (the
-// later ActiveBurn clobbers the earlier). GH #67 follow-up.
-func TestPlanTransferSplitBurnsAreDistinct(t *testing.T) {
-	w := mustWorld(t)
-	moonIdx, _ := findMoon(t, w)
-	if _, err := w.PlanTransfer(moonIdx); err != nil {
-		t.Fatalf("PlanTransfer: %v", err)
-	}
-	if w.LastTransfer.Strategy != "split" {
-		t.Fatalf("strategy = %q, want split", w.LastTransfer.Strategy)
-	}
-	nodes := w.ActiveCraft().Nodes
-	if len(nodes) < 3 {
-		t.Fatalf("split should plant 3 nodes; got %d", len(nodes))
-	}
-	var planeChange, capture spacecraft.ManeuverNode
-	for _, n := range nodes {
-		switch n.Mode {
-		case spacecraft.BurnPlaneChange:
-			planeChange = n
-		case spacecraft.BurnRetrograde:
-			capture = n
-		}
-	}
-	gap := capture.TriggerTime.Sub(planeChange.TriggerTime)
-	if gap <= 0 {
-		t.Errorf("plane change (T=%v) and capture (T=%v) are not ordered distinctly — burns collide",
-			planeChange.TriggerTime, capture.TriggerTime)
-	}
-	// The plane change must fire before the capture by more than their
-	// burn windows so the integrator doesn't run them concurrently.
-	if gap < planeChange.Duration/2+capture.Duration/2 {
-		t.Errorf("plane change and capture burn windows overlap (gap %v < %v)",
-			gap, planeChange.Duration/2+capture.Duration/2)
-	}
-}
-
 // TestPlanTransferSplitPredictedPathEntersMoonSOI: end-to-end — with the
 // node-aligned split, the predicted transfer must cross Luna's SOI (a
 // foreign "moon" segment present on some leg). This exercises the #66
