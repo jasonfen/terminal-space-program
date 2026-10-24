@@ -714,3 +714,21 @@ func TestCenterlineHidesUnderDeclutter(t *testing.T) {
 		t.Error("scope missing after declutter cleared")
 	}
 }
+
+// A very tall canvas must not widen the scope past the navball's column cap,
+// nor push its left edge off the canvas (#769: 138x150 drew 120 columns,
+// 138x200 put atCol at -20).
+func TestCenterlineLayoutHonoursTheNavballColumnCapOnTallCanvases(t *testing.T) {
+	for _, cRows := range []int{100, 150, 200} {
+		g, ok := centerlineLayout(138, cRows)
+		if !ok {
+			t.Fatalf("138x%d: no layout", cRows)
+		}
+		if max := navballMaxPanelCols(138); g.panelW > max {
+			t.Errorf("138x%d: panel %d cols wide, past the navball cap %d", cRows, g.panelW, max)
+		}
+		if g.atCol < 0 {
+			t.Errorf("138x%d: left edge at column %d, off the canvas", cRows, g.atCol)
+		}
+	}
+}

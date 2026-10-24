@@ -72,7 +72,7 @@ type centerlineGeom struct {
 // whether it exists at all: below the Design Size it is the first thing
 // dropped (Compact Form, ADR 0046 / ADR 0055 A1). It grows with height like
 // the navball (heightScaledCells, ADR 0051 W5), capped so it never reaches
-// the navball's top row.
+// the navball's top row nor passes the navball's column cap.
 func centerlineLayout(cCols, cRows int) (centerlineGeom, bool) {
 	if cCols < designCanvasCols || cRows < designCanvasRows {
 		return centerlineGeom{}, false
@@ -81,6 +81,11 @@ func centerlineLayout(cCols, cRows int) (centerlineGeom, bool) {
 	nb := navballGeometry(cCols, cRows)
 	if maxRows := cRows - nb.panelH - 1 - centerlineChromeRows; rows > maxRows {
 		rows = maxRows
+	}
+	// The navball's column cap, so the scope never outgrows the width the
+	// notice bay leaves it (#769); panelW = 2*rows + chrome.
+	if maxDisc := (navballMaxPanelCols(cCols) - centerlineChromeCols) / 2; rows > maxDisc {
+		rows = maxDisc
 	}
 	g := centerlineGeom{discRows: rows, discCols: 2 * rows, winHalfCols: rows, winHalfRows: rows / 2}
 	g.panelW = g.discCols + centerlineChromeCols

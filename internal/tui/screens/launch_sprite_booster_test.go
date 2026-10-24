@@ -44,9 +44,6 @@ func spriteDigest(stages []spacecraft.Stage) string {
 func unmarkedLoadoutIDs() []string {
 	var ids []string
 	for id, l := range spacecraft.Loadouts {
-		if id == "Orion" { // ADR 0060: added after the golden; skipped by name so it still covers the loadouts it was captured on
-			continue
-		}
 		marked := false
 		for _, s := range l.Stages {
 			marked = marked || s.LitWithAbove
@@ -63,9 +60,11 @@ func unmarkedLoadoutIDs() []string {
 // goldenAllSerial covers the 39 loadouts unmarked then; S9 marks Raster-LS, so the set is 38.
 // Its value was re-captured by running this test on main e9e4029's unmodified parts.json and
 // loadouts.json with Raster-LS skipped by name, so the new golden predates S9's data edits.
+// Orion (ADR 0060) joined the set later (#770): re-captured with it, so goldenAllSerial covers the 39
+// loadouts again; the 38 without Orion still hashed to the old value, so only Orion moved the digest.
 const (
 	goldenSaturnV   = "e3388b974dc8bb1c"
-	goldenAllSerial = "fd3d34ac376ba341"
+	goldenAllSerial = "88d7faf4012794fa"
 )
 
 func TestSerialSpritesByteIdentical(t *testing.T) {
