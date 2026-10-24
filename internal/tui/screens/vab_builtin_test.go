@@ -1,6 +1,8 @@
 package screens
 
 import (
+	"fmt"
+	"math"
 	"strings"
 	"testing"
 
@@ -215,5 +217,30 @@ func TestVABOpenCursorWalksAllGroups(t *testing.T) {
 	v.HandleKey("up")
 	if v.loadIdx != n-1 {
 		t.Errorf("up from the top = %d, want %d", v.loadIdx, n-1)
+	}
+}
+
+// Opening a built-in carrier in the VAB reads the carrier chain's Δv as the
+// total, in the stats line and the Σ readout alike (Part of #730).
+func TestVABBuiltInTotalDVIsLauncherOnly(t *testing.T) {
+	for _, tc := range []struct {
+		id   string
+		want float64
+	}{
+		{"Falcon-9-Starlink-24", 9610},
+		{"Saturn-V", 18872},
+		{"Comsat-Carrier-3", 10515},
+	} {
+		v := subVAB(t)
+		v.HandleKey("o")
+		moveLoadTo(t, v, tc.id)
+		v.HandleKey("enter")
+		if got := v.Stats().TotalDV; math.Abs(got-tc.want) > 1 {
+			t.Errorf("%s: Stats().TotalDV = %.0f, want %.0f", tc.id, got, tc.want)
+		}
+		out := v.Render(140, 40)
+		if want := fmt.Sprintf("Σ Δv: %.0f m/s", tc.want); !strings.Contains(out, want) && !strings.Contains(out, fmt.Sprintf("%.0f m/s", tc.want)) {
+			t.Errorf("%s: render lacks %q:\n%s", tc.id, want, out)
+		}
 	}
 }
