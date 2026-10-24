@@ -5,6 +5,28 @@ phasing-orbit math that lets you do it on almost no fuel. This is an advanced
 flight technique; if you're new, read the [controls & flight guide](controls.md)
 first.
 
+## The electric way
+
+For a Starlink-style batch the carrier does not have to phase at all.
+
+1. Fly the carrier to the release orbit with the batch still stacked.
+2. Press `U` and answer `y` to `Release all 24 Starlink?`. The whole batch
+   leaves at once in a slow sideways fan, a few cm/s apart, and the carrier
+   keeps flying. The pieces are named `Starlink-1`, `Starlink-2` and so on and
+   join the end of the vessel list.
+3. Raise each vessel on its own thruster with `L` (a raise order: the vessel
+   burns itself up to the altitude you give it, and warp is not capped while it
+   does). This ships with the batch work; check the F1 help for the key on your
+   build.
+4. Spread the batch around the orbit. That step is coming and is not in the
+   game yet; until then, use the phasing method below.
+
+The released batch is one stop on the `t` target cycle: `t` lands on the
+nearest member, and the carrier is its own stop. To aim at one particular
+member, `j` to it and press `enter`, or fly it with `]` and target from there.
+
+The rest of this page is the manual way, one `Y` per comsat.
+
 ## The one mechanic that matters
 
 When you press `Y` (Deploy) and answer `y` to its `[y/n]` ask, the top payload is released into the carrier's

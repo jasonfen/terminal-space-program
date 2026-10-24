@@ -77,3 +77,63 @@ func TestTargetCycleReachesUndockedVesselQuickly(t *testing.T) {
 		t.Errorf("presses to reach the undocked vessel = %d, want <= 2", got)
 	}
 }
+
+// ADR 0059 guard 8: a released batch is one `t` stop (nearest non-lead
+// member), the lead its own. Sabotage: clear BatchID and the count is 26.
+func TestTargetCycleBatchIsOneStop(t *testing.T) {
+	build := func(t *testing.T) (*World, []*spacecraft.Spacecraft) {
+		w, err := NewWorld()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var members []*spacecraft.Spacecraft
+		for i := 0; i < 24; i++ {
+			m := addVesselAt(t, w, "Starlink", float64(1000+100*(24-i)))
+			m.BatchID = 77
+			members = append(members, m)
+		}
+		w.Crafts[0].BatchID, w.Crafts[0].BatchLead = 77, true
+		apollo := addVesselAt(t, w, "Apollo", 50e3)
+		return w, append(members, apollo)
+	}
+	vesselStops := func(w *World) (n int) {
+		for _, tg := range w.targetCycle() {
+			if tg.Kind == TargetCraft {
+				n++
+			}
+		}
+		return
+	}
+	t.Run("from the lead: nearest member, then Apollo", func(t *testing.T) {
+		w, ms := build(t)
+		w.SetActiveCraftIdx(0)
+		if n := vesselStops(w); n != 2 {
+			t.Fatalf("vessel stops = %d, want 2", n)
+		}
+		// ms[23] has the smallest offset (1100 m)
+		if p := pressesTo(w, ms[23].ID, 30); p != 2 {
+			t.Errorf("nearest member is press %d, want 2", p)
+		}
+		if pressesTo(w, ms[24].ID, 30) != 3 {
+			t.Errorf("Apollo not the next stop")
+		}
+	})
+	t.Run("from a member: lead is its own stop, siblings one", func(t *testing.T) {
+		w, _ := build(t)
+		w.SetActiveCraftIdx(5)
+		// lead + one sibling stop + Apollo
+		if n := vesselStops(w); n != 3 {
+			t.Fatalf("vessel stops = %d, want 3", n)
+		}
+	})
+	t.Run("sabotage: BatchID cleared gives 26 stops", func(t *testing.T) {
+		w, _ := build(t)
+		for _, c := range w.Crafts {
+			c.BatchID = 0
+		}
+		w.SetActiveCraftIdx(0)
+		if n := vesselStops(w); n != 25 {
+			t.Fatalf("vessel stops = %d, want 25 other vessels", n)
+		}
+	})
+}
