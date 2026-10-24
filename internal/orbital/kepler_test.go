@@ -236,3 +236,13 @@ func TestPeriapsisDirectionCircularUndefined(t *testing.T) {
 		t.Error("PeriapsisDirection ok=true for a circular orbit, want false")
 	}
 }
+
+// TestOrbitReadoutParabolaIsHyperbolic: an exactly parabolic state (e == 1,
+// specific energy 0) reads as unbound, same as the "e ≥ 1" rule the event
+// helpers use. mu=2, r=1, v=2 makes every intermediate exact in float64.
+func TestOrbitReadoutParabolaIsHyperbolic(t *testing.T) {
+	got := OrbitReadout(Vec3{X: 1}, Vec3{Y: 2}, 2)
+	if got.Eccentricity != 1 || !got.Hyperbolic {
+		t.Errorf("parabola: e=%v hyperbolic=%v, want e=1 hyperbolic=true", got.Eccentricity, got.Hyperbolic)
+	}
+}

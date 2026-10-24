@@ -319,7 +319,14 @@ func TestPositionAtTrueAnomalyHyperbolic(t *testing.T) {
 // `p <= 0` guard covers it as before. (#90)
 func TestPositionAtTrueAnomalyParabolic(t *testing.T) {
 	el := Elements{A: 1e7, E: 1.0}
-	if got := PositionAtTrueAnomaly(el, 0); got != (Vec3{}) {
-		t.Errorf("PositionAtTrueAnomaly(e=1) = %+v, want zero vector", got)
+	// ν=π as well: there 1+e·cosν is 0 too, so a guard that let p=0 through
+	// would return NaN (0/0), not the zero vector.
+	for _, nu := range []float64{0, math.Pi} {
+		if got := PositionAtTrueAnomaly(el, nu); got != (Vec3{}) {
+			t.Errorf("PositionAtTrueAnomaly(e=1, ν=%.3f) = %+v, want zero vector", nu, got)
+		}
+		if got := VelocityAtTrueAnomaly(el, nu, muEarth); got != (Vec3{}) {
+			t.Errorf("VelocityAtTrueAnomaly(e=1, ν=%.3f) = %+v, want zero vector", nu, got)
+		}
 	}
 }

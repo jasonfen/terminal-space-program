@@ -89,24 +89,3 @@ func PorkchopGrid(
 	}
 	return grid
 }
-
-// PorkchopMinCell scans a grid and returns the (depIdx, tofIdx, total)
-// of the lowest-Δv non-NaN cell. ok=false if the entire grid is NaN.
-func PorkchopMinCell(grid [][]float64) (depIdx, tofIdx int, total float64, ok bool) {
-	best := math.Inf(1)
-	for j := range grid {
-		for i, v := range grid[j] {
-			if math.IsNaN(v) {
-				continue
-			}
-			if v < best {
-				best = v
-				depIdx = i
-				tofIdx = j
-				ok = true
-			}
-		}
-	}
-	total = best
-	return
-}

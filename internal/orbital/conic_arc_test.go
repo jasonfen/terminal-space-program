@@ -114,4 +114,8 @@ func TestSampleConicArcDegenerate(t *testing.T) {
 	if pts := SampleConicArc(Elements{A: -1e7, E: 1.5}, -0.5, 0.5, 0); pts != nil {
 		t.Errorf("n<1 should return nil, got %d points", len(pts))
 	}
+	// n = 1 is the smallest valid sample count: two points, endpoints only.
+	if pts := SampleConicArc(Elements{A: -1e7, E: 1.5}, -0.5, 0.5, 1); len(pts) != 2 {
+		t.Errorf("n=1 should return 2 points, got %d", len(pts))
+	}
 }

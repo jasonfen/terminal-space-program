@@ -67,3 +67,25 @@ func TestGenericCalculatorForExoplanet(t *testing.T) {
 		t.Errorf("TRAPPIST-1e M not finite: %v", m)
 	}
 }
+
+// TestMeanAnomalyZeroPeriodStaysFinite: a body with no sidereal period
+// (SideralOrbit == 0, the "not an orbiter" catalog value) holds its epoch
+// anomaly instead of dividing by zero, on both calculators.
+func TestMeanAnomalyZeroPeriodStaysFinite(t *testing.T) {
+	later := bodies.J2000.Add(1000 * 24 * time.Hour)
+	earth := bodies.CelestialBody{EnglishName: "Earth"} // in the J2000 table, period 0
+	other := bodies.CelestialBody{EnglishName: "Nowhere", SemimajorAxis: 100}
+	for name, c := range map[string]struct {
+		calc Calculator
+		body bodies.CelestialBody
+	}{
+		"solar":   {NewSolarSystemCalculator(), earth},
+		"generic": {NewGenericCalculator(), other},
+	} {
+		m0 := c.calc.CalculateMeanAnomaly(c.body, bodies.J2000)
+		m1 := c.calc.CalculateMeanAnomaly(c.body, later)
+		if math.IsNaN(m0) || m0 != m1 {
+			t.Errorf("%s: M(J2000)=%v M(later)=%v, want equal and finite", name, m0, m1)
+		}
+	}
+}
