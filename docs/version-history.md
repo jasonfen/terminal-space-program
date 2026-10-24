@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.60.0
+
+SLS flies with Orion on top, and the Centerline view becomes a scope in the Proximity view's top-right corner (PRs `#762`-`#766`, `#768`; tag `v0.60.0`).
+
+- **SLS + Orion.** A new `SLS + Orion` loadout stacks the boosters, core, ICPS, a European Service Module and the crew module, and an `Orion` loadout and `Orion` subassembly fly the capsule alone. The ICPS now carries the Orion stage adapter, so the bare `SLS Block 1`'s ICPS stage has 8,680 m/s, down from 9,501 (closes `#752`).
+- **Centerline scope.** In the Proximity view the Centerline now sits as a framed scope in the top-right corner, and the side picture keeps its full width. Your port is a dotted crosshair, theirs a ring, and the disc ranges itself in width steps of 2 to 64 m, printed on its title row with the port range; `+` / `-` zoom the side picture only. Both hulls are drawn end-on as dotted circles, apart when you pass clear and overlapping when you would bump, and a leaning nose stretches yours into a stadium. Once you overshoot, the ring becomes `◌` behind your port and the title's range reads negative (`port -4.12 m`); the chip's `port:` row stays unsigned. `F2` declutter hides the scope with the navball (closes `#757`).
+
 ### v0.59.4
 
 Control codes can no longer reach another player's screen, and failed saves and roster edits on the server say so instead of passing silently (PRs `#755`, `#756`; tag `v0.59.4`).

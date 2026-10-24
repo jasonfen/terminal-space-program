@@ -201,7 +201,7 @@ func TestHelpDeclutterRowNamesInstrumentBoxes(t *testing.T) {
 	if strings.Contains(desc, "core column") || strings.Contains(desc, "chips") {
 		t.Errorf("F2 row still describes the pre-ADR-0051 chips/core column: %q", desc)
 	}
-	for _, want := range []string{"instrument boxes", "navball", "ENGINE", "PROPELLANT"} {
+	for _, want := range []string{"instrument boxes", "navball", "Centerline scope", "ENGINE", "PROPELLANT"} {
 		if !strings.Contains(desc, want) {
 			t.Errorf("F2 row omits %q: %q", want, desc)
 		}
