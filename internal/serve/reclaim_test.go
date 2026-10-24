@@ -369,3 +369,38 @@ func TestStalledReclaimReleasesTheOldSession(t *testing.T) {
 			"its departure goes unannounced and its bank never drops")
 	}
 }
+
+// Audit L1-F2. An unenrolled key is never "online" (presence is marked at
+// enroll commit), so the one-session-per-key guard let a second terminal
+// on a new key through; live.add then replaced the first's registry entry
+// and both ran divergent Worlds against one payload.
+func TestSecondConnectionOnUnenrolledKeyRefused(t *testing.T) {
+	srv := startTestServer(t)
+	signer, fp := newClientKey(t) // never enrolled
+
+	first := dialShell(t, srv, signer, true)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, ok := srv.live.snapshot()[fp]; ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the first connection never registered")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	held := srv.live.snapshot()[fp]
+
+	second := dialShell(t, srv, signer, true)
+	deadline = time.Now().Add(10 * time.Second)
+	for !strings.Contains(second.text(), "already has a live session") {
+		if time.Now().After(deadline) {
+			t.Fatalf("a second connection on a new key was admitted; it saw %q", second.text())
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if cur, ok := srv.live.snapshot()[fp]; !ok || cur != held {
+		t.Error("the first session's registry entry was replaced by the second")
+	}
+	_ = first
+}

@@ -335,3 +335,28 @@ func TestResetFleetRefusesOvercrowdedRing(t *testing.T) {
 		t.Errorf("refusal should name the 50 km floor: %v", err)
 	}
 }
+
+// Audit L1-F5. A reset that dies partway has already wiped some stacks;
+// dock records naming them must be gone by then, or a reconnect resumes
+// docked-as-guest into a stack that exists in nobody's save.
+func TestResetFleetMidRunFailureStillClearsDocks(t *testing.T) {
+	s, _ := resetStore(t)
+	if err := s.SetDocks([]DockLink{{ID: 1, Owner: "SHA256:alice", GuestOwner: "SHA256:bob"}}); err != nil {
+		t.Fatalf("SetDocks: %v", err)
+	}
+	// Roster order is host, alice, bob: alice is rewritten, then bob's
+	// payload path (a directory) fails the read.
+	if err := os.MkdirAll(s.payloadPath("SHA256:bob"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ResetFleet(time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)); err == nil {
+		t.Fatal("ResetFleet succeeded; the injected failure never fired, so this test proves nothing")
+	}
+	after, err := s.Meta()
+	if err != nil {
+		t.Fatalf("Meta: %v", err)
+	}
+	if len(after.Docks) != 0 {
+		t.Errorf("dock records outlived a half-failed reset: %+v", after.Docks)
+	}
+}

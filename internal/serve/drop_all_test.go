@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -172,5 +173,38 @@ func TestSigtermSharesTheRestartDrop(t *testing.T) {
 	}
 	if got := f.guest.stderr(); !strings.Contains(got, "terminal-space-program: server restarting — reconnect in a moment; your progress is saved") {
 		t.Errorf("guest stderr = %q, want the restart line", got)
+	}
+}
+
+// Audit L1-F8. A handler that reaches sessions.Add while the drain is in
+// Wait panics the host ("WaitGroup misuse") or trips the race detector.
+// Handlers racing a drain must either be counted before it or turned away.
+func TestSessionAddRacingDrainIsSafe(t *testing.T) {
+	srv := newOfflineServer(t)
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				if srv.enterSession() {
+					srv.sessions.Done()
+				}
+			}
+		}()
+	}
+	time.Sleep(5 * time.Millisecond)
+	srv.waitSessionsOn(time.After(time.Second))
+	srv.waitSessionsOn(time.After(time.Second))
+	close(stop)
+	wg.Wait()
+	if srv.enterSession() {
+		t.Error("a session was admitted after the drain")
 	}
 }
