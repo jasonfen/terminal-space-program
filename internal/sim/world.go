@@ -144,6 +144,11 @@ type World struct {
 	// PendingBurnFiredEvents.
 	PendingBurnFinishedEvents []BurnFinishedEvent
 
+	// PendingRaiseEvents queues the commanded raise's end-of-order Event
+	// Flashes (ADR 0059 decision 4: complete, argon exhausted, stopped).
+	// Same per-tick, app.go-drained contract as PendingBurnFinishedEvents.
+	PendingRaiseEvents []RaiseEvent
+
 	// Focus selects what the OrbitView canvas is centered on. Zero value
 	// (FocusSystem) matches v0.1.0 behavior.
 	Focus Focus
@@ -1956,6 +1961,11 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	// (active burn, hyperbolic, warp=1) or any chunk's KeplerStep
 	// fails. Each craft owns its own ActiveBurn / ManualBurn so this
 	// gate is per-craft.
+	// ADR 0059 decision 4: a commanded raise is analytic at any warp, so it
+	// runs before the Kepler gate and is not an ActiveBurn (no warp cap).
+	if c.Raise != nil && w.advanceRaise(c, simDelta) {
+		return
+	}
 	if w.canKeplerStep(c, simDelta) {
 		if w.keplerStepWithSOICheck(c, simDelta) {
 			return
@@ -2536,6 +2546,20 @@ func canKeplerStepState(s physics.StateVector, mu float64, primary bodies.Celest
 // crossed into hyperbolic mid-propagation due to a primary switch);
 // caller then falls back to Verlet for the remaining time.
 func (w *World) keplerStepWithSOICheck(c *spacecraft.Spacecraft, simDelta time.Duration) bool {
+	return w.chunkedSOIStep(c, simDelta.Seconds(), func(mu, chunk float64) bool {
+		newState, ok := physics.KeplerStep(c.State, mu, chunk)
+		if ok {
+			c.State = newState
+		}
+		return ok
+	})
+}
+
+// chunkedSOIStep is keplerStepWithSOICheck's chunk loop with the per-chunk
+// propagation swapped out: step advances c.State by chunk seconds under mu
+// and reports success. The commanded raise (raise.go) reuses it so a spiral
+// is SOI-checked the way a coast is (ADR 0059 decision 4).
+func (w *World) chunkedSOIStep(c *spacecraft.Spacecraft, secs float64, step func(mu, chunk float64) bool) bool {
 	sys, calc := w.ephemerisFor(c) // v0.16 / ADR 0015: SOI checks against the Vessel's own System and its ephemeris.
 	positions := make(map[string]orbital.Vec3, len(sys.Bodies))
 	for _, b := range sys.Bodies {
@@ -2557,7 +2581,6 @@ func (w *World) keplerStepWithSOICheck(c *spacecraft.Spacecraft, simDelta time.D
 
 	chunkCap := chunkDtCap(sys, c.Primary, c.State.V.Norm())
 
-	secs := simDelta.Seconds()
 	if chunkCap <= 0 || math.IsInf(chunkCap, 0) || math.IsNaN(chunkCap) {
 		chunkCap = secs
 	}
@@ -2595,13 +2618,11 @@ func (w *World) keplerStepWithSOICheck(c *spacecraft.Spacecraft, simDelta time.D
 				return false
 			}
 		}
-		newState, ok := physics.KeplerStep(c.State, mu, chunk)
-		if !ok {
+		if !step(mu, chunk) {
 			c.State = entryState
 			c.Primary = entryPrimary
 			return false
 		}
-		c.State = newState
 
 		inertial := positions[c.Primary.ID].Add(c.State.R)
 		cand := physics.FindPrimary(sys, inertial, positions)
