@@ -205,8 +205,9 @@ func (w *World) targetCycle() []Target {
 	// breaks ties and orders everything when there is no active Vessel).
 	// Slate order alone put a vessel 12 km away before one 2 km away.
 	type nearCraft struct {
-		id   uint64
-		dist float64
+		id    uint64
+		dist  float64
+		batch uint64 // non-zero for a released batch member that is not the lead (ADR 0059 decision 9)
 	}
 	var others []nearCraft
 	ac := w.ActiveCraft()
@@ -219,10 +220,23 @@ func (w *World) targetCycle() []Target {
 		if ac != nil {
 			d = w.BodyPosition(c.Primary).Add(c.State.R).Sub(w.BodyPosition(ac.Primary).Add(ac.State.R)).Norm()
 		}
-		others = append(others, nearCraft{c.ID, d})
+		nc := nearCraft{id: c.ID, dist: d}
+		if c.BatchID != 0 && !c.BatchLead {
+			nc.batch = c.BatchID
+		}
+		others = append(others, nc)
 	}
 	sort.SliceStable(others, func(a, b int) bool { return others[a].dist < others[b].dist })
+	// A released batch is one stop: its nearest non-lead member (the first
+	// seen after the sort); the lead stays its own entry.
+	seenBatch := map[uint64]bool{}
 	for _, o := range others {
+		if o.batch != 0 {
+			if seenBatch[o.batch] {
+				continue
+			}
+			seenBatch[o.batch] = true
+		}
 		cycle = append(cycle, Target{Kind: TargetCraft, CraftID: o.id})
 	}
 
