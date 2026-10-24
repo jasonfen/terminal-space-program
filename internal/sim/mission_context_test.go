@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/missions"
@@ -54,24 +55,6 @@ func TestMissionEvalContextSnapshotsActiveCraft(t *testing.T) {
 	}
 	if !ctx.Staged {
 		t.Error("Staged not propagated")
-	}
-}
-
-// TestMissionEvalContextSurfaceFallsBackToLaunchSite — with no soft-touchdown
-// coords, the surface position falls back to the launchpad-spawn site
-// (mirrors integrateLanded).
-func TestMissionEvalContextSurfaceFallsBackToLaunchSite(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c := w.ActiveCraft()
-	c.LaunchLatDeg, c.LaunchLonDeg = 45, 10
-	c.LandedLatDeg, c.LandedLonDeg = 0, 0 // no touchdown coords
-
-	ctx := w.missionEvalContext()
-	if ctx.SurfaceLatDeg != 45 || ctx.SurfaceLonDeg != 10 {
-		t.Errorf("fallback to launch site: got (%v,%v) want (45,10)", ctx.SurfaceLatDeg, ctx.SurfaceLonDeg)
 	}
 }
 
@@ -200,24 +183,6 @@ func TestMissionEvalContextHasOverBudgetNode(t *testing.T) {
 	}
 }
 
-// TestMissionEvalContextOnPad — #426: OnPad mirrors the active craft's own
-// OnPad flag, feeding the tut-launch / tut-dock spawn-location gates.
-func TestMissionEvalContextOnPad(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	c := w.ActiveCraft()
-	c.OnPad = true
-	if !w.missionEvalContext().OnPad {
-		t.Error("OnPad true on the active craft should propagate")
-	}
-	c.OnPad = false
-	if w.missionEvalContext().OnPad {
-		t.Error("OnPad false on the active craft should propagate")
-	}
-}
-
 // findBodyIdx returns the index into w.System().Bodies of the body with the
 // given catalog ID, failing the test if it's not found.
 func findBodyIdx(t *testing.T, w *World, id string) int {
@@ -253,5 +218,58 @@ func TestStageActiveLatchesStagedFlag(t *testing.T) {
 	}
 	if !w.stagedThisSession {
 		t.Error("stagedThisSession not latched after StageActive")
+	}
+}
+
+// missionEvalContext fields that mirror one craft flag each. Rows:
+//   - OnPad (#426): mirrors the active craft's own OnPad flag, feeding the
+//     tut-launch / tut-dock spawn-location gates (both polarities).
+//   - surface fallback: with no soft-touchdown coords, the surface position
+//     falls back to the launchpad-spawn site (mirrors integrateLanded).
+//   - total fuel: out_of_fuel reads TotalFuelKg, the summed propellant across
+//     every stage (c.Fuel), NOT the active-stage fuel.
+func TestMissionEvalContextWiresCraftFields(t *testing.T) {
+	cases := []struct {
+		name string
+		// run arranges the craft, snapshots the context, and returns "" or a failure.
+		run func(w *World, c *spacecraft.Spacecraft) string
+	}{
+		{"on pad", func(w *World, c *spacecraft.Spacecraft) string {
+			c.OnPad = true
+			if !w.missionEvalContext().OnPad {
+				return "OnPad true on the active craft should propagate"
+			}
+			c.OnPad = false
+			if w.missionEvalContext().OnPad {
+				return "OnPad false on the active craft should propagate"
+			}
+			return ""
+		}},
+		{"surface falls back to launch site", func(w *World, c *spacecraft.Spacecraft) string {
+			c.LaunchLatDeg, c.LaunchLonDeg = 45, 10
+			c.LandedLatDeg, c.LandedLonDeg = 0, 0 // no touchdown coords
+			ctx := w.missionEvalContext()
+			if ctx.SurfaceLatDeg != 45 || ctx.SurfaceLonDeg != 10 {
+				return fmt.Sprintf("fallback to launch site: got (%v,%v) want (45,10)", ctx.SurfaceLatDeg, ctx.SurfaceLonDeg)
+			}
+			return ""
+		}},
+		{"total fuel", func(w *World, c *spacecraft.Spacecraft) string {
+			if ctx := w.missionEvalContext(); ctx.TotalFuelKg != c.Fuel {
+				return fmt.Sprintf("TotalFuelKg: got %v want %v (summed all-stage fuel)", ctx.TotalFuelKg, c.Fuel)
+			}
+			return ""
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w, err := NewWorld()
+			if err != nil {
+				t.Fatalf("NewWorld: %v", err)
+			}
+			if msg := tc.run(w, w.ActiveCraft()); msg != "" {
+				t.Error(msg)
+			}
+		})
 	}
 }

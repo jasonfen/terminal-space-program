@@ -79,27 +79,31 @@ func driveNoisyCoast(t *testing.T, w *World, lead, noise float64, step, total ti
 	return fired
 }
 
-// A distant committed encounter (~4,500 km — same family as the playtest's
-// 5,605 km) with 1 m/s of relayed-velocity noise and NO maneuver must never
-// degrade: the τ-estimate walks ~30 km across the 3 h coast while the real
-// approach is a constant chord. The proportional bar absorbs it.
-func TestRendezvousDegradeToleratesRelayNoiseAtDistance(t *testing.T) {
-	w, _, _ := anchorWorld(t)
-	fired := driveNoisyCoast(t, w, 600, 1.0, 3*time.Minute, 3*time.Hour)
-	if len(fired) > 0 {
-		t.Errorf("degrade false-fired on estimator noise at ticks %v (distant encounter, no maneuver)", fired)
+// Relay noise with NO maneuver must never degrade. Rows:
+//   - distant: a committed encounter ~4,500 km out (same family as the
+//     playtest's 5,605 km); the τ-estimate walks ~30 km across the 3 h coast
+//     while the real approach is a constant chord. The proportional bar
+//     absorbs it.
+//   - close: a ~60 km chord; the proportional bar sits at its 35 km floor, so
+//     scaling alone cannot absorb the ~30 km the estimate converges by as the
+//     horizon shrinks. Only re-basing against a RECENT measure keeps slow
+//     convergence from accumulating into a trip.
+func TestRendezvousDegradeToleratesRelayNoise(t *testing.T) {
+	cases := []struct {
+		name string
+		lead float64
+	}{
+		{"distant", 600},
+		{"close", 8},
 	}
-}
-
-// A close committed encounter (~60 km chord): the proportional bar sits at
-// its 35 km floor, so scaling alone cannot absorb the ~30 km the estimate
-// converges by as the horizon shrinks — only re-basing against a RECENT
-// measure keeps slow convergence from accumulating into a trip.
-func TestRendezvousDegradeRebasesConvergingEstimate(t *testing.T) {
-	w, _, _ := anchorWorld(t)
-	fired := driveNoisyCoast(t, w, 8, 1.0, 3*time.Minute, 3*time.Hour)
-	if len(fired) > 0 {
-		t.Errorf("degrade false-fired on estimator convergence at ticks %v (close encounter, no maneuver)", fired)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w, _, _ := anchorWorld(t)
+			fired := driveNoisyCoast(t, w, c.lead, 1.0, 3*time.Minute, 3*time.Hour)
+			if len(fired) > 0 {
+				t.Errorf("degrade false-fired on estimator noise/convergence at ticks %v (%s encounter, no maneuver)", fired, c.name)
+			}
+		})
 	}
 }
 

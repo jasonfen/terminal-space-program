@@ -126,83 +126,6 @@ func sessionWithOwner(owner string) *SessionInfo {
 	return &SessionInfo{Players: []SessionPlayer{{Fingerprint: owner}}}
 }
 
-// TestExecuteDueNodesRefusesUnresolvedTargetRelativeImpulsive — #294
-// review finding 5. A due impulsive target-relative node whose bound
-// ghost ref doesn't resolve (survived a save/load without a live
-// serve session to re-latch it, or hasn't re-latched yet post-
-// reconnect) must refuse to fire rather than burn against
-// nodeTargetRelState's zero-value fallback (DirectionUnitTarget's
-// BurnTarget/AntiTarget cases degrade that to a direction aimed at, or
-// away from, the primary's centre — real Δv spent in a bogus
-// direction). The node must stay queued (not popped) and
-// LastNodeTargetRefusal must fire so the player is told. The ghost's
-// owner is present in the session (round 3 finding E) — an absent
-// owner is a cancel, not a hold; see
-// TestExecuteDueNodesCancelsGhostNodeAbsentOwner below.
-func TestExecuteDueNodesRefusesUnresolvedTargetRelativeImpulsive(t *testing.T) {
-	w := mustWorld(t)
-	c := w.ActiveCraft()
-	now := w.Clock.SimTime
-	startFuel := c.ActiveStageFuel()
-
-	c.Nodes = []spacecraft.ManeuverNode{{
-		Mode:             spacecraft.BurnTarget,
-		DV:               100,
-		TriggerTime:      now, // due now
-		TargetGhostOwner: "SHA256:gern",
-		TargetCraftID:    987654,
-	}}
-	w.Ghosts = nil // the ghost ref never resolves
-	w.Session = sessionWithOwner("SHA256:gern")
-
-	w.executeDueNodes()
-
-	if len(c.Nodes) != 1 {
-		t.Fatalf("len(Nodes) = %d after refused fire, want 1 (node stays queued)", len(c.Nodes))
-	}
-	if c.ActiveStageFuel() != startFuel {
-		t.Errorf("fuel changed on a refused fire: before=%.6f after=%.6f", startFuel, c.ActiveStageFuel())
-	}
-	if w.LastNodeTargetRefusal == nil {
-		t.Fatal("LastNodeTargetRefusal not set on a refused fire")
-	}
-	if w.LastNodeTargetRefusal.CraftName != c.Name {
-		t.Errorf("LastNodeTargetRefusal.CraftName = %q, want %q", w.LastNodeTargetRefusal.CraftName, c.Name)
-	}
-}
-
-// TestExecuteDueNodesRefusesUnresolvedTargetRelativeFinite — same as
-// above for a finite (Duration>0) target-relative node: it must not
-// start c.ActiveBurn against an unresolved target.
-func TestExecuteDueNodesRefusesUnresolvedTargetRelativeFinite(t *testing.T) {
-	w := mustWorld(t)
-	c := w.ActiveCraft()
-	now := w.Clock.SimTime
-
-	c.Nodes = []spacecraft.ManeuverNode{{
-		Mode:             spacecraft.BurnTargetPrograde,
-		DV:               100,
-		TriggerTime:      now.Add(10 * time.Second),
-		Duration:         60 * time.Second, // BurnStart = now-20s, already due
-		TargetGhostOwner: "SHA256:gern",
-		TargetCraftID:    987654,
-	}}
-	w.Ghosts = nil
-	w.Session = sessionWithOwner("SHA256:gern")
-
-	w.executeDueNodes()
-
-	if c.ActiveBurn != nil {
-		t.Fatalf("ActiveBurn started against an unresolved target: %+v", c.ActiveBurn)
-	}
-	if len(c.Nodes) != 1 {
-		t.Errorf("len(Nodes) = %d after refused fire, want 1 (node stays queued)", len(c.Nodes))
-	}
-	if w.LastNodeTargetRefusal == nil {
-		t.Error("LastNodeTargetRefusal not set on a refused finite-burn fire")
-	}
-}
-
 // TestExecuteDueNodesFiresOnceGhostResolves — the flip side: once the
 // bound ghost resolves, the previously-refused node fires normally on
 // the next tick, proving the refusal is a hold, not a silent drop.
@@ -288,6 +211,69 @@ func TestExecuteDueNodesNeverResolvableUnblocksQueue(t *testing.T) {
 
 	if len(c.Nodes) != 0 {
 		t.Fatalf("ordinary node behind the dropped one did not fire: len(Nodes)=%d, nodes=%+v", len(c.Nodes), c.Nodes)
+	}
+}
+
+// TestExecuteDueNodesRefusesUnresolvedTargetRelative — #294 review findings
+// 5 and the finite-burn sibling. A due target-relative node whose bound
+// ghost ref doesn't resolve (survived a save/load without a live serve
+// session to re-latch it, or hasn't re-latched yet post-reconnect) must
+// refuse to fire rather than burn against nodeTargetRelState's zero-value
+// fallback (DirectionUnitTarget's BurnTarget/AntiTarget cases degrade that
+// to a direction aimed at, or away from, the primary's centre: real Δv
+// spent in a bogus direction). The node must stay queued (not popped), no
+// burn may start, no fuel may be spent, and LastNodeTargetRefusal must fire
+// so the player is told. The ghost's owner is present in the session (round
+// 3 finding E): an absent owner is a cancel, not a hold; see
+// TestExecuteDueNodesCancelsGhostNodeAbsentOwner below. Rows: an impulsive
+// node and a finite (Duration>0) node, which must not start c.ActiveBurn.
+func TestExecuteDueNodesRefusesUnresolvedTargetRelative(t *testing.T) {
+	cases := []struct {
+		name     string
+		mode     spacecraft.BurnMode
+		trigger  time.Duration // offset from now
+		duration time.Duration
+	}{
+		{"impulsive", spacecraft.BurnTarget, 0, 0},
+		// BurnStart = now-20s, already due.
+		{"finite", spacecraft.BurnTargetPrograde, 10 * time.Second, 60 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w := mustWorld(t)
+			c := w.ActiveCraft()
+			now := w.Clock.SimTime
+			startFuel := c.ActiveStageFuel()
+
+			c.Nodes = []spacecraft.ManeuverNode{{
+				Mode:             tc.mode,
+				DV:               100,
+				TriggerTime:      now.Add(tc.trigger),
+				Duration:         tc.duration,
+				TargetGhostOwner: "SHA256:gern",
+				TargetCraftID:    987654,
+			}}
+			w.Ghosts = nil // the ghost ref never resolves
+			w.Session = sessionWithOwner("SHA256:gern")
+
+			w.executeDueNodes()
+
+			if c.ActiveBurn != nil {
+				t.Fatalf("ActiveBurn started against an unresolved target: %+v", c.ActiveBurn)
+			}
+			if len(c.Nodes) != 1 {
+				t.Fatalf("len(Nodes) = %d after refused fire, want 1 (node stays queued)", len(c.Nodes))
+			}
+			if c.ActiveStageFuel() != startFuel {
+				t.Errorf("fuel changed on a refused fire: before=%.6f after=%.6f", startFuel, c.ActiveStageFuel())
+			}
+			if w.LastNodeTargetRefusal == nil {
+				t.Fatal("LastNodeTargetRefusal not set on a refused fire")
+			}
+			if w.LastNodeTargetRefusal.CraftName != c.Name {
+				t.Errorf("LastNodeTargetRefusal.CraftName = %q, want %q", w.LastNodeTargetRefusal.CraftName, c.Name)
+			}
+		})
 	}
 }
 

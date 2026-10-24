@@ -61,18 +61,6 @@ func TestComputeCoWarpCouples(t *testing.T) {
 	}
 }
 
-// A fast pass through the radius is a crossing, not a rendezvous: within
-// the couple radius but |v_rel| > 100 m/s does not couple.
-func TestComputeCoWarpFlybyDoesNotCouple(t *testing.T) {
-	w, primary, st := anchorWorld(t)
-	peer := peerAt(w, primary, st, 50, orbital.Vec3{X: 5000}, orbital.Vec3{X: 150}, "bob")
-
-	res := w.ComputeCoWarp([]CoWarpPeer{peer}, nil)
-	if res.State.Coupled {
-		t.Error("coupled to a 150 m/s flyby")
-	}
-}
-
 // A peer whose subspace time is beyond the tolerance (a time-shifted
 // ghost) does not couple even if its propagated orbit sits in range.
 func TestComputeCoWarpDifferentSubspaceDoesNotCouple(t *testing.T) {

@@ -35,19 +35,17 @@ func rendezvousTwoCraftWorld(t *testing.T) *World {
 // CA > 50 m → the advisory should populate and pick one of the eight
 // velocity-frame axes with a finite Δv.
 func TestRecommendedRendezvousBurn_TwoCraftLEO(t *testing.T) {
-	w := rendezvousTwoCraftWorld(t)
+	w := rendezvousSmallLagWorld(t)
 	adv, ok := w.RecommendedRendezvousBurn()
 	if !ok {
 		t.Fatalf("expected ok=true, got Reason=%q", adv.Reason)
 	}
 	if !adv.Ok {
-		t.Skipf("two-craft LEO geometry yielded no-improvement advisory (Reason=%q); not a regression but the case isn't useful here", adv.Reason)
+		t.Fatalf("small-lag fixture yielded no-improvement advisory (Reason=%q)", adv.Reason)
 	}
-	// The default SpawnCraft places the sister 90° around the
-	// primary, so Lambert intercept Δv here is Hohmann-class
-	// (~1.5 km/s), not the tens-of-m/s range a real "phasing nudge"
-	// would see — the test only checks the API + axis selection are
-	// sane, not that the geometry is operationally useful.
+	// The 600 km sister 90° ahead needs a Hohmann-class burn that the
+	// planner refuses (burn too large, ADR 0039 S1), so the fixture is
+	// the small-lag co-orbital pair: it must always yield an advisory.
 	if adv.DV <= 0 || adv.DV > 5000 {
 		t.Errorf("DV %.2f m/s outside (0, 5000] m/s — finite/sane range", adv.DV)
 	}
@@ -113,7 +111,7 @@ func rendezvousGeometryNotUseful(err error) bool {
 // keybinding's plant action. Verifies node fields match the advisory
 // + the lead buffer + TargetCraftIdx one-based encoding.
 func TestPlanRendezvousNudge_PlantsOneNode(t *testing.T) {
-	w := rendezvousTwoCraftWorld(t)
+	w := rendezvousSmallLagWorld(t)
 	c := w.ActiveCraft()
 	if len(c.Nodes) != 0 {
 		t.Fatalf("precondition: active craft has %d nodes, expected 0", len(c.Nodes))
@@ -121,9 +119,6 @@ func TestPlanRendezvousNudge_PlantsOneNode(t *testing.T) {
 
 	adv, err := w.PlanRendezvousNudge()
 	if err != nil {
-		if rendezvousGeometryNotUseful(err) {
-			t.Skipf("two-craft LEO geometry yielded no useful nudge in this case (%v); not a regression", err)
-		}
 		t.Fatalf("PlanRendezvousNudge: %v", err)
 	}
 	if adv == nil {
@@ -169,9 +164,6 @@ func TestPlanRendezvousNudge_ArrivalSpeedCarriesThrough(t *testing.T) {
 
 	adv, err := w.PlanRendezvousNudge()
 	if err != nil {
-		if rendezvousGeometryNotUseful(err) {
-			t.Skipf("small-lag geometry yielded no useful nudge (%v); not a regression", err)
-		}
 		t.Fatalf("PlanRendezvousNudge: %v", err)
 	}
 	if !adv.Ok {
@@ -198,9 +190,6 @@ func TestPlanRendezvousNudge_SecondPressReplacesOwnNode(t *testing.T) {
 
 	_, err := w.PlanRendezvousNudge()
 	if err != nil {
-		if rendezvousGeometryNotUseful(err) {
-			t.Skipf("small-lag geometry yielded no useful nudge (%v); not a regression", err)
-		}
 		t.Fatalf("PlanRendezvousNudge (1st press): %v", err)
 	}
 	if got := len(c.Nodes); got != 1 {
@@ -216,9 +205,6 @@ func TestPlanRendezvousNudge_SecondPressReplacesOwnNode(t *testing.T) {
 
 	_, err = w.PlanRendezvousNudge()
 	if err != nil {
-		if rendezvousGeometryNotUseful(err) {
-			t.Skipf("small-lag geometry yielded no useful nudge on 2nd press (%v); not a regression", err)
-		}
 		t.Fatalf("PlanRendezvousNudge (2nd press): %v", err)
 	}
 	if got := len(c.Nodes); got != 1 {
@@ -247,12 +233,12 @@ func TestPlanRendezvousNudge_NoTarget(t *testing.T) {
 // must exceed nodeLeadSlack·π/SlewRate so the v0.10.0 lead-comp slew
 // converges before T0.
 func TestPlanRendezvousNudge_LeadBufferAccountsForSlew(t *testing.T) {
-	w := rendezvousTwoCraftWorld(t)
+	w := rendezvousSmallLagWorld(t)
 	c := w.ActiveCraft()
 	// Probe the recommended axis without planting first.
 	adv, ok := w.RecommendedRendezvousBurn()
 	if !ok || !adv.Ok {
-		t.Skipf("rendezvous advisory unavailable in this case (Reason=%q)", adv.Reason)
+		t.Fatalf("small-lag fixture yielded no advisory (Reason=%q)", adv.Reason)
 	}
 	// Force the craft attitude to point 180° from the recommended axis.
 	c.CurrentAttitudeDir = adv.AxisUnit.Scale(-1)

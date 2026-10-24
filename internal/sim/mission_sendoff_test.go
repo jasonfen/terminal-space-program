@@ -18,20 +18,37 @@ func twoTutorialOneChallenge() []missions.Mission {
 	}
 }
 
+// Flight School complete (every tutorial rung Passed): the sendoff reads the
+// completed Program by Status and offers the Challenge ladder whenever it is
+// off, regardless of whether Flight School itself is still toggled on.
 func TestLadderSendoffFlightSchoolCompleteOffersChallengesWhenOff(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
+	cases := []struct {
+		name    string
+		enabled map[string]bool
+	}{
+		// Challenge ladder off: Flight School's sendoff offers it.
+		{"challenges off", map[string]bool{missions.ProgramTutorial: true}},
+		// Flight School complete, then the player switches it OFF, challenges
+		// also off: Sendoff must still recognise the completed Program by
+		// Status, independent of the current enabled toggle.
+		{"flight school disabled after completion", map[string]bool{}},
 	}
-	w.Missions = twoTutorialOneChallenge()
-	// Challenge ladder off: Flight School's sendoff offers it.
-	w.SetEnabledMissionPrograms(map[string]bool{missions.ProgramTutorial: true})
-	text, offer, ok := w.LadderSendoff()
-	if !ok || text != "FLIGHT SCHOOL COMPLETE" {
-		t.Fatalf("LadderSendoff = (%q, %v, %v), want (\"FLIGHT SCHOOL COMPLETE\", _, true)", text, offer, ok)
-	}
-	if !offer {
-		t.Error("should offer the Challenge ladder when it's off")
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w, err := NewWorld()
+			if err != nil {
+				t.Fatalf("NewWorld: %v", err)
+			}
+			w.Missions = twoTutorialOneChallenge()
+			w.SetEnabledMissionPrograms(c.enabled)
+			text, offer, ok := w.LadderSendoff()
+			if !ok || text != "FLIGHT SCHOOL COMPLETE" {
+				t.Fatalf("LadderSendoff = (%q, %v, %v), want (\"FLIGHT SCHOOL COMPLETE\", _, true)", text, offer, ok)
+			}
+			if !offer {
+				t.Error("should offer the Challenge ladder when it's off")
+			}
+		})
 	}
 }
 
@@ -80,21 +97,5 @@ func TestLadderSendoffNoneWhenNothingComplete(t *testing.T) {
 	w.SetEnabledMissionPrograms(map[string]bool{missions.ProgramTutorial: true})
 	if _, _, ok := w.LadderSendoff(); ok {
 		t.Error("LadderSendoff should not fire with an in-progress mission active")
-	}
-}
-
-func TestLadderSendoffSurvivesProgramDisabledAfterCompletion(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	w.Missions = twoTutorialOneChallenge()
-	// Flight School complete, then the player switches it OFF, challenges
-	// also off — Sendoff must still recognise the completed Program by
-	// Status, independent of the current enabled toggle.
-	w.SetEnabledMissionPrograms(map[string]bool{})
-	text, offer, ok := w.LadderSendoff()
-	if !ok || text != "FLIGHT SCHOOL COMPLETE" || !offer {
-		t.Fatalf("LadderSendoff after disabling = (%q, %v, %v), want (\"FLIGHT SCHOOL COMPLETE\", true, true)", text, offer, ok)
 	}
 }

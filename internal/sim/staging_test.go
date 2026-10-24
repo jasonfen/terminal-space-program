@@ -23,6 +23,12 @@ func stageNames(stages []spacecraft.Stage) []string {
 // becomes 2-stage (S-II + S-IVB). A new passive craft appears at
 // the end of the slate carrying the dropped S-IC's residual fuel +
 // position/velocity.
+//
+// Also pins, on the same staging: the new bottom stage (S-II) becomes the
+// firing engine (flat Thrust + Isp reflect S-II's 5,140 kN / 421 s), and the
+// jettisoned stage inherits the active craft's CurrentAttitudeDir at decouple
+// time (v0.11.3), so its launch-view sprite renders at the angle it shed at
+// with no snap-to-vertical or zero-cmd jitter.
 func TestStageActiveOnSaturnVPopsBottomStage(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -33,10 +39,18 @@ func TestStageActiveOnSaturnVPopsBottomStage(t *testing.T) {
 	saturn := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
 	saturn.Primary = w.Crafts[0].Primary
 	saturn.State = w.Crafts[0].State
+	// A non-trivial pitched attitude (gravity-turn moment): the nose points
+	// 45° between +X and +Z. Magnitude doesn't have to be unit for the
+	// inheritance check.
+	saturn.CurrentAttitudeDir = orbital.Vec3{X: 0.5, Y: 0, Z: 0.5}
 	w.Crafts[0] = saturn
 	w.ActiveCraftIdx = 0
 	crewTendActive(w)
 
+	if saturn.Thrust != 35100000 {
+		t.Errorf("pre-stage S-IC thrust: got %.0f, want 35,100,000", saturn.Thrust)
+	}
+	parentCmd := saturn.CurrentAttitudeDir
 	beforeStageCount := len(saturn.Stages)
 	beforeBottomFuel := saturn.Stages[0].FuelMass
 	beforePos := saturn.State.R
@@ -87,6 +101,16 @@ func TestStageActiveOnSaturnVPopsBottomStage(t *testing.T) {
 	}
 	if jett.Throttle != 0 {
 		t.Errorf("jettisoned should be passive (Throttle=0): got %v", jett.Throttle)
+	}
+	if active.Thrust != 5140000 {
+		t.Errorf("post-stage thrust (S-II): got %.0f, want 5,140,000", active.Thrust)
+	}
+	if active.Isp != 421 {
+		t.Errorf("post-stage Isp (S-II): got %.0f, want 421", active.Isp)
+	}
+	if jett.CurrentAttitudeDir != parentCmd {
+		t.Errorf("jettisoned CurrentAttitudeDir: got %+v, want %+v (parent's at decouple)",
+			jett.CurrentAttitudeDir, parentCmd)
 	}
 }
 
@@ -166,38 +190,6 @@ func TestStageActiveDoesNotImmediatelyReDock(t *testing.T) {
 	}
 }
 
-// TestStageActiveAdvancesEngineToNextStage — after staging a Saturn-V,
-// the new bottom stage (S-II) becomes the firing engine. Flat
-// Thrust + Isp fields reflect S-II numbers.
-func TestStageActiveAdvancesEngineToNextStage(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	saturn := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
-	saturn.Primary = w.Crafts[0].Primary
-	saturn.State = w.Crafts[0].State
-	w.Crafts[0] = saturn
-	w.ActiveCraftIdx = 0
-	crewTendActive(w)
-
-	// S-IC bottom stage thrust pre-stage.
-	if saturn.Thrust != 35100000 {
-		t.Errorf("pre-stage S-IC thrust: got %.0f, want 35,100,000", saturn.Thrust)
-	}
-	if _, _, err := w.StageActive(0); err != nil {
-		t.Fatalf("StageActive: %v", err)
-	}
-	// After staging, S-II should be firing — 5,140 kN thrust.
-	active := w.Crafts[0]
-	if active.Thrust != 5140000 {
-		t.Errorf("post-stage thrust (S-II): got %.0f, want 5,140,000", active.Thrust)
-	}
-	if active.Isp != 421 {
-		t.Errorf("post-stage Isp (S-II): got %.0f, want 421", active.Isp)
-	}
-}
-
 // TestApolloStackManualFlipDropsLMAsOneCraft — regression for the
 // LM-splits-when-staging playtest bug. At the pre-transposition stack
 // [Descent, Ascent, SM, CM], pressing space (the canonical manual-flip
@@ -244,55 +236,6 @@ func TestApolloStackManualFlipDropsLMAsOneCraft(t *testing.T) {
 	if len(core.Stages) != 2 || core.Stages[0].Name != "SM" || core.Thrust != 91000 {
 		t.Errorf("surviving core = %v Thrust=%.0f, want [SM, CM] firing SPS (91000)",
 			stageNames(core.Stages), core.Thrust)
-	}
-}
-
-// TestUndockedApolloLMIsControllable (hardening, ADR 0027): after the Apollo
-// transpose + undock, the released LM must stay flyable. Its Descent/Ascent
-// stages carried no catalog command source, and Undock — unlike every other
-// craft-construction path — skipped the EnsureCommandSource backfill, so the
-// LM derived Controllable=false and could not be commanded to the surface.
-// The LM is crewed (astronauts aboard the ascent cabin), so it must not be
-// reduced to a relay-gated probe either.
-func TestUndockedApolloLMIsControllable(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	stack := spacecraft.NewFromLoadout(spacecraft.LoadoutApolloStackID)
-	stack.Primary = w.Crafts[0].Primary
-	stack.State = w.Crafts[0].State
-	w.Crafts[0] = stack
-	w.ActiveCraftIdx = 0
-	crewTendActive(w)
-
-	for i := 0; i < 3; i++ { // drop the three Saturn stages → [Descent,Ascent,SM,CM]
-		if _, _, err := w.StageActive(0); err != nil {
-			t.Fatalf("Saturn drop #%d: %v", i, err)
-		}
-	}
-	if err := w.Transpose(0); err != nil {
-		t.Fatalf("Transpose: %v", err)
-	}
-	if !w.Undock(0) { // releases the LM (Descent+Ascent) and the CSM core (SM+CM)
-		t.Fatal("Undock returned false")
-	}
-
-	var lm *spacecraft.Spacecraft
-	for _, c := range w.Crafts {
-		if c != nil && len(c.Stages) == 2 && c.Stages[0].Name == "Descent" && c.Stages[1].Name == "Ascent" {
-			lm = c
-			break
-		}
-	}
-	if lm == nil {
-		t.Fatal("could not find the undocked LM in the slate")
-	}
-	if !lm.Controllable {
-		t.Error("the undocked LM must be controllable (flyable to the surface)")
-	}
-	if !lm.Crewed {
-		t.Error("the Apollo LM is crewed — it must not depend on a CommNet relay to command")
 	}
 }
 
@@ -371,6 +314,19 @@ func TestTransposeRejectsWrongShape(t *testing.T) {
 // transpose key (D) then reorders it to [SM, CM, Descent, Ascent] (SM =
 // firing core) with the LM registered as a docked nose payload, which
 // Undock releases as a 2-stage LM craft, leaving the SM/CM core.
+//
+// The same walk pins two more contracts:
+//   - CanSoftLand tracks the *current bottom stage* (ADR 0004 "playable as
+//     designed" loop, reached via ADR 0009 transposition): false through the
+//     ascent / coast / TLI chain, true only while Descent is Stages[0], false
+//     again for the transposed composite (SM bottom, no landing gear); after
+//     undock the released LM carries it and the SM/CM core re-derives false
+//     via SyncFields.
+//   - (hardening, ADR 0027) the undocked LM stays flyable: its Descent/Ascent
+//     stages carried no catalog command source and Undock, unlike every other
+//     craft-construction path, once skipped the EnsureCommandSource backfill,
+//     leaving it Controllable=false. The LM is crewed, so it must not be
+//     reduced to a relay-gated probe either.
 func TestApolloStackDecoupleChainThenTranspose(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -386,6 +342,9 @@ func TestApolloStackDecoupleChainThenTranspose(t *testing.T) {
 	if len(stack.Stages) != 7 {
 		t.Fatalf("Apollo-Stack should start 7-stage, got %d", len(stack.Stages))
 	}
+	if stack.CanSoftLand {
+		t.Errorf("Apollo Stack at spawn: CanSoftLand=true, want false (S-IC is bottom)")
+	}
 
 	// First three presses drop single launch-vehicle stages.
 	for i, name := range []string{"S-IC", "S-II", "S-IVB"} {
@@ -397,6 +356,14 @@ func TestApolloStackDecoupleChainThenTranspose(t *testing.T) {
 		if len(jett.Stages) != 1 || jett.Stages[0].Name != name {
 			t.Errorf("decouple %d dropped %d-stage %q, want 1× %q",
 				i, len(jett.Stages), jett.Stages[0].Name, name)
+		}
+		// After the third drop the bottom is Descent, the only point where
+		// the composite can soft-land.
+		active := w.Crafts[0]
+		wantSoftLand := i == 2
+		if active.CanSoftLand != wantSoftLand {
+			t.Errorf("after decouple %d (bottom %q): CanSoftLand=%v, want %v",
+				i, active.Stages[0].Name, active.CanSoftLand, wantSoftLand)
 		}
 	}
 
@@ -432,6 +399,9 @@ func TestApolloStackDecoupleChainThenTranspose(t *testing.T) {
 	if len(core.DockedComponents) != 2 {
 		t.Fatalf("transposed composite: %d docked components, want 2 (core + LM)", len(core.DockedComponents))
 	}
+	if core.CanSoftLand {
+		t.Errorf("post-transposition composite (SM bottom): CanSoftLand=true, want false")
+	}
 
 	// Undock releases the LM as a 2-stage [Descent, Ascent] craft; the
 	// SM/CM core survives and still fires the SPS.
@@ -457,40 +427,20 @@ func TestApolloStackDecoupleChainThenTranspose(t *testing.T) {
 	if lm.DecouplePlan != nil {
 		t.Errorf("undocked LM DecouplePlan = %v, want nil (single-pop boundaries)", lm.DecouplePlan)
 	}
+	if !lm.CanSoftLand {
+		t.Errorf("released LM craft: CanSoftLand=false, want true (Descent bottom carries the flag)")
+	}
+	if !lm.Controllable {
+		t.Error("the undocked LM must be controllable (flyable to the surface)")
+	}
+	if !lm.Crewed {
+		t.Error("the Apollo LM is crewed, it must not depend on a CommNet relay to command")
+	}
 	if csm == nil || csm.Stages[1].Name != "CM" || csm.Thrust != 91000 {
 		t.Fatalf("surviving CSM core after undock not [SM,CM] firing: %+v", csm)
 	}
-}
-
-// TestStageActivePreservesAttitudeOnDroppedStage — Slice v0.11.3:
-// the jettisoned stage inherits the active craft's CurrentAttitudeDir
-// at decouple time, so the dropped stage's launch-view sprite renders
-// at the angle it shed at (no snap-to-vertical or zero-cmd jitter).
-func TestStageActivePreservesAttitudeOnDroppedStage(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	saturn := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
-	saturn.Primary = w.Crafts[0].Primary
-	saturn.State = w.Crafts[0].State
-	// Set a non-trivial pitched attitude (gravity-turn moment): the
-	// nose points 45° between +X and +Z. Magnitude doesn't have to be
-	// unit for the inheritance check.
-	saturn.CurrentAttitudeDir = orbital.Vec3{X: 0.5, Y: 0, Z: 0.5}
-	w.Crafts[0] = saturn
-	w.ActiveCraftIdx = 0
-	crewTendActive(w)
-
-	parentCmd := saturn.CurrentAttitudeDir
-	_, jettIdx, err := w.StageActive(0)
-	if err != nil {
-		t.Fatalf("StageActive: %v", err)
-	}
-	jett := w.Crafts[jettIdx]
-	if jett.CurrentAttitudeDir != parentCmd {
-		t.Errorf("jettisoned CurrentAttitudeDir: got %+v, want %+v (parent's at decouple)",
-			jett.CurrentAttitudeDir, parentCmd)
+	if csm.CanSoftLand {
+		t.Errorf("surviving SM/CM core: CanSoftLand=true, want false (no landing gear)")
 	}
 }
 

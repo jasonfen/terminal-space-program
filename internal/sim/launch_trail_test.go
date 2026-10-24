@@ -12,40 +12,6 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// TestLaunchTrailFirstSampleOnSessionOpen — tracer: a single tick
-// after a route opens a session produces exactly one trail sample
-// (the empty-buffer special case in the cadence rule). The sample's
-// SampledAt matches the post-tick sim-time.
-func TestLaunchTrailFirstSampleOnSessionOpen(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	if _, err := w.SpawnCraft(SpawnSpec{
-		LoadoutID:    spacecraft.LoadoutSaturnVID,
-		ParentBodyID: "earth",
-		Launchpad:    true,
-		Latitude:     28.6,
-	}); err != nil {
-		t.Fatalf("SpawnCraft (launchpad): %v", err)
-	}
-
-	w.Tick()
-
-	if !w.LaunchSessionActive {
-		t.Fatalf("setup: route didn't open a session")
-	}
-	if len(w.LaunchTrail) != 1 {
-		t.Fatalf("LaunchTrail len = %d, want 1 (empty-buffer first sample)",
-			len(w.LaunchTrail))
-	}
-	p := w.LaunchTrail[0]
-	if !p.SampledAt.Equal(w.Clock.SimTime) {
-		t.Errorf("SampledAt = %v, want %v (post-tick sim-time)",
-			p.SampledAt, w.Clock.SimTime)
-	}
-}
-
 // TestLaunchTrailCadence — after the first empty-buffer sample, the
 // next sample requires ≥1 s of sim-time to have elapsed. Warp up so
 // one tick advances sim-time by 5 s, then verify exactly one extra

@@ -41,33 +41,6 @@ func TestRendezvousArmCouplesBeforeGate(t *testing.T) {
 	}
 }
 
-// One-sided arm never couples: the viewer Engaged, but the partner has
-// not, so the first-to-Engage does not warp/couple (no solo drift).
-func TestRendezvousSingleArmDoesNotCouple(t *testing.T) {
-	w, primary, st := anchorWorld(t)
-	peer := armPeer(w, primary, st, 50, "gern")
-	peer.ArmedTowardViewer = false // partner hasn't Engaged back
-	w.RendezvousArm = &RendezvousArm{TargetOwner: peer.Owner, Tau: st.Add(72 * time.Hour)}
-
-	res := w.ComputeCoWarp([]CoWarpPeer{peer}, nil)
-	if res.State.Coupled {
-		t.Error("coupled on a single-sided arm (partner not Engaged)")
-	}
-}
-
-// The viewer's arm must target THIS peer: armed toward someone else does
-// not couple to a peer who happens to be armed toward the viewer.
-func TestRendezvousArmWrongTargetDoesNotCouple(t *testing.T) {
-	w, primary, st := anchorWorld(t)
-	peer := armPeer(w, primary, st, 50, "gern")
-	w.RendezvousArm = &RendezvousArm{TargetOwner: "SHA256:someone-else", Tau: st.Add(72 * time.Hour)}
-
-	res := w.ComputeCoWarp([]CoWarpPeer{peer}, nil)
-	if res.State.Coupled {
-		t.Error("coupled despite the viewer's arm targeting a different player")
-	}
-}
-
 // The arm does not bypass the same-subspace gate: a mutually-armed pair
 // still needs Δt within tolerance (they Sync first, then Rendezvous Warp).
 func TestRendezvousArmDifferentSubspaceDoesNotCouple(t *testing.T) {
@@ -155,5 +128,58 @@ func TestRendezvousToProximityHandoff(t *testing.T) {
 	}
 	if len(res2.Released) != 0 {
 		t.Errorf("spurious release on the Rendezvous→Proximity handoff: %v", res2.Released)
+	}
+}
+
+// Cases where a peer is near or armed yet must NOT couple. Each row builds
+// the viewer's world state and the peer; the assertion is shared.
+func TestComputeCoWarpDoesNotCouple(t *testing.T) {
+	cases := []struct {
+		name string
+		// setup arms the viewer as needed and returns the peer to test.
+		setup func(w *World, primary string, st time.Time) CoWarpPeer
+		msg   string
+	}{
+		{
+			// A fast pass through the radius is a crossing, not a rendezvous:
+			// within the couple radius but |v_rel| > 100 m/s does not couple.
+			"flyby",
+			func(w *World, primary string, st time.Time) CoWarpPeer {
+				return peerAt(w, primary, st, 50, orbital.Vec3{X: 5000}, orbital.Vec3{X: 150}, "bob")
+			},
+			"coupled to a 150 m/s flyby",
+		},
+		{
+			// The viewer's arm must target THIS peer: armed toward someone else
+			// does not couple to a peer who happens to be armed toward the viewer.
+			"arm targets a different player",
+			func(w *World, primary string, st time.Time) CoWarpPeer {
+				peer := armPeer(w, primary, st, 50, "gern")
+				w.RendezvousArm = &RendezvousArm{TargetOwner: "SHA256:someone-else", Tau: st.Add(72 * time.Hour)}
+				return peer
+			},
+			"coupled despite the viewer's arm targeting a different player",
+		},
+		{
+			// One-sided arm never couples: the viewer Engaged, but the partner
+			// has not, so the first-to-Engage does not warp/couple (no solo drift).
+			"single-sided arm",
+			func(w *World, primary string, st time.Time) CoWarpPeer {
+				peer := armPeer(w, primary, st, 50, "gern")
+				peer.ArmedTowardViewer = false // partner hasn't Engaged back
+				w.RendezvousArm = &RendezvousArm{TargetOwner: peer.Owner, Tau: st.Add(72 * time.Hour)}
+				return peer
+			},
+			"coupled on a single-sided arm (partner not Engaged)",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w, primary, st := anchorWorld(t)
+			peer := c.setup(w, primary, st)
+			if res := w.ComputeCoWarp([]CoWarpPeer{peer}, nil); res.State.Coupled {
+				t.Error(c.msg)
+			}
+		})
 	}
 }

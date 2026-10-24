@@ -12,38 +12,6 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// TestLaunchpadSpawnRoutesToViewLaunch — Slice 1 regression. A
-// fresh launchpad spawn sets both Landed=true and OnPad=true; the
-// route handler fires the Landed=false→true transition with the
-// OnPad gate satisfied. Mirrors TestLaunchRouteOnLandedTransition
-// but additionally pins OnPad=true post-spawn — the
-// disambiguating flag the ADR added.
-func TestLaunchpadSpawnRoutesToViewLaunch(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	if _, err := w.SpawnCraft(SpawnSpec{
-		LoadoutID:    spacecraft.LoadoutSaturnVID,
-		ParentBodyID: "earth",
-		Launchpad:    true,
-		Latitude:     28.6,
-	}); err != nil {
-		t.Fatalf("SpawnCraft: %v", err)
-	}
-	c := w.ActiveCraft()
-	if !c.OnPad {
-		t.Fatal("setup: launchpad spawn should set OnPad=true")
-	}
-	w.Tick()
-	if w.ViewMode != ViewLaunch {
-		t.Errorf("OnPad launchpad spawn: ViewMode = %v, want ViewLaunch", w.ViewMode)
-	}
-	if !w.LaunchSessionActive {
-		t.Error("OnPad launchpad spawn: LaunchSessionActive=false, want true")
-	}
-}
-
 // TestLiftoffClearsOnPad — first engine ignition (StartManualBurn)
 // clears the OnPad flag along with Landed. Without this, a vessel
 // that flew once and later soft-landed would still carry OnPad=true

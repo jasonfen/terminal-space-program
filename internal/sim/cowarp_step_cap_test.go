@@ -21,38 +21,40 @@ func stepSeconds(w *World) float64 {
 	return w.Clock.BaseStep.Seconds() * w.EffectiveWarp()
 }
 
-// A coupled player who selects the top rung must be held to a rate whose
-// per-tick advance still fits the window. The partner is reported at max
-// warp too, so the ordinary min-warp clamp cannot mask the cap.
-func TestCoupledWarpCannotOutstepSubspaceWindow(t *testing.T) {
-	w, _, _ := anchorWorld(t)
-	top := WarpFactors[len(WarpFactors)-1]
-	w.Clock.WarpIdx = len(WarpFactors) - 1
-	w.CoWarp = CoWarpState{Coupled: true, MinWarp: top, Partners: []string{"gern"}}
-
-	if got := stepSeconds(w); got > coWarpSubspaceToleranceSec {
-		t.Errorf("one tick advances %.0f s at %v×, wider than the %.0f s subspace window — "+
-			"a coupled player can step out of their own subspace in a single tick",
-			got, w.EffectiveWarp(), coWarpSubspaceToleranceSec)
+// A player at the top rung must be held to a rate whose per-tick advance fits
+// the window, whether coupled or merely armed. Coupled: the partner is
+// reported at max warp too, so the ordinary min-warp clamp cannot mask the
+// cap. Armed: an armed player waiting for their partner to join must stay
+// inside the window too, or their own invite stops surfacing
+// (refreshRendezvousInvite gates on sameSubspace) and the rendezvous dies
+// before it starts.
+func TestWarpCannotOutstepSubspaceWindow(t *testing.T) {
+	cases := []struct {
+		name  string
+		setup func(w *World, st time.Time)
+	}{
+		{"coupled", func(w *World, st time.Time) {
+			top := WarpFactors[len(WarpFactors)-1]
+			w.CoWarp = CoWarpState{Coupled: true, MinWarp: top, Partners: []string{"gern"}}
+		}},
+		{"armed", func(w *World, st time.Time) {
+			w.RendezvousArm = &RendezvousArm{
+				TargetOwner: "SHA256:gern",
+				Handle:      "gern",
+				Tau:         st.Add(4 * time.Hour),
+			}
+		}},
 	}
-}
-
-// Same bound while merely armed: an armed player waiting for their
-// partner to join must stay inside the window too, or their own invite
-// stops surfacing (refreshRendezvousInvite gates on sameSubspace) and the
-// rendezvous dies before it starts.
-func TestArmedWarpCannotOutstepSubspaceWindow(t *testing.T) {
-	w, _, st := anchorWorld(t)
-	w.Clock.WarpIdx = len(WarpFactors) - 1
-	w.RendezvousArm = &RendezvousArm{
-		TargetOwner: "SHA256:gern",
-		Handle:      "gern",
-		Tau:         st.Add(4 * time.Hour),
-	}
-
-	if got := stepSeconds(w); got > coWarpSubspaceToleranceSec {
-		t.Errorf("one tick advances %.0f s at %v× while armed, wider than the %.0f s window",
-			got, w.EffectiveWarp(), coWarpSubspaceToleranceSec)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			w, _, st := anchorWorld(t)
+			w.Clock.WarpIdx = len(WarpFactors) - 1
+			c.setup(w, st)
+			if got := stepSeconds(w); got > coWarpSubspaceToleranceSec {
+				t.Errorf("one tick advances %.0f s at %v× (%s), wider than the %.0f s subspace window",
+					got, w.EffectiveWarp(), c.name, coWarpSubspaceToleranceSec)
+			}
+		})
 	}
 }
 

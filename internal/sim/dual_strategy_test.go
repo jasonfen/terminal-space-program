@@ -46,6 +46,12 @@ func TestSplitPlaneChangeSizing(t *testing.T) {
 // keeps the transfer affordable, records both candidate Δv totals, and
 // plants three nodes including a BurnPlaneChange. This is the
 // playability guarantee behind the dual-strategy (ADR 0005 decision 4).
+//
+// Also pins (GH #67 follow-up) that the split's plane change and capture are
+// planted at distinct times: the plane change in the Earth frame before SOI
+// entry, the capture at perilune. Pre-fix both were stacked at the apoapsis
+// instant, which the executor can't fly as two burns (the later ActiveBurn
+// clobbers the earlier).
 func TestPlanTransferLunaPicksSplit(t *testing.T) {
 	w := mustWorld(t)
 	moonIdx := -1
@@ -93,5 +99,26 @@ func TestPlanTransferLunaPicksSplit(t *testing.T) {
 	}
 	if !foundPlaneChange {
 		t.Error("split must plant a BurnPlaneChange node at the transfer apoapsis")
+	}
+
+	var planeChange, capture spacecraft.ManeuverNode
+	for _, n := range nodes {
+		switch n.Mode {
+		case spacecraft.BurnPlaneChange:
+			planeChange = n
+		case spacecraft.BurnRetrograde:
+			capture = n
+		}
+	}
+	gap := capture.TriggerTime.Sub(planeChange.TriggerTime)
+	if gap <= 0 {
+		t.Errorf("plane change (T=%v) and capture (T=%v) are not ordered distinctly — burns collide",
+			planeChange.TriggerTime, capture.TriggerTime)
+	}
+	// The plane change must fire before the capture by more than their
+	// burn windows so the integrator doesn't run them concurrently.
+	if gap < planeChange.Duration/2+capture.Duration/2 {
+		t.Errorf("plane change and capture burn windows overlap (gap %v < %v)",
+			gap, planeChange.Duration/2+capture.Duration/2)
 	}
 }

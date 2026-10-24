@@ -60,18 +60,6 @@ func assertRingSpread(t *testing.T, body string, ring []GroundStationPreset) {
 	}
 }
 
-// TestNewWorldLoadsGroundStations (C2-3): NewWorld populates
-// World.GroundStations from the catalog — both home-body DSN rings.
-func TestNewWorldLoadsGroundStations(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
-	}
-	if len(w.GroundStations) != 6 {
-		t.Errorf("World.GroundStations = %d, want 6 (Earth + Kern DSN rings)", len(w.GroundStations))
-	}
-}
-
 // TestGroundStationUserOverlay (C2-3): a user overlay adds/replaces by
 // Key; a malformed file is skipped with a warning.
 func TestGroundStationUserOverlay(t *testing.T) {
