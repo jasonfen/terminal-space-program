@@ -2,6 +2,15 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.61.1
+
+Undocked pieces can re-dock once their ports are 5 m apart, and the game says when a pair is held off (PR `#796`; tag `v0.61.1`; closes `#794`, `#795`).
+
+- **Re-dock after 5 m, port to port.** After an undock, a pair is held apart until its ports have been more than 5 m apart (was 100 m between the vessels' anchors, which a pilot flying straight back never cleared) or ten minutes pass; `alt+u` still clears it at once. The same 5 m applies to docks with friends (`#794`).
+- **The hold is on screen.** While it holds, the PROXIMITY port row (Compact Form too) reads `latched: back 5 m or alt+u` and the ring stays amber. A held-off touch says `held off: back 5 m or alt+u` instead of `re-approach under 0.10 m/s`, which read like a failed dock (`#794`).
+- **Released satellites carry no hold.** Port-less pieces from a `U` release can never dock, so they no longer hold 300 ten-minute latches (`#794`).
+- **The alongside spawn holds still.** The partner now spawns moving with your orbit, so it stays put in the Proximity View instead of drifting 2 to 5 m a minute. `rel speed:` keeps reading the ports' true speed: a pair still in the picture reads its gap times the orbit rate, about 0.03 m/s at 25 m and near zero at the port (`#795`).
+
 ### v0.61.0
 
 Launch 24 Starlink satellites on a Falcon 9, release them in one press, and let each one climb to its own slot round the orbit, at any warp (PRs `#785`-`#792`; tag `v0.61.0`; closes `#730`). Save schema 17.
