@@ -14,8 +14,8 @@ import (
 // before CraftToWire started preserving ghost refs) saved mid-ghost-burn
 // carries an ActiveBurn whose Mode is target-relative but whose
 // TargetCraftID / TargetGhostOwner were dropped by the old
-// drop-on-save behavior — migrateV9PayloadToV10 is an identity
-// transform (save_migrate_v9_to_v10.go), so that shape reaches
+// drop-on-save behavior — the v9 to v10 bump is an identity (no migration function), so
+// that shape reaches
 // CraftFromWire completely unchanged on load. The same shape is also
 // exactly what a pre-round-3 reconcileTargetLock give-up used to leave
 // behind (strip the ref, keep the burn "alive"). Either way, a

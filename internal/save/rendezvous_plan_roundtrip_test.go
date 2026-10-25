@@ -1,10 +1,7 @@
 package save_test
 
 import (
-	"fmt"
-	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -51,36 +48,6 @@ func TestRoundtripRendezvousPlan(t *testing.T) {
 	if p.NodeID != 7 || p.TargetCraftID != 3 || p.SeparationM != 42.5 || !p.Fired || !p.BurnActive ||
 		!p.TriggerTime.Equal(want.TriggerTime) || !p.ArrivalTime.Equal(want.ArrivalTime) {
 		t.Errorf("RendezvousPlan = %+v, want %+v", *p, *want)
-	}
-}
-
-// A v13 envelope (no rendezvous_plan key) loads with no plan.
-func TestMigrateV13ToV14_NoPlan(t *testing.T) {
-	w, err := sim.NewWorld()
-	if err != nil {
-		t.Fatal(err)
-	}
-	path := filepath.Join(t.TempDir(), "save.json")
-	if err := save.Save(w, path); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s := strings.Replace(string(raw), fmt.Sprintf(`"version": %d`, save.SchemaVersion), `"version": 13`, 1)
-	if s == string(raw) {
-		t.Fatal("could not build the v13 fixture")
-	}
-	if err := os.WriteFile(path, []byte(s), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, err := save.Load(path)
-	if err != nil {
-		t.Fatalf("v13 save refused: %v", err)
-	}
-	if got.ActiveCraft().RendezvousPlan != nil {
-		t.Error("v13 save loaded with a plan")
 	}
 }
 

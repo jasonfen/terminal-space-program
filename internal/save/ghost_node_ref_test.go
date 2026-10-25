@@ -25,7 +25,7 @@ import (
 // the peer after a reconnect, but a node planted at that same target used
 // to fire with a stale/zeroed ref — see executeDueNodesFor's refuse-to-
 // fire guard for what happens now instead. SchemaVersion stays 9 (no
-// schema field bumped — see save_migrate_v9_to_v10.go for the unrelated
+// schema field bumped — see the SchemaVersion doc comment for the unrelated
 // v10 bump that DID land, over Target.Kind's widened vocabulary).
 func TestGhostNodeRefSurvivesSave(t *testing.T) {
 	w, err := sim.NewWorld()

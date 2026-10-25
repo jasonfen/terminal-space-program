@@ -63,8 +63,8 @@ import (
 // key it silently drops), reconstructing a target it can never resolve
 // and has no code path to explain to the player — exactly the class of
 // "old binary silently mangles new shape" the repo's schema-bump rule
-// exists to prevent. migrateV9PayloadToV10 is an identity transform (the
-// wire shape itself needs no migration — TargetGhost has round-tripped
+// exists to prevent. there is no migration (the
+// wire shape itself needs none — TargetGhost has round-tripped
 // working bytes since the fix landed); the version bump's only job is to
 // make an old binary refuse a v10 envelope instead.
 // ADR 0049 decision 8 (#453) bumps to v11 — Craft gains HeadingTrim, the
@@ -72,10 +72,9 @@ import (
 // express (pitch trim only ever rotated about local north, so every
 // ascent was pinned due east). HeadingTrim stores a signed offset from
 // due east (zero = no trim, PitchTrim's own shape), so the due-east
-// default is Go's zero value and migrateV10PayloadToV11 is an identity
-// pass — an old save's ascent behaviour is unchanged on load with no
-// field transform needed, the same shape migrateV9PayloadToV10 used for
-// the prior bump.
+// default is Go's zero value and no migration function is needed
+// (identity) — an old save's ascent behaviour is unchanged on load with no
+// field transform needed, the same shape as the v10 bump.
 // v12 renames the planted Rendezvous Burn node's persisted keys
 // (meeting_arrival_sec / meeting_place_label / meeting_laps become
 // rendezvous_arrival_sec / rendezvous_orbit_label / rendezvous_laps) and
@@ -87,9 +86,9 @@ import (
 // refreshMissions (mission_refresh.go) now does that for every mission on load.
 // v14 adds Craft.RendezvousPlan (the last Rendezvous Burn planted from the
 // picker, kept after the node fires so the TARGET chip can keep reading the
-// plan's arrival); migrateV13PayloadToV14 is an identity pass.
+// plan's arrival); the bump is an identity (no migration function).
 // ADR 0056 decision 7 (and #611) bump to v15 - the first non-identity
-// migration since v13. Every Stage (Craft.Stages and every
+// migration since v12. Every Stage (Craft.Stages and every
 // DockedComponent.Stages) gains Ports, the stage's own docking ports, which
 // until now were looked up by (loadout, name) at read time and never saved;
 // migrateV14PayloadToV15 backfills each old stage with the ports that lookup
@@ -104,13 +103,13 @@ import (
 // mark: the stage lights together with the one above) and Craft gains
 // booster_throttle (a pointer: 0 means boosters cut, absent means they follow
 // the core). Absent decodes to serial / follows-core, the truth for every
-// save before this ADR, so migrateV15PayloadToV16 is an identity pass; the
+// save before this ADR, so no migration function is needed; the
 // bump exists so a v15 binary refuses a v16 envelope instead of silently
 // dropping the keys and flying a mid-booster-phase SLS serial from the SRBs.
 // ADR 0059 decision 10 bumps to v17 - Payload.name_counters and Craft.batch_id,
 // batch_lead, batch_clamp_exempt_until_unix_nano and raise. Absent decodes to no
 // counters (primed from the slate on first use), no batch, no order, so
-// migrateV16PayloadToV17 is an identity pass; the bump exists so a v16 binary
+// no migration function is needed; the bump exists so a v16 binary
 // refuses a v17 envelope instead of dropping a satellite's raise order.
 const SchemaVersion = 17
 
@@ -743,23 +742,6 @@ func Load(path string) (*sim.World, error) {
 	if f.Version < 9 {
 		migrateV8PayloadToV9(&f.Payload)
 	}
-	// schema v10 (#294 review finding 6): Target.Kind's vocabulary
-	// widened to include TargetGhost; the payload shape itself needs no
-	// transform (see the SchemaVersion doc comment), so this is an
-	// identity pass — its only job is that Load's version gate above now
-	// refuses a pre-v10 binary reading a v10 envelope, matching the repo
-	// rule of bumping + migrating whenever persisted state shape changes.
-	if f.Version < 10 {
-		migrateV9PayloadToV10(&f.Payload)
-	}
-	// schema v11 (ADR 0049 decision 8, #453): Craft gains HeadingTrim, a
-	// signed offset from due east. Pre-v11 saves have no such key, which
-	// decodes to the same zero (= due east, no trim) the offset shape
-	// already defaults to, so this is an identity pass — see
-	// migrateV10PayloadToV11's package comment.
-	if f.Version < 11 {
-		migrateV10PayloadToV11(&f.Payload)
-	}
 	// schema v12: the Rendezvous Burn node's keys were renamed from
 	// meeting_*; fold an old envelope's values into the new fields.
 	if f.Version < 12 {
@@ -768,28 +750,14 @@ func Load(path string) (*sim.World, error) {
 	// schema v13 refreshed tut-launch's ladder (#525); every catalog
 	// mission is now refreshed on load by refreshMissions, so that gate is
 	// a no-op.
-	// schema v14: Craft gains RendezvousPlan; absent in older saves (no
-	// plan), so an identity pass whose job is the version gate.
-	if f.Version < 14 {
-		migrateV13PayloadToV14(&f.Payload)
-	}
 	// schema v15 (ADR 0056 decision 7, #611): stages store their ports and
 	// crafts record whether they have a launch site; backfilled from the
 	// old lookup and the old coordinates.
 	if f.Version < 15 {
 		migrateV14PayloadToV15(&f.Payload)
 	}
-	// schema v16 (ADR 0058 decision 13): Stage.lit_with_above and
-	// Craft.booster_throttle; absent is the truth for older saves, so an
-	// identity pass whose job is the version gate.
-	if f.Version < 16 {
-		migrateV15PayloadToV16(&f.Payload)
-	}
-	// schema v17 (ADR 0059 decision 10): name counters, batch tag, raise
-	// order; absent is the truth for older saves, so an identity pass.
-	if f.Version < 17 {
-		migrateV16PayloadToV17(&f.Payload)
-	}
+	// Identity bumps (v10, v11, v14, v16, v17) have no transform: absent keys
+	// decode to the truth, and TestIdentityBumpsLoadUnchanged pins that.
 	return worldFromPayload(f.Payload, systems)
 }
 
