@@ -1,8 +1,13 @@
 package sim
 
 import (
+	"math"
 	"testing"
 	"time"
+
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // TestLocalReArmLatchHoldsDriftedPairApart is the #343 decision-2 regression
@@ -223,43 +228,182 @@ func TestLocalReArmLatchClearsAtCeiling(t *testing.T) {
 	}
 }
 
-// TestLocalReArmRefusalChipsOncePerLatch is the #372 acceptance test for
-// part 3: checkDocking's refusal must surface as a chip-ready event naming
-// the partner, and exactly once for the life of a given latch — a per-tick
-// chip inside the gate would spam every frame the pair sits there (mirroring
-// relay/dock.go's raiseReArmNotice one-shot semantics locally).
-func TestLocalReArmRefusalChipsOncePerLatch(t *testing.T) {
+// undockedTugs docks two tugs, undocks them (arming the latch) and parks the
+// pair port to port gapM apart, aligned, b closing on a at closingMS. The
+// nose a flies on is prograde, so the pair is a straight approach.
+func undockedTugs(t *testing.T, gapM, closingMS float64) (*World, *spacecraft.Spacecraft, *spacecraft.Spacecraft) {
+	t.Helper()
 	w, _ := NewWorld()
 	buildStack(t, w, 2)
 	if !w.Undock(0) {
 		t.Fatal("Undock returned false on a 2-component composite")
 	}
 	a, b := w.Crafts[0], w.Crafts[1]
-	placePortToPort(a, b, 0.3)
+	placePortToPort(a, b, gapM)
+	b.State.V = a.State.V.Sub(a.CurrentAttitudeDir.Unit().Scale(closingMS))
+	if !w.isLocalReArmed(a.ID, b.ID) {
+		t.Fatal("fixture: Undock armed no latch")
+	}
+	return w, a, b
+}
 
-	if w.LastLocalReArmRefusal != nil {
-		t.Fatal("precondition: a refusal event already exists before any refused checkDocking pass")
+// tickCountingBumps runs the real Tick for secs, taking each BumpEvent the way
+// the App does (read and clear), and returns how many fired and the last one.
+func tickCountingBumps(w *World, secs float64) (n int, last BumpEvent) {
+	end := w.Clock.SimTime.Add(time.Duration(secs * float64(time.Second)))
+	for w.Clock.SimTime.Before(end) {
+		w.Tick()
+		if e := w.LastBumpEvent; e != nil {
+			n++
+			last = *e
+			w.LastBumpEvent = nil
+		}
 	}
-	if startsMagnet(w) {
-		t.Fatal("checkDocking fused a latched pair sitting inside both gates")
-	}
-	ev := w.LastLocalReArmRefusal
-	if ev == nil {
-		t.Fatal("checkDocking refused a latched pair inside both gates but raised no chip event")
-	}
-	if ev.PartnerName != b.Name {
-		t.Errorf("refusal event PartnerName = %q, want %q", ev.PartnerName, b.Name)
-	}
+	return n, last
+}
 
-	// Simulate app.go consuming the chip (LastDockEvent's own pattern).
-	w.LastLocalReArmRefusal = nil
-
-	// Same still-latched pair, same gates — a second refused pass must NOT
-	// raise a second chip.
-	if startsMagnet(w) {
-		t.Fatal("checkDocking fused a still-latched pair on the second pass")
+// #794: the re-arm distance is port to port. A latched pair clears once its
+// ports are more than ReArmDistM apart, and not before; the boundary is
+// pinned from both sides. The 6 m case is the player's: a piece backed off a
+// few metres and flown home.
+func TestLocalReArmClearsAtPortGapNotAnchorGap(t *testing.T) {
+	if ReArmDistM < 4 || ReArmDistM > 6 {
+		t.Errorf("ReArmDistM = %v, want about 5 m (port to port, sized for the 0.5 m gate)", ReArmDistM)
 	}
-	if w.LastLocalReArmRefusal != nil {
-		t.Error("checkDocking raised a SECOND refusal chip for the same still-live latch — must be once per latch")
+	for _, c := range []struct {
+		name string
+		gap  float64
+		held bool
+	}{
+		{"just inside", ReArmDistM - 1e-6, true},
+		{"just outside", ReArmDistM + 1e-6, false},
+		{"6 m", 6, false},
+		{"touching", 0.3, true},
+	} {
+		w, a, b := undockedTugs(t, c.gap, 0)
+		w.checkDocking()
+		if got := w.isLocalReArmed(a.ID, b.ID); got != c.held {
+			t.Errorf("%s (ports %.6f m apart): latched = %v, want %v", c.name, c.gap, got, c.held)
+		}
+	}
+}
+
+// The measure is the ports, not the anchors: a long pair touching nose to
+// nose has anchors tens of metres apart (CSM + S-IVB+LM: 43 m) and must stay
+// latched, or a bare "100 m becomes 5 m" would clear it the moment it forms.
+func TestLocalReArmHoldsWhileLongPairPortsTouch(t *testing.T) {
+	w, a, b := longPair(t, 0.3)
+	if d := a.State.R.Sub(b.State.R).Norm(); d < 30 {
+		t.Fatalf("fixture: anchors only %.1f m apart, want a long pair", d)
+	}
+	w.localReArms = append(w.localReArms, localReArm{idA: a.ID, idB: b.ID})
+	w.checkDocking()
+	if !w.isLocalReArmed(a.ID, b.ID) {
+		t.Error("a long pair with its ports 0.3 m apart lost its latch (measured anchor to anchor)")
+	}
+	placePortToPort(a, b, 6)
+	w.checkDocking()
+	if w.isLocalReArmed(a.ID, b.ID) {
+		t.Error("a long pair with its ports 6 m apart still latched")
+	}
+}
+
+// longPair is a CSM (active) and an S-IVB+LM stack, port to port gapM apart.
+func longPair(t *testing.T, gapM float64) (*World, *spacecraft.Spacecraft, *spacecraft.Spacecraft) {
+	t.Helper()
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+	a := spacecraft.NewFromStages([]spacecraft.Stage{stageOf(t, "csm")})
+	b := spacecraft.NewFromStages([]spacecraft.Stage{stageOf(t, "s-ivb-1"), stageOf(t, "apollo-descent"), stageOf(t, "apollo-ascent")})
+	a.Name, b.Name = "CSM", "LM stack"
+	a.Primary, b.Primary = *earth, *earth
+	r := orbital.Vec3{X: earth.RadiusMeters() + 500e3}
+	v := orbital.Vec3{Y: math.Sqrt(earth.GravitationalParameter() / r.Norm())}
+	a.State = physics.StateVector{R: r, V: v, M: a.TotalMass()}
+	b.State = physics.StateVector{R: r, V: v, M: b.TotalMass()}
+	a.CurrentAttitudeDir = v.Unit()
+	w.Crafts = []*spacecraft.Spacecraft{a, b}
+	w.ActiveCraftIdx = 0
+	w.stampCraftID(a)
+	w.stampCraftID(b)
+	placePortToPort(a, b, gapM)
+	return w, a, b
+}
+
+// #794, the player's report through the real Tick: undock, turn back, touch
+// at 0.4 m port gap and 0.05 m/s. The latch holds the pair off, the hulls
+// meet and are pushed apart (the push stays), and the bump says it is the
+// latch, not the approach speed.
+func TestLatchedTouchBumpsAndNamesTheLatch(t *testing.T) {
+	w, _, _ := undockedTugs(t, 0.4, 0.05)
+	n, ev := tickCountingBumps(w, 12)
+	if n == 0 {
+		t.Fatal("a latched pair touched and was not pushed apart (the push must stay)")
+	}
+	if !ev.Latched {
+		t.Errorf("bump of a latched pair does not say so: %+v", ev)
+	}
+}
+
+// A pair backed past the re-arm distance and flown back in docks with no
+// bump. (The flight home is placed rather than flown: free drift in orbit
+// stalls a 0.05 m/s closing short of the gate, #652.)
+func TestBackedOffPairFlownBackInDocksWithoutBump(t *testing.T) {
+	w, a, b := undockedTugs(t, 6, 0)
+	tickFor(w, 1) // the scan sees the ports 6 m apart and drops the latch
+	if w.isLocalReArmed(a.ID, b.ID) {
+		t.Fatal("fixture: the latch survived the pair backing off to 6 m")
+	}
+	placePortToPort(a, b, 0.4)
+	b.State.V = a.State.V.Sub(a.CurrentAttitudeDir.Unit().Scale(0.05))
+	n, ev := tickCountingBumps(w, 12)
+	if n != 0 {
+		t.Errorf("a pair that had cleared the re-arm distance bumped %d times (last %+v)", n, ev)
+	}
+	if len(w.Crafts) != 1 {
+		t.Errorf("slate = %d vessels, want the pair docked", len(w.Crafts))
+	}
+}
+
+// alt+u with a latched pair in the gate docks it, with no bump.
+func TestReArmKeyInTheGateDocksWithoutBump(t *testing.T) {
+	w, _, _ := undockedTugs(t, 0.4, 0.02)
+	if n, _ := tickCountingBumps(w, 1); n != 0 {
+		t.Fatalf("fixture: bumped %d times before the key", n)
+	}
+	if _, ok := w.ReArmDocking(); !ok {
+		t.Fatal("alt+u found no latch")
+	}
+	n, ev := tickCountingBumps(w, 12)
+	if n != 0 {
+		t.Errorf("bumped %d times after alt+u (last %+v)", n, ev)
+	}
+	if len(w.Crafts) != 1 {
+		t.Errorf("slate = %d vessels after alt+u in the gate, want the pair docked", len(w.Crafts))
+	}
+}
+
+// #794 on a batch: the Starlink pieces carry no port, so their port gap can
+// never be read and, before the fix, all 300 pair latches sat for the full
+// ten minutes guarding a dock that cannot happen. A pair that provably cannot
+// dock holds no latch; one whose nose is not yet known still does.
+func TestReleasedBatchPortlessPiecesHoldNoLatch(t *testing.T) {
+	w, _, _, sats := releasedFan(t, 90, true)
+	if g := VesselPortGeometry(sats[0]); g.HasPort() || !g.Known {
+		t.Fatalf("fixture: Starlink port=%v known=%v, want a known shape with no port", g.HasPort(), g.Known)
+	}
+	if len(w.localReArms) == 0 {
+		t.Fatal("fixture: the release armed no latches")
+	}
+	w.checkDocking()
+	if got := len(w.localReArms); got != 0 {
+		t.Errorf("%d latches survive a scan on port-less pieces, want 0", got)
+	}
+	// Ported pair, unknown nose: cannot tell, so it holds.
+	w2, ta, tb := undockedTugs(t, 0.3, 0)
+	ta.CurrentAttitudeDir = orbital.Vec3{}
+	w2.checkDocking()
+	if !w2.isLocalReArmed(ta.ID, tb.ID) {
+		t.Error("a ported pair with an unknown nose lost its latch")
 	}
 }

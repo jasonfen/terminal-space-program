@@ -186,6 +186,8 @@ func TestBumpSkipsPairInDockingGate(t *testing.T) {
 	w.checkBumps()
 	if w.LastBumpEvent == nil {
 		t.Error("a latched (gate-refused) pair should bump on contact")
+	} else if !w.LastBumpEvent.Latched {
+		t.Error("the bump of a latched pair that met the whole gate must say the latch refused it (#794)")
 	}
 }
 

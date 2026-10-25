@@ -5,6 +5,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/jasonfen/terminal-space-program/internal/keylayout"
+	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
 
 // normalizeKey maps a keypress from the player's keyboard layout back to its
@@ -459,7 +460,7 @@ func DefaultKeymap() Keymap {
 		CraftSlot:           key.NewBinding(key.WithKeys("1", "2", "3", "4", "5", "6", "7", "8", "9"), key.WithHelp("1-9", "jump to vessel N")),
 		Undock:              key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "undock active composite")),
 		HandOverCargo:       key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "hand over cargo")),
-		ReArmDock:           key.NewBinding(key.WithKeys("alt+u"), key.WithHelp("alt+u", "re-arm docking (clear the local re-arm latch)")),
+		ReArmDock:           key.NewBinding(key.WithKeys(screens.ReArmKeyLabel), key.WithHelp(screens.ReArmKeyLabel, "re-arm docking (clear the local re-arm latch)")),
 		Transpose:           key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "transpose (SM → firing core, LM → nose payload)")),
 		Deploy:              key.NewBinding(key.WithKeys("Y"), key.WithHelp("Y", "deploy top payload (keep carrier)")),
 		SetOrbitAltitude:    key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "orbit altitude: raise or lower, again stops")),

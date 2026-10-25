@@ -82,6 +82,17 @@ func portRelVelocity(vOwn, wOwn orbital.Vec3, gOwn PortGeometry, vTgt, wTgt orbi
 	return portPointVelocity(vOwn, wOwn, gOwn, 0).Sub(portPointVelocity(vTgt, wTgt, gTgt, 0))
 }
 
+// PortGapM is the distance between two vessels' first ports, the measure of
+// the re-arm latch (ReArmDistM). ok is false when either vessel has no port
+// or no known shape, so the caller can hold rather than guess. The cross-player
+// latch calls it with a ghost's reported geometry.
+func PortGapM(ga PortGeometry, ra orbital.Vec3, gb PortGeometry, rb orbital.Vec3) (gap float64, ok bool) {
+	if !ga.HasPort() || !gb.HasPort() || !ga.Known || !gb.Known {
+		return 0, false
+	}
+	return gb.PortPoint(rb, 0).Sub(ga.PortPoint(ra, 0)).Norm(), true
+}
+
 // dockPairGate is the gate's three readings for two vessels, from their
 // stacks and attitudes. hasPort is false when either vessel is port-less or
 // either attitude is uninitialised (no shape is known).

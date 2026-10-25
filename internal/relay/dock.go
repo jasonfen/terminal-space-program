@@ -687,7 +687,10 @@ func (l *DockLedger) reconcileCooldown(w *sim.World, r *DockRecord, owner string
 		if g.CraftID != remoteID || g.PrimaryID != local.Primary.ID {
 			continue
 		}
-		return local.State.R.Sub(g.RelPos).Norm() > sim.ReArmDistM
+		// Port to port (#794). A report with no shape, or a port-less hull,
+		// cannot be measured: hold, as for every other "can't tell".
+		gap, ok := sim.PortGapM(sim.VesselPortGeometry(local), local.State.R, sim.GhostPortGeometry(g), g.RelPos)
+		return ok && gap > sim.ReArmDistM
 	}
 	return false // partner's craft not resolvable in this frame — hold
 }
@@ -715,7 +718,7 @@ func (r *DockRecord) raiseReArmNotice(owner string, chips *[]DockChip) {
 	*chips = append(*chips, DockChip{
 		Kind:   sim.SessionEventTransferRefused,
 		Handle: who,
-		Detail: fmt.Sprintf("docking held off — back %.0f m clear of %s before docking again", sim.ReArmDistM, who),
+		Detail: fmt.Sprintf("docking held off: back %.0f m from %s before docking again", sim.ReArmDistM, who),
 	})
 }
 

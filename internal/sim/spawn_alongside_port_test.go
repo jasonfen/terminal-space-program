@@ -1,9 +1,9 @@
 package sim
 
 import (
+	"math"
 	"testing"
 
-	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -67,13 +67,75 @@ func TestAlongsideSpawnLandsPortToPortStraight(t *testing.T) {
 	if al := PortAlignmentDeg(ga.Axis, gb.Axis); al > 1e-6 {
 		t.Errorf("noses are %.4f deg off facing each other, want 0", al)
 	}
-	if d := partner.State.V.Sub(home.State.V).Norm(); d > 1e-9 {
-		t.Errorf("spawn drifts at %.4f m/s relative, want matched velocity", d)
-	}
 	// Straight: the line between the ports runs along home's axis.
 	dir := gb.PortPoint(partner.State.R, 0).Sub(ga.PortPoint(home.State.R, 0)).Unit()
 	if d := dir.Sub(ga.Axis).Norm(); d > 1e-9 {
 		t.Errorf("ports not in line with the active vessel's nose (off by %.2e)", d)
 	}
-	_ = orbital.Vec3{}
+}
+
+// #795: the partner spawns rigid in the orbital frame (co-orbiting), so it
+// holds still in the Proximity picture: the port gap does not move and the
+// partner does not drift. Port rel speed then reads the gap times the orbit
+// rate (about 0.028 m/s at 25 m, measured on a tug pair and a CSM against an
+// S-IVB+LM stack), under the 0.10 gate and falling to ~0.0004 at 0.4 m. The
+// equal-inertial-velocity spawn read 0.012 / 0.052 and drifted 2.4 / 4.8 m a
+// minute.
+func TestAlongsideSpawnIsRigidInTheOrbitalFrame(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		home, spawn []string
+	}{
+		{"tug and tug", []string{"rcs-tug"}, []string{"rcs-tug"}},
+		{"CSM and S-IVB+LM", []string{"csm"}, []string{"s-ivb-1", "apollo-descent", "apollo-ascent"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w, err := NewWorld()
+			if err != nil {
+				t.Fatal(err)
+			}
+			old := w.Crafts[0]
+			stagesOf := func(ids []string) []spacecraft.Stage {
+				var out []spacecraft.Stage
+				for _, id := range ids {
+					out = append(out, stageOf(t, id))
+				}
+				return out
+			}
+			home := spacecraft.NewFromStages(stagesOf(c.home))
+			home.Primary, home.State = old.Primary, old.State
+			home.State.M = home.TotalMass()
+			home.CurrentAttitudeDir = home.State.V.Unit()
+			home.Name = "Home"
+			w.Crafts[0] = home
+			w.stampCraftID(home)
+			if _, err := w.SpawnCraft(SpawnSpec{CustomStages: stagesOf(c.spawn), Alongside: true}); err != nil {
+				t.Fatal(err)
+			}
+			w.SetTargetCraft(0)
+			tickFor(w, 0.15) // settle: the first slew tick snaps an uninitialised nose
+			st, ok := w.ProximityState()
+			if !ok || !st.HasPort {
+				t.Fatalf("fixture: no port pair (ok=%v hasPort=%v)", ok, st.HasPort)
+			}
+			omega := home.State.R.Cross(home.State.V).Norm() / home.State.R.Dot(home.State.R)
+			want := omega * st.PortRangeM
+			if want < 0.026 || want > 0.030 {
+				t.Fatalf("fixture: omega x gap = %.4f, expected about 0.028", want)
+			}
+			if math.Abs(st.VRelMS-want) > 0.002 {
+				t.Errorf("port rel speed at spawn = %.4f m/s, want omega x gap = %.4f (about 0.028), under %.2f", st.VRelMS, want, DockingVMS)
+			}
+			p0 := st.Frame.ToFrame(st.RelPos)
+			gap0 := st.PortRangeM
+			tickFor(w, 60)
+			st, _ = w.ProximityState()
+			if d := math.Abs(st.PortRangeM - gap0); d > 0.02 {
+				t.Errorf("port gap moved %.3f m in 60 s, want a few cm at most", d)
+			}
+			if d := st.Frame.ToFrame(st.RelPos).Sub(p0).Norm(); d > 0.05 {
+				t.Errorf("partner drifted %.3f m in the picture in 60 s, want it to hold still", d)
+			}
+		})
+	}
 }

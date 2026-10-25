@@ -877,6 +877,12 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 		chipRow("range:", readout.Distance(st.HullGapM)),
 		v.proximityPortRow(st, proximityCapturing(w)),
 	}
+	if st.HasPort && st.ReArmLatched {
+		// #794: standing for as long as the latch holds, so it never reads as
+		// a dock that failed for no reason. Its own line: the port: value is
+		// 26 cells and the number still has to show.
+		rows = append(rows, proximityLatchedRow())
+	}
 	if st.HasPort {
 		rows = append(rows, proximityAlignRow(st))
 		if proximityInsideRing(st) {
@@ -1016,8 +1022,11 @@ func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
 	// ADR 0053 decision 6: port: and misalign: survive the shrink, but only
 	// inside 50 m and out of gate; lateral: is dropped in Compact Form.
 	capturing := proximityCapturing(w)
-	if proximityInsideRing(st) && (proximityPortOutOfGate(st) || capturing) {
+	if proximityInsideRing(st) && (proximityPortOutOfGate(st) || capturing || st.ReArmLatched) {
 		lines = append(lines, v.proximityPortRow(st, capturing))
+		if st.HasPort && st.ReArmLatched {
+			lines = append(lines, proximityLatchedRow())
+		}
 		if st.HasPort {
 			lines = append(lines, proximityAlignRow(st))
 		}

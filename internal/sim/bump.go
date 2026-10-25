@@ -41,6 +41,10 @@ type BumpEvent struct {
 	PartnerName string
 	// SpeedMS is the closing speed along the line of contact at the touch.
 	SpeedMS float64
+	// Latched is true when the touch met the whole port gate and only the
+	// re-arm latch refused it, so the caption names the latch and not the
+	// approach speed.
+	Latched bool
 }
 
 // bumpPairInGate reports whether the pair is in a state where the dock
@@ -351,7 +355,7 @@ func (w *World) checkBumps() {
 			if w.Clock != nil {
 				when = w.Clock.SimTime
 			}
-			w.LastBumpEvent = &BumpEvent{When: when, PartnerName: partner.Name, SpeedMS: s}
+			w.LastBumpEvent = &BumpEvent{When: when, PartnerName: partner.Name, SpeedMS: s, Latched: dockPairGateHolds(a, b) && w.isLocalReArmed(a.ID, b.ID)}
 		}
 	}
 }

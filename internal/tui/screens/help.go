@@ -183,7 +183,7 @@ var helpSections = []helpSection{
 	{"DOCKING (port to port)", [][2]string{
 		{"ports", "on the nose of crewed modules, tugs, keepers, relays, stations, Probe Sat; not launchers, bare stages, comsats"},
 		{"stack port", "a lone vessel's port is its top stage's; a docked pair or loaded carrier has none free until the partner leaves"},
-		{"the gate", "ports within 0.5 m, under 0.1 m/s, misaligned under 4°, all at once; port line and Centerline ring go solid green"},
+		{"the gate", "ports within 0.5 m, 4° of facing, rel speed under 0.1 m/s (still in the picture = gap × orbit rate); all at once"},
 		{"centerline", "top-right scope: crosshair = your port, ring = theirs, hull circles apart = clear; ◌ = theirs behind; steps 2-64 m"},
 		{"chip rows", "misalign: angle between the axes; lateral: their port across your face (↑ ↓ ◂ ▸); hold: the attitude you hold"},
 		{"magnet", "a five-second pull closes the last half metre once the gate holds; warp 1×, keys ignored; leaving the gate ends it"},
@@ -195,7 +195,7 @@ var helpSections = []helpSection{
 		{"navball (PORT)", "pitch / yaw: how far your nose is above or below, right or left of, parallel to their port axis"},
 		{"p", "rcs pulse step: 0.1 / 0.01 / 0.001 m/s; the last metres want 0.01 or finer"},
 		{"U", "undock the active composite: the pieces come back port to port 1.5 to 3 m apart, parting at 0.15 m/s"},
-		{"alt+u", "re-arm docking: a just-undocked pair cannot re-dock until 100 m or ten minutes pass; [alt+u] clears that now"},
+		{"alt+u", "re-arm docking: an undocked pair re-docks once its ports are 5 m apart or after ten minutes; [alt+u] clears it now"},
 	}},
 	{"SPAWN FORM (n)", [][2]string{
 		{"tab / shift+tab", "next / previous field"},

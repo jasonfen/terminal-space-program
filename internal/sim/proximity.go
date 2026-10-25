@@ -95,6 +95,9 @@ type ProximityState struct {
 	OffAxisUpM       float64
 	OffAxisRightM    float64
 	HasPort          bool
+	// ReArmLatched is true while a same-World re-arm latch holds this pair
+	// apart (#343, #794): the port row says so for as long as it does.
+	ReArmLatched bool
 
 	// PortName is the target's top component ("CM"), empty when the target
 	// has no port. TargetHasPort / OwnHasPort say which side lacks one;
@@ -154,6 +157,9 @@ func (w *World) ProximityState() (ProximityState, bool) {
 		TargetName:  w.TargetName(),
 	}
 	w.resolveProximityPorts(&st, c, rT, vT)
+	if w.Target.Kind == TargetCraft {
+		st.ReArmLatched = w.isLocalReArmed(c.ID, w.Target.CraftID)
+	}
 	st.HullGapM = rangeM
 	if st.Own.Known && st.Target.Known {
 		st.HullGapM = HullDistanceM(c.State.R, st.Own, rT, st.Target)

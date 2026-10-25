@@ -222,7 +222,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		}
 		// ADR 0053 "Settled here" item 5: the partner spawns port to port,
 		// alongsidePortGapM ahead of the active vessel's nose and facing it,
-		// velocity copied: a straight, slow approach away from a dock. It used
+		// co-orbiting: a straight, slow approach away from a dock. It used
 		// to sit +25 m along world X, which was inside the old 50 m click (it
 		// fused 0.6 s after `enter`) and, with hulls drawn at scale, could put
 		// a tug inside the active vessel's own hull.
@@ -251,9 +251,15 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		if active.State.V.Norm() > 0 && axis.Dot(active.State.V.Unit()) > 0.996 {
 			c.AttitudeMode = spacecraft.BurnRetrograde
 		}
+		// #795: rigid in the orbital frame, so the partner holds still in the
+		// Proximity picture. Equal inertial velocity would drift it 2 to 5 m a
+		// minute. The port rel speed then reads the gap times the orbit rate
+		// (about 0.028 m/s at 25 m), which falls as the gap closes.
+		spawnR := active.State.R.Add(axis.Scale(noseEdge(active.Stages) + alongsidePortGapM + noseEdge(c.Stages)))
+		orbitRate := active.State.R.Cross(active.State.V).Scale(1 / active.State.R.Dot(active.State.R))
 		c.State = physics.StateVector{
-			R: active.State.R.Add(axis.Scale(noseEdge(active.Stages) + alongsidePortGapM + noseEdge(c.Stages))),
-			V: active.State.V,
+			R: spawnR,
+			V: active.State.V.Add(orbitRate.Cross(spawnR.Sub(active.State.R))),
 			M: c.TotalMass(),
 		}
 		w.stampCraftID(c) // stable identity before the craft enters the slate (ADR 0012)

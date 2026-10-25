@@ -346,6 +346,16 @@ func TestReArmLatchBlocksImmediateReclaimUntilSeparation(t *testing.T) {
 	ledger := NewDockLedger()
 	const guestID = 1006
 	wA, wB := alignedPair(t, guestID)
+	// The latch is measured port to port (#794), so both vessels carry a port
+	// and a known nose: ported tugs on the seed vessel's state.
+	for _, w := range []*sim.World{wA, wB} {
+		seed := w.ActiveCraft()
+		tug := spacecraft.NewFromLoadout("RCS-tug")
+		tug.ID, tug.Primary, tug.State, tug.Name = seed.ID, seed.Primary, seed.State, seed.Name
+		tug.State.M = tug.TotalMass()
+		tug.CurrentAttitudeDir = tug.State.V.Unit()
+		w.Crafts[w.ActiveCraftIdx] = tug
+	}
 	dockerID := wA.ActiveCraft().ID
 	now := time.Now()
 
@@ -361,14 +371,6 @@ func TestReArmLatchBlocksImmediateReclaimUntilSeparation(t *testing.T) {
 	ledger.Reconcile(wA, fpA, reports)
 	ledger.Reconcile(wB, fpB, reports)
 
-	// Immediately drifting back within the gates (the "pilot still setting up
-	// the safed ship" scenario): a fresh claim on the SAME pair must refuse.
-	if _, ok := ledger.Claim(fpA, "alice", dockerID, fpB, "bob", guestID); ok {
-		t.Fatalf("re-claim succeeded before the pair backed away — the re-arm latch did not hold")
-	}
-
-	// Separate for real, well past ReArmDistM, and let the owner's side
-	// notice on its next reconcile.
 	guestIdx := -1
 	for i, c := range wB.Crafts {
 		if c != nil && c.ID == guestID {
@@ -378,7 +380,23 @@ func TestReArmLatchBlocksImmediateReclaimUntilSeparation(t *testing.T) {
 	if guestIdx < 0 {
 		t.Fatalf("guest craft not found in B's slate")
 	}
-	wB.Crafts[guestIdx].State.R = wB.Crafts[guestIdx].State.R.Add(orbital.Vec3{X: 2 * sim.ReArmDistM})
+	guest := wB.Crafts[guestIdx]
+	local, _, _ := wA.CraftByID(dockerID)
+	// A restored craft has not slewed yet: no known shape, no port to measure.
+	guest.CurrentAttitudeDir = guest.State.V.Unit()
+	// Both noses share an axis, so the port gap is the anchor offset. At
+	// the shared re-arm distance of 5 m (port to port) the pair is "drifting
+	// back within the gates": a fresh claim on the SAME pair must refuse.
+	guest.State.R = local.State.R.Add(orbital.Vec3{X: sim.ReArmDistM / 2})
+	reports = reportMap(store, wA, wB, now.Add(time.Second+500*time.Millisecond))
+	ledger.Reconcile(wA, fpA, reports)
+	if _, ok := ledger.Claim(fpA, "alice", dockerID, fpB, "bob", guestID); ok {
+		t.Fatalf("re-claim succeeded with the ports %.1f m apart — the re-arm latch did not hold", sim.ReArmDistM/2)
+	}
+
+	// Back off to 6 m (past the 5 m re-arm distance), and let the owner's side notice on its next
+	// reconcile.
+	guest.State.R = local.State.R.Add(orbital.Vec3{X: 6}) // the player's 6 m, not the old 100
 
 	reports = reportMap(store, wA, wB, now.Add(2*time.Second))
 	ledger.Reconcile(wA, fpA, reports) // owner side notices the separation, clears the latch

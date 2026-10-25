@@ -438,15 +438,6 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.flash(fmt.Sprintf("launch view off, back on the %s view", e.PrevView))
 			a.world.LastLaunchReleaseEvent = nil
 		}
-		// #372: a same-World dock checkDocking refused because of a live
-		// re-arm latch — say why, once per latch (LastLocalReArmRefusal is
-		// only ever stamped once for the life of a given latch; see
-		// raiseLocalReArmRefusal). Same flash surface, cleared after one fire.
-		if e := a.world.LastLocalReArmRefusal; e != nil {
-			a.flash(fmt.Sprintf("docking held off — press %s to re-arm, or back %.0f m clear of %s",
-				a.keys.ReArmDock.Help().Key, sim.ReArmDistM, e.PartnerName))
-			a.world.LastLocalReArmRefusal = nil
-		}
 		// #294 review finding 5: a due target-relative node (or in-flight
 		// burn) refused to fire because its bound target hasn't resolved —
 		// say so instead of leaving the stall silent. Same flash surface,
@@ -3864,14 +3855,21 @@ func (a *App) flash(text string) {
 // flashBump is the bottom-edge consumer of World.LastBumpEvent (ADR 0053
 // decision 8, ADR 0048 Event Flash): what bumped, how hard, and what the
 // docking gate asks for, e.g. "bumped S-IVB-1 at 0.40 m/s; re-approach under
-// 0.10 m/s". Reads and clears the event so a contact flashes once.
+// 0.10 m/s", or, for a touch the re-arm latch alone refused, "...; held off:
+// back 5 m or alt+u". Reads and clears the event so a contact flashes once.
 func (a *App) flashBump() {
 	e := a.world.LastBumpEvent
 	if e == nil {
 		return
 	}
-	a.flash(fmt.Sprintf("bumped %s at %s; re-approach under %s",
-		e.PartnerName, readout.Speed(e.SpeedMS), readout.Speed(sim.DockingVMS)))
+	if e.Latched {
+		// The approach met the gate; the re-arm latch refused it (#794).
+		a.flash(fmt.Sprintf("bumped %s at %s; held off: back %.0f m or %s",
+			e.PartnerName, readout.Speed(e.SpeedMS), sim.ReArmDistM, a.keys.ReArmDock.Help().Key))
+	} else {
+		a.flash(fmt.Sprintf("bumped %s at %s; re-approach under %s",
+			e.PartnerName, readout.Speed(e.SpeedMS), readout.Speed(sim.DockingVMS)))
+	}
 	a.world.LastBumpEvent = nil
 }
 

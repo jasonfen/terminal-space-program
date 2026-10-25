@@ -201,3 +201,32 @@ func TestTargetBoxDockReadyFollowsThePortGate(t *testing.T) {
 		t.Error("a port-less pair 30 m apart reads DOCK READY")
 	}
 }
+
+// #794: while the re-arm latch holds the pair, the chip carries a standing
+// "latched: back 5 m or alt+u" under the port: row, whole at Design Size; a
+// pair that is not latched carries none, and neither does one after alt+u.
+func TestProximityChipStandingLatchedLine(t *testing.T) {
+	const want = "latched: back 5 m or alt+u"
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(DesignWidth, DesignHeight)
+	for _, sc := range gateScenes() {
+		w := sc.world(t)
+		chip := v.buildProximityChip(w)
+		got := strings.Contains(strings.Join(chip, "\n"), want)
+		if wantIt := sc.name == "latched but in the gate"; got != wantIt {
+			t.Errorf("%s: latched line present = %v, want %v", sc.name, got, wantIt)
+		}
+		for _, l := range chip {
+			if lipgloss.Width(l) > proximityChipInnerWidth {
+				t.Errorf("%s: row %q is wider than %d cells", sc.name, l, proximityChipInnerWidth)
+			}
+		}
+	}
+	w := latchedPortedWorld(t)
+	if _, ok := w.ReArmDocking(); !ok {
+		t.Fatal("alt+u found no latch")
+	}
+	if strings.Contains(strings.Join(v.buildProximityChip(w), "\n"), want) {
+		t.Error("the latched line stayed after alt+u cleared the latch")
+	}
+}
