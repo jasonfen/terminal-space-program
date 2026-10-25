@@ -46,31 +46,54 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 		t.Fatalf("setup: a bump's key is missing: batch=%v counters=%v plan=%v booster=%v trim=%v target=%v", want.Payload.Crafts[0].BatchID, want.Payload.NameCounters, want.Payload.Crafts[0].RendezvousPlan, want.Payload.Crafts[0].BoosterThrottle, want.Payload.Crafts[0].HeadingTrim, want.Payload.Crafts[0].Target)
 	}
 
+	// Zeroing a field drops its omitempty key: the save an older binary wrote.
+	stripBump := map[int]func(p *Payload){
+		10: func(p *Payload) { p.Target, p.Crafts[0].Target = nil, nil },
+		11: func(p *Payload) { p.Crafts[0].HeadingTrim = 0 },
+		14: func(p *Payload) { p.Crafts[0].RendezvousPlan = nil },
+		16: func(p *Payload) { p.Crafts[0].BoosterThrottle = nil },
+		17: func(p *Payload) { p.NameCounters, p.Crafts[0].BatchID, p.Crafts[0].BatchLead = nil, 0, false },
+	}
 	for _, bump := range []int{10, 11, 14, 16, 17} {
-		f := want
-		f.Version = bump - 1
-		out, _ := json.Marshal(f)
-		old := filepath.Join(t.TempDir(), "old.json")
-		if err := os.WriteFile(old, out, 0o600); err != nil {
+		roundTrip(t, want, bump, "keys present")
+		absent := want
+		absent.Payload = Payload{}
+		b, _ := json.Marshal(want.Payload)
+		if err := json.Unmarshal(b, &absent.Payload); err != nil {
 			t.Fatal(err)
 		}
-		loaded, err := Load(old)
-		if err != nil {
-			t.Fatalf("v%d -> v%d: Load: %v", bump-1, bump, err)
-		}
-		again := filepath.Join(t.TempDir(), "again.json")
-		if err := Save(loaded, again); err != nil {
-			t.Fatal(err)
-		}
-		got := readFileForTest(t, again)
-		if got.Version != SchemaVersion {
-			t.Errorf("v%d -> v%d: lands at v%d, want v%d", bump-1, bump, got.Version, SchemaVersion)
-		}
-		if !reflect.DeepEqual(got.Payload, want.Payload) {
-			a, _ := json.Marshal(got.Payload)
-			b, _ := json.Marshal(want.Payload)
-			t.Errorf("v%d -> v%d changed the payload:\n got  %s\n want %s", bump-1, bump, a, b)
-		}
+		stripBump[bump](&absent.Payload)
+		roundTrip(t, absent, bump, "keys absent")
+	}
+}
+
+// roundTrip writes want declared as the schema before bump, loads it, saves
+// it again, and requires the same payload back at SchemaVersion.
+func roundTrip(t *testing.T, want File, bump int, what string) {
+	t.Helper()
+	f := want
+	f.Version = bump - 1
+	out, _ := json.Marshal(f)
+	old := filepath.Join(t.TempDir(), "old.json")
+	if err := os.WriteFile(old, out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(old)
+	if err != nil {
+		t.Fatalf("v%d -> v%d (%s): Load: %v", bump-1, bump, what, err)
+	}
+	again := filepath.Join(t.TempDir(), "again.json")
+	if err := Save(loaded, again); err != nil {
+		t.Fatal(err)
+	}
+	got := readFileForTest(t, again)
+	if got.Version != SchemaVersion {
+		t.Errorf("v%d -> v%d (%s): lands at v%d, want v%d", bump-1, bump, what, got.Version, SchemaVersion)
+	}
+	if !reflect.DeepEqual(got.Payload, want.Payload) {
+		a, _ := json.Marshal(got.Payload)
+		b, _ := json.Marshal(want.Payload)
+		t.Errorf("v%d -> v%d (%s) changed the payload:\n got  %s\n want %s", bump-1, bump, what, a, b)
 	}
 }
 
