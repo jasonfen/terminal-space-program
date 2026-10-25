@@ -85,6 +85,13 @@ func EccentricityVector(r, v Vec3, mu float64) Vec3 {
 	}
 }
 
+// PeriodFromA returns the Keplerian period 2π√(a³/μ) for semimajor axis a.
+// Pure formula: callers guard a ≤ 0 / NaN / μ ≤ 0 themselves (a < 0 or
+// μ < 0 yields NaN, μ = 0 yields +Inf).
+func PeriodFromA(a, mu float64) float64 {
+	return 2 * math.Pi * math.Sqrt(a*a*a/mu)
+}
+
 // PeriapsisDirection returns the unit vector toward periapsis (the
 // normalized eccentricity vector) for state (r, v) under mu, in the frame
 // of r and v. ok=false when the orbit is too near-circular (|e| ≈ 0) for a

@@ -269,3 +269,33 @@ func TestTimeToRadiusOutbound(t *testing.T) {
 		t.Error("circular orbit: ok=true, want false")
 	}
 }
+
+func TestHyperbolicMeanAnomaly(t *testing.T) {
+	// Periapsis: H = 0, M = 0.
+	if m, ok := HyperbolicMeanAnomaly(2, 0); !ok || m != 0 {
+		t.Errorf("nu=0: got (%v,%v), want (0,true)", m, ok)
+	}
+	// Known point: e=2, nu=π/2 -> sinh H = √3, H = asinh √3 = ln(√3+2);
+	// M = 2√3 − H.
+	want := 2*math.Sqrt(3) - math.Log(math.Sqrt(3)+2)
+	if m, ok := HyperbolicMeanAnomaly(2, math.Pi/2); !ok || math.Abs(m-want) > 1e-12 {
+		t.Errorf("nu=π/2: got (%v,%v), want %v", m, ok, want)
+	}
+	// Odd in nu (inbound arc is negative).
+	mp, _ := HyperbolicMeanAnomaly(1.5, 1)
+	mn, _ := HyperbolicMeanAnomaly(1.5, -1)
+	if mp <= 0 || mn != -mp {
+		t.Errorf("odd symmetry: +%v / %v", mp, mn)
+	}
+	// e = 1 edge: sqrt(e²-1)=0 so M = 0, still ok.
+	if m, ok := HyperbolicMeanAnomaly(1, 1); !ok || m != 0 {
+		t.Errorf("e=1: got (%v,%v), want (0,true)", m, ok)
+	}
+	// Beyond the asymptote, and denom == 0 exactly (the equal case), refused.
+	if _, ok := HyperbolicMeanAnomaly(2, math.Pi); ok {
+		t.Error("nu=π, e=2 is beyond the asymptote, must be !ok")
+	}
+	if _, ok := HyperbolicMeanAnomaly(1, math.Pi); ok {
+		t.Error("denom == 0 (e=1, nu=π) must be !ok")
+	}
+}

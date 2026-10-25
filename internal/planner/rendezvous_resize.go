@@ -97,7 +97,7 @@ func rendezvousLadderResize(moverState, holderState orbital.Vec3State, hEl orbit
 		if el.A <= 0 || el.E >= 1 || el.E < 1e-9 {
 			return pt
 		}
-		period := 2 * math.Pi * math.Sqrt(el.A*el.A*el.A/mu)
+		period := orbital.PeriodFromA(el.A, mu)
 		p := el.A * (1 - el.E*el.E)
 		c := (p/rH - 1) / el.E
 		if c > 1 && c < 1+1e-9 {
