@@ -461,3 +461,46 @@ func TestAdminRestartPersistsRestarterProgress(t *testing.T) {
 		}
 	})
 }
+
+// CanAdminister follows the cached meta, not session.json: a promote or
+// demote shows once the meta refresh window (metaRefresh) has elapsed,
+// and not a tick earlier (proves the per-tick disk read is gone).
+func TestCanAdministerFollowsMetaRefresh(t *testing.T) {
+	srv := newOfflineServer(t)
+	enrollDirect(t, srv, "SHA256:gern", "gern")
+	app, err := srv.newGuestApp("SHA256:gern")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rm, ok := srv.withReporting(app, "SHA256:gern").(reportingModel)
+	if !ok {
+		t.Fatal("withReporting is not a reportingModel")
+	}
+	can := func(at time.Time) bool {
+		rm.refreshSession(at)
+		return app.World().Session.CanAdminister
+	}
+	t0 := rm.metaAt
+	if can(t0) {
+		t.Fatal("guest starts able to administer")
+	}
+	if err := srv.store.PromoteAdmin("SHA256:gern"); err != nil {
+		t.Fatal(err)
+	}
+	if can(t0.Add(metaRefresh - time.Millisecond)) {
+		t.Fatal("promote showed before the meta refresh: per-tick disk read still present")
+	}
+	if !can(t0.Add(metaRefresh)) { // equal boundary: now-metaAt >= metaRefresh
+		t.Fatal("promote not shown at the meta refresh boundary")
+	}
+	t1 := rm.metaAt
+	if err := srv.store.DemoteAdmin("SHA256:gern"); err != nil {
+		t.Fatal(err)
+	}
+	if !can(t1.Add(metaRefresh - time.Millisecond)) {
+		t.Fatal("demote showed before the meta refresh")
+	}
+	if can(t1.Add(metaRefresh)) {
+		t.Fatal("demote not shown at the meta refresh boundary")
+	}
+}

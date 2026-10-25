@@ -808,20 +808,20 @@ func (s *Store) RemovePlayer(fingerprint string) error {
 // handler consults before acting (v0.30 S1, #222): authorization is a
 // capability decided here, in the store, not a UI-presentation detail.
 // Today only the host qualifies; the admin role (v0.30 S2) extends
-// roleMayAdminister without touching any caller. An unknown or
+// RoleMayAdminister without touching any caller. An unknown or
 // unenrolled fingerprint may not administer.
 func (s *Store) MayAdminister(fingerprint string) bool {
 	p, err := s.FindPlayer(fingerprint)
 	if err != nil {
 		return false
 	}
-	return roleMayAdminister(p.Role)
+	return RoleMayAdminister(p.Role)
 }
 
-// roleMayAdminister centralises which roster roles carry the admin
+// RoleMayAdminister centralises which roster roles carry the admin
 // capability (mint/revoke invites, remove guests). The host and any
 // promoted admin qualify; a plain guest does not.
-func roleMayAdminister(role string) bool {
+func RoleMayAdminister(role string) bool {
 	return role == RoleHost || role == RoleAdmin
 }
 
@@ -872,7 +872,7 @@ func (s *Store) MayRemove(actor, target string) bool {
 	if !haveActor || !haveTarget {
 		return false
 	}
-	if !roleMayAdminister(actorRole) {
+	if !RoleMayAdminister(actorRole) {
 		return false
 	}
 	if targetRole == RoleHost {
