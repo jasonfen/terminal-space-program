@@ -59,7 +59,7 @@ func (w *World) EndFlightActive() bool {
 		// Slate empty — no active vessel. Set sentinel so
 		// ActiveCraft() returns nil cleanly.
 		w.ActiveCraftIdx = -1
-		w.Target = newEmptyTargetForCraft(nil)
+		w.Target = Target{}
 		w.reconcileNavMode()
 		// Park the camera on the body the vessel was orbiting so the
 		// orbit view shows that body (e.g. Earth) rather than snapping
@@ -90,9 +90,3 @@ func (w *World) EndFlightActive() bool {
 	w.StopManualBurn()
 	return true
 }
-
-// newEmptyTargetForCraft returns a cleared Target. Helper kept
-// local so the empty-slate branch above stays readable; the
-// returned zero value reads identically to `spacecraft.Target{}`
-// at the call site.
-func newEmptyTargetForCraft(_ interface{}) Target { return Target{} }

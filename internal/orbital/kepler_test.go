@@ -246,3 +246,25 @@ func TestOrbitReadoutParabolaIsHyperbolic(t *testing.T) {
 		t.Errorf("parabola: e=%v hyperbolic=%v, want e=1 hyperbolic=true", got.Eccentricity, got.Hyperbolic)
 	}
 }
+
+func TestPeriodFromA(t *testing.T) {
+	const mu = 3.986004418e14
+	a := 6.771e6
+	if got, want := PeriodFromA(a, mu), 2*math.Pi*math.Sqrt(a*a*a/mu); got != want {
+		t.Errorf("PeriodFromA = %v, want %v", got, want)
+	}
+	// a = 1, mu = 1 -> exactly 2π.
+	if got := PeriodFromA(1, 1); got != 2*math.Pi {
+		t.Errorf("unit orbit = %v, want 2π", got)
+	}
+	// Unguarded edges the callers rely on guarding themselves.
+	if !math.IsNaN(PeriodFromA(-1, 1)) {
+		t.Error("a<0 should be NaN")
+	}
+	if !math.IsInf(PeriodFromA(1, 0), 1) {
+		t.Error("mu=0 should be +Inf")
+	}
+	if got := PeriodFromA(0, 1); got != 0 {
+		t.Errorf("a=0 = %v, want 0", got)
+	}
+}

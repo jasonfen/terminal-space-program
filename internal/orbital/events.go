@@ -17,6 +17,20 @@ import "math"
 // trajectory through Luna's SOI will have no future periapsis until it
 // recaptures.
 
+// HyperbolicMeanAnomaly returns the hyperbolic mean anomaly M = e·sinh H − H
+// at true anomaly nu on a conic of eccentricity e, with sinh H =
+// √(e²−1)·sin ν / (1 + e·cos ν). ok=false when 1 + e·cos ν ≤ 0 (beyond the
+// asymptote, not on the physical arc). The caller owns the e > 1 check; at
+// e = 1 it returns (0, true).
+func HyperbolicMeanAnomaly(e, nu float64) (float64, bool) {
+	denom := 1 + e*math.Cos(nu)
+	if denom <= 0 {
+		return 0, false
+	}
+	H := math.Asinh(math.Sqrt(e*e-1) * math.Sin(nu) / denom)
+	return e*math.Sinh(H) - H, true
+}
+
 // TimeToTrueAnomaly returns the elapsed seconds from the given state
 // to the next time the orbit reaches targetNu (radians). Uses Kepler's
 // equation: convert ν → E → M, take Δ M to the target, divide by mean
@@ -30,7 +44,7 @@ func TimeToTrueAnomaly(currentNu, targetNu, a, e, mu float64) float64 {
 	if a <= 0 || e >= 1 || mu <= 0 {
 		return -1
 	}
-	period := 2 * math.Pi * math.Sqrt(a*a*a/mu)
+	period := PeriodFromA(a, mu)
 	currentM := meanFromTrue(currentNu, e)
 	targetM := meanFromTrue(targetNu, e)
 	dM := targetM - currentM
@@ -74,13 +88,10 @@ func TimeToPeriapsisHyperbolic(state Vec3State, mu float64) (float64, bool) {
 	if nu > math.Pi {
 		nu -= 2 * math.Pi
 	}
-	denom := 1 + el.E*math.Cos(nu)
-	if denom <= 0 {
+	M, ok := HyperbolicMeanAnomaly(el.E, nu)
+	if !ok {
 		return 0, false
 	}
-	sinhH := math.Sqrt(el.E*el.E-1) * math.Sin(nu) / denom
-	H := math.Asinh(sinhH)
-	M := el.E*math.Sinh(H) - H
 	absA := -el.A
 	n := math.Sqrt(mu / (absA * absA * absA))
 	return -M / n, true
@@ -104,13 +115,10 @@ func SecsFromPeriapsisAt(el Elements, nu, mu float64) float64 {
 		}
 		return meanFromTrue(nu, el.E) / n
 	}
-	denom := 1 + el.E*math.Cos(nu)
-	if denom <= 0 {
+	M, ok := HyperbolicMeanAnomaly(el.E, nu)
+	if !ok {
 		return 0 // beyond the asymptote — not on the physical arc
 	}
-	sinhH := math.Sqrt(el.E*el.E-1) * math.Sin(nu) / denom
-	H := math.Asinh(sinhH)
-	M := el.E*math.Sinh(H) - H
 	absA := -el.A
 	n := math.Sqrt(mu / (absA * absA * absA))
 	if n == 0 {
@@ -166,17 +174,8 @@ func TimeToRadiusOutbound(state Vec3State, mu, r float64) (float64, bool) {
 	if nuNow > math.Pi {
 		nuNow -= 2 * math.Pi
 	}
-	meanAnom := func(nu float64) (float64, bool) {
-		denom := 1 + el.E*math.Cos(nu)
-		if denom <= 0 {
-			return 0, false // beyond the asymptote — not on the physical arc
-		}
-		sinhH := math.Sqrt(el.E*el.E-1) * math.Sin(nu) / denom
-		H := math.Asinh(sinhH)
-		return el.E*math.Sinh(H) - H, true
-	}
-	mNow, okNow := meanAnom(nuNow)
-	mExit, okExit := meanAnom(nuExit)
+	mNow, okNow := HyperbolicMeanAnomaly(el.E, nuNow)
+	mExit, okExit := HyperbolicMeanAnomaly(el.E, nuExit)
 	if !okNow || !okExit {
 		return 0, false
 	}
@@ -284,20 +283,12 @@ func TrueAnomalyFromState(r, v Vec3, mu float64, el Elements) float64 {
 	if el.E < 1e-9 {
 		return 0
 	}
-	// Recompute eccentricity vector inline (cheap; avoids returning it
-	// from ElementsFromState and breaking that signature).
 	rMag := r.Norm()
 	if rMag == 0 || mu == 0 {
 		return 0
 	}
-	vMag := v.Norm()
-	rDotV := r.X*v.X + r.Y*v.Y + r.Z*v.Z
-	coef1 := vMag*vMag - mu/rMag
-	eVec := Vec3{
-		X: (coef1*r.X - rDotV*v.X) / mu,
-		Y: (coef1*r.Y - rDotV*v.Y) / mu,
-		Z: (coef1*r.Z - rDotV*v.Z) / mu,
-	}
+	rDotV := r.Dot(v)
+	eVec := EccentricityVector(r, v, mu)
 	eMag := eVec.Norm()
 	if eMag == 0 {
 		return 0

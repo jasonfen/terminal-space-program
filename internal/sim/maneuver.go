@@ -1848,7 +1848,7 @@ func (w *World) splitNodePhasing(c *spacecraft.Spacecraft, target bodies.Celesti
 		return 0, 0, false
 	}
 	tPark := 2 * math.Pi / nCraft
-	tTarget := 2 * math.Pi * math.Sqrt(rArrival*rArrival*rArrival/muShared)
+	tTarget := orbital.PeriodFromA(rArrival, muShared)
 
 	best := math.Inf(1)
 	// Either node of the line can host the apoapsis; try both and take the
@@ -2184,7 +2184,7 @@ func (w *World) splitCaptureAim(c *spacecraft.Spacecraft, target bodies.Celestia
 	if progradeDir.Norm() == 0 {
 		return splitArrival{}, false
 	}
-	tPark := 2 * math.Pi * math.Sqrt(rPark*rPark*rPark/muShared)
+	tPark := orbital.PeriodFromA(rPark, muShared)
 	// delayOrbits is the whole-parking-orbit slip applied to the departure
 	// (see splitArrival.DepDelay); measure reads the slipped departure.
 	delayOrbits := 0

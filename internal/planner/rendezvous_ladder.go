@@ -332,8 +332,7 @@ func rendezvousCrossingBurnTime(mover, holder orbital.Vec3State, mu, minLead flo
 	conic := func(s orbital.Vec3State) (p, ex, ey float64) {
 		h := s.R.Cross(s.V)
 		p = h.Dot(h) / mu
-		r := s.R.Norm()
-		ev := s.R.Scale(s.V.Dot(s.V)/mu - 1/r).Sub(s.V.Scale(s.R.Dot(s.V) / mu))
+		ev := orbital.EccentricityVector(s.R, s.V, mu)
 		return p, ev.Dot(xhat), ev.Dot(yhat)
 	}
 	pM, eMx, eMy := conic(mover)
@@ -621,7 +620,7 @@ func tangentialPeriodForSpeed(vPrime, r0mag, mu float64) (period float64, ok boo
 	if a <= 0 || math.IsInf(a, 0) || math.IsNaN(a) {
 		return 0, false
 	}
-	return 2 * math.Pi * math.Sqrt(a*a*a/mu), true
+	return orbital.PeriodFromA(a, mu), true
 }
 
 // solveTangentialSpeedForPeriod inverts tangentialPeriodForSpeed via

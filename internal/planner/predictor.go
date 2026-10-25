@@ -63,5 +63,5 @@ func orbitalPeriod(s physics.StateVector, mu float64) float64 {
 	if a <= 0 || math.IsNaN(a) {
 		return math.Inf(1)
 	}
-	return 2 * math.Pi * math.Sqrt(a*a*a/mu)
+	return orbital.PeriodFromA(a, mu)
 }
