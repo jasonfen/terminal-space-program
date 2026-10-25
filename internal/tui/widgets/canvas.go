@@ -1,4 +1,4 @@
-// Package widgets provides drawille-backed canvas + lipgloss HUD helpers
+// Package widgets provides a braille-cell canvas + lipgloss HUD helpers
 // shared by all screens.
 package widgets
 
@@ -8,12 +8,11 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/exrook/drawille-go"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
-// Canvas wraps a drawille.Canvas with a world-to-pixel projection. One
+// Canvas wraps a brailleGrid with a world-to-pixel projection. One
 // terminal cell = 2×4 braille dots, so the pixel grid is (cols*2, rows*4).
 //
 // World coordinates are inertial meters. The projection is ortho: drop Z,
@@ -154,7 +153,7 @@ type Canvas struct {
 	centerW    orbital.Vec3 // world coord at pixel center
 	scale      float64      // pixels per meter
 	basis      Basis        // world axes mapped to canvas X+/Y+ (v0.6.4+)
-	dc         drawille.Canvas
+	dc         brailleGrid
 
 	// pixelTags maps a pixel coord (px, py) → CellTag, backed by a dense
 	// grid rather than a map (#369 — see canvas_pixel_tags.go). Set by
@@ -179,7 +178,7 @@ type Canvas struct {
 	ink inkScratch
 
 	// cellOverlays maps a cell coord → a Unicode glyph that replaces
-	// the drawille-derived char at String() time. v0.5.12+ — used by
+	// the braille char at String() time. v0.5.12+ — used by
 	// the orbit renderer to overlay body-identity glyphs (☉ ◉ ● ○)
 	// on top of the underlying braille so different body types read
 	// distinctly even at small pixel-radius. Overlay color comes from
@@ -256,7 +255,7 @@ func NewCanvas(cols, rows int) *Canvas {
 		pxH:   rows * 4,
 		scale: 1,
 		basis: DefaultBasis(),
-		dc:    drawille.NewCanvas(),
+		dc:    newBrailleGrid(cols, rows),
 	}
 	c.pixelTags.ensureSize(c.pxW, c.pxH)
 	return c
@@ -289,12 +288,13 @@ func (c *Canvas) Resize(cols, rows int) {
 	// change, which is safe here — see its doc comment — because every
 	// screen's Render calls Clear() before drawing again after a resize.
 	c.pixelTags.ensureSize(c.pxW, c.pxH)
+	c.dc.resize(cols, rows)
 	if len(c.cellBG) != c.cols*c.rows {
 		c.cellBG, c.hasBG = nil, false
 	}
 }
 
-// Clear wipes the drawille buffer, per-pixel color tags, and cell
+// Clear wipes the braille grid, per-pixel color tags, and cell
 // overlays. Call at the start of every frame.
 func (c *Canvas) Clear() {
 	c.dc.Clear()
@@ -332,7 +332,7 @@ func (c *Canvas) CellBackground(col, row int) lipgloss.Color {
 }
 
 // SetCellOverlay places a Unicode glyph at the cell containing the
-// given world coord, replacing whatever drawille would have rendered
+// given world coord, replacing whatever the grid would have rendered
 // there at String() time. Color comes from the cell's pixel tags
 // (FillColoredDisk etc) — combine with a tagged draw to get a
 // colored overlay. v0.5.12+ — used for body-identity glyphs (☉ ◉ ●
@@ -1473,7 +1473,7 @@ func (c *Canvas) FillRectAnchored(anchor, centerOffset orbital.Vec3, wM, hM floa
 }
 
 // SubPixelSet reports whether the raw braille dot at sub-pixel (px, py)
-// is lit — a direct read of the underlying drawille bitmap, bypassing
+// is lit — a direct read of the underlying braille bitmap, bypassing
 // String()'s per-cell color aggregation. Exists for tests that need to
 // confirm actual rendered dot state (not just "what would Project
 // compute"), e.g. verifying a launch sprite's columns are genuinely
@@ -1925,9 +1925,8 @@ func (c *Canvas) DrawEllipseOffsetDottedColored(el orbital.Elements, offset orbi
 // Pre-v0.5.10 used cell-rectangle tagging which over-painted nearby
 // content (orbit lines, craft glyph) with the body's color.
 func (c *Canvas) String() string {
-	rows := c.dc.Rows(0, 0, c.pxW, c.pxH)
 	if c.pixelTags.count() == 0 && len(c.cellOverlays) == 0 && !c.hasBG {
-		return c.joinRows(rows)
+		return c.dc.String()
 	}
 	// Aggregate tags per cell: for each tagged pixel, accumulate a
 	// per-color count in the cell that contains it. Highest count
@@ -1969,20 +1968,11 @@ func (c *Canvas) String() string {
 		runBuf = runBuf[:0]
 	}
 	for i := 0; i < c.rows; i++ {
-		var line string
-		if i < len(rows) {
-			line = rows[i]
-		}
-		// Colorize per-cell, padding short lines with spaces.
-		// Cell overlays (v0.5.12) replace the drawille char with a
+		// Cell overlays (v0.5.12) replace the braille char with a
 		// specific glyph at the same cell — used for body-identity
 		// markers (☉ ◉ ● ○).
-		runes := []rune(line)
 		for x := 0; x < c.cols; x++ {
-			var ch rune = ' '
-			if x < len(runes) {
-				ch = runes[x]
-			}
+			ch := 0x2800 + rune(c.dc.cells[i*c.dc.stride()+x])
 			cellIdx := i*c.cols + x
 			ch = ink.runeAt(cellIdx, ch)
 			if overlay, ok := c.cellOverlays[[2]int{x, i}]; ok {
@@ -2057,28 +2047,4 @@ func (c *Canvas) CountOverlayColor(color lipgloss.Color) int {
 		}
 	}
 	return n
-}
-
-// joinRows is the uncolored fast path used when no color regions are
-// registered.
-func (c *Canvas) joinRows(rows []string) string {
-	var b strings.Builder
-	for i := 0; i < c.rows; i++ {
-		var line string
-		if i < len(rows) {
-			line = rows[i]
-		}
-		runeCount := 0
-		for range line {
-			runeCount++
-		}
-		if runeCount < c.cols {
-			line += strings.Repeat(" ", c.cols-runeCount)
-		}
-		b.WriteString(line)
-		if i < c.rows-1 {
-			b.WriteByte('\n')
-		}
-	}
-	return b.String()
 }

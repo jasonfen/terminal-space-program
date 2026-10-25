@@ -9,7 +9,6 @@ require (
 	github.com/charmbracelet/ssh v0.0.0-20250128164007-98fd5ae11894
 	github.com/charmbracelet/wish v1.4.7
 	github.com/charmbracelet/x/ansi v0.10.1
-	github.com/exrook/drawille-go v0.0.0-20180117021400-68d036fca70a
 	github.com/muesli/termenv v0.16.0
 	golang.org/x/crypto v0.56.0
 )

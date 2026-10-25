@@ -63,9 +63,10 @@ func expandRunsToPerChar(s string) string {
 // the #364 optimization can be checked for byte-for-byte equivalence
 // against exactly the code path it replaced.
 func (c *Canvas) referenceString() string {
-	rows := c.dc.Rows(0, 0, c.pxW, c.pxH)
+	plain := c.dc.String()
+	rows := strings.Split(plain, "\n")
 	if c.pixelTags.count() == 0 && len(c.cellOverlays) == 0 {
-		return c.joinRows(rows)
+		return plain
 	}
 	cellColor := make(map[[2]int]lipgloss.Color)
 	cellCounts := make(map[[2]int]map[lipgloss.Color]int)
