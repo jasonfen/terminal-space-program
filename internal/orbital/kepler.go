@@ -87,7 +87,7 @@ func EccentricityVector(r, v Vec3, mu float64) Vec3 {
 
 // PeriodFromA returns the Keplerian period 2π√(a³/μ) for semimajor axis a.
 // Pure formula: callers guard a ≤ 0 / NaN / μ ≤ 0 themselves (a < 0 or
-// μ < 0 yields NaN, μ = 0 yields +Inf).
+// μ < 0 yields NaN, μ = 0 yields +Inf, a = μ = 0 yields NaN).
 func PeriodFromA(a, mu float64) float64 {
 	return 2 * math.Pi * math.Sqrt(a*a*a/mu)
 }
