@@ -615,6 +615,19 @@ func (m *reportingModel) resetTargetLockWatch() {
 	m.targetLockResolvedOnce = false
 }
 
+// metaMayAdminister is the per-tick UI gate: it reads the role from the
+// cached meta (refreshed every metaRefresh) instead of session.json, so
+// the admin affordances follow a promote/demote up to metaRefresh late.
+// The admin handlers keep the authoritative store.MayAdminister read.
+func (m *reportingModel) metaMayAdminister() bool {
+	for _, p := range m.meta.Roster {
+		if p.Fingerprint == m.owner {
+			return sessiondir.RoleMayAdminister(p.Role)
+		}
+	}
+	return false
+}
+
 // refreshSession rebuilds the world's ghost + session slates from the
 // store, roster, and presence.
 func (m *reportingModel) refreshSession(now time.Time) {
@@ -734,7 +747,7 @@ func (m *reportingModel) refreshSession(now time.Time) {
 
 	info := &sim.SessionInfo{
 		IsHost:        m.owner == sessiondir.HostFingerprint,
-		CanAdminister: m.srv.store.MayAdminister(m.owner),
+		CanAdminister: m.metaMayAdminister(),
 		Self:          m.owner,
 	}
 	// Version surface (v0.30 S5): universal readout, adopt gated.

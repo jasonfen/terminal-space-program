@@ -451,8 +451,8 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 		// shape a v9 save (schema < 10, before CraftToWire started
 		// preserving ghost refs) carries for a craft that was saved
 		// mid-ghost-burn: the old wire form dropped the ref unconditionally
-		// while keeping the burn. migrateV9PayloadToV10 is an identity
-		// transform, so that shape reaches here unchanged on load. Either
+		// while keeping the burn. the v9 to v10 bump is an identity (no migration function), so
+		// that shape reaches here unchanged on load. Either
 		// way, nodeTargetRelState refuses unconditionally for craftID==0,
 		// so a target-relative burn with no ref can never resolve, never
 		// thrust, and never tear itself down (burnExhausted's fuel-present-
