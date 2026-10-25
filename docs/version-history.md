@@ -2,6 +2,14 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.61.2
+
+Idle frames cost less: the orbit view draws in about 1.17 ms instead of 1.50 ms and makes half the garbage (PRs `#797`-`#799`; tag `v0.61.2`). Nothing on screen changes.
+
+- **Own braille canvas.** The `drawille-go` dependency is gone; the canvas keeps its own dot grid. Same output byte for byte, 1.94 to 1.01 MB and 24.5k to 15.3k allocations per idle frame (`#798`).
+- **Less disk on `--serve`.** Each session reads its admin role from the cached roster instead of `session.json` 20 times a second. A promote or demote shows on the other player's bottom row up to 5 s later; the admin actions still check the file (`#799`).
+- **Leaner internals.** One copy of each orbital formula, and the five save-schema bumps that only added keys no longer carry empty migration functions (`#797`, `#799`).
+
 ### v0.61.1
 
 Undocked pieces can re-dock once their ports are 5 m apart, and the game says when a pair is held off (PR `#796`; tag `v0.61.1`; closes `#794`, `#795`).
