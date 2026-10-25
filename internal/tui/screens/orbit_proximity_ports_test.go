@@ -344,6 +344,17 @@ func TestProximityCompactFormPortRows(t *testing.T) {
 	if in := compact(portedPairWorld(t, []string{"rcs-tug"}, []string{"nudge-tug"}, orbital.Vec3{X: 0.3}, 0)); len(in) != 2 {
 		t.Errorf("Compact Form in gate = %q, want name and range only", in)
 	}
+	// Latched in the gate: the port row comes back with the latched line, since
+	// the latch is the one reason a pair in the gate does not dock (#794).
+	lw := latchedPortedWorld(t)
+	for _, l := range compact(lw) {
+		if lipgloss.Width(l) > proximityChipInnerWidth {
+			t.Errorf("Compact latched row %q wider than %d cells", l, proximityChipInnerWidth)
+		}
+	}
+	if got := strings.Join(compact(lw), "\n"); !strings.Contains(got, "latched: back 5 m or "+ReArmKeyLabel) || chipLine(compact(lw), "port:") == "" {
+		t.Errorf("latched Compact Form = %q, want the port: row and the latched line", got)
+	}
 	// A port-less target inside 50 m always says why.
 	if pl := compact(portedPairWorld(t, []string{"rcs-tug"}, []string{"s-ivb-1"}, orbital.Vec3{X: 20}, 0)); !strings.Contains(chipLine(pl, "port:"), "none (S-IVB has no port)") {
 		t.Errorf("port-less Compact Form = %q, want the port: none row", pl)

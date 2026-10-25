@@ -94,7 +94,7 @@ func helpPhraseRows() []helpPhrase {
 		{name: "enter RENDEZVOUS PLANNER", section: "RENDEZVOUS PLANNER (map chip, opens from K)", exists: []string{"enter"}},
 		// DOCKING quotes the sim's own constants, not copies: a retuned gate goes red here.
 		{name: "docking gate", section: "DOCKING", token: "the gate", has: []string{
-			fmt.Sprintf("%.1f m", sim.DockPortRangeM), fmt.Sprintf("%.1f m/s", sim.DockingVMS), fmt.Sprintf("%.0f°", sim.DockAlignDeg)}},
+			fmt.Sprintf("%.1f m", sim.DockPortRangeM), fmt.Sprintf("%.1f m/s", sim.DockingVMS), fmt.Sprintf("%.0f°", sim.DockAlignDeg), "gap × orbit rate"}},
 		{name: "docking magnet", section: "DOCKING", token: "magnet", has: []string{"five-second"}},
 		{name: "docking U spring", section: "DOCKING", token: "U", has: []string{fmt.Sprintf("%.2f m/s", sim.UndockSpringMS)}},
 		{name: "docking bump", section: "DOCKING", token: "bump", has: []string{fmt.Sprintf("re-approach under %.2f m/s", sim.DockingVMS)}},

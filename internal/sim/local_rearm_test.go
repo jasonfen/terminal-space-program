@@ -382,3 +382,28 @@ func TestReArmKeyInTheGateDocksWithoutBump(t *testing.T) {
 		t.Errorf("slate = %d vessels after alt+u in the gate, want the pair docked", len(w.Crafts))
 	}
 }
+
+// #794 on a batch: the Starlink pieces carry no port, so their port gap can
+// never be read and, before the fix, all 300 pair latches sat for the full
+// ten minutes guarding a dock that cannot happen. A pair that provably cannot
+// dock holds no latch; one whose nose is not yet known still does.
+func TestReleasedBatchPortlessPiecesHoldNoLatch(t *testing.T) {
+	w, _, _, sats := releasedFan(t, 90, true)
+	if g := VesselPortGeometry(sats[0]); g.HasPort() || !g.Known {
+		t.Fatalf("fixture: Starlink port=%v known=%v, want a known shape with no port", g.HasPort(), g.Known)
+	}
+	if len(w.localReArms) == 0 {
+		t.Fatal("fixture: the release armed no latches")
+	}
+	w.checkDocking()
+	if got := len(w.localReArms); got != 0 {
+		t.Errorf("%d latches survive a scan on port-less pieces, want 0", got)
+	}
+	// Ported pair, unknown nose: cannot tell, so it holds.
+	w2, ta, tb := undockedTugs(t, 0.3, 0)
+	ta.CurrentAttitudeDir = orbital.Vec3{}
+	w2.checkDocking()
+	if !w2.isLocalReArmed(ta.ID, tb.ID) {
+		t.Error("a ported pair with an unknown nose lost its latch")
+	}
+}

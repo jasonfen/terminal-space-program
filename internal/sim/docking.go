@@ -534,8 +534,14 @@ func (w *World) pruneLocalReArms() {
 		// An unreadable port gap (no port, or a nose not yet initialised) is
 		// no evidence of separation: the latch holds, as the cross-player one
 		// does, until the ceiling.
-		if gap, ok := PortGapM(VesselPortGeometry(aC), aC.State.R, VesselPortGeometry(bC), bC.State.R); ok && gap > ReArmDistM {
+		ga, gb := VesselPortGeometry(aC), VesselPortGeometry(bC)
+		if gap, ok := PortGapM(ga, aC.State.R, gb, bC.State.R); ok && gap > ReArmDistM {
 			continue // cleared — the pair backed apart, latch has done its job
+		}
+		// A pair that provably cannot dock (a known shape with no port, like
+		// every Starlink in a released batch) has nothing to guard.
+		if (ga.Known && !ga.HasPort()) || (gb.Known && !gb.HasPort()) {
+			continue
 		}
 		kept = append(kept, r)
 	}

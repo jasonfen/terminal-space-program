@@ -302,7 +302,8 @@ slowly and straight, and the last half metre closes by itself.
   vessel in the Proximity view reads `no port`.
 - **The gate.** A dock needs all three at once: the two ports within 0.5 m,
   relative speed under 0.1 m/s (port to port: a long stack turning with the
-  orbit swings its port, and that counts), and the two noses within 4° of
+  orbit swings its port, and that counts; a pair holding still in the picture reads
+  its gap times the orbit rate, about 0.03 m/s at 25 m), and the two noses within 4° of
   pointing at each other. The Proximity view shows them as the `port:`, `rel speed:` and
   `misalign:` rows, each with a `(need < ...)` reminder while you are inside
   50 m and that term fails; `misalign:` is the angle between the two axes,

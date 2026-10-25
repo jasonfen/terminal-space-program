@@ -1022,8 +1022,11 @@ func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
 	// ADR 0053 decision 6: port: and misalign: survive the shrink, but only
 	// inside 50 m and out of gate; lateral: is dropped in Compact Form.
 	capturing := proximityCapturing(w)
-	if proximityInsideRing(st) && (proximityPortOutOfGate(st) || capturing) {
+	if proximityInsideRing(st) && (proximityPortOutOfGate(st) || capturing || st.ReArmLatched) {
 		lines = append(lines, v.proximityPortRow(st, capturing))
+		if st.HasPort && st.ReArmLatched {
+			lines = append(lines, proximityLatchedRow())
+		}
 		if st.HasPort {
 			lines = append(lines, proximityAlignRow(st))
 		}
