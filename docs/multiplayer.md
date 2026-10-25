@@ -139,7 +139,7 @@ Dock your vessel to theirs and you fly one shared stack.
 - After an undock, the pair is held apart even once you settle back into the
   docking gate, so a stray touch doesn't silently re-fuse two vessels you
   meant to keep apart. The dock-gate ring in Proximity View (`o`) shows amber
-  while it's held. Clearing 100 m, or waiting it out, releases the hold;
+  while it's held. Backing the ports more than 5 m apart, or waiting it out, releases the hold;
   pressing `alt+u` re-arms right where you are.
 
 ## Chat

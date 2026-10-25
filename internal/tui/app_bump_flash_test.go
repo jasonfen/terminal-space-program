@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -23,5 +24,24 @@ func TestBumpEventFlashesAndClears(t *testing.T) {
 	}
 	if a.world.LastBumpEvent != nil {
 		t.Error("LastBumpEvent was not cleared after flashing")
+	}
+}
+
+// #794: a touch the re-arm latch alone refused names the latch, not the
+// approach speed (which was already under the gate), and keeps the push.
+func TestLatchedBumpCaptionNamesTheLatch(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.world.LastBumpEvent = &sim.BumpEvent{When: a.world.Clock.SimTime, PartnerName: "Comp", SpeedMS: 0.05, Latched: true}
+	tickAt(a, time.Now())
+
+	const want = "bumped Comp at 0.05 m/s; held off: back 5 m or alt+u"
+	if a.statusMsg != want {
+		t.Errorf("statusMsg = %q, want %q", a.statusMsg, want)
+	}
+	if strings.Contains(a.statusMsg, "re-approach") {
+		t.Errorf("a latched touch still says re-approach: %q", a.statusMsg)
 	}
 }

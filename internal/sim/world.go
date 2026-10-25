@@ -96,14 +96,6 @@ type World struct {
 	// refusals (ADR 0053 slice E, docking_ghost.go). Transient, never saved.
 	ghostDock ghostDock
 
-	// LastLocalReArmRefusal records the most recent same-World dock refused
-	// by a live localReArm latch, for HUD-side messaging (#372) — the local
-	// mirror of relay/dock.go's reArmNoticed/reArmNoticeTo. checkDocking
-	// stamps it at most once per latch (the latch record's own `noticed`
-	// flag makes it one chip for the life of the latch, not one per refused
-	// tick); app.go reads and clears it, same pattern as LastDockEvent.
-	LastLocalReArmRefusal *LocalReArmRefusalEvent
-
 	// LastLaunchReleaseEvent records the most recent ViewLaunch
 	// switch-end release so the App can surface an
 	// `"launch view off, back on the <prev view> view"` toast. Cleared by
@@ -1055,18 +1047,6 @@ func (w *World) Tick() {
 	w.updateProximityHint()
 	// #601: the navball frame follows the flight, on edges only.
 	w.updateAutoNavMode()
-}
-
-// LocalReArmRefusalEvent records the latest same-World dock a localReArm
-// latch (#343) held off, so app.go can chip WHY nothing happened rather than
-// leave #372's silent refusal in place. Same shape as DockEvent — App reads
-// and clears it once per fire.
-type LocalReArmRefusalEvent struct {
-	When time.Time
-	// PartnerName is the OTHER craft's name — the active vessel's partner
-	// when the active vessel is one of the two, else one of the pair
-	// (arbitrarily the second) when neither is active.
-	PartnerName string
 }
 
 // NodeTargetRefusalEvent records the latest target-relative node (or

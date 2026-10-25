@@ -195,7 +195,7 @@ var helpSections = []helpSection{
 		{"navball (PORT)", "pitch / yaw: how far your nose is above or below, right or left of, parallel to their port axis"},
 		{"p", "rcs pulse step: 0.1 / 0.01 / 0.001 m/s; the last metres want 0.01 or finer"},
 		{"U", "undock the active composite: the pieces come back port to port 1.5 to 3 m apart, parting at 0.15 m/s"},
-		{"alt+u", "re-arm docking: a just-undocked pair cannot re-dock until 100 m or ten minutes pass; [alt+u] clears that now"},
+		{"alt+u", "re-arm docking: an undocked pair re-docks once its ports are 5 m apart or after ten minutes; [alt+u] clears it now"},
 	}},
 	{"SPAWN FORM (n)", [][2]string{
 		{"tab / shift+tab", "next / previous field"},

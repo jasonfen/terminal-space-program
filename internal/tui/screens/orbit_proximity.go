@@ -877,6 +877,12 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 		chipRow("range:", readout.Distance(st.HullGapM)),
 		v.proximityPortRow(st, proximityCapturing(w)),
 	}
+	if st.HasPort && st.ReArmLatched {
+		// #794: standing for as long as the latch holds, so it never reads as
+		// a dock that failed for no reason. Its own line: the port: value is
+		// 26 cells and the number still has to show.
+		rows = append(rows, proximityLatchedRow())
+	}
 	if st.HasPort {
 		rows = append(rows, proximityAlignRow(st))
 		if proximityInsideRing(st) {

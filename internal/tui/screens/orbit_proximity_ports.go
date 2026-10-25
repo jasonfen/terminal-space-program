@@ -82,6 +82,12 @@ func (v *OrbitView) proximityPortRow(st sim.ProximityState, capturing bool) stri
 	return chipRow("port:", fitPortNote(st.PortNote, proximityChipInnerWidth-chipValueCol))
 }
 
+// proximityLatchedRow is the standing line under port: while the re-arm latch
+// holds the pair (#794). 26 cells, the width of a chip value.
+func proximityLatchedRow() string {
+	return fmt.Sprintf("  latched: back %.0f m or alt+u", sim.ReArmDistM)
+}
+
 // proximityAlignRow is the `misalign:` row (IDSS "pitch/yaw misalignment"),
 // whole degrees off straight. ADR 0055 decision 2: renamed from `align:`,
 // same number.

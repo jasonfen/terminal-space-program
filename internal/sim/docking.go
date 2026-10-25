@@ -26,13 +26,6 @@ import (
 type localReArm struct {
 	idA, idB   uint64
 	releasedAt time.Time
-	// noticed records that checkDocking has already stamped
-	// World.LastLocalReArmRefusal for this latch (#372) — the local mirror
-	// of relay/dock.go's reArmNoticed. checkDocking re-scans every tick for
-	// as long as the pair sits inside both proximity gates, so without this
-	// flag the refusal chip would spam every frame the pair sits there
-	// instead of firing once for the life of the latch.
-	noticed bool
 }
 
 // Undock splits the craft at idx back into its DockedComponents,
@@ -213,7 +206,7 @@ func (w *World) undockSplit(idx int, batch bool) bool {
 	// #343: arm a same-World re-arm latch (localReArm) for every pair among
 	// the just-restored components, mirroring the cross-player DockCooldown
 	// latch's shape — checkDocking refuses to re-fuse any of these pairs
-	// until they've separated past ReArmDistM or ReArmCeiling of sim-time
+	// until their ports have separated past ReArmDistM or ReArmCeiling of sim-time
 	// has passed, regardless of what the proximity gates alone say. Covers
 	// both the along-track push's own secular drift and two of these
 	// components simply drifting back together for unrelated reasons.
@@ -491,14 +484,16 @@ func DockSeams(c *spacecraft.Spacecraft) []int {
 // 0053 "Settled here" item 4).
 const UndockSpringMS = 0.15
 
-// ReArmDistM is the re-arm-by-leaving distance (ADR 0038 §5): once a
-// cross-player pair undocks, a fresh Claim() between the SAME pair of craft
-// is refused until they separate past this distance — "back away first,
-// then you can dock again," a rule with no invisible timer for a drift-back
-// to silently outlast. Deliberately past DockingDistM's 50 m gate (the ADR's
-// "~100 m, just outside the gate band") so re-arming isn't a coin-flip right
-// at the boundary the 75 m SeparationPush lands just inside of.
-const ReArmDistM = DockingDistM * 2 // 100 m
+// ReArmDistM is the re-arm-by-leaving distance (ADR 0038 §5, amended
+// 2026-10-25 for #794): once a pair undocks, a fresh dock between the SAME
+// pair is refused until their PORTS have been more than this far apart, "back
+// away first, then you can dock again", a rule with no invisible timer for a
+// drift-back to silently outlast. Measured port to port (PortGapM), not
+// anchor to anchor, and sized for the 0.5 m port gate: the old 100 m anchor
+// distance was sized for the 50 m click, kept a released piece latched while
+// the ring showed every term met, and was already 43 m at port contact on a
+// CSM against an S-IVB+LM stack.
+const ReArmDistM = 5.0
 
 // ReArmCeiling bounds how long a re-arm latch may hold when the distance it
 // waits on can never be read (#326). The latch clears on a POSITIVE range
@@ -536,7 +531,10 @@ func (w *World) pruneLocalReArms() {
 		if !aOK || !bOK {
 			continue
 		}
-		if aC.State.R.Sub(bC.State.R).Norm() > ReArmDistM {
+		// An unreadable port gap (no port, or a nose not yet initialised) is
+		// no evidence of separation: the latch holds, as the cross-player one
+		// does, until the ceiling.
+		if gap, ok := PortGapM(VesselPortGeometry(aC), aC.State.R, VesselPortGeometry(bC), bC.State.R); ok && gap > ReArmDistM {
 			continue // cleared — the pair backed apart, latch has done its job
 		}
 		kept = append(kept, r)
@@ -555,45 +553,6 @@ func (w *World) isLocalReArmed(idA, idB uint64) bool {
 		}
 	}
 	return false
-}
-
-// raiseLocalReArmRefusal delivers the once-per-latch explanation for a pair
-// checkDocking just refused to re-fuse because of a live localReArm latch
-// (#372 part 3). Mirrors relay/dock.go's raiseReArmNotice one-shot
-// semantics: the latch record's own `noticed` flag makes this fire at most
-// once for the life of the latch, however many ticks the pair goes on
-// sitting inside both proximity gates. No-op if the named pair no longer
-// holds a latch (shouldn't happen — the caller just observed isLocalReArmed
-// true for the same pair) or has already been noticed.
-func (w *World) raiseLocalReArmRefusal(idA, idB uint64) {
-	for i := range w.localReArms {
-		r := &w.localReArms[i]
-		if !((r.idA == idA && r.idB == idB) || (r.idA == idB && r.idB == idA)) {
-			continue
-		}
-		if r.noticed {
-			return
-		}
-		r.noticed = true
-		aC, _, aOK := w.craftByID(r.idA)
-		bC, _, bOK := w.craftByID(r.idB)
-		if !aOK || !bOK {
-			return
-		}
-		// Name the ACTIVE vessel's partner when the active vessel is one of
-		// the two — the player pressing `c` wants to know who THEY are held
-		// off from. Neither party being active (e.g. two other craft in the
-		// same latched pair) falls back to naming b.
-		partner := bC
-		if ac := w.ActiveCraft(); ac != nil && ac.ID == bC.ID {
-			partner = aC
-		}
-		w.LastLocalReArmRefusal = &LocalReArmRefusalEvent{
-			When:        w.Clock.SimTime,
-			PartnerName: partner.Name,
-		}
-		return
-	}
 }
 
 // ReArmDocking clears the same-World re-arm latch(es) naming the active
@@ -690,10 +649,9 @@ func (w *World) checkDocking() (int, int, bool) {
 			}
 			// #343: a just-undocked (or otherwise latched) pair stays apart
 			// regardless of the gate, the local mirror of the cross-player
-			// re-arm-by-leaving latch. #372: say so, once per latch, so the
-			// refusal isn't silent.
+			// re-arm-by-leaving latch. The refusal is not silent: the port
+			// row carries a standing "latched" line (#794).
 			if w.isLocalReArmed(a.ID, b.ID) {
-				w.raiseLocalReArmRefusal(a.ID, b.ID)
 				continue
 			}
 			w.startDockMagnet(i, j)
