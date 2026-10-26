@@ -196,3 +196,31 @@ func TestSetTargetBodySnapsNavTargetToOrbit(t *testing.T) {
 		t.Errorf("after SetTargetBody: nav = %v, want NavOrbit", w.NavMode)
 	}
 }
+
+// TestAttitudeHoldPartsNamesFrame: the frame tags the HELD MODE, not the
+// live NavMode, and NavTarget without a relative target falls back to orbit.
+func TestAttitudeHoldPartsNamesFrame(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	cases := []struct {
+		nav       NavMode
+		mode      spacecraft.BurnMode
+		wantLabel string
+		wantFrame NavMode
+	}{
+		{NavOrbit, spacecraft.BurnSurfaceRetrograde, "Retrograde", NavSurface},
+		{NavOrbit, spacecraft.BurnPortIn, spacecraft.BurnPortIn.String(), NavPort},
+		{NavSurface, spacecraft.BurnPortIn, spacecraft.BurnPortIn.String(), NavPort},
+		{NavTarget, spacecraft.BurnPrograde, "Prograde", NavOrbit}, // no relative target: fallback
+		{NavOrbit, spacecraft.BurnPrograde, "Prograde", NavOrbit},
+	}
+	for _, tc := range cases {
+		w.NavMode = tc.nav
+		label, frame := w.AttitudeHoldParts(tc.mode)
+		if label != tc.wantLabel || frame != tc.wantFrame {
+			t.Errorf("nav %v mode %v: got (%q, %v), want (%q, %v)", tc.nav, tc.mode, label, frame, tc.wantLabel, tc.wantFrame)
+		}
+	}
+}

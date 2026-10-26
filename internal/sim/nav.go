@@ -1,6 +1,10 @@
 package sim
 
-import "github.com/jasonfen/terminal-space-program/internal/spacecraft"
+import (
+	"strings"
+
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+)
 
 // NavMode selects the reference frame the SAS axis hotkeys
 // (prograde / retrograde / normal±, radial±) interpret against.
@@ -230,4 +234,41 @@ func (w *World) resetDanglingPortHold() {
 		spacecraft.BurnPortDown, spacecraft.BurnPortLeft, spacecraft.BurnPortRight:
 		c.AttitudeMode = spacecraft.BurnPrograde
 	}
+}
+
+// AttitudeHoldParts is the held mode's display name and the frame it is
+// held in (the frame of the MODE, never the live NavMode; see the tui
+// attitudeHoldLabel comment for the rules).
+func (w *World) AttitudeHoldParts(mode spacecraft.BurnMode) (string, NavMode) {
+	if w.NavMode == NavTarget && w.HasRelativeTarget() {
+		switch mode {
+		case spacecraft.BurnPrograde:
+			mode = spacecraft.BurnTargetPrograde
+		case spacecraft.BurnRetrograde:
+			mode = spacecraft.BurnTargetRetrograde
+		case spacecraft.BurnRadialOut:
+			mode = spacecraft.BurnTarget
+		case spacecraft.BurnRadialIn:
+			mode = spacecraft.BurnAntiTarget
+		}
+	}
+	frame := NavOrbit
+	switch mode {
+	case spacecraft.BurnSurfacePrograde, spacecraft.BurnSurfaceRetrograde:
+		frame = NavSurface
+	case spacecraft.BurnTarget, spacecraft.BurnAntiTarget, spacecraft.BurnTargetPrograde, spacecraft.BurnTargetRetrograde:
+		frame = NavTarget
+	case spacecraft.BurnPortIn, spacecraft.BurnPortOut, spacecraft.BurnPortUp,
+		spacecraft.BurnPortDown, spacecraft.BurnPortLeft, spacecraft.BurnPortRight:
+		// ADR 0053 decision 7: the six PORT modes are frame-locked to the
+		// target's port, so they tag their OWN frame, never the live
+		// NavMode (a hold of Port+ stays "Port+ (PORT)" after ; moves on).
+		frame = NavPort
+	}
+	// #478 A2: the bracket tag already names the frame, so a surface-
+	// framed mode drops its own redundant "Surface " word ("Surface
+	// Retrograde (SURF)" -> "Retrograde (SURF)"). The frame was being
+	// named three times on the row otherwise: here, the tag, and (before
+	// NavMode.String()'s own A2 fix) the nav: cell beside it.
+	return strings.TrimPrefix(mode.String(), "Surface "), frame
 }
