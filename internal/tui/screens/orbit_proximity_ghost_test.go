@@ -5,7 +5,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/muesli/termenv"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -153,6 +155,9 @@ func TestProximityGhostHullIsTheReportedRectangle(t *testing.T) {
 // track and 8 m deep: the sibling of TestProximityGhostHullIsTheReportedRectangle,
 // whose fixture is 8 m along track and stays a filled block.
 func TestProximityGhostHullOutOfPlaneIsADottedBox(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
 	w := ghostPairWorld(t, []string{"rcs-tug"}, []string{"ntr-tug"}, orbital.Vec3{X: 8, Z: 8}, 0)
 	v := newProximityTestView(t, DesignWidth, DesignHeight)
 	v.Render(w, 0, DesignWidth, DesignHeight)
@@ -175,6 +180,16 @@ func TestProximityGhostHullOutOfPlaneIsADottedBox(t *testing.T) {
 	}
 	if lit((tail+head)/2, g.WidthM/4, 0) {
 		t.Error("ghost interior lit: a filled block, not a box")
+	}
+	// ColorDim (#5F5F5F = 95;95;95) on the box's corner row, not TARGET green.
+	basis := widgets.Basis{X: st.Frame.AlongTrack, Y: st.Frame.RadialOut}
+	sx, sy := stackDirScreen(g.Attitude, basis)
+	along := basis.X.Scale(sx).Add(basis.Y.Scale(sy))
+	across := basis.X.Scale(-sy).Add(basis.Y.Scale(sx))
+	_, py, _ := v.canvas.Project(st.TargetWorld.Add(along.Scale(tail)).Add(across.Scale(g.WidthM / 2)))
+	row := strings.Split(v.canvas.String(), "\n")[py/4]
+	if !strings.Contains(row, "95;95;95") || strings.Contains(row, "60;220;131") {
+		t.Errorf("box corner row is not the dim ghost colour: %q", row)
 	}
 	// The Centerline scope (top right, past column 110) has its own ring mark
 	// once the pair is out of plane; count the side picture only.

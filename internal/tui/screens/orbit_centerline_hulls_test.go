@@ -576,7 +576,8 @@ func TestCenterlineHullsLeaveTheCrossVisible(t *testing.T) {
 // ADR 0055 B2's known limit (slice open point 1): a 1.0 m tug's hull circle
 // (r 0.5 m) is the port ring (r 0.5 m), so going solid adds no new circle:
 // every lit dot beside each other stays on the ring's own circle (14 dots at
-// the 2 m step). It documents the limit; it is not a red-able guard.
+// the 2 m step). What does change with the class is how many of them are lit:
+// solid beside, dotted apart.
 func TestCenterlineTugHullSolidStaysOnTheRing(t *testing.T) {
 	count := func(ahead float64) int {
 		w := hullWorldAhead(t, "rcs-tug", "nudge-tug", ahead, 0, 0, 0)
@@ -597,5 +598,7 @@ func TestCenterlineTugHullSolidStaysOnTheRing(t *testing.T) {
 	if n := count(-1); n < 40 {
 		t.Errorf("only %d dots lit beside each other: the instrument cannot read the ring", n)
 	}
-	count(1)
+	if apart, beside := count(1), count(-1); beside <= apart {
+		t.Errorf("solid beside lights %d dots, dotted apart %d: the class does not change the ring", beside, apart)
+	}
 }
