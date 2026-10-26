@@ -395,6 +395,30 @@ func TestProximityPortLabelAndMarksCoexist(t *testing.T) {
 	if got := strings.Count(out, "2.10 m"); got != 3 {
 		t.Errorf("\"2.10 m\" appears %d times, want 3 (chip row + the port line's label + the Centerline ring's):\n%s", got, out)
 	}
+
+	// Dragons 0.3 m apart along track and 0.6 m up put one mark on the label's
+	// row: the label used to be written under it and read `3.0○ m` (#759, ADR
+	// 0055 B6). It must now sit clear of both marks.
+	w = portedPairWorld(t, []string{"dragon-crew"}, []string{"dragon-cargo"}, orbital.Vec3{X: 0.3, Y: 0.6, Z: 3}, 0)
+	v = newProximityTestView(t, DesignWidth, DesignHeight)
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	v.userZoom = 3
+	out = ansi.Strip(v.Render(w, 0, DesignWidth, DesignHeight))
+	if got := strings.Count(out, "○"); got != 2 {
+		t.Errorf("port marks on screen = %d, want 2", got)
+	}
+	if strings.Contains(out, "3.0○") || strings.Contains(out, "○ m") || strings.Contains(out, "3.○") {
+		var rows []string
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, "○") {
+				rows = append(rows, l)
+			}
+		}
+		t.Errorf("a port mark sits inside the port line's label:\n%s", strings.Join(rows, "\n"))
+	}
+	if !strings.Contains(out, "3.0") {
+		t.Error("the port line's label is gone")
+	}
 }
 
 // A ghost has no known shape yet (slice E): the chip says so rather than

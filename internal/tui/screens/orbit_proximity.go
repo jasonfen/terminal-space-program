@@ -760,7 +760,13 @@ func (v *OrbitView) drawProximityVessels(w *sim.World, st sim.ProximityState) {
 		// A friend's vessel: one rectangle of the reported nose_m x width_m
 		// (ADR 0053 decision 9), or the diamond when the report carries no
 		// shape.
-		if v.drawProximityGhostHull(&v.proxTargetSpriteShown, g, st.TargetWorld, st.Frame) {
+		drew := false
+		if proximityHullBoxed(st) {
+			drew = v.drawProximityHullBox(&v.proxTargetSpriteShown, ghostHullHeightCells(g, v.canvas.Scale()), st.TargetWorld, g.Attitude, st.Frame, st.Target, render.ColorDim)
+		} else {
+			drew = v.drawProximityGhostHull(&v.proxTargetSpriteShown, g, st.TargetWorld, st.Frame)
+		}
+		if drew {
 			if st.Target.HasPort() {
 				v.drawProximityPortMark(st.TargetWorld, g.Attitude, st.Frame, st.Target.Ports[0].OffsetM, render.ColorTarget)
 			}
@@ -775,7 +781,13 @@ func (v *OrbitView) drawProximityVessels(w *sim.World, st sim.ProximityState) {
 		if tc, _, ok := w.ResolveTargetCraft(); ok {
 			targetSeams = sim.DockSeams(tc)
 		}
-		if !v.drawProximityHull(&v.proxTargetSpriteShown, targetStages, targetAttitude, st.TargetWorld, st.Frame, targetSeams...) {
+		drew := false
+		if proximityHullBoxed(st) {
+			drew = v.drawProximityHullBox(&v.proxTargetSpriteShown, proximitySpriteHeightCells(targetStages, v.canvas.Scale()), st.TargetWorld, targetAttitude, st.Frame, st.Target, render.ColorTarget)
+		} else {
+			drew = v.drawProximityHull(&v.proxTargetSpriteShown, targetStages, targetAttitude, st.TargetWorld, st.Frame, targetSeams...)
+		}
+		if !drew {
 			v.canvas.FillColoredDiskTagged(st.TargetWorld, 1,
 				widgets.CellTag{Color: render.ColorTarget, IsVessel: true})
 			v.canvas.SetCellOverlayColored(st.TargetWorld, '◆', render.ColorTarget)

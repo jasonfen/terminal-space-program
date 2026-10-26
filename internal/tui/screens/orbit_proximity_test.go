@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
@@ -1256,5 +1259,138 @@ func TestProximityHullFlipsDockedBlock(t *testing.T) {
 	flipped := proximityHullRects([]spacecraft.Stage{a, b, c}, []int{1})
 	if !(tail(flipped, "#0000FF") < tail(flipped, "#00FF00")) {
 		t.Errorf("seam at 1: C should sit below B (nose to the seam), got C %.1f B %.1f", tail(flipped, "#0000FF"), tail(flipped, "#00FF00"))
+	}
+}
+
+// hullProbe returns "is the canvas pixel at (a metres along the hull, u
+// metres across it) lit" for a hull anchored at anchor with the given
+// attitude, in the view's last render.
+//
+// tol widens the probe to a (2tol+1)-pixel square: a dotted edge skips
+// pixels, so corners are probed with tol 1 and what must be DARK with 0.
+func hullProbe(v *OrbitView, st sim.ProximityState, anchor, attitude orbital.Vec3) func(a, u float64, tol int) bool {
+	basis := widgets.Basis{X: st.Frame.AlongTrack, Y: st.Frame.RadialOut}
+	sx, sy := stackDirScreen(attitude, basis)
+	along := basis.X.Scale(sx).Add(basis.Y.Scale(sy))
+	across := basis.X.Scale(-sy).Add(basis.Y.Scale(sx))
+	return func(a, u float64, tol int) bool {
+		px, py, ok := v.canvas.Project(anchor.Add(along.Scale(a)).Add(across.Scale(u)))
+		if !ok {
+			return false
+		}
+		for dx := -tol; dx <= tol; dx++ {
+			for dy := -tol; dy <= tol; dy++ {
+				if v.canvas.SubPixelSet(px+dx, py+dy) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+}
+
+// boxScene renders a ported pair at a fixed zoom and returns the view, the
+// state and the target's and your own hull probes. Ports meet at X 0, so
+// neither hull overlaps the other on screen.
+func boxScene(t *testing.T, own, tgt string, off orbital.Vec3, zoom float64) (*OrbitView, *sim.World, sim.ProximityState, func(a, u float64, tol int) bool, func(a, u float64, tol int) bool) {
+	t.Helper()
+	w := portedPairWorld(t, []string{own}, []string{tgt}, off, 0)
+	v := newProximityTestView(t, DesignWidth, DesignHeight)
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	v.userZoom = zoom
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	st, _ := w.ProximityState()
+	tp := hullProbe(v, st, st.TargetWorld, w.Crafts[1].CurrentAttitudeDir)
+	op := hullProbe(v, st, st.CraftWorld, w.ActiveCraft().CurrentAttitudeDir)
+	return v, w, st, tp, op
+}
+
+// The target's hull is a dotted outline when the two axes are further apart
+// across the view's depth than the radii sum, and a filled rectangle at or
+// inside it (ADR 0055 B1; the rule is strict, so exactly the sum is filled).
+// Dragons are 4.0 m wide, so the sum is 4.0 m. Probed at mid-length a quarter
+// width off the axis (clear of the +V axis line): lit when filled, dark when
+// only the outline is drawn.
+func TestProximityHullBoxOnlyBeyondTheRadiiSum(t *testing.T) {
+	tail := -sim.DockPortTipInsetM()
+	for _, c := range []struct {
+		name string
+		off  orbital.Vec3
+		box  bool
+	}{
+		{"3.99 m deep: filled", orbital.Vec3{Z: 3.99}, false},
+		{"exactly the radii sum: filled", orbital.Vec3{Z: 4.0}, false},
+		{"4.01 m deep: box", orbital.Vec3{Z: 4.01}, true},
+		{"approach, 0.5 m deep: filled", orbital.Vec3{X: 20, Z: 0.5}, false},
+		{"above you, 8 m, same plane: filled", orbital.Vec3{Y: 8}, false},
+		{"60 m deep: box, no range gate", orbital.Vec3{Z: 60}, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			v, _, st, tp, _ := boxScene(t, "dragon-crew", "dragon-cargo", c.off, 6)
+			if !v.proxTargetSpriteShown {
+				t.Fatal("setup: the target hull must clear the sprite switch")
+			}
+			if st.Target.WidthM != 4.0 {
+				t.Fatalf("setup: Dragon width = %v, want 4.0", st.Target.WidthM)
+			}
+			mid := tail + st.Target.NoseM/2
+			if got := tp(mid, st.Target.WidthM/4, 0); got == c.box {
+				t.Errorf("interior lit = %v with HullDepthM %.12f, want %v", got, st.HullDepthM, !c.box)
+			}
+			if !tp(tail, st.Target.WidthM/2, 1) {
+				t.Error("corner of the target hull not lit")
+			}
+		})
+	}
+}
+
+// Two tugs 8 m apart across the view's depth: the target is a 6 m x 1.0 m
+// outline in the TARGET colour, dotted, port mark kept; your own hull is
+// still filled (ADR 0055 B1).
+func TestProximityHullBoxIsADottedOutlineInTargetGreen(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+	v, w, st, tp, op := boxScene(t, "rcs-tug", "nudge-tug", orbital.Vec3{Z: 8}, 3)
+	basis := widgets.Basis{X: st.Frame.AlongTrack, Y: st.Frame.RadialOut}
+	sx, sy := stackDirScreen(w.Crafts[1].CurrentAttitudeDir, basis)
+	along := basis.X.Scale(sx).Add(basis.Y.Scale(sy))
+	across := basis.X.Scale(-sy).Add(basis.Y.Scale(sx))
+	tail, head := -sim.DockPortTipInsetM(), st.Target.NoseM-sim.DockPortTipInsetM()
+	u := st.Target.WidthM / 2
+	for _, a := range []float64{tail, head} {
+		for _, s := range []float64{-u, u} {
+			if !tp(a, s, 1) {
+				t.Errorf("box corner (%.2f, %.2f) not lit", a, s)
+			}
+		}
+	}
+	dark := 0
+	for i := 1; i < 40; i++ {
+		px, py, _ := v.canvas.Project(st.TargetWorld.Add(along.Scale(tail+(head-tail)*float64(i)/40)).Add(across.Scale(u)))
+		if !v.canvas.SubPixelSet(px, py) {
+			dark++
+		}
+	}
+	if dark == 0 {
+		t.Error("top edge solid, want the Scenery dot pattern")
+	}
+	if tp((tail+head)/2, u/2, 0) {
+		t.Error("target interior lit: that is a filled hull, not a box")
+	}
+	if !op(tail+st.Own.NoseM/2, st.Own.WidthM/4, 0) {
+		t.Error("your own hull is not filled")
+	}
+	// TARGET colour on the box's corner row; the port mark is still drawn.
+	corner := st.TargetWorld.Add(along.Scale(tail)).Add(across.Scale(u))
+	_, py, _ := v.canvas.Project(corner)
+	rows := strings.Split(v.canvas.String(), "\n")
+	if py/4 >= len(rows) || !strings.Contains(rows[py/4], "60;220;131") {
+		t.Errorf("box corner row has no TARGET green (#3DDC84 quantised to 60;220;131): %q", rows[py/4])
+	}
+	// Both ports sit on one screen cell here (they differ only in depth), so
+	// the mark is checked at that cell.
+	if got := strings.Count(ansi.Strip(v.Render(w, 0, DesignWidth, DesignHeight)), "○"); got < 1 {
+		t.Errorf("port marks = %d, want the box to keep its mark", got)
 	}
 }
