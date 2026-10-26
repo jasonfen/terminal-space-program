@@ -370,3 +370,134 @@ func TestPortGeometryWidthIsStackWidthM(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0055 amendment B2/B5 (#759 S4): the alongside and depth readers. The
+// reader tests live here because dockPair (ADR 0055 A6's PortAxialM guard
+// precedent) is the fixture that places two ported hulls by their ports.
+
+// hullBruteDepth is the cross-track separation of the closest points of the
+// two hulls' axis segments, found by sampling both segments (independent of
+// segmentClosest) and refining around the best sample.
+func hullBruteDepth(t *testing.T, w *World) float64 {
+	t.Helper()
+	a0, a1, _, okA := hullSegment(w.Crafts[0])
+	b0, b1, _, okB := hullSegment(w.Crafts[1])
+	if !okA || !okB {
+		t.Fatal("hull segments unknown")
+	}
+	frame, _ := orbital.LVLHBasis(w.Crafts[1].State.R, w.Crafts[1].State.V)
+	at := func(p0, p1 orbital.Vec3, s float64) orbital.Vec3 { return p0.Add(p1.Sub(p0).Scale(s)) }
+	bestS, bestT, best := 0.0, 0.0, math.Inf(1)
+	const n = 600
+	for i := 0; i <= n; i++ {
+		for j := 0; j <= n; j++ {
+			s, u := float64(i)/n, float64(j)/n
+			if d := at(a0, a1, s).Sub(at(b0, b1, u)).Norm(); d < best {
+				bestS, bestT, best = s, u, d
+			}
+		}
+	}
+	d := at(a0, a1, bestS).Sub(at(b0, b1, bestT))
+	return math.Abs(d.Dot(frame.CrossTrack))
+}
+
+func TestProximityHullsAlongside(t *testing.T) {
+	tilt60 := func(w *World) { // own axis 60 deg off the along-track line
+		a := w.Crafts[0]
+		f, _ := orbital.LVLHBasis(w.Crafts[1].State.R, w.Crafts[1].State.V)
+		a.CurrentAttitudeDir = f.AlongTrack.Scale(-math.Cos(math.Pi / 3)).Add(f.RadialOut.Scale(math.Sin(math.Pi / 3)))
+	}
+	cases := []struct {
+		name string
+		off  orbital.Vec3
+		mod  func(*World)
+		want bool
+	}{
+		{"3 m overlap", orbital.Vec3{X: -3, Y: 6}, nil, true},
+		{"1 m axial gap", orbital.Vec3{X: 1, Y: 6}, nil, false},
+		{"60 degree pair whose projections overlap", orbital.Vec3{X: -3, Y: 6}, tilt60, false},
+		{"unknown target shape", orbital.Vec3{X: -3, Y: 6}, func(w *World) { w.Crafts[1].CurrentAttitudeDir = orbital.Vec3{} }, false},
+	}
+	for _, c := range cases {
+		w := dockPair(t, []string{"rcs-tug"}, []string{"nudge-tug"}, c.off, orbital.Vec3{})
+		if c.mod != nil {
+			c.mod(w)
+		}
+		st, ok := w.ProximityState()
+		if !ok {
+			t.Fatalf("%s: no proximity state", c.name)
+		}
+		if st.HullsAlongside != c.want {
+			t.Errorf("%s: HullsAlongside = %v, want %v", c.name, st.HullsAlongside, c.want)
+		}
+		if c.name == "unknown target shape" && st.HullDepthM != 0 {
+			t.Errorf("unknown shape: HullDepthM = %v, want 0", st.HullDepthM)
+		}
+	}
+}
+
+// Spans exactly touching are not alongside (strict, like hullsTouch): built
+// from segment endpoints that are exact in binary, since a dockPair scene
+// carries float noise at the 1e-12 level.
+func TestHullRelationTouchingSpansAreNotAlongside(t *testing.T) {
+	x := func(v float64) orbital.Vec3 { return orbital.Vec3{X: v} }
+	for _, c := range []struct {
+		name  string
+		b0    float64
+		b1    float64
+		wantO bool
+	}{
+		{"overlap 2", 8, 18, true},
+		{"touching exactly", 10, 20, false},
+		{"gap 2", 12, 22, false},
+	} {
+		axial, _, overlap, _, parallel := hullRelation(x(0), x(10), 2, x(c.b0), x(c.b1), 2)
+		if !parallel || overlap != c.wantO {
+			t.Errorf("%s: parallel=%v overlap=%v axial=%v, want overlap %v", c.name, parallel, overlap, axial, c.wantO)
+		}
+	}
+}
+
+func TestProximityHullDepth(t *testing.T) {
+	// Tugs, noses pointing at each other, ports 3 m interpenetrated.
+	for _, c := range []struct {
+		name string
+		off  orbital.Vec3
+		want float64
+	}{
+		{"8 m cross-track", orbital.Vec3{X: -3, Z: 8}, 8},
+		{"8 m radial reads no depth", orbital.Vec3{X: -3, Y: 8}, 0},
+	} {
+		w := dockPair(t, []string{"rcs-tug"}, []string{"nudge-tug"}, c.off, orbital.Vec3{})
+		st, _ := w.ProximityState()
+		if math.Abs(st.HullDepthM-c.want) > 1e-6 {
+			t.Errorf("%s: HullDepthM = %.6f, want %.1f", c.name, st.HullDepthM, c.want)
+		}
+	}
+	// A 15 m csm leaning 20 deg toward cross-track against a tug 2 m
+	// cross-track: depth is the closest points' separation, which is not
+	// the stack bottoms' (RelPos . CrossTrack).
+	w := dockPair(t, []string{"csm"}, []string{"nudge-tug"}, orbital.Vec3{X: -3, Z: 2}, orbital.Vec3{})
+	f, _ := orbital.LVLHBasis(w.Crafts[1].State.R, w.Crafts[1].State.V)
+	tilt := 20 * math.Pi / 180
+	w.Crafts[0].CurrentAttitudeDir = f.AlongTrack.Scale(-math.Cos(tilt)).Add(f.CrossTrack.Scale(math.Sin(tilt)))
+	st, _ := w.ProximityState()
+	want := hullBruteDepth(t, w)
+	bottoms := math.Abs(st.RelPos.Dot(f.CrossTrack))
+	if math.Abs(st.HullDepthM-want) > 0.05 {
+		t.Errorf("tilted csm: HullDepthM = %.3f, closest-point depth %.3f", st.HullDepthM, want)
+	}
+	if math.Abs(want-bottoms) < 0.5 {
+		t.Errorf("fixture does not separate the readers: closest-point %.3f vs bottoms %.3f", want, bottoms)
+	}
+}
+
+// No range gate: Dragons beside each other 60 m apart across the view still
+// read alongside; the scope's circle is off the disc, the reader is not.
+func TestProximityHullsAlongsideHasNoRangeGate(t *testing.T) {
+	w := dockPair(t, []string{"dragon-crew"}, []string{"dragon-cargo"}, orbital.Vec3{X: -3, Z: 60}, orbital.Vec3{})
+	st, _ := w.ProximityState()
+	if !st.HullsAlongside || math.Abs(st.HullDepthM-60) > 1e-6 {
+		t.Errorf("alongside=%v depth=%.3f at 60 m, want true and 60", st.HullsAlongside, st.HullDepthM)
+	}
+}

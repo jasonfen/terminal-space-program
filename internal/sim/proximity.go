@@ -65,6 +65,15 @@ type ProximityState struct {
 	HullGapM  float64
 	ClosingMS float64
 
+	// HullsAlongside is true when the two hulls are near parallel and their
+	// axial spans strictly overlap: each is beside the other, not ahead or
+	// behind it (ADR 0055 amendment B2). HullDepthM is how far apart the
+	// axes are across the view's depth (Frame.CrossTrack), at the closest
+	// points of the two axis segments (B5). Both are zero/false when either
+	// shape is unknown. Neither is range-gated.
+	HullsAlongside bool
+	HullDepthM     float64
+
 	// TargetName is the label to put on the centred vessel — a local
 	// vessel's name or a remote player's ghost label.
 	TargetName string
@@ -163,6 +172,13 @@ func (w *World) ProximityState() (ProximityState, bool) {
 	st.HullGapM = rangeM
 	if st.Own.Known && st.Target.Known {
 		st.HullGapM = HullDistanceM(c.State.R, st.Own, rT, st.Target)
+		a0, a1, wa, okA := hullSegmentOf(c.State.R, st.Own)
+		b0, b1, wb, okB := hullSegmentOf(rT, st.Target)
+		if okA && okB {
+			_, _, overlap, n, parallel := hullRelation(a0, a1, wa, b0, b1, wb)
+			st.HullsAlongside = parallel && overlap
+			st.HullDepthM = math.Abs(n.Dot(frame.CrossTrack))
+		}
 	}
 	return st, true
 }
