@@ -59,10 +59,11 @@ const proximityFitMarginFrac = 2.25
 
 // proximityFitFloorM keeps the entry fit sane at contact range. Range
 // goes to metres as a dock completes, and a scale derived from that would
-// magnify sub-metre integrator jitter into a picture that shakes. 50 m is
-// the game's own DOCK READY radius — at that range the whole encounter is
-// already in frame, so it is the natural floor.
-const proximityFitFloorM = 50.0
+// magnify sub-metre integrator jitter into a picture that shakes. 25 m is
+// the hulls' floor (ADR 0055 B4): at 140x40 a 6 m tug is 4.0 cells tall, over
+// the sprite switch, so both hulls draw on entry. The 50 m gate ring is
+// clipped top and bottom at this fit, by design.
+const proximityFitFloorM = 25.0
 
 // proximityFitRadius resolves the Framing-Event fit for Proximity View:
 // derived from the range at the moment of entry, never re-derived after.
