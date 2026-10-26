@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -410,19 +411,32 @@ func TestProximityHullsAlongside(t *testing.T) {
 		f, _ := orbital.LVLHBasis(w.Crafts[1].State.R, w.Crafts[1].State.V)
 		a.CurrentAttitudeDir = f.AlongTrack.Scale(-math.Cos(math.Pi / 3)).Add(f.RadialOut.Scale(math.Sin(math.Pi / 3)))
 	}
-	cases := []struct {
+	type alongCase struct {
 		name string
 		off  orbital.Vec3
 		mod  func(*World)
 		want bool
-	}{
-		{"3 m overlap", orbital.Vec3{X: -3, Y: 6}, nil, true},
-		{"1 m axial gap", orbital.Vec3{X: 1, Y: 6}, nil, false},
-		{"60 degree pair whose projections overlap", orbital.Vec3{X: -3, Y: 6}, tilt60, false},
-		{"unknown target shape", orbital.Vec3{X: -3, Y: 6}, func(w *World) { w.Crafts[1].CurrentAttitudeDir = orbital.Vec3{} }, false},
+		ids  []string // own, target; default tug pair
 	}
+	cases := []alongCase{
+		{"3 m overlap", orbital.Vec3{X: -3, Y: 6}, nil, true, nil},
+		{"1 m axial gap", orbital.Vec3{X: 1, Y: 6}, nil, false, nil},
+		{"60 degree pair whose projections overlap", orbital.Vec3{X: -3, Y: 6}, tilt60, false, nil},
+		{"unknown target shape", orbital.Vec3{X: -3, Y: 6}, func(w *World) { w.Crafts[1].CurrentAttitudeDir = orbital.Vec3{} }, false, nil},
+	}
+	for _, e := range []float64{0, 1e-12, -1e-12} { // touching spans are float noise, never alongside
+		cases = append(cases,
+			alongCase{fmt.Sprintf("tug pair touching, %g", e), orbital.Vec3{X: e}, nil, false, nil},
+			alongCase{fmt.Sprintf("Dragon pair touching, %g", e), orbital.Vec3{X: e}, nil, false, []string{"dragon-crew", "dragon-crew"}})
+	}
+	cases = append(cases, cases[0])
+	cases[len(cases)-1].name, cases[len(cases)-1].off = "1 mm overlap", orbital.Vec3{X: -1e-3}
 	for _, c := range cases {
-		w := dockPair(t, []string{"rcs-tug"}, []string{"nudge-tug"}, c.off, orbital.Vec3{})
+		own, tgt := []string{"rcs-tug"}, []string{"nudge-tug"}
+		if c.ids != nil {
+			own, tgt = c.ids[:1], c.ids[1:]
+		}
+		w := dockPair(t, own, tgt, c.off, orbital.Vec3{})
 		if c.mod != nil {
 			c.mod(w)
 		}

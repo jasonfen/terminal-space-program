@@ -112,6 +112,10 @@ func HullDistanceM(aR orbital.Vec3, ga PortGeometry, bR orbital.Vec3, gb PortGeo
 	return math.Hypot(axial, lateral)
 }
 
+// hullTouchEpsilonM is the micrometre the Proximity box rule uses: spans within
+// it of touching are touching, not overlapping.
+const hullTouchEpsilonM = 1e-6
+
 // hullRelation is the geometry under HullDistanceM for two known hulls. n is
 // the vector between the axis segments' closest points (yours minus theirs).
 // parallel is true within hullNearParallelCos of parallel; only then are the
@@ -137,7 +141,7 @@ func hullRelation(a0, a1 orbital.Vec3, wa float64, b0, b1 orbital.Vec3, wb float
 	loB, hiB := math.Min(0, tb1), math.Max(0, tb1)
 	raw := math.Max(loA, loB) - math.Min(hiA, hiB)
 	lateralGap = math.Max(0, n.Sub(u.Scale(n.Dot(u))).Norm()-(wa+wb)/2)
-	return math.Max(0, raw), lateralGap, raw < 0, n, true
+	return math.Max(0, raw), lateralGap, raw < -hullTouchEpsilonM, n, true
 }
 
 // craftHullDistanceM is HullDistanceM for two live vessels.
