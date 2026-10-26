@@ -3112,6 +3112,17 @@ advertise itself as a feature, not wait to be found.
 _Avoid_: Default-off tutorial, "enable the tutorial" (it is already on),
 Campaign (see Named save).
 
+**Flight Recording** (grilled 2026-10-25, backlog):
+The Active Vessel's always-on black box: a bounded log of sampled state
+(sim time, altitude, speed, mass, throttle, attitude mode and trims, stage
+count, SOI body) plus every **Action** and lifecycle event (crash,
+touchdown, SOI change) as it happens. Written out on crash, landing or an
+explicit save, for the maintainer to read after a playtest or attach to a
+bug report. It records; it never flies the vessel.
+_Avoid_: Black box (the nickname, fine in prose), Telemetry (CommNet
+signal), Log, Replay (parked — automation is a separate idea, see the
+backlog).
+
 **Action**:
 A semantic gameplay verb the player triggers (e.g. `open_maneuver`,
 `stage`, `plan_transfer`), recorded *downward* from the input layer via
