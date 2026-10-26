@@ -23,7 +23,7 @@ const centerlineHullSegments = 360
 // stretched into a stadium toward where your stack bottom projects when your
 // nose leans: the far circle sits at -Own.NoseM * (sin right, sin up), joined
 // to the near one by two tangent lines. Scenery class (dotted, never filled),
-// clipped at the rim. Each hull is skipped when its own width is zero.
+// clipped at the rim; theirs goes Real (solid) while st.HullsAlongside. Each hull is skipped when its own width is zero.
 func (v *OrbitView) drawCenterlineHulls(c *widgets.Canvas, w *sim.World, st sim.ProximityState, scale float64) {
 	rimM := (float64(c.Cols()*2)/2 - centerlineRimInsetPx) / scale // the rim, in metres
 	own := render.ColorCraftMarker
@@ -34,14 +34,18 @@ func (v *OrbitView) drawCenterlineHulls(c *widgets.Canvas, w *sim.World, st sim.
 
 	if r := st.Target.WidthM / 2; r > 0 {
 		centre := orbital.Vec3{X: st.OffAxisRightM, Y: st.OffAxisUpM}
-		plotClipped(c, proximityRingPointsN(centre, x, y, r, centerlineHullSegments), render.ColorTarget, rimM)
+		class := widgets.ClassScenery
+		if st.HullsAlongside {
+			class = widgets.ClassReal // beside you: solid (ADR 0055 B2)
+		}
+		plotClipped(c, proximityRingPointsN(centre, x, y, r, centerlineHullSegments), render.ColorTarget, rimM, class)
 	}
 
 	r := st.Own.WidthM / 2
 	if r <= 0 {
 		return
 	}
-	plotClipped(c, proximityRingPointsN(orbital.Vec3{}, x, y, r, centerlineHullSegments), own, rimM)
+	plotClipped(c, proximityRingPointsN(orbital.Vec3{}, x, y, r, centerlineHullSegments), own, rimM, widgets.ClassScenery)
 	far := orbital.Vec3{
 		X: -st.Own.NoseM * math.Sin(st.MisalignRightDeg*math.Pi/180),
 		Y: -st.Own.NoseM * math.Sin(st.MisalignUpDeg*math.Pi/180),
@@ -49,7 +53,7 @@ func (v *OrbitView) drawCenterlineHulls(c *widgets.Canvas, w *sim.World, st sim.
 	if far.Norm() == 0 {
 		return
 	}
-	plotClipped(c, proximityRingPointsN(far, x, y, r, centerlineHullSegments), own, rimM)
+	plotClipped(c, proximityRingPointsN(far, x, y, r, centerlineHullSegments), own, rimM, widgets.ClassScenery)
 	side := orbital.Vec3{X: -far.Y, Y: far.X}.Unit().Scale(r) // across the stretch
 	for _, s := range []float64{1, -1} {
 		a, b := side.Scale(s), far.Add(side.Scale(s))
@@ -57,7 +61,7 @@ func (v *OrbitView) drawCenterlineHulls(c *widgets.Canvas, w *sim.World, st sim.
 		for i := 0; i <= 64; i++ {
 			line = append(line, a.Add(b.Sub(a).Scale(float64(i)/64)))
 		}
-		plotClipped(c, line, own, rimM)
+		plotClipped(c, line, own, rimM, widgets.ClassScenery)
 	}
 }
 
@@ -72,12 +76,12 @@ func proximityRingPointsN(center, e1, e2 orbital.Vec3, radiusM float64, n int) [
 }
 
 // plotClipped draws the runs of pts that lie within rimM of the crosshair as
-// Scenery-class polylines in colour.
-func plotClipped(c *widgets.Canvas, pts []orbital.Vec3, colour lipgloss.Color, rimM float64) {
+// polylines of the given class in colour.
+func plotClipped(c *widgets.Canvas, pts []orbital.Vec3, colour lipgloss.Color, rimM float64, class widgets.LineClass) {
 	var run []orbital.Vec3
 	flush := func() {
 		if len(run) > 1 {
-			c.PlotPolylineClass(run, colour, widgets.ClassScenery)
+			c.PlotPolylineClass(run, colour, class)
 		}
 		run = nil
 	}
