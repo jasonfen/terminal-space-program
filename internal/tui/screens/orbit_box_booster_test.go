@@ -204,24 +204,32 @@ func TestPropellantFuelPairBottomFirst(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
 	w := slsAtT42(t)
 	fuel := func() string { return v.buildPropellantBox(w)[1] }
-	if row := fuel(); !strings.HasPrefix(row, "  fuel:     60% · 91%") {
-		t.Errorf("T+42 fuel row = %q, want 60%% · 91%%", row)
+	cols := func(row string) (core, mass int) {
+		core, okC := labelCol(row, "core:")
+		mass, okM := labelCol(row, "mass:")
+		if !okC || !okM {
+			t.Fatalf("core:/mass: missing in %q", row)
+		}
+		return core, mass
+	}
+	row := fuel()
+	if !strings.HasPrefix(row, "  boosters: 60%   core: 91%     mass:") {
+		t.Errorf("T+42 fuel row = %q, want boosters: 60%% core: 91%%", row)
+	}
+	if core, mass := cols(row); core != 18 || mass != 32 {
+		t.Errorf("T+42 core:/mass: at %d/%d, want 18/32", core, mass)
 	}
 	w.ActiveCraft().Stages[0].FuelMass = 0
 	w.ActiveCraft().Stages[1].FuelMass = 760000 // 77.6%
 	w.ActiveCraft().SyncFields()
-	if row := fuel(); !strings.HasPrefix(row, "  fuel:     0% · 78%") {
-		t.Errorf("after burnout fuel row = %q, want 0%% · 78%%", row)
+	if row := fuel(); !strings.HasPrefix(row, "  boosters: 0%    core: 78%     mass:") {
+		t.Errorf("after burnout fuel row = %q, want boosters: 0%% core: 78%%", row)
 	}
 	w.ActiveCraft().Stages = w.ActiveCraft().Stages[1:]
 	w.ActiveCraft().SyncFields()
-	if row := fuel(); !strings.HasPrefix(row, "  fuel:     78%") || strings.Contains(row, "·") {
-		t.Errorf("after the drop fuel row = %q, want 78%% alone", row)
-	}
-	for _, r := range v.buildPropellantBox(w) {
-		if got := lipgloss.Width(r); got > tierTopLeftWidth-2 {
-			t.Errorf("PROPELLANT row %d cells: %q", got, r)
-		}
+	row = fuel()
+	if !strings.HasPrefix(row, "  fuel:     78%") || strings.Contains(row, "boosters") || strings.Contains(row, "core:") {
+		t.Errorf("after the drop fuel row = %q, want fuel: 78%% alone", row)
 	}
 }
 
@@ -232,12 +240,17 @@ func TestPropellantFuelPairFitsItsCell(t *testing.T) {
 	w.ActiveCraft().Stages[1].FuelMass = 411000
 	w.ActiveCraft().SyncFields()
 	row := v.buildPropellantBox(w)[1]
-	if !strings.HasPrefix(row, "  fuel:     100% · 100%") {
+	if !strings.HasPrefix(row, "  boosters: 100%  core: 100%    mass:") {
 		t.Errorf("row = %q", row)
 	}
-	// the widest pair is 11 cells; mass: must still sit in its column
-	if !strings.Contains(row, "  mass:") {
-		t.Errorf("mass: label lost: %q", row)
+	// the widest pair: the equal case to today's 48-cell row
+	if got := lipgloss.Width(row); got != 48 {
+		t.Errorf("widest row = %d cells, want 48: %q", got, row)
+	}
+	core, okC := labelCol(row, "core:")
+	mass, okM := labelCol(row, "mass:")
+	if !okC || !okM || core != 18 || mass != 32 {
+		t.Errorf("core:/mass: at %d/%d (found %v/%v), want 18/32", core, mass, okC, okM)
 	}
 }
 

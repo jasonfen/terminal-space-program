@@ -175,6 +175,17 @@ func densityGuidanceHoldTargetRetrograde(t *testing.T) *sim.World {
 	return w
 }
 
+// densityBoosterPairFull: the hypothetical FH with both lit tanks at
+// capacity, PROPELLANT's widest named row (ADR 0058 amendment 2026-10-25).
+func densityBoosterPairFull(t *testing.T) *sim.World {
+	t.Helper()
+	w := fhAtT84(t, spacecraft.ThrottleAll)
+	w.ActiveCraft().Stages[0].FuelMass = 822000
+	w.ActiveCraft().Stages[1].FuelMass = 411000
+	w.ActiveCraft().SyncFields()
+	return w
+}
+
 // allDensityPhases is every phase fixture, named, for the coverage
 // sweep (TestBoxDensityNoPhaseOverflowsCanvas and the widest-reading
 // report).
@@ -192,6 +203,8 @@ func allDensityPhases(t *testing.T) map[string]*sim.World {
 		"guidance hold surface retrograde": densityGuidanceHoldSurfaceRetrograde(t),
 		"guidance hold target":             densityGuidanceHoldTarget(t),
 		"guidance hold target retrograde":  densityGuidanceHoldTargetRetrograde(t),
+		"booster pair lit":                 slsAtT42(t),
+		"booster pair full":                densityBoosterPairFull(t),
 	}
 }
 
@@ -221,7 +234,7 @@ func TestBoxDensityValue1MatchesLongestLabel1(t *testing.T) {
 		label1 []string
 	}{
 		{"ENGINE", engineCols, []string{"throttle:", "TWR:", "node:"}},
-		{"PROPELLANT", propellantCols, []string{"fuel:", "Δv:", "monoprop:"}},
+		{"PROPELLANT", propellantCols, []string{"fuel:", "Δv:", "monoprop:", "boosters:"}},
 		{"GUIDANCE", guidanceCols, []string{"hold:", "heading:", "fpa:"}},
 		{"NAVIGATION", navigationCols, []string{"altitude:", "horiz:", "Ap:", "incl:", "depart:", "impact:", "plan:"}},
 		{"TARGET", targetCols, []string{"range:", "Ap:", "Δincl:", "TCA:"}},
@@ -268,6 +281,8 @@ func TestBoxDensitySecondLabelStableAcrossPhases(t *testing.T) {
 	}{
 		{"ENGINE throttle/mode", v.buildEngineBox, 1, "mode:", "pad", "live burn"},
 		{"PROPELLANT fuel/mass", v.buildPropellantBox, 1, "mass:", "pad", "powered ascent"},
+		{"PROPELLANT fuel/mass with a booster pair", v.buildPropellantBox, 1, "mass:", "pad", "booster pair lit"},
+		{"PROPELLANT fuel/mass with a full booster pair", v.buildPropellantBox, 1, "mass:", "pad", "booster pair full"},
 		{"GUIDANCE hold/nav", v.buildGuidanceBox, 1, "nav:", "pad", "guidance hold target"},
 		{"NAVIGATION altitude/vert", v.buildNavigationBox, 1, "vert:", "pad", "powered descent airless"},
 		{"NAVIGATION depart/e/dir e:", v.buildNavigationBox, 5, "e:", "no target", "coasting with plan"},
