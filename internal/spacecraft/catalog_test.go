@@ -148,6 +148,7 @@ func TestPartToStage(t *testing.T) {
 		BallisticCoefficient: 8e-6,
 		LaunchSpriteRowsPx:   6,
 		LaunchSpriteWidthPx:  4,
+		DiameterM:            3.91,
 		LaunchSpriteColor:    "#DDDDDD",
 		FuelType:             FuelTypeKerolox,
 		LaunchSpriteHasLegs:  true,
@@ -171,6 +172,7 @@ func TestPartToStage(t *testing.T) {
 		Color:                "#FF8C42",
 		LaunchSpriteRowsPx:   6,
 		LaunchSpriteWidthPx:  4,
+		DiameterM:            3.91,
 		LaunchSpriteColor:    "#DDDDDD",
 		FuelType:             FuelTypeKerolox,
 		LaunchSpriteHasLegs:  true,
@@ -392,5 +394,115 @@ func TestLoadCatalogMalformedUserFileWarns(t *testing.T) {
 	}
 	if _, ok := parts["ok-part"]; !ok {
 		t.Error("the valid sibling file should still load")
+	}
+}
+
+// adrDiameters is ADR 0061's table, part by part (hull diameter, metres).
+// probe-sat-stage is deliberately absent: parts-built, it keeps the sprite rule.
+var adrDiameters = map[string]float64{
+	"apollo-ascent":         4.29,
+	"apollo-descent":        4.22,
+	"apollo-sm":             3.91,
+	"buffer-stage":          6.6,
+	"capsule":               3.91,
+	"command-module":        3.91,
+	"core-rs25":             8.4,
+	"csm":                   3.91,
+	"csm-lm":                3.91,
+	"deep-space-relay":      3.2,
+	"dragon-cargo":          4.0,
+	"dragon-crew":           4.0,
+	"dragon-trunk":          4.0,
+	"endpoint-station":      4.76,
+	"f9-s1":                 3.66,
+	"f9-s2":                 3.66,
+	"ground-station-lander": 4.76,
+	"heartbeat-keeper":      2.36,
+	"icps":                  5.0,
+	"icps-1":                5.0,
+	"icps-sls":              5.0,
+	"ion-keeper":            2.36,
+	"kern-boost":            10.06,
+	"kern-lander":           4.22,
+	"kern-pod":              3.91,
+	"kern-transfer":         6.6,
+	"lander":                4.22,
+	"lander-ascent":         4.29,
+	"lander-descent":        4.22,
+	"ntr-tug":               5.0,
+	"nudge-tug":             1.0,
+	"orion-cm":              5.03,
+	"orion-esm":             4.5,
+	"packet-1":              3.66,
+	"packet-2":              3.66,
+	"raster-core":           8.4,
+	"raster-srb":            3.7,
+	"rcs-tug":               1.0,
+	"relay-comsat":          2.4,
+	"relay-node":            2.4,
+	"s-ic":                  10.06,
+	"s-ii":                  10.06,
+	"s-ivb":                 6.6,
+	"s-ivb-1":               6.6,
+	"s-ivb-tli":             6.6,
+	"scalar-probe":          2.7,
+	"science-probe":         2.7,
+	"service-module":        3.91,
+	"socket-ascent":         4.29,
+	"socket-descent":        4.22,
+	"spool-stage":           5.0,
+	"srb":                   3.7,
+	"starlink":              4.1,
+	"thread-relay":          5.0,
+	"uplink-relay":          3.2,
+	"vector-1":              10.06,
+	"vector-2":              10.06,
+}
+
+func TestEveryPartCarriesItsPublishedDiameter(t *testing.T) {
+	withUserCatalog(t)
+	parts, _, err := LoadCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(adrDiameters) != 57 {
+		t.Fatalf("table has %d rows, want 57", len(adrDiameters))
+	}
+	for id, want := range adrDiameters {
+		p, ok := parts[id]
+		if !ok {
+			t.Errorf("%s: not in parts.json", id)
+			continue
+		}
+		if p.DiameterM != want {
+			t.Errorf("%s: diameter_m = %v, want %v", id, p.DiameterM, want)
+		}
+		if got := p.ToStage().DiameterM; got != want {
+			t.Errorf("%s: ToStage().DiameterM = %v, want %v", id, got, want)
+		}
+	}
+	for id, p := range parts {
+		if _, pinned := adrDiameters[id]; !pinned && p.DiameterM != 0 {
+			t.Errorf("%s: diameter_m = %v but the ADR table has no row (probe-sat-stage reads 0)", id, p.DiameterM)
+		}
+	}
+	if p := parts["probe-sat-stage"]; p.ID == "" || p.DiameterM != 0 {
+		t.Errorf("probe-sat-stage = %+v, want present with DiameterM 0", p)
+	}
+}
+
+// An overlay part that states no diameter reads 0 (the sprite rule), never a default.
+func TestOverlayPartWithoutDiameterReadsZero(t *testing.T) {
+	dir := withUserCatalog(t)
+	custom := `{"parts": [{"id": "user-part", "name": "User Part", "dry_mass_kg": 1234}]}`
+	if err := os.WriteFile(filepath.Join(dir, "mine.json"), []byte(custom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	parts, _, err := LoadCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := parts["user-part"].ToStage().DiameterM; got != 0 {
+		t.Errorf("overlay part with no diameter_m: Stage.DiameterM = %v, want 0", got)
 	}
 }

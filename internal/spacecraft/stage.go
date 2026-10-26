@@ -176,6 +176,11 @@ type Stage struct {
 	// launch_sprite.go).
 	LaunchSpriteWidthPx int `json:",omitempty"`
 
+	// DiameterM is the part's published hull diameter in metres (ADR 0061),
+	// copied from the catalog. 0 = none stated: the hull reads the sprite rule.
+	// Never saved; RestoreSprite puts it back on load.
+	DiameterM float64 `json:",omitempty"`
+
 	// LaunchSpriteColor (v0.11.5-followup) overrides Color for the
 	// launch-sprite body / engine bell / inter-stage taper / landing
 	// legs. Decouples slate HUD identity (Color, glyph palette) from
