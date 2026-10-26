@@ -418,7 +418,7 @@ precedent: Vector V, Raster Launch System, Packet 9, Buffer, Spool, Socket
 Lander, Token Pod, Nudge Tug, Thread Relay, Heartbeat Keeper, Uplink Relay,
 Relay Node, Endpoint Station, Scalar Probe, Node Carrier ×3, Scan Pack).
 Each vehicle is sized to Lumen's ~3.4 km/s-to-orbit budget and validated by
-a Δv eval test. Together with the **Kern Stack** they give Lumen a complete,
+a Δv eval test; each part's **Hull diameter** is exactly its real counterpart's (the vessels are the same size as Earth's), the one dimension that is not hand-tuned. Together with the **Kern Stack** they give Lumen a complete,
 flyable fleet visible by default when the spawn form is opened in that
 system.
 _Avoid_: Lumen analogs (implies copies — these are in-universe vehicles with
@@ -489,6 +489,29 @@ zoom), not derived from real metres. Zero `LaunchSpriteRowsPx` means
 "no sprite, fall back to the Vessel-level `Glyph`." Zero
 `LaunchSpriteWidthPx` falls back to a 2-sub-pixel default
 (the pre-v0.11.5 universal width). Practical width range [1, 5].
+The sprite's width is stylised for the launch chase-cam and the VAB (floored
+at 4 sub-pixels, #424); it is not the hull's width. The **Hull diameter** is,
+and the **Proximity View** draws each stage at that width instead of the
+sprite's.
+
+**Hull diameter** (ADR 0061):
+The width of a hull in metres, a catalog fact on the part (`diameter_m` in
+`parts.json`, copied onto the Stage as `DiameterM` when it is built, never
+saved: restored from the catalog on load like the sprite fields). Every
+shipped part carries its real vessel's published figure, or a named real
+analogue's for an Earth-side fictional part, or exactly the mirrored real
+vessel's for a **Lumen Fleet** part (a Dragon 4.0 m, an Apollo CM 3.91 m, an
+S-IVB 6.60 m, the RCS Tug and Nudge Tug 1.0 m, the Endpoint Station 4.76 m).
+A part with no number (a VAB parts-built stage, an overlay part) reads the
+**Launch Sprite** rule, `max(width px, 4) x 1.5 m`. A vessel's hull is one
+cylinder of its widest part's diameter (a CSM on an LM on an S-IVB is 6.60 m
+end to end); a booster pair composes core + two boosters + two 1.5 m gaps.
+Read by the **Bump**, the `range:` row, the 50 m rules, both **Hull
+outlines** and a friend's `width_m` on the wire. The width adds no mass:
+published masses already include the structure. Never printed; felt in
+flight only.
+_Avoid_: Width px (the sprite's), Beam, Hull size, Scale (that is **Scale
+Class**).
 
 **Engine Bell**: a synthetic flare painted between `Stages[0]`'s bottom
 edge and the flame, in the stage's color, at mouth width
@@ -656,11 +679,15 @@ picture only; the **Centerline scope** has no zoom.
 **Proximity View** (ADR 0043):
 The target-relative close-range ViewMode: the frame is pinned to the
 Target in LVLH orientation (orbital prograde screen-right, the primary
-screen-down), showing both hulls at true meter scale, the predicted
-relative drift path, range rings, and the dock gate as a place on
-screen. The picture for the last kilometers that the world-frame
+screen-down), showing both hulls at true metre scale and true **Hull diameter** (each stage a
+filled rectangle of its length and width; the engine bell and legs belong to
+the launch view), the predicted relative drift path, range rings, and the
+dock gate as a place on screen; a Target hull out of the picture's plane is
+drawn as a dotted **Hull outline**. The picture for the last kilometers that the world-frame
 OrbitView cannot hold steady. Entered and left by a toggling jump key
-(`o`); entry is a Framing Event fitted from current range. Target-gated —
+(`o`); entry is a Framing Event fitted from current range (2.25 x the range
+between the vessels' anchors, 25 m at least, so entering inside the gate shows
+hulls, not glyphs; the 50 m gate ring is then clipped top and bottom). Target-gated —
 only a Vessel or a remote player's ghost can be the centre — but NOT a
 stop on the [[#view--projection|ViewMode]] `v` cycle at all (issue #348
 §4): that cycle walks the six map projections only, so an unavailable
@@ -670,7 +697,9 @@ every flight key behave exactly as they do on the map, and at Design Size
 the **Centerline scope** sits in its top-right corner whenever the pair has
 a port; it keeps its own Zoom Memory slot (the side picture's; the scope
 ranges itself; keyed by Target, not Focus) so the jump out and
-back leaves the map's zoom and pan untouched. The launch/surface chase-cam
+back leaves the map's zoom and pan untouched. The PROXIMITY chip's `range:`
+row is the hull-to-hull gap, to one decimal under 10 m (`range: 1.0 m`), the
+second recorded exception to the whole-metre rule after `port:`. The launch/surface chase-cam
 (`V`) is the same shape — its own toggling jump key, altitude-derived
 entry scale, also outside the `v` cycle — and the two can stack (jumping
 to Proximity from inside the chase-cam and back).
@@ -687,7 +716,8 @@ crosshair across the whole disc; the Target's port is a **ring** of the port
 gate's radius (0.5 m) drawn where it is across your face, a `○` glyph under
 3 cells across, dashed until the **Docking Gate** holds and solid after; a
 **Standoff cross** inside the ring slides off its centre by the alignment
-lean. Both hulls are drawn end-on as **Hull outlines**. The disc ranges
+lean. Both hulls are drawn end-on as **Hull outlines**, the Target's solid while
+the hulls are **Alongside**. The disc ranges
 itself in **Scope steps** (2, 4, 8, 16, 32, 64 m across) and prints the step
 and the port range on its title row, `CENTERLINE  4 m      port 3.33 m`;
 `+` / `-` zoom the side picture only. While the Target's port is behind the
@@ -710,18 +740,39 @@ Hidden while the ring is the **Reverse glyph**; drawn only when the ring is 5
 cells across or more (the 2 m and 4 m steps).
 _Avoid_: Tick, Lean mark, Alignment vector.
 
-**Hull outline** (ADR 0055 A5):
-The dotted circle the **Centerline scope** draws for each hull end-on: the
-Target's, of its width around its port ring (always a true circle, since its
-axis is the scope's view axis); yours, of your width around the crosshair,
-stretched toward where your stack bottom projects when your nose leans (a
-stadium, by stack length x sin of the lean). Circles apart = you pass clear
-of the other body translating along the Target's axis; overlapping = you
-bump. Read from the same cylinders as the **Bump** and the `range:` row
-(`PortGeometry.WidthM` / `NoseM`); a friend's vessel's from its reported
-`width_m`. Clipped at the disc's rim; never filled; never drives the **Scope
-step**. Not a cockpit term: the game's bump cylinder, drawn.
-_Avoid_: Silhouette (the side picture's sprite), Keep-out ring, Footprint.
+**Hull outline** (ADR 0055 A5, amended 2026-10-25):
+Two forms of the same cylinder. In the **Centerline scope**, the dotted circle
+drawn for each hull end-on: the Target's, of its **Hull diameter** around its
+port ring (always a true circle, since its axis is the scope's view axis),
+**solid while the two hulls are Alongside and dotted otherwise**; yours, of
+your diameter around the crosshair, stretched toward where your stack bottom
+projects when your nose leans (a stadium, by stack length x sin of the lean).
+Circles apart = you pass clear of the other body translating along the
+Target's axis; overlapping = you bump. In the **Proximity View**'s side
+picture, the dotted rectangle (nose by width) the Target's hull becomes when
+the two hull axes are further apart across the picture's depth (cross-track)
+than the two radii added: a hull out of your plane, which this flat picture
+cannot otherwise show and which you cannot touch by moving in it; above or
+below you it stays a drawn hull. A friend's vessel takes both forms from its
+reported `width_m` and `nose_m`. Read from the same cylinders as the **Bump**
+and the `range:` row; clipped at the scope's rim; never filled; never drives
+the **Scope step**. A tug's 1.0 m circle coincides with its 0.5 m port ring.
+Not a cockpit term: the game's bump cylinder, drawn; the dashed box is the
+engineering drawing's hidden line.
+_Avoid_: Silhouette (the side picture's drawn hull), Keep-out ring, Footprint,
+Ghost box.
+
+**Alongside** (ADR 0055 B2):
+Two hulls whose spans along their (near-parallel) axes overlap: the other
+hull is beside you, not ahead of or behind your hull's ends. Spans that only
+touch (a nose on a tail, the docked state) are not alongside; hulls crossed
+at more than 45 degrees never are. Shown by the Target's **Hull outline**
+going solid in the **Centerline scope**; the Soyuz VSK-4's peripheral tubes
+showed the station only when it was beside the crew. The same spans the
+**Bump** reads for its axial gap.
+_Avoid_: Abeam (the issue's word; the game's rows say "beside you"),
+Overlapping (the circles' word, a different test), Alongside spawn (the
+`Alongside` SpawnSpec flag places a vessel; this is a state of two hulls).
 
 **Scope step** (ADR 0055 A4):
 The **Centerline scope**'s width in metres, one of 2, 4, 8, 16, 32, 64,
@@ -1843,7 +1894,8 @@ What happens when two hulls touch outside the **Docking Gate**: the pair
 pushes apart along the line of contact at half the closing speed (never
 under 0.05 m/s), momentum-conserving, with a bottom-edge caption naming the
 partner and the speed (`bumped <name> at <speed>; re-approach under
-0.10 m/s`). Hulls are flat-ended cylinders, so nose against nose touches
+0.10 m/s`). Hulls are flat-ended cylinders of each vessel's **Hull diameter** (one
+cylinder per vessel, its widest part), so nose against nose touches
 only when the ends actually meet. It needs a closing speed (hulls already
 parting do not bump), happens once per contact, and never involves a
 Landed Vessel or two debris stages. No damage. Inside 50 m of another
@@ -2398,11 +2450,14 @@ _Avoid_: Latest subspace, head.
 The render-only appearance of a vessel from another Subspace: its
 last-reported orbit evaluated at the viewer's sim-time. Honest but
 stale — correct while the owner coasts, corrected on their next report.
-It carries the reported attitude, hull length and width, and ports, so the
+It carries the reported attitude, hull length and **Hull diameter**
+(`width_m`), and ports, so the
 Proximity View can draw the friend's hull and port and the approacher can
 dock to it (see **Magnet**); a Ghost with none of these (an older report)
 draws as a diamond with `port: unknown` and cannot be captured. Otherwise
 never physically interactive: a bump off a Ghost moves only the bumper.
+Its hull takes the same cues as a local one: the dotted **Hull outline** when
+out of your plane, a solid scope circle when **Alongside**.
 _Avoid_: Shadow, phantom, remote vessel (a Ghost is a projection, not
 the vessel).
 
