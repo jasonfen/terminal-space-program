@@ -24,7 +24,7 @@ func TestNewFromLoadoutResolvedGolden(t *testing.T) {
 		LoadoutID: LoadoutSaturnVID, Name: "S-IC", Glyph: VesselGlyph, Color: "#FF8C42",
 		DryMass: 130000, FuelMass: 2160000, FuelCapacity: 2160000, Thrust: 35100000, Isp: 263,
 		MonopropMass: mono, MonopropCap: cap, RCSThrust: thr, RCSIsp: isp,
-		BallisticCoefficient: 8e-6, LaunchSpriteRowsPx: 24, LaunchSpriteWidthPx: 5,
+		BallisticCoefficient: 8e-6, LaunchSpriteRowsPx: 24, LaunchSpriteWidthPx: 5, DiameterM: 10.06,
 		LaunchSpriteColor: "#F0EAD6", FuelType: FuelTypeKerolox, // #424 / ADR 0048 §4: widened colour spread
 	}
 	if !reflect.DeepEqual(sv.Stages[0], wantSIC) {

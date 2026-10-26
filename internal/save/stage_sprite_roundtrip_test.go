@@ -23,11 +23,12 @@ func TestStageSpriteSurvivesTheWire(t *testing.T) {
 			if got.LaunchSpriteRowsPx != want.LaunchSpriteRowsPx ||
 				got.LaunchSpriteWidthPx != want.LaunchSpriteWidthPx ||
 				got.LaunchSpriteColor != want.LaunchSpriteColor ||
-				got.LaunchSpriteHasLegs != want.LaunchSpriteHasLegs {
-				t.Errorf("%s stage %d (%s): sprite %d x %d %q legs=%v after the wire, want %d x %d %q legs=%v",
+				got.LaunchSpriteHasLegs != want.LaunchSpriteHasLegs ||
+				got.DiameterM != want.DiameterM {
+				t.Errorf("%s stage %d (%s): sprite %d x %d %q legs=%v diameter %v after the wire, want %d x %d %q legs=%v diameter %v",
 					id, i, want.Name,
-					got.LaunchSpriteRowsPx, got.LaunchSpriteWidthPx, got.LaunchSpriteColor, got.LaunchSpriteHasLegs,
-					want.LaunchSpriteRowsPx, want.LaunchSpriteWidthPx, want.LaunchSpriteColor, want.LaunchSpriteHasLegs)
+					got.LaunchSpriteRowsPx, got.LaunchSpriteWidthPx, got.LaunchSpriteColor, got.LaunchSpriteHasLegs, got.DiameterM,
+					want.LaunchSpriteRowsPx, want.LaunchSpriteWidthPx, want.LaunchSpriteColor, want.LaunchSpriteHasLegs, want.DiameterM)
 			}
 		}
 	}
@@ -64,6 +65,9 @@ func TestUnknownStageGetsDerivedSprite(t *testing.T) {
 	if got.LaunchSpriteRowsPx <= 0 || got.LaunchSpriteWidthPx <= 0 {
 		t.Errorf("custom stage came back with %d x %d sprite, want the mass-derived hull", got.LaunchSpriteRowsPx, got.LaunchSpriteWidthPx)
 	}
+	if got.DiameterM != 0 {
+		t.Errorf("a parts-built stage restored a diameter of %v, want 0 (the sprite rule)", got.DiameterM)
+	}
 	empty := wireStagesToSim(simStagesToWire([]spacecraft.Stage{{Name: "Nothing"}}))
 	if len(empty) == 1 && empty[0].LaunchSpriteRowsPx != 0 {
 		t.Errorf("a massless stage was given a hull: %d rows", empty[0].LaunchSpriteRowsPx)
@@ -80,9 +84,9 @@ func TestCatalogModuleSpriteSurvivesTheWire(t *testing.T) {
 			continue
 		}
 		back := wireStagesToSim(simStagesToWire([]spacecraft.Stage{want}))[0]
-		if back.LaunchSpriteRowsPx != want.LaunchSpriteRowsPx || back.LaunchSpriteWidthPx != want.LaunchSpriteWidthPx {
-			t.Errorf("part %s (%s): %d x %d after the wire, want %d x %d", id, want.Name,
-				back.LaunchSpriteRowsPx, back.LaunchSpriteWidthPx, want.LaunchSpriteRowsPx, want.LaunchSpriteWidthPx)
+		if back.LaunchSpriteRowsPx != want.LaunchSpriteRowsPx || back.LaunchSpriteWidthPx != want.LaunchSpriteWidthPx || back.DiameterM != want.DiameterM {
+			t.Errorf("part %s (%s): %d x %d diameter %v after the wire, want %d x %d diameter %v", id, want.Name,
+				back.LaunchSpriteRowsPx, back.LaunchSpriteWidthPx, back.DiameterM, want.LaunchSpriteRowsPx, want.LaunchSpriteWidthPx, want.DiameterM)
 		}
 		n++
 	}

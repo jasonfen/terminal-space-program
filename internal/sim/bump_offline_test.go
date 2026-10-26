@@ -66,9 +66,11 @@ func TestBumpNoseFirstOffLineBouncesWithTrueClosingSpeed(t *testing.T) {
 		{"coaxial", 0, 0},
 		{"1deg about the base", 1, 0},
 		{"2deg about the base", 2, 0},
-		{"1m lateral miss", 0, 1},
-		{"2m lateral miss", 0, 2},
-		{"2deg plus 1m miss", 2, 1},
+		// The tug is 1.0 m wide (ADR 0061): a miss must stay under the
+		// radii sum of 1.0 m to be a hull hit at all.
+		{"0.4m lateral miss", 0, 0.4},
+		{"0.8m lateral miss", 0, 0.8},
+		{"2deg plus 0.5m miss", 2, 0.5},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			p := tiltedNoseFirst(t, c.tilt, c.missM, 0.4, closeMS)

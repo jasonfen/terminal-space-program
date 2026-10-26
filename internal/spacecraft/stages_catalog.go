@@ -52,6 +52,8 @@ type StageModule struct {
 	// defaultSpriteWidthPx (2 — pre-v0.11.5 universal constant).
 	// Practical range [1, 5]; stylised character, not physics.
 	launchSpriteWidthPx int
+	// diameterM is the published hull diameter in metres (ADR 0061); 0 = sprite rule.
+	diameterM float64
 	// launchSpriteColor (v0.11.5-followup) overrides Color for the
 	// silhouette body / engine bell / taper / legs. Empty falls back
 	// to Color. Apollo-Stack family ships unified-palette overrides
@@ -220,6 +222,7 @@ func (p Part) toStageModule() StageModule {
 		bc:                  p.BallisticCoefficient,
 		launchSpriteRowsPx:  p.LaunchSpriteRowsPx,
 		launchSpriteWidthPx: p.LaunchSpriteWidthPx,
+		diameterM:           p.DiameterM,
 		launchSpriteColor:   p.LaunchSpriteColor,
 		fuelType:            p.FuelType,
 		launchSpriteHasLegs: p.LaunchSpriteHasLegs,
@@ -308,6 +311,7 @@ func BuildStage(id string) (Stage, bool) {
 		BallisticCoefficient: m.bc,
 		LaunchSpriteRowsPx:   m.launchSpriteRowsPx,
 		LaunchSpriteWidthPx:  m.launchSpriteWidthPx,
+		DiameterM:            m.diameterM,
 		LaunchSpriteColor:    m.launchSpriteColor,
 		FuelType:             m.fuelType,
 		LaunchSpriteHasLegs:  m.launchSpriteHasLegs,

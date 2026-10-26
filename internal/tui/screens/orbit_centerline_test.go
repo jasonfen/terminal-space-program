@@ -82,7 +82,10 @@ func frameLine(frame string, row int) string {
 // cross-track for an along-track nose, so the sign flips.
 func ringWorld(t *testing.T, up, right, tiltDeg float64) *sim.World {
 	t.Helper()
-	w := portedPairWorld(t, []string{"rcs-tug"}, []string{"nudge-tug"}, orbital.Vec3{X: 3, Y: -up, Z: -right}, tiltDeg)
+	// Your own vessel is a Dragon: its 2 m hull circle is 28 dots across the
+	// 4 m step, past the rim, so the only ink in the disc is the ring (the
+	// Nudge Tug's 1.0 m hull circle is the ring's own circle, ADR 0061).
+	w := portedPairWorld(t, []string{"dragon-crew"}, []string{"nudge-tug"}, orbital.Vec3{X: 3, Y: -up, Z: -right}, tiltDeg)
 	st, ok := w.ProximityState()
 	if !ok || !st.HasPort {
 		t.Fatal("fixture has no port scene")
@@ -436,8 +439,11 @@ func TestCenterlineBeyondTheLastStepTheGlyphSitsOnTheRim(t *testing.T) {
 
 // The ring is dashed until the dock gate holds and solid when it does.
 func TestCenterlineRingSolidOnlyWhenGateReady(t *testing.T) {
-	ready := portedPairWorld(t, []string{"rcs-tug"}, []string{"nudge-tug"}, orbital.Vec3{X: 0.3}, 0)
-	fast := withRelVelocity(portedPairWorld(t, []string{"rcs-tug"}, []string{"nudge-tug"}, orbital.Vec3{X: 0.3}, 0), orbital.Vec3{Z: 0.3})
+	// Both hulls are Dragons: at this step their 2 m circles are past the rim,
+	// so the ring is the only ink (a tug's 1.0 m hull circle IS the ring's
+	// circle and would add dots to both counts, ADR 0061).
+	ready := portedPairWorld(t, []string{"dragon-crew"}, []string{"dragon-cargo"}, orbital.Vec3{X: 0.3}, 0)
+	fast := withRelVelocity(portedPairWorld(t, []string{"dragon-crew"}, []string{"dragon-cargo"}, orbital.Vec3{X: 0.3}, 0), orbital.Vec3{Z: 0.3})
 	if st, _ := ready.ProximityState(); !ready.ProximityDockGateReady(st) {
 		t.Fatal("fixture gate is not ready")
 	}

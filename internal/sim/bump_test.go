@@ -366,7 +366,7 @@ func TestBumpFeelAtTenTimesStaysShallow(t *testing.T) {
 
 // Hulls are flat-ended cylinders, not capsules: radius W/2 applies alongside
 // a hull, and two noses touch only when they actually meet axially. S-IVB
-// hulls here: 17.25 m + 0.75 m tail, 6 m wide.
+// hulls here: 17.25 m + 0.75 m tail, 6.6 m wide (ADR 0061).
 func hullPair(t *testing.T, offX, noseGap float64) (a0, a1, b0, b1 orbital.Vec3, wa, wb float64) {
 	t.Helper()
 	sa := spacecraft.NewFromLoadout("S-IVB-1")
@@ -391,11 +391,27 @@ func TestHullsCoaxialNosesDoNotTouchAtAnyPositiveGap(t *testing.T) {
 }
 
 func TestHullsPassingNosePastNoseOnlyTouchWithAxialOverlap(t *testing.T) {
-	rsum := 6.0
-	// Noses level (gap 0) and offset sideways beyond the radii: miss.
-	a0, a1, b0, b1, wa, wb := hullPair(t, rsum+0.5, -1) // 1 m axial overlap
+	_, _, _, _, wa0, wb0 := hullPair(t, 0, 0)
+	rsum := (wa0 + wb0) / 2
+	if !near(rsum, 6.6, 1e-9) {
+		t.Fatalf("radii sum = %g, want 6.6 (S-IVB diameter)", rsum)
+	}
+	// Equal case: offset exactly the radii sum with 1 m axial overlap. The
+	// contact test is strict (n.Norm() >= rsum is a miss, bump.go:182), so
+	// hulls exactly rsum apart do NOT touch.
+	a0, a1, b0, b1, wa, wb := hullPair(t, rsum, -1)
 	if touch, _ := hullsTouch(a0, a1, wa, b0, b1, wb); touch {
-		t.Error("hulls offset 6.5 m sideways touched")
+		t.Error("hulls offset exactly the radii sum touched (contact is strict, <)")
+	}
+	// Just inside the radii sum: touch.
+	a0, a1, b0, b1, wa, wb = hullPair(t, rsum-1e-6, -1)
+	if touch, _ := hullsTouch(a0, a1, wa, b0, b1, wb); !touch {
+		t.Error("hulls 1 micrometre inside the radii sum did not touch")
+	}
+	// Noses level (gap 0) and offset sideways beyond the radii: miss.
+	a0, a1, b0, b1, wa, wb = hullPair(t, rsum+0.5, -1) // 1 m axial overlap
+	if touch, _ := hullsTouch(a0, a1, wa, b0, b1, wb); touch {
+		t.Error("hulls offset 7.1 m sideways touched")
 	}
 	// Offset inside the radii, with axial overlap: touch.
 	a0, a1, b0, b1, wa, wb = hullPair(t, rsum-1, -1)
@@ -414,11 +430,11 @@ func TestHullsSideOnHitStillTouchesAtTheSurface(t *testing.T) {
 	// into A's flank, 8 m up the hull.
 	sa := spacecraft.NewFromLoadout("S-IVB-1")
 	sa.CurrentAttitudeDir = orbital.Vec3{Y: 1}
-	a0, a1, wa, _ := hullSegment(sa)
+	a0, a1, wa, _ := hullSegment(sa) // wa = 6.6 m: radii sum of two S-IVBs
 	for _, c := range []struct {
 		x     float64
 		touch bool
-	}{{6.5, false}, {5.5, true}} {
+	}{{wa + 0.5, false}, {wa - 0.5, true}} {
 		sb := spacecraft.NewFromLoadout("S-IVB-1")
 		sb.CurrentAttitudeDir = orbital.Vec3{X: -1}
 		// B's nose is 17.25 m from its R along -X.

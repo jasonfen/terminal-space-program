@@ -55,6 +55,9 @@ func TestReportCarriesAttitudeNoseWidthAndPort(t *testing.T) {
 	if cs.NoseM != want.NoseM || cs.WidthM != want.WidthM {
 		t.Errorf("hull = %v x %v, want %v x %v", cs.NoseM, cs.WidthM, want.NoseM, want.WidthM)
 	}
+	if cs.WidthM != 1.0 { // the RCS Tug's published diameter (ADR 0061), not the sprite's 6 m
+		t.Errorf("RCS Tug width_m = %v, want 1.0", cs.WidthM)
+	}
 	if len(cs.Ports) != 1 || cs.Ports[0].OffsetM != want.Ports[0].OffsetM || cs.Ports[0].Name != want.Ports[0].Name {
 		t.Errorf("ports = %+v, want %+v", cs.Ports, want.Ports)
 	}

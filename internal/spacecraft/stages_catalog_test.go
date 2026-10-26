@@ -32,6 +32,7 @@ func TestBuildStageGoldenByteIdentical(t *testing.T) {
 		BallisticCoefficient: 6.25e-5,
 		LaunchSpriteRowsPx:   12,
 		LaunchSpriteWidthPx:  3,
+		DiameterM:            6.6,
 		LaunchSpriteColor:    "#8C9096", // #424 / ADR 0048 §4: widened Saturn V colour spread
 		FuelType:             FuelTypeHydrolox,
 	}
@@ -51,6 +52,7 @@ func TestBuildStageGoldenByteIdentical(t *testing.T) {
 		RCSIsp:              capIsp,
 		LaunchSpriteRowsPx:  6,
 		LaunchSpriteWidthPx: 3,
+		DiameterM:           3.91,
 		LaunchSpriteColor:   "#C8C8D0",
 		HasParachute:        true,
 		CommandSource:       CommandCrewed, // v0.23/ADR 0027: the capsule is a crewed pod
