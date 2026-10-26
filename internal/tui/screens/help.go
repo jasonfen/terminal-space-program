@@ -86,7 +86,7 @@ var helpSections = []helpSection{
 		{"+ / -", "zoom in / out"},
 		{"v", "cycle view (Tilted / Top / Right / Bottom / Left / Orbit-flat), projections only; two rows above \"view:\" read which way north points (N ↑ up, N ⊙ toward you, N ⊗ away; a degree figure, N ↑ 42°, is how far north tilts toward or away from you, 0° flat on the screen) and how open your orbit ring looks (plane ◠ 67° open: 0° ─ is a flat line, 90° ○ a full circle)"},
 		{"V", "launch / surface view: chase-cam on your active vessel (press again to return)"},
-		{"o", "proximity view: side picture, Centerline scope top-right (out your port); port line, corridor, misalign / lateral"},
+		{"o", "proximity view: side picture, scope top-right; port line, misalign, lateral; their hull dotted = out of your plane"},
 		{"shift+← / shift+→", "pan the view left / right (displaces the tracked center; [g] or any refocus clears it)"},
 		{"shift+↑ / shift+↓", "pan the view up / down (plain arrows are the flight trims, see MANUAL FLIGHT)"},
 		{"> / <", "tilt the 3D view up / down (tilted view only; moves the camera, never the vessel)"},
