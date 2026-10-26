@@ -331,7 +331,9 @@ slowly and straight, and the last half metre closes by itself.
   metres. `+` / `-` zoom the side picture only; the scope has no zoom, and
   the scale bar under the side picture is its own. Both hulls are drawn
   end-on as dotted circles: theirs, of their width, around the ring; yours,
-  of your width, around the crosshair. Circles apart mean you pass clear
+  of your width, around the crosshair. Their circle goes solid while the two
+  hulls are beside each other (their lengths overlap along the axis), at any
+  range, for a friend's vessel too. Circles apart mean you pass clear
   moving along their axis; overlapping circles mean you will bump. When your
   nose leans, your outline stretches into a stadium toward where the bottom
   of your stack projects (stack length times the sine of the lean). The

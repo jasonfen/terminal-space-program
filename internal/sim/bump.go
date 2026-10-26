@@ -105,13 +105,27 @@ func HullDistanceM(aR orbital.Vec3, ga PortGeometry, bR orbital.Vec3, gb PortGeo
 	if !okA || !okB {
 		return aR.Sub(bR).Norm()
 	}
+	axial, lateral, _, n, parallel := hullRelation(a0, a1, wa, b0, b1, wb)
+	if !parallel {
+		return math.Max(0, n.Norm()-(wa+wb)/2)
+	}
+	return math.Hypot(axial, lateral)
+}
+
+// hullRelation is the geometry under HullDistanceM for two known hulls. n is
+// the vector between the axis segments' closest points (yours minus theirs).
+// parallel is true within hullNearParallelCos of parallel; only then are the
+// other results meaningful: axialGap is the clamped gap between the axial
+// spans, lateralGap the axis distance less the radii (clamped), and overlap
+// is true when the spans STRICTLY overlap, so spans that exactly touch are
+// not alongside (the same strictness as hullsTouch).
+func hullRelation(a0, a1 orbital.Vec3, wa float64, b0, b1 orbital.Vec3, wb float64) (axialGap, lateralGap float64, overlap bool, n orbital.Vec3, parallel bool) {
 	pa, pb := segmentClosest(a0, a1, b0, b1)
-	n := pa.Sub(pb)
-	rsum := (wa + wb) / 2
+	n = pa.Sub(pb)
 	ua, ub := a1.Sub(a0).Unit(), b1.Sub(b0).Unit()
 	cos := ua.Dot(ub)
 	if math.Abs(cos) < hullNearParallelCos {
-		return math.Max(0, n.Norm()-rsum)
+		return 0, 0, false, n, false
 	}
 	if cos < 0 {
 		ub = ub.Scale(-1)
@@ -121,9 +135,9 @@ func HullDistanceM(aR orbital.Vec3, ga PortGeometry, bR orbital.Vec3, gb PortGeo
 	tb1 := b1.Sub(b0).Dot(u)
 	loA, hiA := math.Min(ta0, ta1), math.Max(ta0, ta1)
 	loB, hiB := math.Min(0, tb1), math.Max(0, tb1)
-	axial := math.Max(0, math.Max(loA, loB)-math.Min(hiA, hiB))
-	lateral := math.Max(0, n.Sub(u.Scale(n.Dot(u))).Norm()-rsum)
-	return math.Hypot(axial, lateral)
+	raw := math.Max(loA, loB) - math.Min(hiA, hiB)
+	lateralGap = math.Max(0, n.Sub(u.Scale(n.Dot(u))).Norm()-(wa+wb)/2)
+	return math.Max(0, raw), lateralGap, raw < 0, n, true
 }
 
 // craftHullDistanceM is HullDistanceM for two live vessels.

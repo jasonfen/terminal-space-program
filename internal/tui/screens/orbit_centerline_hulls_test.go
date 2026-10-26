@@ -22,7 +22,14 @@ import (
 // hullWorld is ringWorld with the vessels and the tilt chosen by the caller.
 func hullWorld(t *testing.T, own, tgt string, up, right, tiltDeg float64) *sim.World {
 	t.Helper()
-	w := portedPairWorld(t, []string{own}, []string{tgt}, orbital.Vec3{X: 3, Y: -up, Z: -right}, tiltDeg)
+	return hullWorldAhead(t, own, tgt, 3, up, right, tiltDeg)
+}
+
+// hullWorldAhead is hullWorld with your port ahead metres in front of theirs
+// along the track; negative puts the hulls beside each other.
+func hullWorldAhead(t *testing.T, own, tgt string, ahead, up, right, tiltDeg float64) *sim.World {
+	t.Helper()
+	w := portedPairWorld(t, []string{own}, []string{tgt}, orbital.Vec3{X: ahead, Y: -up, Z: -right}, tiltDeg)
 	st, ok := w.ProximityState()
 	if !ok || !st.HasPort {
 		t.Fatal("fixture has no port scene")
@@ -385,21 +392,45 @@ func TestCenterlineGhostWithNoShapeDrawsNoScope(t *testing.T) {
 
 // Scenery class: dotted, a dot every 2 dots along the circle, not solid ink.
 func TestCenterlineHullIsDottedNotSolid(t *testing.T) {
-	w := hullWorld(t, "dragon-crew", "dragon-cargo", 5, 0, 0)
-	v, _ := renderSplit(t, w)
-	stepOf(t, v, 16)
-	// Your circle, r = 7 dots, circumference 44; clear of their circle (the
-	// lower half is 17.5 dots away) in its lower half-plane.
-	n := 0
-	for _, d := range hullDots(v.cl) {
-		if d[1] > 31 && onCircle(d, 28, 28, 7, 0.6) {
-			n++
+	// Their circle (r = 7 dots, 6 m up: centre dot (28, 7)) is Real ink
+	// while the hulls are beside each other (3 m behind) and Scenery dots
+	// otherwise (3 m ahead). Yours is Scenery in both.
+	for _, c := range []struct {
+		name       string
+		ahead      float64
+		ghost      bool
+		minT, maxT int
+	}{
+		{"beside", -3, false, 28, 40}, // measured 34: Real ink
+		{"ahead", 3, false, 10, 24},   // measured 18: Scenery dots
+		{"ghost beside", -3, true, 28, 40},
+		{"ghost ahead", 3, true, 10, 24},
+	} {
+		w := hullWorldAhead(t, "dragon-crew", "dragon-cargo", c.ahead, 5, 0, 0)
+		if c.ghost {
+			w = ghostPairWorld(t, []string{"dragon-crew"}, []string{"dragon-cargo"}, orbital.Vec3{X: c.ahead, Y: -5}, 0)
 		}
-	}
-	// Measured: the dotted (Scenery) lower half has 13 such dots, solid
-	// (Real) ink 23; the arms are excluded and the circle is 66 dots round.
-	if n < 8 || n > 17 {
-		t.Errorf("%d dots on the lower half of your circle, want a dotted ~13 (solid ink gives ~23)", n)
+		v, _ := renderSplit(t, w)
+		stepOf(t, v, 16)
+		// Your circle, r = 7 dots, circumference 44; clear of their circle
+		// in its lower half-plane.
+		n, theirs := 0, 0
+		for _, d := range hullDots(v.cl) {
+			if d[1] > 31 && onCircle(d, 28, 28, 7, 0.6) {
+				n++
+			}
+			if onCircle(d, 28, 10.5, 7, 0.6) {
+				theirs++
+			}
+		}
+		if theirs < c.minT || theirs > c.maxT {
+			t.Errorf("%s: %d dots on their circle, want %d-%d", c.name, theirs, c.minT, c.maxT)
+		}
+		// Measured: the dotted (Scenery) lower half has 13 such dots, solid
+		// (Real) ink 23; the arms are excluded and the circle is 66 dots round.
+		if n < 8 || n > 17 {
+			t.Errorf("%s: %d dots on the lower half of your circle, want a dotted ~13 (solid ink gives ~23)", c.name, n)
+		}
 	}
 }
 
@@ -540,4 +571,31 @@ func TestCenterlineHullsLeaveTheCrossVisible(t *testing.T) {
 	if !shared {
 		t.Error("no hull ink in the cross's cell: the fixture does not exercise the overlap")
 	}
+}
+
+// ADR 0055 B2's known limit (slice open point 1): a 1.0 m tug's hull circle
+// (r 0.5 m) is the port ring (r 0.5 m), so going solid adds no new circle:
+// every lit dot beside each other stays on the ring's own circle (14 dots at
+// the 2 m step). It documents the limit; it is not a red-able guard.
+func TestCenterlineTugHullSolidStaysOnTheRing(t *testing.T) {
+	count := func(ahead float64) int {
+		w := hullWorldAhead(t, "rcs-tug", "nudge-tug", ahead, 0, 0, 0)
+		if st, _ := w.ProximityState(); st.HullsAlongside != (ahead < 0) {
+			t.Fatalf("ahead %v: HullsAlongside = %v", ahead, st.HullsAlongside)
+		}
+		v, _ := renderSplit(t, w)
+		stepOf(t, v, 2)
+		n := 0
+		for _, d := range hullDots(v.cl) {
+			n++
+			if !onCircle(d, 28, 28, 14, 1.0) {
+				t.Errorf("ahead %v: dot %v is off the ring's circle", ahead, d)
+			}
+		}
+		return n
+	}
+	if n := count(-1); n < 40 {
+		t.Errorf("only %d dots lit beside each other: the instrument cannot read the ring", n)
+	}
+	count(1)
 }
