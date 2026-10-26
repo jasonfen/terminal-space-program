@@ -4,7 +4,7 @@ Newest first. One headline per release, then the concrete changes and the issues
 
 ### v0.62.0
 
-Hulls are the width they really are, and the docking views show the hull beside you (PRs `#801`-`#806`; tag `v0.62.0`; closes `#759`, `#760`, `#727`). Save schema unchanged.
+Hulls are the width they really are, and the docking views show the hull beside you (PRs `#801`-`#808`; tag `v0.62.0`; closes `#759`, `#760`, `#727`). Save schema unchanged.
 
 - **Real hull widths.** Every part carries its published diameter: a Dragon is 4.0 m across, an S-IVB 6.6 m, a tug 1.0 m. The bump, the `range:` row and a friend's hull all use it, and the Proximity view draws each stage at that width (`#760`).
 - **The hull beside you.** In the Centerline scope the other vessel's hull circle goes solid while the two hulls are side by side, and stays dotted ahead or behind. In the Proximity view a hull out of your plane draws as a dotted box instead of a solid block, and opening it close in frames 25 m instead of 50 m, so hulls draw sooner. `range:` reads one decimal under 10 m (`range: 1.0 m`) (`#759`).
