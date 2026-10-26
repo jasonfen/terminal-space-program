@@ -670,6 +670,9 @@ func proximityHullRects(stages []spacecraft.Stage, seams []int) []hullRect {
 		tail := float64(r.rowBase)*vesselSubPixelM - sim.DockPortTipInsetM()
 		h := hullRect{tailM: tail, headM: tail + float64(r.rows)*vesselSubPixelM, widthM: stageHullWidthM(stages[r.stage]), color: r.color}
 		if r.kind == rectSide {
+			if st := stages[r.stage]; st.DiameterM <= 0 {
+				h.widthM = float64(boosterColumnWidthPx(st)) * vesselSubPixelM // the px rule, no 4-px floor
+			}
 			sign := 1.0
 			if r.xOffset < 0 {
 				sign = -1
