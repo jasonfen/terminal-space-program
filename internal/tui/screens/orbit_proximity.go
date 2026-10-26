@@ -641,6 +641,46 @@ func proximityTargetHullInputs(w *sim.World) ([]spacecraft.Stage, orbital.Vec3) 
 	return c.Stages, c.CurrentAttitudeDir
 }
 
+// stageHullWidthM is one stage's hull width in metres: its part's published
+// diameter (ADR 0061), else the launch view's floored sprite px at one sprite
+// row of metres, so the fallback matches sim.StackWidthM exactly.
+func stageHullWidthM(s spacecraft.Stage) float64 {
+	if s.DiameterM > 0 {
+		return s.DiameterM
+	}
+	return float64(stageSpriteWidthPx(s)) * vesselSubPixelM
+}
+
+// hullRect is one filled rectangle of a Proximity hull in metres: tailM..headM
+// along the stack axis (from the vessel position), widthM wide, its centre
+// acrossM off the axis (booster columns only).
+type hullRect struct {
+	tailM, headM, widthM, acrossM float64
+	color                         lipgloss.Color
+}
+
+// proximityHullRects lays a stack out at true metres from launchStackLayout:
+// the same rects, rows and docked flips the launch view composes, with each
+// stage at its hull width instead of the sprite lattice. Tapers and
+// separators take the lower stage's width; a booster column sits against the
+// core with one sprite column (vesselSubPixelM) of gap.
+func proximityHullRects(stages []spacecraft.Stage, seams []int) []hullRect {
+	var out []hullRect
+	for _, r := range flipDockedBlocks(launchStackLayout(stages), seams) {
+		tail := float64(r.rowBase)*vesselSubPixelM - sim.DockPortTipInsetM()
+		h := hullRect{tailM: tail, headM: tail + float64(r.rows)*vesselSubPixelM, widthM: stageHullWidthM(stages[r.stage]), color: r.color}
+		if r.kind == rectSide {
+			sign := 1.0
+			if r.xOffset < 0 {
+				sign = -1
+			}
+			h.acrossM = sign * (stageHullWidthM(stages[r.stage+1])/2 + h.widthM/2 + vesselSubPixelM)
+		}
+		out = append(out, h)
+	}
+	return out
+}
+
 // drawProximityHull attempts the composed-from-stages silhouette at
 // anchorWorld, in the target-centred LVLH basis (screen-right =
 // AlongTrack, screen-down = −RadialOut) that renderProximity already
@@ -680,36 +720,26 @@ func (v *OrbitView) drawProximityHull(shown *bool, stages []spacecraft.Stage, at
 	if !*shown {
 		return false
 	}
-	basis := widgets.Basis{X: frame.AlongTrack, Y: frame.RadialOut}
-	sprite := ComposeLaunchSprite(stages, attitudeDir, basis, vesselSubPixelM, seams...)
-	if sprite == nil {
-		// Defensive: composedStackRows and ComposeLaunchSprite agree on
-		// what counts as "no sprite" (taperRowBetween is their shared
-		// source of truth), so heightCells should already have been 0
-		// and *shown false above — this only guards a future drift
-		// between the two.
+	rects := proximityHullRects(stages, seams)
+	if len(rects) == 0 {
+		// Defensive: composedStackRows and launchStackLayout agree on what
+		// counts as "no sprite", so heightCells should already have been 0
+		// and *shown false above; this only guards a future drift.
 		*shown = false
 		return false
 	}
-	bell := ComposeEngineBell(coreStages(stages), attitudeDir, basis, vesselSubPixelM)
-	legs := ComposeLegs(coreStages(stages), attitudeDir, basis, vesselSubPixelM)
-	// No flame / canopy: both are transient equipment state (an active
-	// burn, a deployed chute) rather than hull geometry, and issue #348
-	// §1 asks for the SILHOUETTE at scale — the bell and legs are
-	// static stage-stack geometry the same way the body rectangles are,
-	// so they stay; exhaust and canopies are a different visual claim
-	// this slice doesn't make.
-	for _, pixels := range [][]SpritePixel{sprite, bell, legs} {
-		for _, p := range pixels {
-			// Tagged IsVessel (not plain PlotColored, unlike the launch
-			// screen's drawComposedRocket): Proximity's click routing
-			// resolves a vessel hit through HitAt/IsVessel
-			// (app.go), and the sprite should be clickable across its
-			// whole silhouette, not just the single anchor pixel the
-			// disk-glyph fallback tags.
-			v.canvas.PlotColoredTagged(anchorWorld.Add(p.OffsetWorld),
-				widgets.CellTag{Color: p.Color, IsVessel: true})
-		}
+	basis := widgets.Basis{X: frame.AlongTrack, Y: frame.RadialOut}
+	sx, sy := stackDirScreen(attitudeDir, basis)
+	along := basis.X.Scale(sx).Add(basis.Y.Scale(sy))
+	across := basis.X.Scale(-sy).Add(basis.Y.Scale(sx))
+	// Tagged IsVessel (not plain PlotColored): Proximity's click routing
+	// resolves a vessel hit through HitAt/IsVessel (app.go), so the hull is
+	// clickable across its whole silhouette. No bell, legs, flame or canopy:
+	// the bell and legs were sized off the 4-px lattice throat and left the
+	// view with it (ADR 0061 decision 3).
+	for _, r := range rects {
+		v.fillHullRect(anchorWorld.Add(across.Scale(r.acrossM)), along, across, r.tailM, r.headM, r.widthM,
+			widgets.CellTag{Color: r.color, IsVessel: true})
 	}
 	return true
 }

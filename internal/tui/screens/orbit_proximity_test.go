@@ -1098,3 +1098,163 @@ func TestProximityHullsRenderAt104x24(t *testing.T) {
 		}
 	}
 }
+
+// proxHullCanvas draws stages as a Proximity hull pointing up the screen at
+// pxPerM on a fresh canvas and returns the view plus the anchor's pixel.
+func proxHullCanvas(t *testing.T, stages []spacecraft.Stage, pxPerM float64, seams ...int) (*OrbitView, int, int) {
+	t.Helper()
+	v := newProximityTestView(t, 104, 24)
+	frame := orbital.LVLHFrame{AlongTrack: orbital.Vec3{X: 1}, RadialOut: orbital.Vec3{Y: 1}, CrossTrack: orbital.Vec3{Z: 1}}
+	v.canvas.SetBasis(widgets.Basis{X: frame.AlongTrack, Y: frame.RadialOut})
+	v.canvas.SetScale(pxPerM)
+	v.canvas.Center(orbital.Vec3{})
+	shown := false
+	if !v.drawProximityHull(&shown, stages, orbital.Vec3{Y: 1}, orbital.Vec3{}, frame, seams...) {
+		t.Fatal("drawProximityHull refused the stack")
+	}
+	px, py, _ := v.canvas.Project(orbital.Vec3{})
+	return v, px, py
+}
+
+// litAcross counts lit pixels on one screen row.
+func litAcross(v *OrbitView, py int) (n int) {
+	for px := 0; px < v.canvas.Cols()*2; px++ {
+		if v.canvas.SubPixelSet(px, py) {
+			n++
+		}
+	}
+	return n
+}
+
+// litExtentAcross is the width in pixels of everything lit between rows
+// y0..y1 (inclusive): the hull's drawn width, whether it is a solid rect or a
+// lattice of dots.
+func litExtentAcross(v *OrbitView, y0, y1 int) int {
+	lo, hi := math.MaxInt, math.MinInt
+	for y := y0; y <= y1; y++ {
+		for px := 0; px < v.canvas.Cols()*2; px++ {
+			if v.canvas.SubPixelSet(px, y) {
+				lo, hi = min(lo, px), max(hi, px)
+			}
+		}
+	}
+	if hi < lo {
+		return 0
+	}
+	return hi - lo + 1
+}
+
+// hullRows is the pixel row span (top, bottom) of a single-stage hull drawn
+// at the anchor row py.
+func hullRows(stages []spacecraft.Stage, py int, scale float64) (top, bottom int) {
+	nose := float64(sim.StackRows(stages)) * vesselSubPixelM
+	tail := sim.DockPortTipInsetM()
+	return py - int(math.Round((nose-tail)*scale)), py + int(math.Round(tail*scale))
+}
+
+// ADR 0061 decision 3: the Proximity hull is drawn at the part's published
+// metres, not the 1.5 m lattice. Dragon 4.0 m at 6 px/m = 24 px (the lattice
+// drew 4 dots x 1.5 m = 36).
+func TestProximityHullDrawsAtPublishedWidth(t *testing.T) {
+	// 6.1 not 6.0: at 6.0 the tug's tail lands on an exact half pixel and the
+	// walk's round-half tie drops one whole row (a PlotDenseLine property).
+	const scale = 6.1
+	for _, tc := range []struct {
+		name   string
+		stages []spacecraft.Stage
+		wantPx float64
+		tolPx  float64
+	}{
+		{"dragon 4.0 m", stagesOf(t, "dragon-crew"), 4.0 * scale, 1},
+		// The sprite-rule fallback is unchanged: 2 px floors to 4, x 1.5 m.
+		{"no diameter, 4-px floor", []spacecraft.Stage{{LaunchSpriteRowsPx: 6, LaunchSpriteWidthPx: 2, Color: "#ABCDEF"}}, 6.0 * scale, 1},
+	} {
+		v, _, py := proxHullCanvas(t, tc.stages, scale)
+		top, bottom := hullRows(tc.stages, py, scale)
+		n := litExtentAcross(v, top, bottom)
+		if math.Abs(float64(n)-tc.wantPx) > tc.tolPx {
+			t.Errorf("%s: hull is %d px wide, want %.0f +/- %.0f", tc.name, n, tc.wantPx, tc.tolPx)
+		}
+	}
+}
+
+// A 1.0 m tug is a thin hull, not scatter: at 6 px/m it is about 6 px wide
+// and at the 25 m entry fit (about 2.66 px/m) every row along it still inks.
+func TestProximityTugHullIsThinButSolid(t *testing.T) {
+	stages := stagesOf(t, "rcs-tug")
+	for _, scale := range []float64{6.1, 2.664} {
+		v, _, py := proxHullCanvas(t, stages, scale)
+		top, bottom := hullRows(stages, py, scale)
+		if n := litExtentAcross(v, top, bottom); n < 1 || float64(n) > 1.0*scale+2 {
+			t.Errorf("scale %v: tug is %d px wide, want 1..%.1f", scale, n, 1.0*scale+2)
+		}
+		for y := top + 1; y < bottom; y++ {
+			if litAcross(v, y) < 1 {
+				t.Errorf("scale %v: no lit pixel on row %d of the tug (rows %d..%d)", scale, y, top, bottom)
+				break
+			}
+		}
+	}
+}
+
+// The bell and legs left the Proximity view (open point 3): a lander draws
+// no ink wider than its hull and none below its tail.
+func TestProximityHullHasNoBellOrLegs(t *testing.T) {
+	const scale = 6.1
+	stages := stagesOf(t, "lander")
+	v, px, py := proxHullCanvas(t, stages, scale)
+	halfPx := int(math.Ceil(sim.StackWidthM(stages)/2*scale)) + 1
+	tailPy := py + int(math.Round(sim.DockPortTipInsetM()*scale)) + 1
+	for y := 0; y < v.canvas.Rows()*4; y++ {
+		for x := 0; x < v.canvas.Cols()*2; x++ {
+			if !v.canvas.SubPixelSet(x, y) {
+				continue
+			}
+			if abs := int(math.Abs(float64(x - px))); abs > halfPx {
+				t.Fatalf("ink at %d px off the axis (row %d), hull half-width is %d px: legs or bell drawn", abs, y, halfPx)
+			}
+			if y > tailPy {
+				t.Fatalf("ink at row %d below the tail row %d: bell drawn", y, tailPy)
+			}
+		}
+	}
+}
+
+// The picture and the number agree: the widest rect Proximity draws (booster
+// columns included) is the width sim publishes, for every loadout.
+func TestProximityWidestRectMatchesPublishedWidth(t *testing.T) {
+	for _, id := range spacecraft.LoadoutOrder {
+		stages := spacecraft.Loadouts[id].Stages
+		widest := 0.0
+		for _, r := range proximityHullRects(stages, nil) {
+			widest = max(widest, 2*math.Abs(r.acrossM)+r.widthM)
+		}
+		if want := sim.StackWidthM(stages); math.Abs(widest-want) > 1e-9 {
+			t.Errorf("%s: widest drawn rect %.3f m, sim.StackWidthM %.3f m", id, widest, want)
+		}
+	}
+}
+
+// A docked composite still draws its docked block nose to the seam.
+func TestProximityHullFlipsDockedBlock(t *testing.T) {
+	a := spacecraft.Stage{LaunchSpriteRowsPx: 4, Color: "#FF0000"}
+	b := spacecraft.Stage{LaunchSpriteRowsPx: 6, Color: "#00FF00"}
+	c := spacecraft.Stage{LaunchSpriteRowsPx: 4, Color: "#0000FF"}
+	tail := func(rs []hullRect, col string) float64 {
+		for _, r := range rs {
+			if r.color == lipgloss.Color(col) {
+				return r.tailM
+			}
+		}
+		t.Fatalf("no %s rect", col)
+		return 0
+	}
+	plain := proximityHullRects([]spacecraft.Stage{a, b, c}, nil)
+	if !(tail(plain, "#00FF00") < tail(plain, "#0000FF")) {
+		t.Fatal("control: unflipped stack should run B below C")
+	}
+	flipped := proximityHullRects([]spacecraft.Stage{a, b, c}, []int{1})
+	if !(tail(flipped, "#0000FF") < tail(flipped, "#00FF00")) {
+		t.Errorf("seam at 1: C should sit below B (nose to the seam), got C %.1f B %.1f", tail(flipped, "#0000FF"), tail(flipped, "#00FF00"))
+	}
+}

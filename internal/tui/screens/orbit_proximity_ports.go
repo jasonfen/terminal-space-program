@@ -294,6 +294,22 @@ func ghostHullHeightCells(g sim.Ghost, scale float64) float64 {
 	return g.NoseM * scale / canvasCellPxH
 }
 
+// fillHullRect fills one hull rectangle in true metres: from tailM to headM
+// along the unit vector `along` and widthM wide across `across`, both
+// measured from anchor. Two scanlines per pixel across, so neighbours closer
+// than a pixel can never leave a gap row; at least 2 so a hair-thin hull
+// still inks, capped at proximityGhostMaxScanlines at deep zoom.
+func (v *OrbitView) fillHullRect(anchor, along, across orbital.Vec3, tailM, headM, widthM float64, tag widgets.CellTag) {
+	lines := int(widthM*v.canvas.Scale()*2) + 2
+	lines = max(2, min(lines, proximityGhostMaxScanlines))
+	for i := 0; i < lines; i++ {
+		u := (float64(i)/float64(lines-1) - 0.5) * widthM
+		a := anchor.Add(along.Scale(tailM)).Add(across.Scale(u))
+		b := anchor.Add(along.Scale(headM)).Add(across.Scale(u))
+		v.canvas.PlotDenseLineTagged(a, b, tag)
+	}
+}
+
 // proximityGhostMaxScanlines bounds the rectangle fill at deep zoom: a
 // 6 m hull at 100 px/m would otherwise be 600 lines a frame.
 const proximityGhostMaxScanlines = 800
@@ -323,21 +339,6 @@ func (v *OrbitView) drawProximityGhostHull(shown *bool, g sim.Ghost, anchor orbi
 	along := basis.X.Scale(sx).Add(basis.Y.Scale(sy)) // screen-plane unit along the hull
 	across := basis.X.Scale(-sy).Add(basis.Y.Scale(sx))
 	tail := -sim.DockPortTipInsetM()
-	head := pg.NoseM + tail
-	// Two scanlines per pixel across: neighbours closer than a pixel, so
-	// rounding can never leave a gap row.
-	lines := int(pg.WidthM*scale*2) + 2
-	if lines > proximityGhostMaxScanlines {
-		lines = proximityGhostMaxScanlines
-	}
-	if lines < 2 {
-		lines = 2
-	}
-	for i := 0; i < lines; i++ {
-		u := (float64(i)/float64(lines-1) - 0.5) * pg.WidthM
-		a := anchor.Add(along.Scale(tail)).Add(across.Scale(u))
-		b := anchor.Add(along.Scale(head)).Add(across.Scale(u))
-		v.canvas.PlotDenseLineColored(a, b, render.ColorDim, 1)
-	}
+	v.fillHullRect(anchor, along, across, tail, pg.NoseM+tail, pg.WidthM, widgets.CellTag{Color: render.ColorDim})
 	return true
 }

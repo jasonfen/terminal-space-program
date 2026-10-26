@@ -947,6 +947,14 @@ func (c *Canvas) PlotDenseLineColored(a, b orbital.Vec3, color lipgloss.Color, s
 	c.walkPixelSegment(ax, ay, bx, by, CellTag{Color: color, Sparse: step > 1}, step, 0, 0, 0, 0, nil)
 }
 
+// PlotDenseLineTagged is PlotDenseLineColored (solid, step 1) with the full
+// CellTag, so a filled hull keeps its hit-test metadata (IsVessel).
+func (c *Canvas) PlotDenseLineTagged(a, b orbital.Vec3, tag CellTag) {
+	ax, ay := c.projectPx(a)
+	bx, by := c.projectPx(b)
+	c.walkPixelSegment(ax, ay, bx, by, tag, 1, 0, 0, 0, 0, nil)
+}
+
 // PlotDenseLineForcedColored draws a dotted line between world points a and b.
 // Kept as a distinct name for the CommNet relay sightline (C2-7), where the
 // chord IS the real straight path and must draw all the way toward its (often
