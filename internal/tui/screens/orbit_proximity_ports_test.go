@@ -277,6 +277,13 @@ func TestDockPortNoseRowsMatchDrawnSprite(t *testing.T) {
 	if got := sim.StackWidthPx(sls); got != 10 {
 		t.Errorf("SLS sim.StackWidthPx = %d, want 10", got)
 	}
+	// The metres line (ADR 0061): the published envelope, hand-written from
+	// the ADR's "Numbers" (SLS = 8.4 core + 2 x 3.7 boosters + 2 x 1.5 m gaps).
+	for id, want := range map[string]float64{"SLS-Block1": 18.8, "Apollo-TLI": 6.6, "Dragon": 4.0} {
+		if got := sim.StackWidthM(spacecraft.Loadouts[id].Stages); math.Abs(got-want) > 1e-9 {
+			t.Errorf("%s sim.StackWidthM = %v, want %v", id, got, want)
+		}
+	}
 }
 
 // The mark sits where the sprite's nose is drawn. Measured, not asserted

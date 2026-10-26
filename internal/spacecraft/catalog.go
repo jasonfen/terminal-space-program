@@ -68,10 +68,13 @@ type Part struct {
 	BallisticCoefficient float64 `json:"ballistic_coeff,omitempty"`
 
 	// Launch-sprite + flame styling (ViewLaunch chase-cam silhouette).
-	LaunchSpriteRowsPx  int    `json:"launch_sprite_rows_px,omitempty"`
-	LaunchSpriteWidthPx int    `json:"launch_sprite_width_px,omitempty"`
-	LaunchSpriteColor   string `json:"launch_sprite_color,omitempty"`
-	LaunchSpriteHasLegs bool   `json:"launch_sprite_has_legs,omitempty"`
+	LaunchSpriteRowsPx  int `json:"launch_sprite_rows_px,omitempty"`
+	LaunchSpriteWidthPx int `json:"launch_sprite_width_px,omitempty"`
+	// DiameterM is the published hull diameter in metres (ADR 0061); 0 means
+	// the sprite rule (max(width px, 4) x 1.5 m).
+	DiameterM           float64 `json:"diameter_m,omitempty"`
+	LaunchSpriteColor   string  `json:"launch_sprite_color,omitempty"`
+	LaunchSpriteHasLegs bool    `json:"launch_sprite_has_legs,omitempty"`
 	// LaunchSpriteDerived is set by applyDerivedSprite when it fills any
 	// sprite field; never read from a catalog file.
 	LaunchSpriteDerived bool   `json:"-"`
@@ -255,6 +258,7 @@ func (p Part) ToStage() Stage {
 		Color:                p.Color,
 		LaunchSpriteRowsPx:   p.LaunchSpriteRowsPx,
 		LaunchSpriteWidthPx:  p.LaunchSpriteWidthPx,
+		DiameterM:            p.DiameterM,
 		LaunchSpriteColor:    p.LaunchSpriteColor,
 		LaunchSpriteDerived:  p.LaunchSpriteDerived,
 		FuelType:             p.FuelType,

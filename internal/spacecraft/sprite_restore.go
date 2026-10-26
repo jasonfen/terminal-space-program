@@ -17,6 +17,7 @@ import "sort"
 
 type spriteDims struct {
 	rows, width int
+	diameter    float64
 	color       string
 	legs        bool
 	derived     bool
@@ -25,7 +26,7 @@ type spriteDims struct {
 
 func spriteDimsOf(s Stage) spriteDims {
 	return spriteDims{
-		rows: s.LaunchSpriteRowsPx, width: s.LaunchSpriteWidthPx, color: s.LaunchSpriteColor,
+		rows: s.LaunchSpriteRowsPx, width: s.LaunchSpriteWidthPx, diameter: s.DiameterM, color: s.LaunchSpriteColor,
 		legs: s.LaunchSpriteHasLegs, derived: s.LaunchSpriteDerived, fuelType: s.FuelType,
 	}
 }
@@ -95,6 +96,7 @@ func (s *Stage) RestoreSprite() {
 	if d, ok := spriteIdx.lookup(s.LoadoutID, s.Name); ok {
 		s.LaunchSpriteRowsPx, s.LaunchSpriteWidthPx, s.LaunchSpriteColor = d.rows, d.width, d.color
 		s.LaunchSpriteHasLegs, s.LaunchSpriteDerived = d.legs, d.derived
+		s.DiameterM = d.diameter
 		if s.FuelType == "" {
 			s.FuelType = d.fuelType
 		}

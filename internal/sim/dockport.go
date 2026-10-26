@@ -107,6 +107,36 @@ func StackWidthPx(stages []spacecraft.Stage) int {
 	return maxW
 }
 
+// stageWidthM is one stage's hull width in metres: its part's published
+// diameter (ADR 0061), else the sprite rule, max(px, 4) x one row.
+func stageWidthM(s spacecraft.Stage) float64 {
+	if s.DiameterM > 0 {
+		return s.DiameterM
+	}
+	w := s.LaunchSpriteWidthPx
+	if w <= 0 {
+		w = dockDefaultWidthPx
+	}
+	return float64(max(w, dockMinWidthPx)) * DockStrideM
+}
+
+// StackWidthM is the hull width in metres: the widest drawn stage. A booster
+// pair reads core + 2 boosters + 2 gaps of one sprite column (DockStrideM).
+func StackWidthM(stages []spacecraft.Stage) float64 {
+	maxW := 0.0
+	for i, s := range stages {
+		if s.LaunchSpriteRowsPx <= 0 {
+			continue
+		}
+		w := stageWidthM(s)
+		if boosterPair(stages, i) {
+			w = stageWidthM(stages[i+1]) + 2*w + 2*DockStrideM
+		}
+		maxW = max(maxW, w)
+	}
+	return maxW
+}
+
 // DockPort is one docking port of a vessel, positioned along its stack.
 type DockPort struct {
 	// Name is the component the port sits on (its top stage's name), what
@@ -160,7 +190,7 @@ func PortGeometryOf(stages []spacecraft.Stage, attitude orbital.Vec3) PortGeomet
 	g := PortGeometry{
 		Axis:    attitude.Unit(),
 		NoseM:   float64(StackRows(stages)) * DockStrideM,
-		WidthM:  float64(StackWidthPx(stages)) * DockStrideM,
+		WidthM:  StackWidthM(stages),
 		Stacked: len(stages) > 1,
 	}
 	g.Known = attitude.Norm() > 1e-9

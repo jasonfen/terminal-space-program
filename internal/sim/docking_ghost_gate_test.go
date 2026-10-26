@@ -98,8 +98,9 @@ func TestOffLineNoseFirstHitOnAGhostBounces(t *testing.T) {
 	}{
 		{"coaxial", 0, 0},
 		{"tilt 3 deg about the base", 3, 0},
-		{"1 m lateral miss", 0, 1},
-		{"2 deg tilt and 1.5 m miss", 2, 1.5},
+		// Tugs are 1.0 m wide (ADR 0061): keep the miss under the radii sum.
+		{"0.4 m lateral miss", 0, 0.4},
+		{"2 deg tilt and 0.6 m miss", 2, 0.6},
 	} {
 		w, a := ghostPair(t, "rcs-tug", "rcs-tug", 20, 0, 0)
 		g := &w.Ghosts[0]

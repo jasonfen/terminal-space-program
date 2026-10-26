@@ -317,3 +317,56 @@ func TestProximityStatePortAxialSign(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0061: a hull is as wide as its widest part's published diameter; the
+// sprite rule (max(px, 4) x 1.5 m) only answers for a stage with no number.
+func TestStackWidthMReadsTheWidestPartInMetres(t *testing.T) {
+	sprite := func(rows, px int) spacecraft.Stage {
+		return spacecraft.Stage{LaunchSpriteRowsPx: rows, LaunchSpriteWidthPx: px}
+	}
+	cases := []struct {
+		name   string
+		stages []spacecraft.Stage
+		want   float64
+	}{
+		{"lone Dragon", []spacecraft.Stage{stageOf(t, "dragon-crew")}, 4.0},
+		{"lone RCS Tug", []spacecraft.Stage{stageOf(t, "rcs-tug")}, 1.0},
+		{"2 px, no diameter: floored to 4 px", []spacecraft.Stage{sprite(6, 2)}, 6.0},
+		{"4 px, no diameter", []spacecraft.Stage{sprite(6, 4)}, 6.0},
+		{"diameter 6.0 agrees with the floored sprite", []spacecraft.Stage{{LaunchSpriteRowsPx: 6, LaunchSpriteWidthPx: 2, DiameterM: 6.0}}, 6.0},
+		{"5 px, no diameter", []spacecraft.Stage{sprite(6, 5)}, 7.5},
+		{"undrawn stage is ignored", []spacecraft.Stage{{DiameterM: 9}, stageOf(t, "rcs-tug")}, 1.0},
+		{"Apollo TLI: the S-IVB is the widest", []spacecraft.Stage{stageOf(t, "s-ivb-tli"), stageOf(t, "apollo-descent"), stageOf(t, "apollo-ascent"), stageOf(t, "apollo-sm"), stageOf(t, "orion-cm")}, 6.6},
+		{"Falcon 9 + Starlink: the payload is wider than the stage", []spacecraft.Stage{stageOf(t, "f9-s1"), stageOf(t, "f9-s2"), stageOf(t, "starlink")}, 4.1},
+	}
+	for _, c := range cases {
+		if got := StackWidthM(c.stages); !near(got, c.want, 1e-9) {
+			t.Errorf("%s: StackWidthM = %g, want %g", c.name, got, c.want)
+		}
+	}
+	// Hand-written from ADR 0061 "Numbers"; booster pair = core + 2 x booster + 2 x 1.5 m.
+	want := map[string]float64{
+		"Apollo-TLI": 6.6, "Saturn-V": 10.06, "SLS-Block1": 18.8, "SLS-Orion": 18.8, "Raster-LS": 18.8,
+		"Falcon-9": 3.66, "Dragon": 4.0, "Falcon-9-Dragon": 4.0, "Falcon-9-Starlink-24": 4.1,
+		"RCS-tug": 1.0, "Endpoint-Station": 4.76,
+	}
+	for id, w := range want {
+		c := spacecraft.NewFromLoadout(id)
+		if len(c.Stages) == 0 {
+			t.Errorf("%s: no such loadout", id)
+			continue
+		}
+		if got := StackWidthM(c.Stages); !near(got, w, 1e-9) {
+			t.Errorf("%s: StackWidthM = %g, want %g", id, got, w)
+		}
+	}
+}
+
+func TestPortGeometryWidthIsStackWidthM(t *testing.T) {
+	for _, id := range spacecraft.LoadoutOrder {
+		c := spacecraft.NewFromLoadout(id)
+		if got, want := VesselPortGeometry(c).WidthM, StackWidthM(c.Stages); got != want {
+			t.Errorf("%s: WidthM = %g, StackWidthM = %g", id, got, want)
+		}
+	}
+}
