@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
-	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // startVesselTugWorld is the first dock a new player flies: the default Apollo
@@ -60,7 +59,7 @@ func TestProximityChipInsideZoneAgainstTheStartVessel(t *testing.T) {
 	if row := chipLine(chip, "port:"); !strings.Contains(row, "need < 0.50") {
 		t.Errorf("port: row %q lacks the (need < 0.50) reminder", row)
 	}
-	if got, want := chipLine(chip, "range:"), readout.Distance(0.8); !strings.Contains(got, want) {
+	if got, want := chipLine(chip, "range:"), "0.8 m"; !strings.Contains(got, want) {
 		t.Errorf("range: row = %q, want the 0.8 m hull gap (%q)", got, want)
 	}
 }

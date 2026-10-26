@@ -350,6 +350,17 @@ func PortDistance(m float64) string {
 	return Distance(m)
 }
 
+// HullGap renders the Proximity chip's range: row (ADR 0055 B3): one decimal
+// while the value rounds under 10 m ("1.0 m", "3.2 m"), never "10.0 m", then
+// the ordinary Distance ladder. The second recorded exception to ADR 0049's
+// whole-metre rule for metres (the first is PortDistance); confined to range:.
+func HullGap(m float64) string {
+	if math.Round(math.Abs(m)*10)/10 < 10 {
+		return fmt.Sprintf("%.1f m", Nzero(m, 1))
+	}
+	return Distance(m)
+}
+
 // PortOffset renders one axis of the off-axis row: one decimal under 1 km
 // ("0.6 m", "12.3 m"), the Distance ladder above. The sign is the caller's
 // to turn into an arrow, so the magnitude is rendered.

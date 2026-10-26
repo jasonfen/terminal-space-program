@@ -778,10 +778,60 @@ func TestProximitySpriteHeightCellsNoSpriteOrScale(t *testing.T) {
 	}
 }
 
+// The entry fit is max(2.25 x range, 25 m) (ADR 0055 B4): the floor binds up
+// to 25 / 2.25 = 11.111 m, where the two sides are equal; 50 m is gone.
+func TestProximityFitRadiusFloor(t *testing.T) {
+	cases := []struct{ rangeM, want float64 }{
+		{0, 25},
+		{10, 25},
+		{25 / proximityFitMarginFrac, 25}, // equal case: both sides 25
+		{12, 27},                          // not floored
+		{100, 225},
+	}
+	for _, c := range cases {
+		if got := proximityFitRadius(sim.ProximityState{RangeM: c.rangeM}); math.Abs(got-c.want) > 1e-9 {
+			t.Errorf("proximityFitRadius(range %g) = %v, want %v", c.rangeM, got, c.want)
+		}
+	}
+}
+
+// At 140x40 the entry fit puts the 50 m gate ring's leftmost and rightmost
+// points on the canvas and its top and bottom off it (ADR 0055 B4's accepted
+// cost), and the tug pair entering at 4 m of port range is drawn as hulls,
+// not the anchor glyphs.
+func TestProximityEntryFitClipsGateRingAndDrawsHulls(t *testing.T) {
+	w := portedPairWorld(t, []string{"rcs-tug"}, []string{"rcs-tug"}, orbital.Vec3{X: 3}, 0)
+	v := newProximityTestView(t, DesignWidth, DesignHeight)
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	st, ok := w.ProximityState()
+	if !ok {
+		t.Fatal("ProximityState refused")
+	}
+	pxW, pxH := v.canvas.Cols()*2, v.canvas.Rows()*4
+	minX, maxX, minY, maxY := 1<<30, -(1 << 30), 1<<30, -(1 << 30)
+	for _, p := range proximityRingPoints(proximityGateRingCentre(st), st.Frame.AlongTrack, st.Frame.RadialOut, sim.DockingDistM) {
+		x, y, _ := v.canvas.Project(p)
+		minX, maxX = min(minX, x), max(maxX, x)
+		minY, maxY = min(minY, y), max(maxY, y)
+	}
+	if minX < 0 || maxX >= pxW {
+		t.Errorf("gate ring spans x %d..%d, want inside the %d px canvas", minX, maxX, pxW)
+	}
+	if minY >= 0 || maxY < pxH {
+		t.Errorf("gate ring spans y %d..%d, want clipped top and bottom of the %d px canvas", minY, maxY, pxH)
+	}
+	if !v.proxTargetSpriteShown || !v.proxOwnSpriteShown {
+		t.Errorf("hull sprites shown own=%v target=%v, want both at the entry fit", v.proxOwnSpriteShown, v.proxTargetSpriteShown)
+	}
+	if n := v.canvas.CountColor(lipgloss.Color(stagesOf(t, "rcs-tug")[0].Color)); n == 0 {
+		t.Error("no tug-coloured hull ink on the canvas")
+	}
+}
+
 // TestProximityHullSpriteSpansExpectedCellsAtEntryFit is the "seeded
-// range" quality-bar test: at a 20 m separation — inside
-// proximityFitFloorM (50 m), so the entry fit pins to the game's own
-// DOCK READY floor rather than scaling with range — a 24 m-tall stack
+// range" quality-bar test: at a 10 m separation — inside
+// proximityFitFloorM (25 m), so the entry fit pins to the hulls' floor
+// rather than scaling with range — a 24 m-tall stack
 // (16 sub-pixel rows × vesselSubPixelM) spans the height
 // proximityFitRadius's own documented entry-fit math (Canvas.FitTo:
 // scale = 0.45 × shorter-pixel-axis / radius) predicts, derived here
@@ -789,7 +839,7 @@ func TestProximitySpriteHeightCellsNoSpriteOrScale(t *testing.T) {
 // re-calling it, so a scale-formula regression can't silently agree
 // with itself.
 func TestProximityHullSpriteSpansExpectedCellsAtEntryFit(t *testing.T) {
-	const rangeM = 20.0
+	const rangeM = 10.0
 	const rows = 16
 	stages := []spacecraft.Stage{{LaunchSpriteRowsPx: rows, LaunchSpriteWidthPx: 2, Color: "#ABCDEF"}}
 
@@ -805,6 +855,9 @@ func TestProximityHullSpriteSpansExpectedCellsAtEntryFit(t *testing.T) {
 		t.Fatal("ProximityState refused")
 	}
 	fitRadius := proximityFitRadius(st)
+	if fitRadius != 25 {
+		t.Fatalf("fit radius = %v at %v m of range, want the 25 m floor", fitRadius, rangeM)
+	}
 	shorterPx := float64(v.canvas.Cols() * 2)
 	if h := float64(v.canvas.Rows() * 4); h < shorterPx {
 		shorterPx = h
