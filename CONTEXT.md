@@ -3116,12 +3116,12 @@ Campaign (see Named save).
 The Active Vessel's always-on black box: a bounded log of sampled state
 (sim time, altitude, speed, mass, throttle, attitude mode and trims, stage
 count, SOI body) plus every **Action** and lifecycle event (crash,
-touchdown, SOI change) as it happens. Its output is the flight's story in
-the player's own words — a milestone timeline ("liftoff from KSC,
-circularized 250 km, target Luna, Hohmann planted, SOI → Luna, crash")
-with the numbers behind each line — written out on crash, landing or an
-explicit save, so a bug report can paste it instead of retelling it. It
-records; it never flies the vessel.
+touchdown, SOI change) as it happens. The bar for its output is that a
+reader reconstructs the flight's story from it ("liftoff from KSC,
+circularized 250 km, target Luna, Hohmann planted, SOI → Luna, crash"),
+whether as a milestone timeline or a table of numbers — written out on
+crash, landing or an explicit save, so a bug report can paste it instead
+of retelling it. It records; it never flies the vessel.
 _Avoid_: Black box (the nickname, fine in prose), Telemetry (CommNet
 signal), Log, Replay (parked — automation is a separate idea, see the
 backlog).
