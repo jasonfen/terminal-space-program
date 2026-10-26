@@ -148,6 +148,48 @@ func TestProximityGhostHullIsTheReportedRectangle(t *testing.T) {
 	}
 }
 
+// A friend's vessel out of your plane is the same dotted box as a local one,
+// in the dim ghost colour, with both port marks (ADR 0055 B1). 8 m along
+// track and 8 m deep: the sibling of TestProximityGhostHullIsTheReportedRectangle,
+// whose fixture is 8 m along track and stays a filled block.
+func TestProximityGhostHullOutOfPlaneIsADottedBox(t *testing.T) {
+	w := ghostPairWorld(t, []string{"rcs-tug"}, []string{"ntr-tug"}, orbital.Vec3{X: 8, Z: 8}, 0)
+	v := newProximityTestView(t, DesignWidth, DesignHeight)
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	st, _ := w.ProximityState()
+	v.userZoom = 3
+	v.panOffset = st.Frame.AlongTrack.Scale(8)
+	out := ansi.Strip(v.Render(w, 0, DesignWidth, DesignHeight))
+	if !v.proxTargetSpriteShown {
+		t.Fatal("setup: the ghost box must be shown, not the diamond")
+	}
+	g := w.Ghosts[0]
+	lit := hullProbe(v, st, st.TargetWorld, g.Attitude)
+	tail, head := -sim.DockPortTipInsetM(), g.NoseM-sim.DockPortTipInsetM()
+	for _, a := range []float64{tail, head} {
+		for _, u := range []float64{-g.WidthM / 2, g.WidthM / 2} {
+			if !lit(a, u, 1) {
+				t.Errorf("box corner (%.2f, %.2f) not lit", a, u)
+			}
+		}
+	}
+	if lit((tail+head)/2, g.WidthM/4, 0) {
+		t.Error("ghost interior lit: a filled block, not a box")
+	}
+	// The Centerline scope (top right, past column 110) has its own ring mark
+	// once the pair is out of plane; count the side picture only.
+	marks := 0
+	for _, l := range strings.Split(out, "\n") {
+		if r := []rune(l); len(r) > 110 {
+			l = string(r[:110])
+		}
+		marks += strings.Count(l, "○")
+	}
+	if marks != 2 {
+		t.Errorf("port marks in the side picture = %d, want 2", marks)
+	}
+}
+
 // A report with no shape stays the diamond, and draws no port mark.
 func TestProximityGhostWithoutShapeStaysADiamond(t *testing.T) {
 	w := ghostPairWorld(t, []string{"rcs-tug"}, []string{"ntr-tug"}, orbital.Vec3{X: 8}, 0)

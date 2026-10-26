@@ -237,12 +237,22 @@ func (v *OrbitView) drawProximityPortLine(w *sim.World, st sim.ProximityState) {
 	// range-ring labels live, and over the two marks when the gap is only a
 	// few cells.
 	label := readout.PortDistance(st.PortRangeM)
+	// The two marks are drawn after this, over whatever is there: a label
+	// cell under one reads `4.1○ m` (ADR 0055 B6).
+	markCell := func(x, y int) bool {
+		for _, p := range []orbital.Vec3{a, b} {
+			if c, r, ok := v.canvasCell(p); ok && c == x && r == y {
+				return true
+			}
+		}
+		return false
+	}
 	left := col - lipgloss.Width(label)/2
 	at := row
 	for _, dr := range []int{-1, 1} {
 		free := true
 		for x := left; x < left+lipgloss.Width(label); x++ {
-			if v.canvas.CellOccupied(x, row+dr) {
+			if v.canvas.CellOccupied(x, row+dr) || markCell(x, row+dr) {
 				free = false
 				break
 			}
@@ -340,5 +350,43 @@ func (v *OrbitView) drawProximityGhostHull(shown *bool, g sim.Ghost, anchor orbi
 	across := basis.X.Scale(-sy).Add(basis.Y.Scale(sx))
 	tail := -sim.DockPortTipInsetM()
 	v.fillHullRect(anchor, along, across, tail, pg.NoseM+tail, pg.WidthM, widgets.CellTag{Color: render.ColorDim})
+	return true
+}
+
+// hullBoxEpsilonM absorbs the float noise in HullDepthM (a Z offset of exactly
+// the radii sum reads 4.0000000001) so that "exactly the sum" stays filled.
+const hullBoxEpsilonM = 1e-6
+
+// proximityHullBoxed is the dotted-box rule (ADR 0055 B1): the target's hull
+// is outlined, not filled, when the two axes are further apart across the
+// view's depth than the two radii added. Strict: exactly the sum is filled.
+// No range gate.
+func proximityHullBoxed(st sim.ProximityState) bool {
+	return st.Own.Known && st.Target.Known &&
+		st.HullDepthM > (st.Own.WidthM+st.Target.WidthM)/2+hullBoxEpsilonM
+}
+
+// drawProximityHullBox draws a hull out of your plane as the dotted outline of
+// its nose_m x width_m rectangle, in colour, anchored and pointed like the
+// filled hull it replaces. shown is the hull's own hysteresis latch and
+// heightCells the length that feeds it, so a box never appears where the
+// glyph would. Returns false, latch cleared, when it is under the sprite
+// switch.
+func (v *OrbitView) drawProximityHullBox(shown *bool, heightCells float64, anchor, attitude orbital.Vec3, frame orbital.LVLHFrame, pg sim.PortGeometry, colour lipgloss.Color) bool {
+	*shown = proximitySpriteVisible(*shown, heightCells)
+	if !*shown {
+		return false
+	}
+	basis := widgets.Basis{X: frame.AlongTrack, Y: frame.RadialOut}
+	sx, sy := stackDirScreen(attitude, basis)
+	along := basis.X.Scale(sx).Add(basis.Y.Scale(sy))
+	across := basis.X.Scale(-sy).Add(basis.Y.Scale(sx))
+	tail := -sim.DockPortTipInsetM()
+	head, half := pg.NoseM+tail, pg.WidthM/2
+	corner := func(a, u float64) orbital.Vec3 {
+		return anchor.Add(along.Scale(a)).Add(across.Scale(u))
+	}
+	v.canvas.PlotPolylineClass([]orbital.Vec3{corner(tail, -half), corner(head, -half), corner(head, half), corner(tail, half), corner(tail, -half)},
+		colour, widgets.ClassScenery)
 	return true
 }
