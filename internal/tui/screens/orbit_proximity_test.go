@@ -1226,16 +1226,20 @@ func TestProximityHullHasNoBellOrLegs(t *testing.T) {
 // The picture and the number agree: the widest rect Proximity draws (booster
 // columns included) is the width sim publishes, for every loadout.
 func TestProximityWidestRectMatchesPublishedWidth(t *testing.T) {
-	for _, id := range spacecraft.LoadoutOrder {
-		stages := spacecraft.Loadouts[id].Stages
+	check := func(name string, stages []spacecraft.Stage) {
 		widest := 0.0
 		for _, r := range proximityHullRects(stages, nil) {
 			widest = max(widest, 2*math.Abs(r.acrossM)+r.widthM)
 		}
 		if want := sim.StackWidthM(stages); math.Abs(widest-want) > 1e-9 {
-			t.Errorf("%s: widest drawn rect %.3f m, sim.StackWidthM %.3f m", id, widest, want)
+			t.Errorf("%s: widest drawn rect %.3f m, sim.StackWidthM %.3f m", name, widest, want)
 		}
 	}
+	for _, id := range spacecraft.LoadoutOrder {
+		check(id, spacecraft.Loadouts[id].Stages)
+	}
+	// A booster pair with no diameter_m (an overlay): both sides read the px rule.
+	check("no-diameter pair", []spacecraft.Stage{{LaunchSpriteRowsPx: 6, LaunchSpriteWidthPx: 2, LitWithAbove: true}, {LaunchSpriteRowsPx: 6, LaunchSpriteWidthPx: 2}})
 }
 
 // A docked composite still draws its docked block nose to the seam.

@@ -120,6 +120,19 @@ func stageWidthM(s spacecraft.Stage) float64 {
 	return float64(max(w, dockMinWidthPx)) * DockStrideM
 }
 
+// boosterColumnWidthM is one side column's width: its published diameter, else
+// the px rule's authored/2 columns with no 4-px floor (exactly the old number).
+func boosterColumnWidthM(s spacecraft.Stage) float64 {
+	if s.DiameterM > 0 {
+		return s.DiameterM
+	}
+	w := s.LaunchSpriteWidthPx
+	if w <= 0 {
+		w = dockDefaultWidthPx
+	}
+	return float64(max(1, w/2)) * DockStrideM
+}
+
 // StackWidthM is the hull width in metres: the widest drawn stage. A booster
 // pair reads core + 2 boosters + 2 gaps of one sprite column (DockStrideM).
 func StackWidthM(stages []spacecraft.Stage) float64 {
@@ -130,7 +143,7 @@ func StackWidthM(stages []spacecraft.Stage) float64 {
 		}
 		w := stageWidthM(s)
 		if boosterPair(stages, i) {
-			w = stageWidthM(stages[i+1]) + 2*w + 2*DockStrideM
+			w = stageWidthM(stages[i+1]) + 2*boosterColumnWidthM(s) + 2*DockStrideM
 		}
 		maxW = max(maxW, w)
 	}
