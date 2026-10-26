@@ -80,13 +80,13 @@ func TestHullDistanceIsASurfaceGap(t *testing.T) {
 	if got := craftHullDistanceM(p.a, p.b); !near(got, 0.4, 1e-6) {
 		t.Errorf("coaxial pair 0.4 m apart: hull distance = %.4f m", got)
 	}
-	w, a, b := bumpWorld(t, 4, 0) // two parallel S-IVBs, axes 4 m apart, widths 6 m: touching
+	w, a, b := bumpWorld(t, 4, 0) // two parallel S-IVBs, axes 4 m apart, widths 6.6 m: touching
 	_ = w
 	if got := craftHullDistanceM(a, b); got != 0 {
 		t.Errorf("hulls overlapping side by side: hull distance = %.3f m, want 0", got)
 	}
-	b.State.R = a.State.R.Add(orbital.Vec3{X: 26}) // 26 m axis distance, 6 m radii sum: 20 m of air
-	if got := craftHullDistanceM(a, b); !near(got, 20, 1e-6) {
-		t.Errorf("side by side 26 m between axes: hull distance = %.3f m, want 20", got)
+	b.State.R = a.State.R.Add(orbital.Vec3{X: 26}) // 26 m axis distance, 6.6 m radii sum: 19.4 m of air
+	if got := craftHullDistanceM(a, b); !near(got, 26-6.6, 1e-6) {
+		t.Errorf("side by side 26 m between axes: hull distance = %.3f m, want 19.4", got)
 	}
 }
