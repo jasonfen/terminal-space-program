@@ -1703,6 +1703,12 @@ var (
 	// the rcs: row's rendered width is unchanged by the rename. This pin
 	// stays exactly as the Δv-pair row already required it.
 	propellantCols = boxCols{value1: 12, label2: 32, gap2: 10}
+	// PROPELLANT's fuel row while a booster pair is lit (ADR 0058 amendment
+	// 2026-10-25): boosters: / core: / mass:. core: at 18 holds a 4-cell
+	// boosters value plus two cells of daylight; mass: is propellantCols'
+	// column by reference so the two row shapes share it.
+	propellantLitSetCols = boxCols{value1: propellantCols.value1, label2: 18, gap2: 6,
+		label3: propellantCols.label2, gap3: propellantCols.gap2}
 	// GUIDANCE: longest label1 is "heading:" (8) -> value1 11.
 	//
 	// #478 A2 re-derivation: dropping "Surface " retired the old widest

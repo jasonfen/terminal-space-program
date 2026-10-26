@@ -34,24 +34,30 @@ func (v *OrbitView) buildPropellantBox(w *sim.World) []string {
 			chipRow2(propellantCols, "cargo:", "—", "hold:", "—"),
 		}
 	}
-	fuelLabel := readout.Mass(c.Fuel)
 	// The lit stage's tank as a percentage only; its mass was a second
 	// reading of the same thing, and mass: beside it already says how heavy
 	// the vessel is (Jason 2026-10-10: "just keep %").
-	// With a booster group the lit set reads bottom-first: "60% · 91%"
-	// (ADR 0058 decision 7); the STAGES pips say which is which.
-	if label, ok := litSetFuelLabel(c); ok {
-		fuelLabel = label
+	// With a booster pair lit the row names both tanks, bottom-first
+	// (ADR 0058 amendment 2026-10-25): boosters: / core: / mass:.
+	pcts := litSetFuelPcts(c)
+	fuelLabel := readout.Mass(c.Fuel)
+	if len(pcts) > 0 {
+		fuelLabel = pcts[0]
 	}
+	massLabel := readout.Mass(c.TotalMass())
 	monopropLabel, rcsLabel := "—", "—"
 	if c.MonopropCapacity > 0 {
 		monopropLabel = readout.Mass(c.Monoprop)
 		rcsLabel = readout.DeltaV(c.RCSDeltaV())
 	}
 	cargoLabel, holdLabel := cargoHoldLabels(c)
+	fuelRow := chipRow2(propellantCols, "fuel:", fuelLabel, "mass:", massLabel)
+	if len(pcts) == 2 {
+		fuelRow = chipRow3(propellantLitSetCols, "boosters:", pcts[0], "core:", pcts[1], "mass:", massLabel)
+	}
 	return []string{
 		title,
-		chipRow2(propellantCols, "fuel:", fuelLabel, "mass:", readout.Mass(c.TotalMass())),
+		fuelRow,
 		chipRow2(propellantCols, readout.LabelDeltaV, deltaVReadout(c), "Δv→circ:", v.deltaVToCircLabel(c)),
 		// #478 A5: "rcs Δv:" shortens to "rcs:" — the m/s already says
 		// what kind of number follows, the same reasoning as the node
@@ -62,17 +68,16 @@ func (v *OrbitView) buildPropellantBox(w *sim.World) []string {
 	}
 }
 
-// litSetFuelLabel is activeStageFuel over the lit set: one percentage per
-// tank with capacity, bottom-first, joined by " · ". A vessel with one lit
-// stage reads exactly as before.
-func litSetFuelLabel(c *spacecraft.Spacecraft) (string, bool) {
-	var parts []string
+// litSetFuelPcts is activeStageFuel over the lit set: one percentage per
+// tank with capacity, bottom-first. A vessel with one lit stage gets one.
+func litSetFuelPcts(c *spacecraft.Spacecraft) []string {
+	var pcts []string
 	for _, i := range spacecraft.LitStages(c.Stages) {
 		if st := c.Stages[i]; st.FuelCapacity > 0 {
-			parts = append(parts, fmt.Sprintf("%.0f%%", 100*st.FuelMass/st.FuelCapacity))
+			pcts = append(pcts, fmt.Sprintf("%.0f%%", 100*st.FuelMass/st.FuelCapacity))
 		}
 	}
-	return strings.Join(parts, " · "), len(parts) > 0
+	return pcts
 }
 
 // cargoHoldLabels renders PROPELLANT's cargo: and hold: cells (ADR 0057

@@ -68,6 +68,7 @@ func helpPhraseRows() []helpPhrase {
 		{name: "a raise never caps warp", section: "TIME & WARP", token: "warp caps", has: []string{"a raise never caps"}},
 		{name: "G chases burns, not a raise", token: "G", section: "TIME & WARP", has: []string{"not a raise"}},
 		{name: "glossary names raise / lower", section: "READOUT GLOSSARY", token: "raise / lower", has: []string{"node row", "T-", "RAISE"}},
+		{name: "glossary boosters / core names the PROPELLANT row", section: "READOUT GLOSSARY", token: "boosters / core", has: []string{"PROPELLANT's fuel row"}},
 		{name: "E ends a crashed flight", token: "E", anyFold: []string{"end flight", "crashed"}},
 		// ADR 0051: F2 hides all eight boxes and the navball.
 		{name: "F2 declutter", token: "F2", has: []string{"instrument boxes", "navball", "Centerline scope", "ENGINE", "PROPELLANT"}, not: []string{"core column", "chips"}},

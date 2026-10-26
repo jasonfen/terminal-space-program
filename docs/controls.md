@@ -465,7 +465,7 @@ overlay carries, so you can look one up without leaving the game.
 | `rcs` | Monoprop's own delta-v, from the RCS thrusters rather than the main engine |
 | `cargo / hold` | cargo is what the vessel carries to deliver; hold is what its Cargo Hold has received (`u` hands cargo over while docked). A dash means none; 0 kg is an empty hold that can receive |
 | `raise / lower` | ENGINE's node row while an orbit order runs: the target altitude, the altitude now and `T-` to arrival; `starts in` while it waits. The title carries `● RAISE` on that vessel |
-| `boosters / core` | ENGINE's badge and throttle label: boosters are the stage lit together with the stage above it, core is that stage above. The badge carries the group's burn clock (`T-` to its burnout, `DRY` once empty, with its throttle if liquid); the throttle label reads `core:` or `boosters:` for the throttle `c` selected |
+| `boosters / core` | ENGINE's badge and throttle label, PROPELLANT's fuel row: boosters are the stage lit together with the stage above it, core is that stage above. The badge carries the group's burn clock (`T-` to its burnout, `DRY` once empty, with its throttle if liquid); the throttle label reads `core:` or `boosters:` for the throttle `c` selected |
 | `◉ ● ○ ◇` | STAGES pips, bottom stage first: `◉` lit (burns next; every stage of a booster group is lit), `●` fuelled and waiting, `○` spent, `◇` no tank (a pod or payload) |
 | `speed` | Speed in the navball frame, named (surface) / (orbit) / (target) / (port), alongside `vert:` and `horiz:` |
 | `(max N)` | The same figure at full throttle, when it differs from the current one |
