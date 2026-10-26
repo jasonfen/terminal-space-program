@@ -574,6 +574,29 @@ func TestPortDistanceTwoDecimalsUnderTenMetres(t *testing.T) {
 	}
 }
 
+func TestHullGapOneDecimalUnderTenMetres(t *testing.T) {
+	cases := []struct {
+		m    float64
+		want string
+	}{
+		{0, "0.0 m"},
+		{0.4, "0.4 m"},
+		{1, "1.0 m"},
+		{3.16, "3.2 m"},
+		{9.94, "9.9 m"},
+		{9.96, "10 m"}, // rounds to 10: never "10.0 m"
+		{10, "10 m"},   // equal case: the ordinary ladder
+		{47.6, "48 m"},
+		{1500, "1.500 km"},
+		{-0.04, "0.0 m"}, // no "-0.0 m"
+	}
+	for _, c := range cases {
+		if got := HullGap(c.m); got != c.want {
+			t.Errorf("HullGap(%g) = %q, want %q", c.m, got, c.want)
+		}
+	}
+}
+
 func TestPortOffsetIsOneDecimalMagnitude(t *testing.T) {
 	cases := []struct {
 		m    float64

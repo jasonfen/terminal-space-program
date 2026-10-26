@@ -874,7 +874,7 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 	// can hit with no other on-screen explanation.
 	rows := []string{
 		v.proximityChipHeader(st),
-		chipRow("range:", readout.Distance(st.HullGapM)),
+		chipRow("range:", readout.HullGap(st.HullGapM)),
 		v.proximityPortRow(st, proximityCapturing(w)),
 	}
 	if st.HasPort && st.ReArmLatched {
@@ -1017,7 +1017,7 @@ func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
 	}
 	lines := []string{
 		v.proximityChipHeader(st),
-		chipRow("range:", readout.Distance(st.HullGapM)),
+		chipRow("range:", readout.HullGap(st.HullGapM)),
 	}
 	// ADR 0053 decision 6: port: and misalign: survive the shrink, but only
 	// inside 50 m and out of gate; lateral: is dropped in Compact Form.
