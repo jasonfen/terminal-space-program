@@ -369,7 +369,9 @@ slowly and straight, and the last half metre closes by itself.
   closing speed, never under 0.05 m/s, and the bottom edge reads
   `bumped <vessel> at <speed>; re-approach under 0.10 m/s`. Nothing breaks.
   Hulls are flat-ended, so nose against nose only touches when the ends
-  meet. Landed vessels and two debris stages never bump. Within 50 m of
+  meet. A hull is as wide as its widest part's published diameter (a Dragon
+  4.0 m, an RCS Tug 1.0 m, an S-IVB 6.6 m), so a slim tug can pass close by a
+  wide station. Landed vessels and two debris stages never bump. Within 50 m of
   another vessel's hull (hull to hull, not stack bottom to stack bottom) warp is held to 10×, the cap a burn imposes, so hulls cannot
   skip through each other between ticks.
 - **Undocking.** `U` parts a composite along its seam: each piece comes back

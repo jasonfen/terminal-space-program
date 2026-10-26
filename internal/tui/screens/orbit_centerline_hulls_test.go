@@ -99,17 +99,17 @@ func stepOf(t *testing.T, v *OrbitView, want float64) {
 	}
 }
 
-// Both hulls are 6 m wide here (r = 3 m). At the 16 m step (3.5 dots/m,
-// r = 10.5 dots) their port 7 m above yours puts the circles' centres 24.5
-// dots apart: 3.5 dots clear. Every lit hull dot sits on one of the two
-// circles, and each circle is really drawn.
-func TestCenterlineHullsApartAtSevenMetresLateral(t *testing.T) {
-	w := hullWorld(t, "rcs-tug", "nudge-tug", 7, 0, 0)
+// Both hulls are Dragons, 4.0 m wide (ADR 0061, r = 2 m). At the 16 m step
+// (3.5 dots/m, r = 7 dots) their port 5 m above yours puts the circles'
+// centres 17.5 dots apart: 3.5 dots clear. Every lit hull dot sits on one of
+// the two circles, and each circle is really drawn.
+func TestCenterlineHullsApartAtFiveMetresLateral(t *testing.T) {
+	w := hullWorld(t, "dragon-crew", "dragon-cargo", 5, 0, 0)
 	v, _ := renderSplit(t, w)
 	stepOf(t, v, 16)
 	ox, oy := discDot(16, 0, 0) // (28, 28)
-	tx, ty := discDot(16, 0, 7) // (28, 3.5)
-	const r = 10.5
+	tx, ty := discDot(16, 0, 5) // (28, 10.5)
+	const r = 7.0
 	dots := hullDots(v.cl)
 	for _, d := range dots {
 		if math.Hypot(d[0]-28, d[1]-28) > 24 {
@@ -129,46 +129,81 @@ func TestCenterlineHullsApartAtSevenMetresLateral(t *testing.T) {
 	// centre closer than r.
 	for _, d := range dots {
 		if onCircle(d, tx, ty, r, 1.6) && math.Hypot(d[0]-ox, d[1]-oy) < r-0.5 {
-			t.Errorf("their dot %v is inside your circle: the circles overlap at 7 m lateral", d)
+			t.Errorf("their dot %v is inside your circle: the circles overlap at 5 m lateral", d)
 		}
 	}
 }
 
-// Jason's scene: their port 4 m above yours is also the 16 m step; the
-// centres are 14 dots apart, so their circle dips 7 dots into yours.
-func TestCenterlineHullsOverlapAtFourMetresLateral(t *testing.T) {
-	w := hullWorld(t, "rcs-tug", "nudge-tug", 4, 0, 0)
+// Their port 3 m above yours ranges the scope to the 8 m step (7 dots/m, so
+// r = 14 dots): the centres are 21 dots apart against a radii sum of 28, and
+// their circle dips 7 dots into yours.
+func TestCenterlineHullsOverlapAtThreeMetresLateral(t *testing.T) {
+	w := hullWorld(t, "dragon-crew", "dragon-cargo", 3, 0, 0)
+	v, _ := renderSplit(t, w)
+	stepOf(t, v, 8)
+	ox, oy := discDot(8, 0, 0)
+	tx, ty := discDot(8, 0, 3) // (28, 7)
+	const r = 14.0
+	dots := hullDots(v.cl)
+	if n := dotsInside(dots, tx, ty, r, ox, oy, r-1); n < 4 {
+		t.Errorf("only %d of their dots are inside your circle, want the circles overlapping", n)
+	}
+	for _, d := range dots {
+		if math.Hypot(d[0]-28, d[1]-28) > 24 || math.Hypot(d[0]-tx, d[1]-ty) < 5 { // rim band; their port ring (0.5 m = 3.5 dots)
+			continue
+		}
+		if !onCircle(d, ox, oy, r, 1.6) && !onCircle(d, tx, ty, r, 1.6) {
+			t.Errorf("stray hull dot %v is on neither circle", d)
+		}
+	}
+	if lit, n := arcLit(dots, tx, ty, r); n < 3 || lit < n {
+		t.Errorf("their circle: %d of %d sample points lit", lit, n)
+	}
+}
+
+// The equal case: their port 4.0 m above yours is the radii sum (2 m + 2 m),
+// centres 14.0 dots apart = 7 + 7. The circles touch and no dot of theirs is
+// strictly inside yours (a dot of slack for the grid), where at 3 m above the
+// test above counts dots inside. (4 m ranges to the 16 m step; 3 m to the 8 m.)
+func TestCenterlineHullsTouchAtTheRadiiSum(t *testing.T) {
+	w := hullWorld(t, "dragon-crew", "dragon-cargo", 4, 0, 0)
 	v, _ := renderSplit(t, w)
 	stepOf(t, v, 16)
 	ox, oy := discDot(16, 0, 0)
 	tx, ty := discDot(16, 0, 4) // (28, 14)
-	const r = 10.5
+	const r = 7.0
 	dots := hullDots(v.cl)
-	inside := 0
+	if n := dotsInside(dots, tx, ty, r, ox, oy, r-1); n != 0 {
+		t.Errorf("%d of their dots are strictly inside your circle at exactly the radii sum", n)
+	}
+	if lit, n := arcLit(dots, tx, ty, r); n < 4 || lit < n {
+		t.Errorf("their circle: %d of %d sample points lit", lit, n)
+	}
+	if lit, n := arcLit(dots, ox, oy, r); n < 4 || lit < n {
+		t.Errorf("your circle: %d of %d sample points lit", lit, n)
+	}
+}
+
+// dotsInside counts the dots on the circle (cx, cy, r) that lie closer than
+// within to (ox, oy).
+func dotsInside(dots [][2]float64, cx, cy, r, ox, oy, within float64) int {
+	n := 0
 	for _, d := range dots {
 		if math.Hypot(d[0]-28, d[1]-28) > 24 {
 			continue
 		}
-		a, b := onCircle(d, ox, oy, r, 1.6), onCircle(d, tx, ty, r, 1.6)
-		if !a && !b {
-			t.Errorf("stray hull dot %v is on neither circle", d)
-		}
-		if b && math.Hypot(d[0]-ox, d[1]-oy) < r-3 {
-			inside++
+		if onCircle(d, cx, cy, r, 1.6) && math.Hypot(d[0]-ox, d[1]-oy) < within {
+			n++
 		}
 	}
-	if inside < 4 {
-		t.Errorf("only %d of their dots are inside your circle, want the circles overlapping", inside)
-	}
-	if lit, n := arcLit(dots, tx, ty, r); n < 6 || lit < n {
-		t.Errorf("their circle: %d of %d sample points lit", lit, n)
-	}
+	return n
 }
 
 // Stadium: an SM+CM stack (15 m long here) leaning 20 degrees nose-up has its
 // far circle 15 m * sin 20 = 5.130 m below the port. At the 16 m step that is
 // 17.96 dots below the crosshair, (28, 45.96); the tangents run down x = 28
-// +/- 10.5 between the two centres. Their port 7 m up keeps the step at 16.
+// +/- 6.84 between the two centres (the CSM is 3.91 m wide: r = 1.955 m =
+// 6.84 dots). Their port 7 m up keeps the step at 16.
 func TestCenterlineHullStadiumFarCircleAtNoseTimesSinLean(t *testing.T) {
 	w := hullWorld(t, "csm", "nudge-tug", 7, 0, 20)
 	st, _ := w.ProximityState()
@@ -180,8 +215,8 @@ func TestCenterlineHullStadiumFarCircleAtNoseTimesSinLean(t *testing.T) {
 	}
 	v, _ := renderSplit(t, w)
 	stepOf(t, v, 16)
-	const r = 10.5
-	far := 28 + 5.130*3.5 // 45.96
+	const r = 3.91 / 2 * 3.5 // 6.84
+	far := 28 + 5.130*3.5    // 45.96
 	dots := hullDots(v.cl)
 	near := func(x, y float64) bool {
 		for _, d := range dots {
@@ -228,13 +263,13 @@ func TestCenterlineHullStadiumLeansSideways(t *testing.T) {
 	}
 	v, _ := renderSplit(t, w)
 	stepOf(t, v, 16)
-	farX := 28 - 5.130*3.5 // 10.04; far circle r 10.5 around (10.04, 28)
+	farX := 28 - 5.130*3.5 // 10.04; far circle r 6.84 around (10.04, 28)
 	dots := hullDots(v.cl)
-	if lit, n := arcLit(dots, farX, 28, 10.5); n < 3 || lit < n {
+	if lit, n := arcLit(dots, farX, 28, 3.91/2*3.5); n < 3 || lit < n {
 		t.Errorf("far circle: %d of %d sample points lit", lit, n)
 	}
 	for _, d := range dots { // nothing to the right, where a sign slip would put it
-		if d[0] > 28+10.5+2 && math.Hypot(d[0]-28, d[1]-28) <= 24 && d[1] > 12 {
+		if d[0] > 28+3.91/2*3.5+2 && math.Hypot(d[0]-28, d[1]-28) <= 24 && d[1] > 12 {
 			t.Errorf("hull dot %v right of your circle", d)
 		}
 	}
@@ -246,50 +281,86 @@ func TestCenterlineHullNoStadiumWhenAligned(t *testing.T) {
 	v, _ := renderSplit(t, w)
 	stepOf(t, v, 16)
 	for _, d := range hullDots(v.cl) {
-		if d[1] > 28+10.5+2 && math.Hypot(d[0]-28, d[1]-28) <= 24 {
+		if d[1] > 28+3.91/2*3.5+2 && math.Hypot(d[0]-28, d[1]-28) <= 24 {
 			t.Errorf("hull dot %v below your circle with the axes parallel", d)
 		}
 	}
 }
 
-// A ghost's circle is its reported width_m: 6 draws the very circle a local
-// 6 m vessel does, and 4 draws a 2 m radius (7 dots at 3.5 dots/m).
+// A ghost's circle is its reported width_m: 4.0 draws the very circle a local
+// Dragon does, and 2 draws a 1 m radius (3.5 dots at 3.5 dots/m). The Nudge
+// Tug (1.0 m) is compared too, where the circle is the port ring's own.
 func TestCenterlineGhostHullReadsWidthM(t *testing.T) {
 	off := orbital.Vec3{X: 3, Y: -7}
-	local := portedPairWorld(t, []string{"rcs-tug"}, []string{"nudge-tug"}, off, 0)
-	ghost := ghostPairWorld(t, []string{"rcs-tug"}, []string{"nudge-tug"}, off, 0)
-	if g := ghost.Ghosts[0]; g.WidthM != 6 {
-		t.Fatalf("ghost fixture width_m = %v, want 6", g.WidthM)
-	}
-	vl, _ := renderSplit(t, local)
-	vg, _ := renderSplit(t, ghost)
-	stepOf(t, vg, 16)
-	// The ghost is placed from its report, so a dot may land one over.
-	for _, pair := range [][2]*widgets.Canvas{{vl.cl, vg.cl}, {vg.cl, vl.cl}} {
-		for py := 0; py < 56; py++ {
-			for px := 0; px < 56; px++ {
-				if pair[0].SubPixelSet(px, py) && !litNear(pair[1], px, py) {
-					t.Fatalf("dot (%d, %d) has no counterpart between a local 6 m target and a ghost with width_m 6", px, py)
+	for _, c := range []struct {
+		part string
+		want float64
+	}{{"dragon-cargo", 4}, {"nudge-tug", 1}} {
+		local := portedPairWorld(t, []string{"dragon-crew"}, []string{c.part}, off, 0)
+		ghost := ghostPairWorld(t, []string{"dragon-crew"}, []string{c.part}, off, 0)
+		if g := ghost.Ghosts[0]; g.WidthM != c.want {
+			t.Fatalf("ghost fixture (%s) width_m = %v, want %v", c.part, g.WidthM, c.want)
+		}
+		vl, _ := renderSplit(t, local)
+		vg, _ := renderSplit(t, ghost)
+		stepOf(t, vg, 16)
+		// The ghost is placed from its report, so a dot may land one over.
+		for _, pair := range [][2]*widgets.Canvas{{vl.cl, vg.cl}, {vg.cl, vl.cl}} {
+			for py := 0; py < 56; py++ {
+				for px := 0; px < 56; px++ {
+					if pair[0].SubPixelSet(px, py) && !litNear(pair[1], px, py) {
+						t.Fatalf("dot (%d, %d) has no counterpart between a local %s and a ghost with width_m %v", px, py, c.part, c.want)
+					}
 				}
 			}
 		}
 	}
-	ghost.Ghosts[0].WidthM = 4
-	v4, _ := renderSplit(t, ghost)
+	ghost := ghostPairWorld(t, []string{"dragon-crew"}, []string{"dragon-cargo"}, off, 0)
+	ghost.Ghosts[0].WidthM = 2
+	v2, _ := renderSplit(t, ghost)
 	tx, ty := discDot(16, 0, 7)
 	n := 0
-	for _, d := range hullDots(v4.cl) {
+	for _, d := range hullDots(v2.cl) {
 		if math.Hypot(d[0]-28, d[1]-28) > 24 {
 			continue
 		}
-		if onCircle(d, tx, ty, 7, 1.6) {
+		if onCircle(d, tx, ty, 3.5, 1.6) {
 			n++
-		} else if !onCircle(d, 28, 28, 10.5, 1.6) {
-			t.Errorf("stray dot %v with width_m 4", d)
+		} else if !onCircle(d, 28, 28, 7, 1.6) {
+			t.Errorf("stray dot %v with width_m 2", d)
 		}
 	}
-	if n < 8 {
-		t.Errorf("only %d dots on the 7-dot circle for width_m 4", n)
+	if n < 4 {
+		t.Errorf("only %d dots on the 3.5-dot circle for width_m 2", n)
+	}
+}
+
+// The tug's hull circle IS its port ring: a 1.0 m hull is the 0.5 m ring's
+// radius (ADR 0061, "Numbers"), so every hull dot of theirs sits on the
+// ring's circle. The ring is drawn after the hulls and wins the cells.
+func TestCenterlineTugHullCoincidesWithPortRing(t *testing.T) {
+	w := hullWorld(t, "dragon-crew", "nudge-tug", 4, 0, 0)
+	st, _ := w.ProximityState()
+	if st.Target.WidthM/2 != clRingR {
+		t.Fatalf("tug hull radius = %v m, ring = %v m: they should coincide", st.Target.WidthM/2, clRingR)
+	}
+	v, _ := renderSplit(t, w)
+	stepOf(t, v, 16)
+	tx, ty := discDot(16, 0, 4) // (28, 14)
+	n := 0
+	for _, d := range hullDots(v.cl) {
+		if math.Hypot(d[0]-28, d[1]-28) > 24 {
+			continue
+		}
+		if math.Hypot(d[0]-tx, d[1]-ty) < 5 { // theirs: hull or ring (your own circle's top is 7 dots away)
+			n++
+			if !onCircle(d, tx, ty, clRingR*3.5, 1.0) {
+				t.Errorf("dot %v of the tug's hull/ring is off the ring's circle", d)
+			}
+		}
+	}
+	if n < 4 {
+		t.Errorf("only %d dots on the tug's ring circle", n)
 	}
 }
 
@@ -314,14 +385,14 @@ func TestCenterlineGhostWithNoShapeDrawsNoScope(t *testing.T) {
 
 // Scenery class: dotted, a dot every 2 dots along the circle, not solid ink.
 func TestCenterlineHullIsDottedNotSolid(t *testing.T) {
-	w := hullWorld(t, "rcs-tug", "nudge-tug", 4, 0, 0)
+	w := hullWorld(t, "dragon-crew", "dragon-cargo", 5, 0, 0)
 	v, _ := renderSplit(t, w)
 	stepOf(t, v, 16)
-	// Your circle, r = 10.5 dots, circumference 66; clear of their circle
-	// (the lower half is 7 dots away) in its lower half-plane.
+	// Your circle, r = 7 dots, circumference 44; clear of their circle (the
+	// lower half is 17.5 dots away) in its lower half-plane.
 	n := 0
 	for _, d := range hullDots(v.cl) {
-		if d[1] > 31 && onCircle(d, 28, 28, 10.5, 0.6) {
+		if d[1] > 31 && onCircle(d, 28, 28, 7, 0.6) {
 			n++
 		}
 	}
@@ -333,11 +404,11 @@ func TestCenterlineHullIsDottedNotSolid(t *testing.T) {
 }
 
 // Clipped at the rim: the circle of a target 5 m right and 5 m up (the 16 m
-// step, centre dot (45.5, 10.5), r 10.5) reaches the disc's square corner,
+// step, centre dot (45.5, 10.5), r 7) reaches the disc's square corner,
 // 34 dots from the crosshair, which is outside the 27-dot rim. Nothing but
 // the rim itself is lit beyond 28 dots.
 func TestCenterlineHullsClipAtTheRim(t *testing.T) {
-	w := hullWorld(t, "rcs-tug", "nudge-tug", 5, 5, 0)
+	w := hullWorld(t, "dragon-crew", "dragon-cargo", 5, 5, 0)
 	v, _ := renderSplit(t, w)
 	stepOf(t, v, 16)
 	inside := 0
@@ -350,7 +421,7 @@ func TestCenterlineHullsClipAtTheRim(t *testing.T) {
 			if d > 28 {
 				t.Errorf("dot (%d, %d) lit %.1f dots from the crosshair, past the rim", px, py, d)
 			}
-			if d < 24 && onCircle([2]float64{float64(px), float64(py)}, 45.5, 10.5, 10.5, 1.6) {
+			if d < 24 && onCircle([2]float64{float64(px), float64(py)}, 45.5, 10.5, 7, 1.6) {
 				inside++
 			}
 		}
@@ -366,7 +437,7 @@ func TestCenterlineHullColours(t *testing.T) {
 	prev := lipgloss.ColorProfile()
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
-	w := hullWorld(t, "rcs-tug", "nudge-tug", 7, 0, 0)
+	w := hullWorld(t, "dragon-crew", "dragon-cargo", 5, 0, 0)
 	w.ActiveCraft().Color = "#AA00FF"
 	v, _ := renderSplit(t, w)
 	stepOf(t, v, 16)
@@ -385,9 +456,9 @@ func TestCenterlineHullColours(t *testing.T) {
 			switch {
 			case scopeFurniture(px, py):
 				furniture[cell] = true
-			case onCircle(d, 28, 28, 10.5, 1.0):
+			case onCircle(d, 28, 28, 7, 1.0):
 				own[cell] = true
-			case onCircle(d, 28, 3.5, 10.5, 1.0):
+			case onCircle(d, 28, 10.5, 7, 1.0):
 				theirs[cell] = true
 			}
 		}
