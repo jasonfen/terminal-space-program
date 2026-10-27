@@ -6,8 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/sessiondir"
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
 // #274: a legacy roster collision repaired at load (sessiondir's
@@ -75,5 +77,37 @@ func TestLegacyHandleRenameNoteReachesConnectingPlayers(t *testing.T) {
 	koutt := stripANSI(kept.View())
 	if !strings.Contains(koutt, "gern2") {
 		t.Errorf("collision counterpart's connect toast missing the new handle: %q", koutt)
+	}
+}
+
+// Flight Recording (ADR 0062 S6): a guest's file lands in the session dir under
+// the player's handle, never in the host's local saves dir.
+func TestGuestRecordingGoesToSessionDirByHandle(t *testing.T) {
+	sessionDir := t.TempDir()
+	state := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", state)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	srv, err := New(Config{Addr: "127.0.0.1:0", HostKeyPath: filepath.Join(t.TempDir(), "hostkey"), SessionDir: sessionDir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.ln.Close() })
+	inv, err := srv.store.MintInvite("ansi")
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	if _, err := srv.store.Enroll(inv.Code, "SHA256:ansi", "ansi"); err != nil {
+		t.Fatalf("enroll: %v", err)
+	}
+	app, err := srv.newGuestApp("SHA256:ansi")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.Update(sim.TickMsg(time.Now()))
+	if got, _ := filepath.Glob(filepath.Join(sessionDir, "recordings", "ansi", "*.txt")); len(got) != 1 {
+		t.Fatalf("session recordings = %v, want one file under recordings/ansi", got)
+	}
+	if got, _ := filepath.Glob(filepath.Join(state, "terminal-space-program", "saves", "recordings", "*")); len(got) != 0 {
+		t.Fatalf("host's local dir got guest files: %v", got)
 	}
 }
