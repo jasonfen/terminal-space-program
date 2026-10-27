@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.63.2
+
+A Flight Recording marks each game start (PR `#820`; tag `v0.63.2`). Save schema unchanged.
+
+- **`session start` row.** The first tick of every game writes `session start: v0.63.2`, so a new game that rewinds the clock to the same scenario reads as a new session, not a jump back in time.
+- **Old files line up.** A file written by an older build gets the current column line repeated before new rows are added, so the rows after it sit under the right headings.
+
 ### v0.63.1
 
 The Flight Recording catches how you flew, not just what you planned (PR `#819`; tag `v0.63.1`). Save schema unchanged.
