@@ -3167,19 +3167,35 @@ advertise itself as a feature, not wait to be found.
 _Avoid_: Default-off tutorial, "enable the tutorial" (it is already on),
 Campaign (see Named save).
 
-**Flight Recording** (grilled 2026-10-25, backlog):
-The Active Vessel's always-on black box: a bounded log of sampled state
-(sim time, altitude, speed, mass, throttle, attitude mode and trims, stage
-count, SOI body) plus every **Action** and lifecycle event (crash,
-touchdown, SOI change) as it happens. The bar for its output is that a
-reader reconstructs the flight's story from it ("liftoff from KSC,
-circularized 250 km, target Luna, Hohmann planted, SOI → Luna, crash"),
-whether as a milestone timeline or a table of numbers — written out on
-crash, landing or an explicit save, so a bug report can paste it instead
-of retelling it. It records; it never flies the vessel.
+**Flight Recording** (ADR 0062, #800):
+The Active Vessel's always-on flight log, one file per vessel at
+`saves/recordings/<id>-<name>.txt` (a guest's under the host's
+`session/recordings/<handle>/`), written a row at a time as it happens.
+Every row has the same columns: sim date and `T+` from liftoff, altitude,
+speed, mass, throttle, stages left, SOI body, the attitude hold as the
+GUIDANCE box names it, pitch and heading trim, apoapsis and periapsis,
+then the event. A numbers row lands every 1 sim-second while thrusting
+and every 60 while coasting, never more than one per wall-second at any
+warp; every **Action** verb and every lifecycle moment (liftoff, stage,
+SOI change, burn start / complete / stalled, dock, undock, release, bump,
+touchdown, crash, save load, active-vessel switch) is a row of its own,
+the curated ones carrying their numbers ("throttle_cut: orbit 250 x 250
+km"). The bar is that a reader reconstructs the flight's story from it
+("liftoff Cape Canaveral, circularized 250 km, target Moon, Hohmann
+planted, SOI → Moon, crash"). It records; it never flies the vessel.
 _Avoid_: Black box (the nickname, fine in prose), Telemetry (CommNet
-signal), Log, Replay (parked — automation is a separate idea, see the
+signal), Log, Replay (parked; automation is a separate idea, see the
 backlog).
+
+**Recording window** (ADR 0062 decision 9):
+How much of a Flight Recording is kept: a rolling window of sim-days
+(default 7, a Settings row under SAVES). Rows older than the window are
+dropped from the vessel's one file by an atomic rewrite (header kept),
+at most once a wall-minute and only once the oldest row is more than a
+day past the window; milestones drop with the rest. The window is
+anchored on the row being written, so a rewind (save load) never deletes
+the timeline it abandoned; those rows stay until the live clock has
+passed them by a window.
 
 **Action**:
 A semantic gameplay verb the player triggers (e.g. `open_maneuver`,

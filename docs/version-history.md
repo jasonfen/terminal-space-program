@@ -2,6 +2,14 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.63.0
+
+Every flight writes a Flight Recording: a text file of what the vessel did, a row at a time, ready to paste into a bug report (PRs `#809`-`#812`, `#814`, `#816`, `#818`; tag `v0.63.0`; closes `#800`). **Save schema 17 → 18** (adds the liftoff time; older saves load with it unknown).
+
+- **One file per vessel.** Recordings land in `saves/recordings/<id>-<name>.txt`, under your saves folder; in a multiplayer session each player's go to the host's `session/recordings/<handle>/`. Each row has the same columns: sim date, `T+` from liftoff, altitude, speed, mass, throttle, stages left, SOI body, the hold as GUIDANCE names it, both trims, apoapsis and periapsis, then what happened.
+- **What gets a row.** A numbers row every sim-second while thrusting and every 60 coasting, at most one per wall-second at any warp. Every input is a row (`throttle_cut: orbit 250 x 250 km, incl 28.6`), and so is every liftoff, stage, burn start, complete or stall, SOI change, dock, undock, release, bump, touchdown, crash, save load and vessel switch.
+- **Recording window.** Settings → SAVES → **Recording window** keeps 1, 3, 7, 14 or 30 sim-days (default 7); older rows are dropped from the file as it is written. Loading an older save keeps the rows from the timeline you left.
+
 ### v0.62.0
 
 Hulls are the width they really are, and the docking views show the hull beside you (PRs `#801`-`#808`; tag `v0.62.0`; closes `#759`, `#760`, `#727`). Save schema unchanged.
