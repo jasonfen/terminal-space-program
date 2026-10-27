@@ -900,6 +900,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.cycleAutosaveInterval()
 			case screens.SettingsActionCycleEmptyReadings:
 				a.cycleEmptyReadings()
+			case screens.SettingsActionCycleRecordingWindow:
+				a.cycleRecordingWindow()
 			case screens.SettingsActionCancel:
 				a.backToOpener()
 			}
@@ -1101,6 +1103,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.cycleAutosaveInterval()
 			case screens.SettingsActionCycleEmptyReadings:
 				a.cycleEmptyReadings()
+			case screens.SettingsActionCycleRecordingWindow:
+				a.cycleRecordingWindow()
 			case screens.SettingsActionCancel:
 				a.backToOpener()
 			}
@@ -3796,6 +3800,18 @@ func (a *App) toggleMissionProgram(tutorial bool) {
 func (a *App) cycleAutosaveInterval() {
 	s := a.orbitView.Settings()
 	s.SetAutosaveIntervalMin(settings.NextAutosaveIntervalMin(s.AutosaveIntervalMinutes()))
+	a.orbitView.SetSettings(s)
+	if err := settings.Save(s); err != nil {
+		a.flash(fmt.Sprintf("settings save failed: %v", err))
+	}
+}
+
+// cycleRecordingWindow advances the Flight Recording window and persists
+// it (ADR 0062 decision 9), mirroring cycleAutosaveInterval. Pushing the
+// value to the recorder is wired in S6.
+func (a *App) cycleRecordingWindow() {
+	s := a.orbitView.Settings()
+	s.SetRecordingWindowDays(settings.NextRecordingWindowDays(s.RecordingWindow()))
 	a.orbitView.SetSettings(s)
 	if err := settings.Save(s); err != nil {
 		a.flash(fmt.Sprintf("settings save failed: %v", err))

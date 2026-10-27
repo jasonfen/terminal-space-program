@@ -15,7 +15,7 @@ func TestSettingsDescriptionsAreNeverCutOff(t *testing.T) {
 	wantWords := []string{
 		"Default visibility of each orbit-screen chip.",
 		"Challenge ladder is opt-in.",
-		"Off keeps quit-autosave only.",
+		"Autosave ring and Flight Recording.",
 		"Compact: no trailing dash rows.",
 	}
 	for _, sz := range [][2]int{{DesignWidth, DesignHeight - 1}, {181, 48}} {

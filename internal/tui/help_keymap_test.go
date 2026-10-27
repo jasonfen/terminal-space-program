@@ -37,3 +37,18 @@ func TestControlsDocNamesBatchRow(t *testing.T) {
 		}
 	}
 }
+
+// TestControlsMdHasRecordingWindowRow (ADR 0062 decision 9): docs/controls.md
+// carries the Settings Recording window row. New function: no existing
+// test pins Settings rows of controls.md by name.
+func TestControlsMdHasRecordingWindowRow(t *testing.T) {
+	doc, err := os.ReadFile("../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"| Settings → **Recording window** | How much of a vessel's Flight Recording is kept: sim-days, default 7; older rows are dropped from the file as it is written |"} {
+		if !strings.Contains(string(doc), want) {
+			t.Errorf("docs/controls.md lacks %q", want)
+		}
+	}
+}

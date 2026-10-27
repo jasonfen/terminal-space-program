@@ -49,6 +49,7 @@ const (
 	SettingsActionToggleChallenges                         // flip the challenge mission program (Slice 7)
 	SettingsActionCycleAutosave                            // cycle the autosave interval (v0.26 S4 / ADR 0033 §E)
 	SettingsActionCycleEmptyReadings                       // cycle Full / Tidy / Compact (ADR 0051 W6, #482)
+	SettingsActionCycleRecordingWindow                     // cycle the Flight Recording window (ADR 0062)
 )
 
 // gameplayRows is the number of non-chip toggle rows (Tutorial, Challenges)
@@ -57,9 +58,9 @@ const (
 const gameplayRows = 2
 
 // savesRows is the number of saves-section rows below the gameplay
-// toggles — currently just the autosave-interval cycler (v0.26 S4). It
-// occupies cursor index len(AllChips)+gameplayRows.
-const savesRows = 1
+// toggles: the autosave-interval cycler (v0.26 S4) at cursor index
+// len(AllChips)+gameplayRows, then the Recording window cycler (ADR 0062).
+const savesRows = 2
 
 // displayRows is the display-section row count below saves: the Empty
 // readings cycler (ADR 0051 W6). It occupies cursor index
@@ -102,6 +103,8 @@ func (s *SettingsScreen) toggleAt(i int) (SettingsAction, settings.Chip) {
 		return SettingsActionToggleChallenges, ""
 	case len(settings.AllChips) + gameplayRows:
 		return SettingsActionCycleAutosave, ""
+	case len(settings.AllChips) + gameplayRows + 1:
+		return SettingsActionCycleRecordingWindow, ""
 	case len(settings.AllChips) + gameplayRows + savesRows:
 		return SettingsActionCycleEmptyReadings, ""
 	default:
@@ -238,9 +241,11 @@ func (s *SettingsScreen) Render(prefs settings.Settings, width, height int) stri
 	// autosave still fires regardless).
 	{
 		var ls []string
-		ls = append(append(ls, desc("Periodic autosave into the rotating ring. Off keeps quit-autosave only.", rw)...), "")
+		ls = append(append(ls, desc("Autosave ring and Flight Recording.", rw)...), "")
 		ls = append(ls, row(len(settings.AllChips)+gameplayRows, y+2+len(ls), lw+1, lw+1+rw,
 			"Autosave interval: ‹ "+autosaveIntervalLabel(prefs.AutosaveIntervalMinutes())+" ›"))
+		ls = append(ls, row(len(settings.AllChips)+gameplayRows+1, y+2+len(ls), lw+1, lw+1+rw,
+			fmt.Sprintf("Recording window: ‹ %d sim-days ›", prefs.RecordingWindow())))
 		stack("SAVES", ls)
 	}
 	// DISPLAY: Empty readings (ADR 0051 W6, #482), a value row like
