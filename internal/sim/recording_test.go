@@ -8,8 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/missions"
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // recAttach points the world at a temp recordings dir and opens the Active
@@ -184,3 +187,260 @@ func TestActiveVesselSwitchRowsOnBothSides(t *testing.T) {
 }
 
 func padID(id uint64) string { return fmt.Sprintf("%04d-", id) }
+
+// allEvents is every event text in every file under dir.
+func allEvents(t *testing.T, dir string) []string {
+	t.Helper()
+	files, _ := filepath.Glob(filepath.Join(dir, "*.txt"))
+	var out []string
+	for _, f := range files {
+		_, ev := recRead(t, f)
+		out = append(out, ev...)
+	}
+	return out
+}
+
+// liftable bumps the pad vessel's thrust until it can leave the pad.
+func liftable(w *World, c *spacecraft.Spacecraft) {
+	for !w.canLiftOff(c) {
+		c.Thrust *= 1.5
+	}
+}
+
+// inMoonSOI puts the Active Vessel 20,000 km from the Moon, bound to Earth.
+func inMoonSOI(t *testing.T, w *World) {
+	t.Helper()
+	var earth, moon int = -1, -1
+	for i, b := range w.System().Bodies {
+		switch b.ID {
+		case "earth":
+			earth = i
+		case "moon":
+			moon = i
+		}
+	}
+	if earth < 0 || moon < 0 {
+		t.Fatal("no earth/moon in the system")
+	}
+	c := w.ActiveCraft()
+	d := w.BodyPosition(w.System().Bodies[moon]).Sub(w.BodyPosition(w.System().Bodies[earth]))
+	c.State.R = d.Add(d.Unit().Scale(2e7))
+	// Bound and near-circular about Earth, so the analytic coast (not just
+	// the Verlet sub-step path) is eligible at warp.
+	tang := orbital.Vec3{Z: 1}.Cross(c.State.R).Unit()
+	c.State.V = tang.Scale(math.Sqrt(c.Primary.GravitationalParameter() / c.State.R.Norm()))
+}
+
+type lifecycleCase struct {
+	name  string
+	setup func(t *testing.T) *World
+	act   func(t *testing.T, w *World)
+	want  string
+}
+
+// lifecycleCases is the table over the lifecycle sites (guards 5 and 8).
+func lifecycleCases() []lifecycleCase {
+	burner := func(t *testing.T) *World {
+		w := mustWorld(t)
+		twoStageBurner(t, w, 200).ActiveBurn.PlannedDV = 200 // as a fired node sets it
+		return w
+	}
+	runBurn := func(w *World) {
+		tickUntil(w, 200, func() bool { return w.ActiveCraft().BurnStalled() })
+		if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+			panic(err)
+		}
+		tickUntil(w, 2000, func() bool { return w.ActiveCraft().ActiveBurn == nil })
+	}
+	return []lifecycleCase{
+		{"liftoff", func(t *testing.T) *World { w, c := padSaturn(t, 1); liftable(w, c); return w },
+			func(t *testing.T, w *World) { w.StartManualBurn() }, "liftoff"},
+		{"soi verlet", func(t *testing.T) *World { w := mustWorld(t); inMoonSOI(t, w); return w },
+			func(t *testing.T, w *World) { w.Tick() }, "soi: Earth → Moon"},
+		{"soi kepler", func(t *testing.T) *World { w := mustWorld(t); inMoonSOI(t, w); w.Clock.WarpIdx = 3; return w },
+			func(t *testing.T, w *World) { w.Tick() }, "soi: Earth → Moon"},
+		{"crash", func(t *testing.T) *World {
+			w := mustWorld(t)
+			c := w.ActiveCraft()
+			c.State.R = c.State.R.Unit().Scale(c.Primary.RadiusMeters() - 10)
+			c.State.V = c.State.R.Unit().Scale(-300)
+			return w
+		}, func(t *testing.T, w *World) { w.Tick() }, "crash: Earth"},
+		{"stage", func(t *testing.T) *World { w, _ := padSaturn(t, 0); return w },
+			func(t *testing.T, w *World) {
+				if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+					t.Fatal(err)
+				}
+			}, "stage: S-IC jettisoned"},
+		{"burn start", func(t *testing.T) *World { w := mustWorld(t); crewTendActive(w); return w },
+			func(t *testing.T, w *World) {
+				w.ActiveCraft().Nodes = append(w.ActiveCraft().Nodes, spacecraft.ManeuverNode{
+					TriggerTime: w.Clock.SimTime.Add(time.Second), Mode: spacecraft.BurnPrograde, DV: 50,
+					Duration: 5 * time.Second, PrimaryID: w.ActiveCraft().Primary.ID, Throttle: 1})
+				ticks(w, 40)
+			}, "burn start: node 1, Δv 50"},
+		{"burn stalled", burner, func(t *testing.T, w *World) { runBurn(w) }, "burn stalled: fuel out"},
+		{"burn complete", burner, func(t *testing.T, w *World) { runBurn(w) }, "burn complete: 200 of 200 m/s"},
+		{"dock", func(t *testing.T) *World { return newPortPair(t, "rcs-tug", "ntr-tug", 0.3, 0, 0).w },
+			func(t *testing.T, w *World) { w.DockCrafts(0, 1) }, "dock: with "},
+		{"undock", func(t *testing.T) *World {
+			w := newPortPair(t, "rcs-tug", "ntr-tug", 0.3, 0, 0).w
+			w.DockCrafts(0, 1)
+			return w
+		}, func(t *testing.T, w *World) {
+			if !w.Undock(0) {
+				t.Fatal("undock refused")
+			}
+		}, "undock: "},
+	}
+}
+
+// Guard 5: each lifecycle site writes its own row. Deleting one hook reddens
+// exactly its row.
+func TestLifecycleRowsName(t *testing.T) {
+	for _, tc := range lifecycleCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			w := tc.setup(t)
+			dir := recAttach(t, w)
+			tc.act(t, w)
+			ev := allEvents(t, dir)
+			for _, e := range ev {
+				if strings.Contains(e, tc.want) {
+					return
+				}
+			}
+			t.Errorf("no event containing %q; events = %q", tc.want, ev)
+		})
+	}
+}
+
+// Guard 8: with Recording == nil every hook is silent and nothing panics.
+func TestNilRecordingIsSilent(t *testing.T) {
+	for _, tc := range lifecycleCases() {
+		t.Run(tc.name, func(t *testing.T) {
+			w := tc.setup(t)
+			tc.act(t, w)
+			if w.Recording != nil {
+				t.Error("a hook opened a recording by itself")
+			}
+		})
+	}
+	w := mustWorld(t)
+	for _, a := range []missions.Action{
+		missions.ActionThrottleFull, missions.ActionThrottleCut, missions.ActionPlanTransfer, missions.ActionPlanIncl,
+		missions.ActionCycleTarget, missions.ActionClearTarget, missions.ActionStage, missions.ActionUndock,
+	} {
+		w.RecordAction(a)
+	}
+	w.SetActiveCraftIdx(0)
+	w.SetActiveCraftIdx(-1)
+	w.SetActiveCraftIdx(len(w.Crafts))
+	w.recordRow("x")
+	w.recordSample(time.Second)
+}
+
+// Decision 1 / S3 seam: the liftoff row sits at the stamp (T+ 0:00:00 and the
+// stamp's own second) whichever of the three release sites ran, and the header
+// learns the liftoff. The clock starts at .99 s so a row written after the
+// 0.5 s tick would read the next second.
+func TestLiftoffRowIsTPlusZeroAtEverySite(t *testing.T) {
+	sites := []struct {
+		name string
+		run  func(t *testing.T, w *World, c *spacecraft.Spacecraft)
+	}{
+		{"manual burn", func(t *testing.T, w *World, c *spacecraft.Spacecraft) { w.StartManualBurn() }},
+		{"seated then integrate", func(t *testing.T, w *World, c *spacecraft.Spacecraft) {
+			full := c.Thrust
+			c.Thrust = full * 0.1
+			w.StartManualBurn()
+			if !c.OnPad {
+				t.Fatal("setup: lifted early")
+			}
+			c.Thrust = full
+			w.Clock.WarpIdx = 1
+			w.Tick()
+		}},
+		{"planted node", func(t *testing.T, w *World, c *spacecraft.Spacecraft) {
+			c.Nodes = append(c.Nodes, spacecraft.ManeuverNode{TriggerTime: w.Clock.SimTime, Mode: spacecraft.BurnRadialOut, // up, so the pad releases it
+				DV: 50, Duration: 5 * time.Second, PrimaryID: c.Primary.ID, Throttle: 1})
+			w.Clock.WarpIdx = 1
+			w.Tick()
+		}},
+	}
+	for _, s := range sites {
+		t.Run(s.name, func(t *testing.T) {
+			w, c := padSaturn(t, 1)
+			liftable(w, c)
+			w.Clock.SimTime = w.Clock.SimTime.Truncate(time.Second).Add(990 * time.Millisecond)
+			path := recFile(t, recAttach(t, w))
+			s.run(t, w, c)
+			if c.OnPad || c.LiftoffSimTime.IsZero() {
+				t.Fatalf("setup: did not lift (OnPad=%v stamp=%v)", c.OnPad, c.LiftoffSimTime)
+			}
+			b, _ := os.ReadFile(path)
+			var row string
+			for _, l := range strings.Split(string(b), "\n") {
+				if strings.HasPrefix(l, "20") && strings.HasSuffix(strings.TrimSpace(l), "liftoff") {
+					row = l
+				}
+			}
+			stamp := c.LiftoffSimTime.UTC().Format("2006-01-02 15:04:05")
+			f := strings.Fields(row)
+			if len(f) < 3 || f[0]+" "+f[1] != stamp || f[2] != "0:00:00" || f[len(f)-3] != "-" || f[len(f)-2] != "-" {
+				t.Errorf("liftoff row = %q, want sim %s, T+ 0:00:00 and apsides -", row, stamp)
+			}
+			if !strings.Contains(string(b), "# T+0 = "+stamp+" (liftoff)") {
+				t.Errorf("header does not name the liftoff %s:\n%s", stamp, strings.SplitN(string(b), "\n", 3)[1])
+			}
+		})
+	}
+}
+
+// A realistic pad-to-stage flight: the file's columns line up row to row, the
+// hold column is the GUIDANCE words, and a no-event row is the 119 B the ADR's
+// corrections section measured.
+func TestRealisticFlightFile(t *testing.T) {
+	w, c := padSaturn(t, 1)
+	liftable(w, c)
+	path := recFile(t, recAttach(t, w))
+	w.RecordAction(missions.ActionThrottleFull)
+	w.StartManualBurn()
+	w.RecordAction(missions.ActionIgnite)
+	ticks(w, 1200) // 60 s of ascent
+	if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+		t.Fatal(err)
+	}
+	w.RecordAction(missions.ActionStage)
+	ticks(w, 400)
+	w.RecordAction(missions.ActionThrottleCut)
+	b, _ := os.ReadFile(path)
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	t.Log("\n" + strings.Join(lines, "\n"))
+	// Rows from the stage on (mass under 1,000,000 kg, which is all the 7-wide
+	// mass column holds): the soi and hold columns must not drift.
+	soiCol, holdCol, rows := -1, -1, 0
+	for _, l := range lines {
+		if !strings.HasPrefix(l, "20") {
+			continue
+		}
+		rows++
+		if !strings.Contains(l, "stage: ") && soiCol < 0 {
+			continue
+		}
+		if soiCol < 0 {
+			soiCol, holdCol = strings.Index(l, "Earth"), strings.Index(l, "Radial+")
+		}
+		if strings.Index(l, "Earth") != soiCol || strings.Index(l, "Radial+") != holdCol {
+			t.Errorf("columns drift on %q", l)
+		}
+		if !strings.Contains(l, "  ") || strings.HasSuffix(l, "  ") {
+			t.Errorf("bad row %q", l)
+		}
+	}
+	if want := w.holdText(w.ActiveCraft()); want != "Radial+ (ORBIT)" {
+		t.Errorf("holdText = %q", want)
+	}
+	if rows < 8 {
+		t.Errorf("rows = %d, want a flight's worth", rows)
+	}
+}

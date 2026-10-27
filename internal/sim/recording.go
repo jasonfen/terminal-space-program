@@ -113,7 +113,9 @@ func (w *World) holdText(c *spacecraft.Spacecraft) string {
 // recApsides: altitudes of apo/peri above the surface, ok false when the
 // orbit is not a bound ellipse or the vessel is on the ground.
 func recApsides(c *spacecraft.Spacecraft) (apo, peri, incDeg float64, ok bool) {
-	if c.Landed || c.Crashed {
+	// Less than a metre up is the ground: the liftoff row is written the
+	// instant Landed clears, when the pad's co-rotation "orbit" is underground.
+	if c.Landed || c.Crashed || c.Altitude() < 1 {
 		return 0, 0, 0, false
 	}
 	el := orbital.ElementsFromState(c.State.R, c.State.V, c.Primary.GravitationalParameter())
