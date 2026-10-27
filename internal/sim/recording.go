@@ -30,6 +30,7 @@ type recState struct {
 	t0       time.Time     // T+0 when the vessel has no liftoff stamp: its first row
 	stalled  *ActiveBurn   // the burn whose stall row was already written
 	hold     string        // the hold last on file ("" = not yet seen)
+	warp     int           // Clock.WarpIdx+1 last on file (0 = not yet seen)
 }
 
 // OpenActiveRecording closes any open recording and opens the Active Vessel's
@@ -61,7 +62,7 @@ func (w *World) OpenActiveRecording() error {
 		return err
 	}
 	w.Recording = r
-	w.rec = recState{vesselID: c.ID, t0: r.T0(), hold: w.holdText(c)}
+	w.rec = recState{vesselID: c.ID, t0: r.T0(), hold: w.holdText(c), warp: w.Clock.WarpIdx + 1}
 	return nil
 }
 
@@ -151,6 +152,7 @@ func (w *World) recordRowFor(c *spacecraft.Spacecraft, event string) {
 // label differs from the last one on file, whatever changed it (key, nav-mode
 // remap, dangling-port reset, undock). Called before every row and each tick.
 func (w *World) recordHoldChange(c *spacecraft.Spacecraft) {
+	w.recordWarpChange(c)
 	h := w.holdText(c)
 	if h == w.rec.hold {
 		return
@@ -162,24 +164,24 @@ func (w *World) recordHoldChange(c *spacecraft.Spacecraft) {
 	}
 }
 
+// recordWarpChange writes `warp: <N>x` when Clock.WarpIdx differs from the last
+// one on file, whatever moved it (keys, auto-warp hand-offs, a picker). The
+// 10x burn clamp does not move the index, so it writes nothing.
+func (w *World) recordWarpChange(c *spacecraft.Spacecraft) {
+	n := w.Clock.WarpIdx + 1
+	if n == w.rec.warp {
+		return
+	}
+	seen := w.rec.warp != 0
+	w.rec.warp = n
+	if seen {
+		_ = w.Recording.Write(w.rowFor(c, fmt.Sprintf("warp: %gx", WarpFactors[w.Clock.WarpIdx])))
+	}
+}
+
 // recordRCS writes one row per fired RCS pulse, after the Δv is applied.
 func (w *World) recordRCS(c *spacecraft.Spacecraft, mode spacecraft.BurnMode) {
 	w.recordRowFor(c, fmt.Sprintf("rcs: %s %g m/s", mode, c.RCSPulseDV()))
-}
-
-// WarpUp, WarpDown and CancelWarp are the player's warp inputs; each writes
-// `warp: <N>x` when the index moved. (Auto-warp's own resets and the burn clamp
-// do not come through here.)
-func (w *World) WarpUp()     { w.warpMoved(w.Clock.WarpUp) }
-func (w *World) WarpDown()   { w.warpMoved(w.Clock.WarpDown) }
-func (w *World) CancelWarp() { w.warpMoved(func() { w.Clock.WarpIdx = 0 }) }
-
-func (w *World) warpMoved(f func()) {
-	before := w.Clock.WarpIdx
-	f()
-	if w.Clock.WarpIdx != before {
-		w.recordRow(fmt.Sprintf("warp: %gx", WarpFactors[w.Clock.WarpIdx]))
-	}
 }
 
 // recordRow writes one row for the Active Vessel.

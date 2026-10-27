@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/recorder"
@@ -125,6 +126,7 @@ func TestWallCapTwentyTicks(t *testing.T) {
 func TestInputRowsNeverCapped(t *testing.T) {
 	w, path := recWorld(t)
 	w.Clock.WarpIdx = len(WarpFactors) - 1
+	w.rec.warp = w.Clock.WarpIdx + 1 // the warp row is not this test's subject
 	for i := 0; i < 5; i++ {
 		w.RecordAction(missions.ActionThrottleDown)
 	}
@@ -349,11 +351,17 @@ func lifecycleCases() []lifecycleCase {
 				w.Tick()
 			}, "hold: Target Retrograde (TGT)"},
 		{"warp up", func(t *testing.T) *World { return mustWorld(t) },
-			func(t *testing.T, w *World) { w.WarpUp() }, "warp: 10x"},
+			func(t *testing.T, w *World) { w.Clock.WarpUp(); w.Tick() }, "warp: 10x"},
 		{"warp down", func(t *testing.T) *World { w := mustWorld(t); w.Clock.WarpIdx = 2; return w },
-			func(t *testing.T, w *World) { w.WarpDown() }, "warp: 10x"},
+			func(t *testing.T, w *World) { w.Clock.WarpDown(); w.Tick() }, "warp: 10x"},
 		{"warp cancel", func(t *testing.T) *World { w := mustWorld(t); w.Clock.WarpIdx = 2; return w },
-			func(t *testing.T, w *World) { w.CancelWarp() }, "warp: 1x"},
+			func(t *testing.T, w *World) { w.Clock.WarpIdx = 0; w.Tick() }, "warp: 1x"},
+		{"warp auto-warp reset", func(t *testing.T) *World {
+			w := mustWorld(t)
+			w.Clock.WarpIdx = 3
+			w.AutoWarp = &AutoWarpTarget{T: w.Clock.SimTime.Add(-time.Second), Sync: true} // arrived: resolveAutoWarp drops to 1x
+			return w
+		}, func(t *testing.T, w *World) { w.Tick() }, "warp: 1x"},
 		{"proximity on", func(t *testing.T) *World { return proximityPairWorld(t, orbital.Vec3{X: 1000}, orbital.Vec3{}) },
 			func(t *testing.T, w *World) {
 				if entered, r := w.ToggleProximityView(); !entered {
@@ -546,10 +554,11 @@ func TestInputRowsOnlyOnChange(t *testing.T) {
 	w := mustWorld(t)
 	dir := recAttach(t, w)
 	ticks(w, 3)
-	w.CancelWarp() // already 1x
-	w.WarpDown()   // saturated at the floor
+	w.Clock.WarpDown() // saturated at the floor
+	ticks(w, 2)
 	w.Clock.WarpIdx = len(WarpFactors) - 1
-	w.WarpUp() // saturated at the top
+	w.rec.warp = w.Clock.WarpIdx + 1 // as if already on file
+	w.Clock.WarpUp()                 // saturated at the top
 	w.ActiveCraft().AttitudeMode = w.ActiveCraft().AttitudeMode
 	ticks(w, 3)
 	if ev := allEvents(t, dir); len(ev) != 0 {
@@ -597,6 +606,46 @@ func TestHoldColumnFitsEveryBurnMode(t *testing.T) {
 	}
 	if rows != int(spacecraft.BurnPortRight)+1 {
 		t.Errorf("checked %d rows", rows)
+	}
+}
+
+// v0.63.1: the soi column is sized to the longest body name in every embedded
+// system catalog (Kerbin, Minmus are 6; the table reads the catalogs).
+func TestSOIColumnFitsEveryCatalogBody(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // no user overlay
+	systems, _, err := bodies.LoadAllWithWarnings()
+	if err != nil {
+		t.Fatal(err)
+	}
+	longest := ""
+	for _, s := range systems {
+		for _, b := range s.Bodies {
+			if len(b.EnglishName) > len(longest) {
+				longest = b.EnglishName
+			}
+		}
+	}
+	if len([]rune(longest)) != recorder.SOIWidth {
+		t.Errorf("longest body name %q is %d runes, SOIWidth = %d", longest, len([]rune(longest)), recorder.SOIWidth)
+	}
+	for _, name := range []string{"Moon", "Kerbin", longest} { // longest is the equal case
+		w, path := recWorld(t)
+		w.ActiveCraft().Primary.EnglishName = name
+		w.recordRow("x")
+		b, _ := os.ReadFile(path)
+		var hdr string
+		for _, l := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(l, "sim ") {
+				hdr = l
+			} else if strings.HasPrefix(l, "20") {
+				if i := strings.Index(hdr, "soi"); l[i:i+len(name)] != name {
+					t.Errorf("soi column off for %q\n%s\n%s", name, hdr, l)
+				}
+				if i := strings.Index(hdr, "event"); l[i:] != "x" {
+					t.Errorf("event column off for %q\n%s\n%s", name, hdr, l)
+				}
+			}
+		}
 	}
 }
 

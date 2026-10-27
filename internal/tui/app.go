@@ -1442,7 +1442,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			a.world.DisengageAutoWarp()
-			a.world.WarpUp()
+			a.world.Clock.WarpUp()
 			return a, nil
 		case key.Matches(m, a.keys.WarpDown):
 			// Same refusal as WarpUp during a rendezvous coast — see the
@@ -1457,7 +1457,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			a.world.DisengageAutoWarp()
-			a.world.WarpDown()
+			a.world.Clock.WarpDown()
 			return a, nil
 		case key.Matches(m, a.keys.AutoWarp):
 			// Toggle Auto-Warp to the globally-soonest burn.
@@ -1498,7 +1498,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.toast("rendezvous warp cancelled")
 			}
 			a.world.DisengageAutoWarp()
-			a.world.CancelWarp()
+			a.world.Clock.WarpIdx = 0
 			return a, nil
 		case key.Matches(m, a.keys.Pause):
 			a.world.Clock.TogglePause()
