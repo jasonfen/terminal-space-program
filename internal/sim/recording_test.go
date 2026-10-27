@@ -12,6 +12,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/recorder"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -333,6 +334,37 @@ func lifecycleCases() []lifecycleCase {
 			"bump: S-IVB, 0.3 m/s"},
 		{"dock", func(t *testing.T) *World { return newPortPair(t, "rcs-tug", "ntr-tug", 0.3, 0, 0).w },
 			func(t *testing.T, w *World) { w.DockCrafts(0, 1) }, "dock: with "},
+		{"rcs pulse", func(t *testing.T) *World {
+			w := mustWorld(t)
+			w.ActiveCraft().EngineMode = spacecraft.EngineRCS
+			return w
+		}, func(t *testing.T, w *World) {
+			if !w.FireRCSPulse(spacecraft.BurnRadialOut) {
+				t.Fatal("pulse refused")
+			}
+		}, "rcs: Radial+ 0.1 m/s"},
+		{"hold change", func(t *testing.T) *World { return mustWorld(t) },
+			func(t *testing.T, w *World) {
+				w.ActiveCraft().AttitudeMode = spacecraft.BurnTargetRetrograde // a cause that is no key press
+				w.Tick()
+			}, "hold: Target Retrograde (TGT)"},
+		{"warp up", func(t *testing.T) *World { return mustWorld(t) },
+			func(t *testing.T, w *World) { w.WarpUp() }, "warp: 10x"},
+		{"warp down", func(t *testing.T) *World { w := mustWorld(t); w.Clock.WarpIdx = 2; return w },
+			func(t *testing.T, w *World) { w.WarpDown() }, "warp: 10x"},
+		{"warp cancel", func(t *testing.T) *World { w := mustWorld(t); w.Clock.WarpIdx = 2; return w },
+			func(t *testing.T, w *World) { w.CancelWarp() }, "warp: 1x"},
+		{"proximity on", func(t *testing.T) *World { return proximityPairWorld(t, orbital.Vec3{X: 1000}, orbital.Vec3{}) },
+			func(t *testing.T, w *World) {
+				if entered, r := w.ToggleProximityView(); !entered {
+					t.Fatal(r)
+				}
+			}, "proximity: on"},
+		{"proximity off", func(t *testing.T) *World {
+			w := proximityPairWorld(t, orbital.Vec3{X: 1000}, orbital.Vec3{})
+			w.ToggleProximityView()
+			return w
+		}, func(t *testing.T, w *World) { w.ToggleProximityView() }, "proximity: off"},
 		{"undock", func(t *testing.T) *World {
 			w := newPortPair(t, "rcs-tug", "ntr-tug", 0.3, 0, 0).w
 			w.DockCrafts(0, 1)
@@ -505,5 +537,82 @@ func TestBumpSpeedText(t *testing.T) {
 		if got := bumpSpeedText(c.s); got != c.want {
 			t.Errorf("bumpSpeedText(%v) = %q, want %q", c.s, got, c.want)
 		}
+	}
+}
+
+// v0.63.1: no input row when nothing changed (equal case), and a warp press
+// saturated at the ladder's end moves nothing.
+func TestInputRowsOnlyOnChange(t *testing.T) {
+	w := mustWorld(t)
+	dir := recAttach(t, w)
+	ticks(w, 3)
+	w.CancelWarp() // already 1x
+	w.WarpDown()   // saturated at the floor
+	w.Clock.WarpIdx = len(WarpFactors) - 1
+	w.WarpUp() // saturated at the top
+	w.ActiveCraft().AttitudeMode = w.ActiveCraft().AttitudeMode
+	ticks(w, 3)
+	if ev := allEvents(t, dir); len(ev) != 0 {
+		t.Errorf("events = %q, want none", ev)
+	}
+}
+
+// v0.63.1: the hold column is sized to the widest label holdText can produce.
+// The table runs every BurnMode; each row's columns start at the header's.
+func TestHoldColumnFitsEveryBurnMode(t *testing.T) {
+	w, path := recWorld(t)
+	c := w.ActiveCraft()
+	widest := 0
+	for m := spacecraft.BurnPrograde; m <= spacecraft.BurnPortRight; m++ {
+		if m.String() == "?" {
+			t.Fatalf("BurnMode %d has no label", m)
+		}
+		c.AttitudeMode = m
+		if n := len([]rune(w.holdText(c))); n > widest {
+			widest = n
+		}
+		w.recordRow("x")
+	}
+	if widest != recorder.HoldWidth {
+		t.Errorf("widest hold label = %d runes, HoldWidth = %d", widest, recorder.HoldWidth)
+	}
+	b, _ := os.ReadFile(path)
+	var hdr string
+	rows := 0
+	for _, l := range strings.Split(string(b), "\n") {
+		switch {
+		case strings.HasPrefix(l, "sim "):
+			hdr = l
+		case strings.HasPrefix(l, "20") && strings.HasSuffix(l, "x"):
+			rows++
+			r := []rune(l)
+			h := []rune(hdr)
+			if i := strings.Index(string(h), "event"); string(r[i:]) != "x" {
+				t.Errorf("event column off for %q\n%s\n%s", c.AttitudeMode, hdr, l)
+			}
+			if i := strings.Index(string(h), "soi"); string(r[i:i+5]) != "Earth" {
+				t.Errorf("soi column off\n%s\n%s", hdr, l)
+			}
+		}
+	}
+	if rows != int(spacecraft.BurnPortRight)+1 {
+		t.Errorf("checked %d rows", rows)
+	}
+}
+
+// v0.63.1: thr reads thrust, not the lever.
+func TestThrottleColumnReadsThrust(t *testing.T) {
+	w, _ := recWorld(t)
+	c := w.ActiveCraft()
+	c.Throttle = 1
+	if g := w.rowFor(c, "").ThrottlePct; g != 0 {
+		t.Errorf("coasting with the lever at 100%%: thr = %v, want 0", g)
+	}
+	w.StartManualBurn()
+	if c.ManualBurn == nil {
+		t.Fatal("no burn")
+	}
+	if g := w.rowFor(c, "").ThrottlePct; g != 100 {
+		t.Errorf("burning at 100%%: thr = %v, want 100", g)
 	}
 }

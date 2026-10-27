@@ -328,6 +328,7 @@ func (w *World) ToggleProximityView() (entered bool, refusal string) {
 			back = w.baseProjection(ViewLaunch)
 		}
 		w.ViewMode = back
+		w.recordRow("proximity: off")
 		return false, ""
 	}
 	if reason := w.ProximityRefusal(); reason != "" {
@@ -345,6 +346,7 @@ func (w *World) ToggleProximityView() (entered bool, refusal string) {
 	// Entering answers the hint, so it stops asking until the pair
 	// separates and closes again.
 	w.proxHint.dismissed = true
+	w.recordRow("proximity: on")
 	return true, ""
 }
 

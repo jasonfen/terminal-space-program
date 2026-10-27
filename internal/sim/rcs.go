@@ -94,6 +94,7 @@ func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
 		w.DisengageRendezvousWarp()
 	}
 	w.recordRCSPuff(dir)
+	w.recordRCS(w.ActiveCraft(), mode)
 	return true
 }
 

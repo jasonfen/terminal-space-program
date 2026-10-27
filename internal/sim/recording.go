@@ -29,6 +29,7 @@ type recState struct {
 	vesselID uint64        // whose file Recording is
 	t0       time.Time     // T+0 when the vessel has no liftoff stamp: its first row
 	stalled  *ActiveBurn   // the burn whose stall row was already written
+	hold     string        // the hold last on file ("" = not yet seen)
 }
 
 // OpenActiveRecording closes any open recording and opens the Active Vessel's
@@ -60,7 +61,7 @@ func (w *World) OpenActiveRecording() error {
 		return err
 	}
 	w.Recording = r
-	w.rec = recState{vesselID: c.ID, t0: r.T0()}
+	w.rec = recState{vesselID: c.ID, t0: r.T0(), hold: w.holdText(c)}
 	return nil
 }
 
@@ -124,9 +125,14 @@ func (w *World) rowFor(c *spacecraft.Spacecraft, event string) recorder.Row {
 	sim := w.Clock.SimTime
 	tp, known := w.recTPlus(c, sim)
 	apo, peri, _, ok := recApsides(c)
+	// thr reads thrust, not the lever: 0 unless the engine is firing.
+	thr := 0.0
+	if c.ActiveBurn != nil || c.ManualBurn != nil {
+		thr = c.Throttle * 100
+	}
 	return recorder.Row{
 		Sim: sim, TPlus: tp, TPlusKnown: known,
-		AltM: c.Altitude(), SpdMS: c.State.V.Norm(), MassKg: c.TotalMass(), ThrottlePct: c.Throttle * 100,
+		AltM: c.Altitude(), SpdMS: c.State.V.Norm(), MassKg: c.TotalMass(), ThrottlePct: thr,
 		Stages: len(c.Stages), SOI: c.Primary.EnglishName, Hold: w.holdText(c),
 		PitchTrimDeg: c.PitchTrim * 180 / math.Pi, HeadTrimDeg: c.HeadingTrim * 180 / math.Pi,
 		ApoM: apo, PeriM: peri, ApsidesOK: ok, Event: event,
@@ -136,7 +142,43 @@ func (w *World) rowFor(c *spacecraft.Spacecraft, event string) recorder.Row {
 // recordRowFor writes one row for c if c is the Active Vessel and recording.
 func (w *World) recordRowFor(c *spacecraft.Spacecraft, event string) {
 	if w.recFor(c) {
+		w.recordHoldChange(c)
 		_ = w.Recording.Write(w.rowFor(c, event))
+	}
+}
+
+// recordHoldChange writes `hold: <label>` once when the Active Vessel's hold
+// label differs from the last one on file, whatever changed it (key, nav-mode
+// remap, dangling-port reset, undock). Called before every row and each tick.
+func (w *World) recordHoldChange(c *spacecraft.Spacecraft) {
+	h := w.holdText(c)
+	if h == w.rec.hold {
+		return
+	}
+	seen := w.rec.hold != ""
+	w.rec.hold = h
+	if seen {
+		_ = w.Recording.Write(w.rowFor(c, "hold: "+h))
+	}
+}
+
+// recordRCS writes one row per fired RCS pulse, after the Δv is applied.
+func (w *World) recordRCS(c *spacecraft.Spacecraft, mode spacecraft.BurnMode) {
+	w.recordRowFor(c, fmt.Sprintf("rcs: %s %g m/s", mode, c.RCSPulseDV()))
+}
+
+// WarpUp, WarpDown and CancelWarp are the player's warp inputs; each writes
+// `warp: <N>x` when the index moved. (Auto-warp's own resets and the burn clamp
+// do not come through here.)
+func (w *World) WarpUp()     { w.warpMoved(w.Clock.WarpUp) }
+func (w *World) WarpDown()   { w.warpMoved(w.Clock.WarpDown) }
+func (w *World) CancelWarp() { w.warpMoved(func() { w.Clock.WarpIdx = 0 }) }
+
+func (w *World) warpMoved(f func()) {
+	before := w.Clock.WarpIdx
+	f()
+	if w.Clock.WarpIdx != before {
+		w.recordRow(fmt.Sprintf("warp: %gx", WarpFactors[w.Clock.WarpIdx]))
 	}
 }
 
@@ -150,6 +192,7 @@ func (w *World) recordSample(simDelta time.Duration) {
 	if !w.recFor(c) {
 		return
 	}
+	w.recordHoldChange(c)
 	w.rec.accrued += simDelta
 	w.rec.ticks++
 	n := recCoastSample
