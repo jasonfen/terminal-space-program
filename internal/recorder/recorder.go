@@ -136,7 +136,7 @@ func (r *Recording) SetLiftoff(t time.Time) (err error) {
 			break
 		}
 	}
-	return nil
+	return rewrite(r.path, bytes.Join(lines, nil), 0o644)
 }
 
 // Close closes the file; later Writes fail.
