@@ -588,7 +588,7 @@ func TestHoldColumnFitsEveryBurnMode(t *testing.T) {
 			r := []rune(l)
 			h := []rune(hdr)
 			if i := strings.Index(string(h), "event"); string(r[i:]) != "x" {
-				t.Errorf("event column off for %q\n%s\n%s", c.AttitudeMode, hdr, l)
+				t.Errorf("event column off\n%s\n%s", hdr, l)
 			}
 			if i := strings.Index(string(h), "soi"); string(r[i:i+5]) != "Earth" {
 				t.Errorf("soi column off\n%s\n%s", hdr, l)
