@@ -295,9 +295,17 @@ func formatHeader(h Header) string {
 	return l1 + "\n# T+0 = " + t0 + headerSuffix + "\n" + columns("sim", "T+", "alt", "spd", "mass", "thr", "stg", "soi", "hold", "ptrim", "htrim", "apo", "peri", "event") + "\n"
 }
 
+// HoldWidth is the hold column: "Target Retrograde (TGT)", the widest
+// label holdText can produce (pinned over every BurnMode in sim).
+const HoldWidth = 23
+
+// SOIWidth is the soi column: the longest body EnglishName of any embedded
+// system (pinned over the catalogs in sim).
+const SOIWidth = 18
+
 // columns lays out one line in the recording's fixed columns.
 func columns(sim, tp, alt, spd, mass, thr, stg, soi, hold, pt, ht, apo, peri, event string) string {
-	s := fmt.Sprintf("%-19s  %-8s %6s  %7s  %9s  %3s %3s  %-5s  %-16s  %5s %5s  %7s  %6s", sim, tp, alt, spd, mass, thr, stg, soi, hold, pt, ht, apo, peri)
+	s := fmt.Sprintf("%-19s  %-8s %6s  %7s  %9s  %3s %3s  %-18s  %-23s  %5s %5s  %7s  %6s", sim, tp, alt, spd, mass, thr, stg, soi, hold, pt, ht, apo, peri)
 	if event != "" {
 		s += "  " + event
 	}
