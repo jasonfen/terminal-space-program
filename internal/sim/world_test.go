@@ -426,3 +426,48 @@ func TestNewWorldDefaults(t *testing.T) {
 	}
 }
 
+
+// ADR 0062 decision 2: the tick a pad vessel lifts off is stamped. Equal case
+// (#716): thrust exactly equal to weight stays seated and unstamped; the very
+// next representable thrust lifts and stamps.
+func TestLiftoffStampsSimTime(t *testing.T) {
+	w, c := padSaturn(t, 1)
+	// Bisect to adjacent float64s: lo cannot lift, hi can. That is TWR == 1.
+	lo, hi := c.Thrust*0.5, c.Thrust*2
+	for math.Nextafter(lo, hi) < hi {
+		c.Thrust = lo + (hi-lo)/2
+		if w.canLiftOff(c) {
+			hi = c.Thrust
+		} else {
+			lo = c.Thrust
+		}
+	}
+	c.Thrust = hi
+	liftThrust := c.Thrust
+	c.Thrust = math.Nextafter(liftThrust, 0)
+	if w.canLiftOff(c) {
+		t.Fatal("setup: one ulp below the flip still lifts")
+	}
+	r := c.State.R.Norm()
+	core, restore := seatedThrottle(c)
+	twr := c.Thrust * c.LitThrottle(core) / c.TotalMass() * c.CurrentAttitudeDir.Unit().Dot(c.State.R.Scale(1/r)) / (c.Primary.GravitationalParameter() / (r * r))
+	restore()
+	if math.Abs(twr-1) > 1e-6 {
+		t.Fatalf("setup: boundary TWR = %v, want 1 (attitude not along up?)", twr)
+	}
+
+	w.StartManualBurn()
+	w.integrateOneCraft(c, w.Clock.BaseStep)
+	if !c.Landed || !c.OnPad || !c.LiftoffSimTime.IsZero() {
+		t.Fatalf("TWR 1: Landed=%v OnPad=%v stamp=%v, want seated and zero", c.Landed, c.OnPad, c.LiftoffSimTime)
+	}
+
+	c.Thrust = liftThrust
+	w.Tick()
+	if c.Landed || c.OnPad {
+		t.Fatalf("setup: did not lift: Landed=%v OnPad=%v", c.Landed, c.OnPad)
+	}
+	if !c.LiftoffSimTime.Equal(w.Clock.SimTime) {
+		t.Errorf("LiftoffSimTime = %v, want the clock of the lifting tick %v", c.LiftoffSimTime, w.Clock.SimTime)
+	}
+}

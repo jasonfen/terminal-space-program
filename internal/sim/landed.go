@@ -114,6 +114,20 @@ func (w *World) canLiftOff(c *spacecraft.Spacecraft) bool {
 	return lift > c.Primary.GravitationalParameter()/(r*r)
 }
 
+// leavePad releases a landed craft into free flight. v0.11.4+ (ADR 0004): the
+// first liftoff clears OnPad so a later soft-landing's Landed false to true
+// transition doesn't fire the ViewLaunch auto-route (which gates on OnPad).
+// ADR 0062 decision 2: that first liftoff is also stamped as LiftoffSimTime,
+// the zero of the Flight Recorder's T+ clock; a soft-landed craft (OnPad
+// already false) lifting again stamps nothing.
+func (w *World) leavePad(c *spacecraft.Spacecraft) {
+	c.Landed = false
+	if c.OnPad {
+		c.OnPad = false
+		c.LiftoffSimTime = w.Clock.SimTime
+	}
+}
+
 // burnSeated runs a manual burn that cannot yet lift the craft: propellant is
 // spent and mass falls (so TWR rises), the craft stays pinned. A dry tank ends
 // the burn exactly as it does in flight. A planted burn's window is held (as a

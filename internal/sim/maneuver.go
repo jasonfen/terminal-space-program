@@ -78,11 +78,7 @@ func (w *World) StartManualBurn() {
 	// #716: only when thrust beats weight; otherwise integrateOneCraft keeps
 	// the craft seated, burning, and releases it at the first tick it can lift.
 	if w.canLiftOff(c) {
-		c.Landed = false
-		// v0.11.4+ (ADR 0004): first liftoff clears OnPad so a future
-		// soft-landing's Landed=false→true transition doesn't fire the
-		// ViewLaunch auto-route (which gates on OnPad).
-		c.OnPad = false
+		w.leavePad(c)
 	}
 	// #298: the pilot taking manual thrust supersedes the standing
 	// rendezvous intent — release arm + driver so the coast can't warp
@@ -3263,8 +3259,7 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 		// #734: a finite node on a craft that cannot yet lift stays seated and
 		// burning (integrateOneCraft releases it), as a manual burn does.
 		if c.ActiveBurn == nil || w.canLiftOff(c) {
-			c.Landed = false
-			c.OnPad = false
+			w.leavePad(c)
 		}
 		// fired — not appended to kept.
 	}

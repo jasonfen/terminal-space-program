@@ -243,6 +243,11 @@ type Spacecraft struct {
 	LaunchLatDeg float64
 	LaunchLonDeg float64
 
+	// LiftoffSimTime (schema v18, ADR 0062 decision 2) is the sim instant the
+	// craft first left the pad (OnPad cleared by thrust beating weight). Zero
+	// until then and for any craft that never sat on a pad.
+	LiftoffSimTime time.Time
+
 	// HasLaunchSite (schema v15, #611) is true when LaunchLatDeg /
 	// LaunchLonDeg name a real launch pad: set by a Launchpad spawn and
 	// copied to a stage jettisoned from a landed parent. An orbit spawn
