@@ -115,7 +115,12 @@ import (
 // decodes to the zero time, the truth for every earlier save, so no migration
 // function is needed; the bump exists so a v17 binary refuses a v18 envelope
 // instead of dropping the instant the Flight Recorder's T+ clock counts from.
-const SchemaVersion = 18
+// ADR 0062 / v0.63.3 bumps to v19 - Payload.game_folder, the Flight Recording
+// folder the game writes into. Absent decodes to "" (a load starts a new
+// folder), the truth for every earlier save, so no migration function is
+// needed; the bump exists so a v18 binary refuses a v19 envelope instead of
+// dropping the folder and splitting a game's recordings across two.
+const SchemaVersion = 19
 
 // RaiseWire is spacecraft.RaiseOrder on the wire (StartAt as UnixNano).
 type RaiseWire struct {
@@ -176,6 +181,7 @@ type Payload struct {
 	ActiveCraftIdx int                `json:"active_craft_idx,omitempty"`
 	NextCraftID    uint64             `json:"next_craft_id,omitempty"` // v0.14.x / schema v7: monotonic craft-ID counter (ADR 0012).
 	NameCounters   map[string]uint64  `json:"name_counters,omitempty"` // schema v17 (ADR 0059 decision 7): highest number handed out per name prefix.
+	GameFolder     string             `json:"game_folder,omitempty"`   // schema v19: Flight Recording folder of this game.
 	NextNodeID     uint64             `json:"next_node_id,omitempty"`  // v0.16: monotonic node-ID counter (ADR 0016). Additive omitempty, no schema bump; EnsureNodeIDs reprimes on load.
 	Nodes          []Node             `json:"nodes,omitempty"`
 	ActiveBurn     *ActiveBurn        `json:"active_burn,omitempty"`
@@ -805,6 +811,7 @@ func payloadFromWorld(w *sim.World) Payload {
 	p.ActiveCraftIdx = w.ActiveCraftIdx
 	p.NextCraftID = w.NextCraftID
 	p.NameCounters = maps.Clone(w.NameCounters)
+	p.GameFolder = w.GameFolder
 	p.NextNodeID = w.NextNodeID
 	p.Missions = missions.Clone(w.Missions)
 	return p
@@ -885,6 +892,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 	}
 	w.NextCraftID = p.NextCraftID
 	w.NameCounters = maps.Clone(p.NameCounters)
+	w.GameFolder = p.GameFolder
 	w.NextNodeID = p.NextNodeID
 	if p.ActiveCraftIdx >= 0 && p.ActiveCraftIdx < len(w.Crafts) {
 		w.ActiveCraftIdx = p.ActiveCraftIdx

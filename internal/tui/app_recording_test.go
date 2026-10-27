@@ -16,6 +16,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/recorder"
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/version"
 )
 
@@ -34,9 +35,17 @@ func TestMain(m *testing.M) {
 }
 
 // recApp is a fresh App on temp dirs, ticked once so its recording is open.
+// The dir is the game's folder under saves/recordings.
 func recApp(t *testing.T) (*App, string) {
 	t.Helper()
-	saves := testStateDirs(t)
+	testStateDirs(t)
+	a := newGameApp(t)
+	return a, a.world.RecordingsDir
+}
+
+// newGameApp starts a new game on the current state dirs and ticks it once.
+func newGameApp(t *testing.T) *App {
+	t.Helper()
 	a, err := New(nil)
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +54,7 @@ func recApp(t *testing.T) (*App, string) {
 	if a.world.Recording == nil {
 		t.Fatal("no recording open after the first tick")
 	}
-	return a, filepath.Join(saves, "recordings")
+	return a
 }
 
 func recFiles(t *testing.T, dir string) []string {
@@ -162,8 +171,8 @@ func TestSetRecordingsDirRoutesTheFile(t *testing.T) {
 	if len(recFiles(t, guest)) != 1 {
 		t.Fatalf("guest dir files = %v", recFiles(t, guest))
 	}
-	if got := recFiles(t, filepath.Join(saves, "recordings")); len(got) != 0 {
-		t.Fatalf("local dir got files: %v", got)
+	if got, _ := filepath.Glob(filepath.Join(saves, "recordings", "*")); len(got) != 0 {
+		t.Fatalf("local dir got files or a game folder: %v", got)
 	}
 }
 
@@ -244,5 +253,130 @@ func TestFirstTickWritesSessionStart(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("%q rows = %d after two ticks, want 1; rows %q", want, n, rows)
+	}
+}
+
+// recordingsRoot is saves/recordings under the test's state dirs.
+func recordingsRoot(t *testing.T) string {
+	t.Helper()
+	d, err := save.SavesDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(d, "recordings")
+}
+
+// Guard 1: two new games in a row write to two folders, and the second game's
+// vessel file starts with its own header, free of the first game's rows.
+func TestNewGamesGetOwnFolders(t *testing.T) {
+	testStateDirs(t)
+	a1 := newGameApp(t)
+	a1.world.RecordEvent("game one only")
+	a1.world.CloseRecording()
+	a2 := newGameApp(t)
+	d1, d2 := a1.world.RecordingsDir, a2.world.RecordingsDir
+	if d1 == d2 || filepath.Dir(d1) != recordingsRoot(t) || filepath.Dir(d2) != recordingsRoot(t) {
+		t.Fatalf("game folders %q and %q, want two different folders under %q", d1, d2, recordingsRoot(t))
+	}
+	f2 := recFiles(t, d2)
+	if len(f2) != 1 {
+		t.Fatalf("second game files = %v", f2)
+	}
+	b, _ := os.ReadFile(f2[0])
+	if strings.Contains(string(b), "game one only") || strings.Count(string(b), "# Flight Recording") != 1 {
+		t.Fatalf("second game's file carries the first game's history:\n%s", b)
+	}
+}
+
+// Guard 2: save in game A, start game B, load the save: rows go to A's folder.
+func TestLoadContinuesSavedGameFolder(t *testing.T) {
+	testStateDirs(t)
+	a1 := newGameApp(t)
+	dirA := a1.world.RecordingsDir
+	info, err := save.WriteNamed(a1.world, "snap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	a1.world.CloseRecording()
+	b := newGameApp(t)
+	if b.world.RecordingsDir == dirA {
+		t.Fatal("setup: game B shares game A's folder")
+	}
+	if err := b.loadWorldByID(info.ID); err != nil {
+		t.Fatal(err)
+	}
+	if b.world.RecordingsDir != dirA {
+		t.Fatalf("after load RecordingsDir = %q, want %q", b.world.RecordingsDir, dirA)
+	}
+	b.world.RecordEvent("after the load")
+	if rows := recRows(t, recFiles(t, dirA)[0]); !hasRow(rows, "after the load") {
+		t.Fatalf("A's file rows = %q, want the post-load row", rows)
+	}
+}
+
+// Guard 3 (App side): a save with no folder (a pre-19 save) loads into a fresh one.
+func TestLoadWithoutFolderStartsNewFolder(t *testing.T) {
+	testStateDirs(t)
+	a := newGameApp(t)
+	old := a.world.RecordingsDir
+	a.world.GameFolder = "" // what a v18 save decodes to
+	info, err := save.WriteNamed(a.world, "legacy")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.loadWorldByID(info.ID); err != nil {
+		t.Fatal(err)
+	}
+	if got := a.world.RecordingsDir; got == old || filepath.Dir(got) != recordingsRoot(t) {
+		t.Fatalf("RecordingsDir = %q, want a new folder besides %q", got, old)
+	}
+}
+
+// Guard 4: every vessel's file gets the session marker once, the first time it
+// is opened; after a load the marker is `loaded save <id>`.
+func TestMarkerOncePerFilePerSession(t *testing.T) {
+	a, dir := recApp(t)
+	first := a.world.ActiveCraft()
+	second, err := a.world.SpawnCraft(sim.SpawnSpec{AltitudeM: 600e3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a.world.ActiveCraft() != second {
+		t.Fatal("setup: spawn did not switch to the new vessel")
+	}
+	count := func(id uint64, ev string) int {
+		n := 0
+		for _, r := range recRows(t, fileOfVessel(t, dir, id)) {
+			if strings.HasSuffix(r, ev) {
+				n++
+			}
+		}
+		return n
+	}
+	start := "session start: " + version.Version
+	for i := 0; i < 2; i++ { // back and forth: a second visit writes none
+		a.world.SetActiveCraftIdx(0)
+		a.world.SetActiveCraftIdx(1)
+	}
+	for _, c := range []*spacecraft.Spacecraft{first, second} {
+		if n := count(c.ID, start); n != 1 {
+			t.Errorf("vessel %d: %q rows = %d, want 1", c.ID, start, n)
+		}
+	}
+	info, err := save.WriteNamed(a.world, "snap")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.loadWorldByID(info.ID); err != nil {
+		t.Fatal(err)
+	}
+	a.world.SetActiveCraftIdx(0)
+	a.world.SetActiveCraftIdx(1)
+	a.world.SetActiveCraftIdx(0)
+	loaded := "loaded save " + info.ID
+	for _, c := range []*spacecraft.Spacecraft{first, second} {
+		if n := count(c.ID, loaded); n != 1 {
+			t.Errorf("vessel %d: %q rows = %d after the load, want 1", c.ID, loaded, n)
+		}
 	}
 }

@@ -236,6 +236,9 @@ type App struct {
 	// attached to; the first tick (or a load) attaches a World it differs from.
 	recDir   string
 	recWorld *sim.World
+	// recFolders: recDir is the local saves dir, where each game gets its own
+	// folder (v0.63.3). SetRecordingsDir (a guest) turns it off.
+	recFolders bool
 	// onPersisted is called with the World after persistNow wrote it
 	// successfully (ADR 0040 amendment 3: the hosting App's autosaves
 	// acknowledge to the dock ledger).
@@ -311,6 +314,7 @@ func New(scenario *sim.StartScenario) (*App, error) {
 	}
 	return &App{
 		recDir:     recDir,
+		recFolders: recDir != "",
 		world:      w,
 		theme:      th,
 		keys:       DefaultKeymap(),
@@ -354,7 +358,7 @@ func (a *App) SetGuestPersistence(sink func(*sim.World) error) { a.guestSave = s
 
 // SetRecordingsDir points the Flight Recording files at dir (the serve layer,
 // per player). Call before the first tick: the file opens then.
-func (a *App) SetRecordingsDir(dir string) { a.recDir = dir }
+func (a *App) SetRecordingsDir(dir string) { a.recDir, a.recFolders = dir, false }
 
 // attachRecording closes the recording of the World being left and opens the
 // Active Vessel's file for w, with the configured dir and window.
@@ -364,6 +368,19 @@ func (a *App) attachRecording(w *sim.World) {
 	}
 	a.recWorld = w
 	w.RecordingsDir = a.recDir
+	if a.recFolders {
+		// A World without a (usable) folder is a new game; a loaded save's
+		// folder is continued.
+		f := w.GameFolder
+		if f == "" || f != filepath.Base(f) || f == "." || f == ".." {
+			var err error
+			if f, err = sim.NewGameFolder(a.recDir, time.Now()); err != nil {
+				return
+			}
+			w.GameFolder = f
+		}
+		w.RecordingsDir = filepath.Join(a.recDir, f)
+	}
 	w.RecordingWindowDays = a.orbitView.Settings().RecordingWindow()
 	_ = w.OpenActiveRecording()
 }
@@ -439,9 +456,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if a.recWorld != a.world {
-			a.attachRecording(a.world)
 			// A fresh start can rewind the clock to the same scenario: name it.
-			a.world.RecordEvent("session start: " + version.Version)
+			a.world.SetRecordingMarker("session start: " + version.Version)
+			a.attachRecording(a.world)
 		}
 		a.world.Tick()
 		if a.orbitView.RendezvousPickerOpen() {
@@ -2331,8 +2348,8 @@ func (a *App) loadWorldByID(id string) error {
 	// The loaded world starts with the nil ("all enabled") default; re-apply
 	// the player's program toggles so a load respects them. v0.21 Slice 7.
 	a.world.SetEnabledMissionPrograms(enabledProgramsFromSettings(a.orbitView.Settings()))
+	a.world.SetRecordingMarker("loaded save " + id)
 	a.attachRecording(w)
-	a.world.RecordEvent("loaded save " + id)
 	a.fromMenu = false // a load lands on the map, never back on the menu (Q3)
 	a.menuHeld = false // the new world's own pause state applies
 	a.active = screenOrbit

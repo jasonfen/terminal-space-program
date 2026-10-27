@@ -561,7 +561,12 @@ type World struct {
 	Recording           *recorder.Recording
 	RecordingsDir       string
 	RecordingWindowDays int
-	rec                 recState
+	// GameFolder names this game's folder under the recordings dir (v0.63.3;
+	// "" = none yet). A save carries it, so a load continues the same folder.
+	GameFolder string
+	rec        recState
+	recMarker  string          // row written first time each vessel's file opens
+	recMarked  map[uint64]bool // vessels whose file already got the marker
 }
 
 // trailSample captures the craft's position in its primary's frame at
