@@ -166,6 +166,11 @@ type Settings struct {
 	// than dereferencing directly.
 	AutosaveIntervalMin *int `json:"autosaveIntervalMin,omitempty"`
 
+	// RecordingWindowDays is how many sim-days of a vessel's Flight
+	// Recording are kept (ADR 0062 decision 9). A pointer so an absent
+	// field means the default; read through RecordingWindow.
+	RecordingWindowDays *int `json:"recordingWindowDays,omitempty"`
+
 	// EmptyReadings is the Empty readings choice (ADR 0051 W6, #482):
 	// what the instrument boxes do with boxes and rows that have nothing
 	// to say. Stored as a raw string so a hand-edited or newer-build value
@@ -276,6 +281,38 @@ func (s Settings) AutosaveInterval() time.Duration {
 func (s *Settings) SetAutosaveIntervalMin(m int) {
 	v := m
 	s.AutosaveIntervalMin = &v
+}
+
+// DefaultRecordingWindowDays is the Flight Recording window default.
+const DefaultRecordingWindowDays = 7
+
+// RecordingWindowSteps is the Settings row's cycle order, in sim-days.
+var RecordingWindowSteps = []int{1, 3, 7, 14, 30}
+
+// NextRecordingWindowDays returns the step after cur, wrapping from the
+// last to the first; an off-list value re-enters at the first step.
+func NextRecordingWindowDays(cur int) int {
+	for i, v := range RecordingWindowSteps {
+		if v == cur {
+			return RecordingWindowSteps[(i+1)%len(RecordingWindowSteps)]
+		}
+	}
+	return RecordingWindowSteps[0]
+}
+
+// RecordingWindow returns the effective window in sim-days: the default
+// when unset or below 1.
+func (s Settings) RecordingWindow() int {
+	if s.RecordingWindowDays == nil || *s.RecordingWindowDays < 1 {
+		return DefaultRecordingWindowDays
+	}
+	return *s.RecordingWindowDays
+}
+
+// SetRecordingWindowDays records an explicit window (fresh pointer, so
+// copies never alias).
+func (s *Settings) SetRecordingWindowDays(d int) {
+	s.RecordingWindowDays = &d
 }
 
 // Default returns the all-defaults Settings: every Chip visible, no

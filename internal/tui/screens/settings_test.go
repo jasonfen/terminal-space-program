@@ -79,8 +79,12 @@ func TestSettingsCursorNavigation(t *testing.T) {
 		t.Errorf("up-wrap toggle action = %v, want CycleEmptyReadings (last row)", a)
 	}
 	s.HandleKey("up")
+	if a, _ := s.HandleKey(" "); a != SettingsActionCycleRecordingWindow {
+		t.Errorf("second up toggle action = %v, want CycleRecordingWindow", a)
+	}
+	s.HandleKey("up")
 	if a, _ := s.HandleKey(" "); a != SettingsActionCycleAutosave {
-		t.Errorf("second up toggle action = %v, want CycleAutosave", a)
+		t.Errorf("third up toggle action = %v, want CycleAutosave", a)
 	}
 	_ = n
 }
@@ -243,6 +247,39 @@ func TestSettingsEmptyReadingsRow(t *testing.T) {
 	}
 	if a, _ := s.HandleClick(settingsLabelCol(strings.Split(out, "\n")[row], "Empty readings"), row); a != SettingsActionCycleEmptyReadings {
 		t.Errorf("click Empty readings row = %v, want CycleEmptyReadings", a)
+	}
+}
+
+// The Recording window row (ADR 0062) prints the effective window on the
+// row whose click and cursor index answer CycleRecordingWindow, not the
+// Empty readings row below it.
+func TestSettingsRecordingWindowRow(t *testing.T) {
+	s := NewSettingsScreen(Theme{})
+	out := s.Render(settings.Default(), 80, 0)
+	if !strings.Contains(out, "Recording window: ‹ 7 sim-days ›") {
+		t.Fatalf("default render missing Recording window row:\n%s", out)
+	}
+	lines := strings.Split(out, "\n")
+	row := -1
+	for i, ln := range lines {
+		if strings.Contains(ln, "Recording window:") {
+			row = i
+		}
+	}
+	if a, _ := s.HandleClick(settingsLabelCol(lines[row], "Recording window"), row); a != SettingsActionCycleRecordingWindow {
+		t.Errorf("click Recording window row = %v, want CycleRecordingWindow", a)
+	}
+	s2 := NewSettingsScreen(Theme{})
+	for i := 0; i < len(settings.AllChips)+gameplayRows+1; i++ {
+		s2.HandleKey("down")
+	}
+	if a, _ := s2.HandleKey(" "); a != SettingsActionCycleRecordingWindow {
+		t.Errorf("cursor on row below Autosave = %v, want CycleRecordingWindow", a)
+	}
+	prefs := settings.Default()
+	prefs.SetRecordingWindowDays(30)
+	if out := s.Render(prefs, 80, 0); !strings.Contains(out, "Recording window: ‹ 30 sim-days ›") {
+		t.Errorf("30-day render missing its value:\n%s", out)
 	}
 }
 

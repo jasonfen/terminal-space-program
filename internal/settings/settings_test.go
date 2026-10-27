@@ -535,3 +535,51 @@ func TestEmptyReadingsCycleAndRoundTrip(t *testing.T) {
 		t.Errorf("unknown on disk = %q, want tidy", got.EmptyReadingsMode())
 	}
 }
+
+func TestRecordingWindowDefaultsToSevenDays(t *testing.T) {
+	if got := Default().RecordingWindow(); got != 7 {
+		t.Errorf("RecordingWindow = %d, want 7", got)
+	}
+}
+
+func TestRecordingWindowRoundTrips(t *testing.T) {
+	withConfigRoot(t, "")
+	s := Default()
+	s.SetRecordingWindowDays(14)
+	if err := Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, warnings := Load()
+	if len(warnings) != 0 {
+		t.Fatalf("warnings = %v, want none", warnings)
+	}
+	if got.RecordingWindow() != 14 {
+		t.Errorf("RecordingWindow = %d after round-trip, want 14", got.RecordingWindow())
+	}
+}
+
+func TestRecordingWindowBelowOneReadsDefault(t *testing.T) {
+	for _, c := range []struct{ in, want int }{{0, 7}, {-1, 7}, {1, 1}} {
+		var s Settings
+		s.SetRecordingWindowDays(c.in)
+		if got := s.RecordingWindow(); got != c.want {
+			t.Errorf("RecordingWindow(%d) = %d, want %d", c.in, got, c.want)
+		}
+	}
+}
+
+func TestNextRecordingWindowCyclesSteps(t *testing.T) {
+	cur := RecordingWindowSteps[0]
+	for i := 1; i <= len(RecordingWindowSteps); i++ {
+		cur = NextRecordingWindowDays(cur)
+		if want := RecordingWindowSteps[i%len(RecordingWindowSteps)]; cur != want {
+			t.Fatalf("step %d: got %d, want %d", i, cur, want)
+		}
+	}
+	if got := NextRecordingWindowDays(30); got != 1 {
+		t.Errorf("Next(30) = %d, want 1 (wrap)", got)
+	}
+	if got := NextRecordingWindowDays(5); got != 1 {
+		t.Errorf("Next(5) = %d, want 1 (off-list re-enters)", got)
+	}
+}
