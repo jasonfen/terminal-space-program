@@ -1146,40 +1146,9 @@ func attitudeHoldLabel(w *sim.World, mode spacecraft.BurnMode) string {
 	return fmt.Sprintf("%s (%s)", label, navModeLabel(frame))
 }
 
-// attitudeHoldParts is attitudeHoldLabel split into the mode's name and the
-// frame it is held in, so a caller can colour the frame word.
+// attitudeHoldParts delegates to sim.World.AttitudeHoldParts (S2, #800).
 func attitudeHoldParts(w *sim.World, mode spacecraft.BurnMode) (string, sim.NavMode) {
-	if w.NavMode == sim.NavTarget && w.HasRelativeTarget() {
-		switch mode {
-		case spacecraft.BurnPrograde:
-			mode = spacecraft.BurnTargetPrograde
-		case spacecraft.BurnRetrograde:
-			mode = spacecraft.BurnTargetRetrograde
-		case spacecraft.BurnRadialOut:
-			mode = spacecraft.BurnTarget
-		case spacecraft.BurnRadialIn:
-			mode = spacecraft.BurnAntiTarget
-		}
-	}
-	frame := sim.NavOrbit
-	switch mode {
-	case spacecraft.BurnSurfacePrograde, spacecraft.BurnSurfaceRetrograde:
-		frame = sim.NavSurface
-	case spacecraft.BurnTarget, spacecraft.BurnAntiTarget, spacecraft.BurnTargetPrograde, spacecraft.BurnTargetRetrograde:
-		frame = sim.NavTarget
-	case spacecraft.BurnPortIn, spacecraft.BurnPortOut, spacecraft.BurnPortUp,
-		spacecraft.BurnPortDown, spacecraft.BurnPortLeft, spacecraft.BurnPortRight:
-		// ADR 0053 decision 7: the six PORT modes are frame-locked to the
-		// target's port, so they tag their OWN frame, never the live
-		// NavMode (a hold of Port+ stays "Port+ (PORT)" after ; moves on).
-		frame = sim.NavPort
-	}
-	// #478 A2: the bracket tag already names the frame, so a surface-
-	// framed mode drops its own redundant "Surface " word ("Surface
-	// Retrograde (SURF)" -> "Retrograde (SURF)"). The frame was being
-	// named three times on the row otherwise: here, the tag, and (before
-	// NavMode.String()'s own A2 fix) the nav: cell beside it.
-	return strings.TrimPrefix(mode.String(), "Surface "), frame
+	return w.AttitudeHoldParts(mode)
 }
 
 // buildFrameTransitionChip surfaces the next SOI / frame transition implied
