@@ -2,6 +2,14 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.63.1
+
+The Flight Recording catches how you flew, not just what you planned (PR `#819`; tag `v0.63.1`). Save schema unchanged.
+
+- **More rows.** Every RCS pulse (`rcs: Prograde 0.1 m/s`), every change of attitude hold (`hold: Port+ (PORT)`), every warp change including auto-warp's drop to 1x (`warp: 1x`), and the Proximity View toggle (`proximity: on`) now get a row.
+- **Columns line up.** The hold and SOI columns fit their longest values (`Target Retrograde (TGT)`, `Proxima Centauri b`), so no row shifts the columns after them.
+- **`thr` is thrust.** It reads 0 while the engine is off, whatever the throttle is set to.
+
 ### v0.63.0
 
 Every flight writes a Flight Recording: a text file of what the vessel did, a row at a time, ready to paste into a bug report (PRs `#809`-`#812`, `#814`, `#816`, `#818`; tag `v0.63.0`; closes `#800`). **Save schema 17 → 18** (adds the liftoff time; older saves load with it unknown).
