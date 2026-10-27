@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.63.3
+
+Each game keeps its own Flight Recordings (PR `#821`; tag `v0.63.3`). **Save schema 18 → 19** (adds the game's recording folder; older saves load into a new folder).
+
+- **A folder per game.** A new game writes to `saves/recordings/<date>-<time>/` (for example `2026-10-27-1843/`), so a fresh game's vessels no longer append to the last game's files when their vessel numbers repeat. Loading a save carries on in its game's folder. Files from earlier versions stay where they are.
+- **Every file marks the session.** The first time a vessel's file is opened in a session it gets `session start: v0.63.3`, or `loaded save <name>` after a load, even when you switch to that vessel later.
+
 ### v0.63.2
 
 A Flight Recording marks each game start (PR `#820`; tag `v0.63.2`). Save schema unchanged.
