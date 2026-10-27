@@ -246,6 +246,7 @@ func (w *World) undockSplit(idx int, batch bool) bool {
 	// DockCrafts).
 	w.SetActiveCraftIdx(idx)
 	w.StopManualBurn()
+	w.recordSplit(restored, c.Name, batch)
 	return true
 }
 
@@ -726,6 +727,7 @@ func (w *World) DockCrafts(idxA, idxB int) {
 		PartnerName:    partnerName,
 		ComponentCount: len(composite.DockedComponents),
 	}
+	w.recordRowFor(composite, "dock: with "+partnerName)
 }
 
 // fuseComposite fuses the craft at dropIdx into the craft at leadIdx,

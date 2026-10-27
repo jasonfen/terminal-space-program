@@ -330,3 +330,9 @@ func grouped(v float64) string {
 	}
 	return s
 }
+
+// Grouped is the recording's integer format: rounded, thousands separators.
+func Grouped(v float64) string { return grouped(v) }
+
+// TPlus is the T+ column's format.
+func TPlus(d time.Duration) string { return fmtTPlus(d) }

@@ -10,6 +10,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
+	"github.com/jasonfen/terminal-space-program/internal/recorder"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -3235,6 +3236,7 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				PlannedDV:        n.DV,
 				NodeIndex:        idx,
 			}
+			w.recordRowFor(c, fmt.Sprintf("burn start: node %d, Δv %s", idx+1, recorder.Grouped(n.DV)))
 			// ADR 0048 / decision 4: burn state was otherwise invisible — a
 			// node fired and finished in total silence. Appended, not
 			// assigned (review finding 1): executeDueNodes walks every
