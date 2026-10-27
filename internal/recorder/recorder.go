@@ -51,6 +51,7 @@ type Header struct {
 	Name, System, Primary, Site string
 	Liftoff                     time.Time
 	LiftoffKnown                bool
+	FirstRow                    time.Time // no liftoff: the T+0 the header records (zero = unknown)
 }
 
 // Recording is one open recording file.
@@ -62,12 +63,13 @@ type Recording struct {
 	oldest    time.Time // zero when the file holds no rows
 	newest    time.Time
 	lastPrune time.Time
+	t0        time.Time // the header's T+0 instant, zero when it names none
 }
 
 // Open creates or reopens path (writing the header on creation), prunes it
-// once without the rate limit, anchored on the newest row on file, and
-// leaves it open for append.
-func Open(path string, h Header, windowDays int, now func() time.Time) (*Recording, error) {
+// once without the rate limit, anchored on anchor (zero = the newest row on
+// file), and leaves it open for append.
+func Open(path string, h Header, windowDays int, now func() time.Time, anchor time.Time) (*Recording, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
@@ -77,10 +79,12 @@ func Open(path string, h Header, windowDays int, now func() time.Time) (*Recordi
 		}
 	}
 	r := &Recording{path: path, days: windowDays, now: now}
-	if err := r.prune(time.Time{}); err != nil {
+	if err := r.prune(anchor); err != nil {
+		r.Close() // prune's deferred reopen leaves a handle even on error
 		return nil, err
 	}
 	r.lastPrune = now()
+	r.t0 = headerT0(path)
 	return r, nil
 }
 
@@ -235,6 +239,21 @@ func (r *Recording) prune(anchor time.Time) (err error) {
 	return rewrite(r.path, out.Bytes(), 0o644)
 }
 
+// headerT0 is the instant the header's T+0 line names, zero if none.
+func headerT0(path string) time.Time {
+	data, _ := os.ReadFile(path)
+	for _, l := range bytes.SplitN(data, []byte("\n"), 4) {
+		if rest, ok := bytes.CutPrefix(l, []byte("# T+0 = ")); ok {
+			t, _ := rowTime(rest)
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+// T0 is the header's T+0 instant (zero when it names none).
+func (r *Recording) T0() time.Time { return r.t0 }
+
 func rowTime(line []byte) (time.Time, bool) {
 	if len(line) < len(dateLayout) {
 		return time.Time{}, false
@@ -270,6 +289,8 @@ func formatHeader(h Header) string {
 	t0 := "first row (no liftoff on record)"
 	if h.LiftoffKnown {
 		t0 = h.Liftoff.UTC().Format(dateLayout) + " (liftoff)"
+	} else if !h.FirstRow.IsZero() {
+		t0 = h.FirstRow.UTC().Format(dateLayout) + " (first row, no liftoff on record)"
 	}
 	return l1 + "\n# T+0 = " + t0 + headerSuffix + "\n" + columns("sim", "T+", "alt", "spd", "mass", "thr", "stg", "soi", "hold", "ptrim", "htrim", "apo", "peri", "event") + "\n"
 }

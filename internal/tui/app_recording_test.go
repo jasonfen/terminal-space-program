@@ -94,6 +94,8 @@ func pad4(id uint64) string { return fmt.Sprintf("%04d", id) }
 // newest row on file, yet the load row and the abandoned-future row both survive.
 func TestLoadWritesLoadedSaveRow(t *testing.T) {
 	a, dir := recApp(t)
+	a.world.RecordEvent("history before save")
+	a.world.Clock.SimTime = a.world.Clock.SimTime.Add(3 * 24 * time.Hour)
 	info, err := save.WriteNamed(a.world, "snap")
 	if err != nil {
 		t.Fatal(err)
@@ -111,6 +113,9 @@ func TestLoadWritesLoadedSaveRow(t *testing.T) {
 	want := "loaded save " + info.ID
 	if len(rows) == 0 || !strings.HasSuffix(rows[len(rows)-1], want) {
 		t.Fatalf("rows = %q, want last to end %q", rows, want)
+	}
+	if !hasRow(rows, "history before save") {
+		t.Fatalf("a load pruned the history that led to the save: %q", rows)
 	}
 	if !hasRow(rows, "abandoned future") {
 		t.Fatalf("a rewind to before the window pruned the abandoned-future row: %q", rows)

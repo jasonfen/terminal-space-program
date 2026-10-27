@@ -186,6 +186,53 @@ func TestActiveVesselSwitchRowsOnBothSides(t *testing.T) {
 	}
 }
 
+// F7 (review): rows go to the Active Vessel's file only. A lifecycle event on
+// the other vessel writes to neither file; the same event on the Active
+// Vessel does (positive control).
+func TestEventsOnNonActiveVesselWriteNothing(t *testing.T) {
+	w := mustWorld(t)
+	a := w.ActiveCraft()
+	b, err := w.SpawnCraft(SpawnSpec{AltitudeM: 600e3})
+	if err != nil || w.ActiveCraft() != b {
+		t.Fatalf("setup: %v", err)
+	}
+	dir := recAttach(t, w)
+	before := allEvents(t, dir)
+	w.recordSOI(a, "Earth")
+	w.recordSurface(a, 3)
+	w.recordRowFor(a, "stage 1 dropped")
+	if after := allEvents(t, dir); len(after) != len(before) {
+		t.Fatalf("non-active vessel wrote rows: %q -> %q", before, after)
+	}
+	w.recordSOI(b, "Earth")
+	if after := allEvents(t, dir); len(after) != len(before)+1 {
+		t.Fatalf("active vessel's soi row missing: %q -> %q", before, after)
+	}
+}
+
+// F1 (review): with no liftoff stamp, T+ counts from the first row ever
+// recorded, across a close and reopen 3 sim-hours later.
+func TestTPlusSurvivesReopenWithoutLiftoff(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	c.LiftoffSimTime, c.OnPad = time.Time{}, false
+	dir := recAttach(t, w)
+	w.RecordEvent("first")
+	w.Clock.SimTime = w.Clock.SimTime.Add(3 * time.Hour)
+	if err := w.OpenActiveRecording(); err != nil {
+		t.Fatal(err)
+	}
+	w.RecordEvent("later")
+	b, _ := os.ReadFile(recFile(t, dir))
+	var last string
+	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		last = l
+	}
+	if !strings.HasSuffix(last, "later") || !strings.Contains(last, " 3:00:00 ") {
+		t.Fatalf("last row = %q, want T+ 3:00:00", last)
+	}
+}
+
 func padID(id uint64) string { return fmt.Sprintf("%04d-", id) }
 
 // allEvents is every event text in every file under dir.

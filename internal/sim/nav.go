@@ -40,7 +40,11 @@ const (
 // GUIDANCE's hold: row tagged the same frames SURF/TGT, so a single
 // glance could read the same frame two different ways on one row. Now
 // both read the abbreviated form navModeLabel already used.
-func (n NavMode) String() string {
+func (n NavMode) String() string { return n.Tag() }
+
+// Tag is the one frame word the GUIDANCE box, the navball button and the
+// Flight Recording's hold column all print.
+func (n NavMode) Tag() string {
 	switch n {
 	case NavSurface:
 		return "SURF"
