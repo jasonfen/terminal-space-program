@@ -319,3 +319,38 @@ func TestTruncatedTailKept(t *testing.T) {
 		t.Fatalf("lines = %q", l)
 	}
 }
+
+func TestSetLiftoffRewritesHeaderOnly(t *testing.T) {
+	w := &wall{t: epoch}
+	path := filepath.Join(t.TempDir(), "0007-test.txt")
+	h := testHeader()
+	h.LiftoffKnown = false
+	r, err := Open(path, h, 7, w.now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	put(t, r, simAt(time.Hour), "a")
+	put(t, r, simAt(2*time.Hour), "b")
+	before := fileLines(t, path)
+	if !strings.Contains(before[1], "first row (no liftoff on record)") {
+		t.Fatalf("setup: header = %q", before[1])
+	}
+	lift := simAt(90 * time.Minute)
+	if err := r.SetLiftoff(lift); err != nil {
+		t.Fatal(err)
+	}
+	put(t, r, simAt(3*time.Hour), "c") // still appendable after the rewrite
+	after := fileLines(t, path)
+	if want := "# T+0 = " + lift.Format(dateLayout) + " (liftoff)" + headerSuffix; after[1] != want {
+		t.Errorf("header T+0 = %q, want %q", after[1], want)
+	}
+	for i := range before {
+		if i != 1 && after[i] != before[i] {
+			t.Errorf("line %d changed: %q -> %q", i, before[i], after[i])
+		}
+	}
+	if len(after) != len(before)+1 {
+		t.Errorf("lines = %d, want %d", len(after), len(before)+1)
+	}
+}

@@ -109,6 +109,36 @@ func (r *Recording) SetWindowDays(n int) {
 	r.lastPrune = time.Time{}
 }
 
+// SetLiftoff rewrites the header's T+0 line to name t as the liftoff (the
+// header is written at file creation, before a pad vessel has lifted off).
+// Rows are untouched; the rewrite is atomic like a prune.
+func (r *Recording) SetLiftoff(t time.Time) (err error) {
+	if r.f == nil {
+		return os.ErrClosed
+	}
+	r.f.Close()
+	r.f = nil
+	defer func() {
+		f, oerr := os.OpenFile(r.path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o644)
+		if err == nil {
+			err = oerr
+		}
+		r.f = f
+	}()
+	data, err := os.ReadFile(r.path)
+	if err != nil {
+		return err
+	}
+	lines := bytes.SplitAfter(data, []byte("\n"))
+	for i, l := range lines {
+		if bytes.HasPrefix(l, []byte("# T+0 = ")) {
+			lines[i] = []byte("# T+0 = " + t.UTC().Format(dateLayout) + " (liftoff)" + headerSuffix + "\n")
+			break
+		}
+	}
+	return rewrite(r.path, bytes.Join(lines, nil), 0o644)
+}
+
 // Close closes the file; later Writes fail.
 func (r *Recording) Close() error {
 	if r.f == nil {
@@ -300,3 +330,9 @@ func grouped(v float64) string {
 	}
 	return s
 }
+
+// Grouped is the recording's integer format: rounded, thousands separators.
+func Grouped(v float64) string { return grouped(v) }
+
+// TPlus is the T+ column's format.
+func TPlus(d time.Duration) string { return fmtTPlus(d) }

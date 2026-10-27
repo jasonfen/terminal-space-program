@@ -125,6 +125,7 @@ func (w *World) leavePad(c *spacecraft.Spacecraft) {
 	if c.OnPad {
 		c.OnPad = false
 		c.LiftoffSimTime = w.Clock.SimTime
+		w.recordLiftoff(c)
 	}
 }
 

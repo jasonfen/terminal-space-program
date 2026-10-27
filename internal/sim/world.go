@@ -9,6 +9,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/recorder"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -552,6 +553,15 @@ type World struct {
 	trailIdx      int
 	trailLen      int
 	trailAccumSec float64
+
+	// Recording is the Active Vessel's open Flight Recording (ADR 0062), nil
+	// when recording is off. RecordingsDir (empty = off) and
+	// RecordingWindowDays are set by the caller (tui/serve) before
+	// OpenActiveRecording; SetActiveCraftIdx swaps the file under the dir.
+	Recording           *recorder.Recording
+	RecordingsDir       string
+	RecordingWindowDays int
+	rec                 recState
 }
 
 // trailSample captures the craft's position in its primary's frame at
@@ -708,6 +718,10 @@ func (w *World) SwitchToCraftIdx(idx int) bool {
 // load" so spawn paths that assign before any craft exists don't
 // touch w.Target.
 func (w *World) SetActiveCraftIdx(idx int) {
+	if idx >= 0 && idx < len(w.Crafts) {
+		w.recordActiveSwitch(w.Crafts[idx]) // last row of the vessel being left
+		defer w.swapRecording()
+	}
 	if w.ActiveCraftIdx >= 0 && w.ActiveCraftIdx < len(w.Crafts) {
 		if outgoing := w.Crafts[w.ActiveCraftIdx]; outgoing != nil {
 			outgoing.Target = w.Target
@@ -1033,6 +1047,7 @@ func (w *World) Tick() {
 	// physics (positions are final) and before mission eval (coverage
 	// objectives read it). Gates command of unmanned vessels via
 	// CanCommandCraft. Cheap at the typical few-vessels + 3-stations scale.
+	w.recordSample(simDelta)
 	w.RecomputeCommGraph()
 	w.evaluateMissions()
 	// v0.11.0+: per-tick ViewLaunch route/release state machine.
@@ -1210,6 +1225,7 @@ func missionFailFlashActive(msg string, until, now time.Time) (string, bool) {
 // rebinding-proof and `missions` never imports `tui`. No-op-safe to call when
 // no mission is loaded (the sink is drained each tick anyway).
 func (w *World) RecordAction(a missions.Action) {
+	w.recordAction(a)
 	w.recentActions = append(w.recentActions, a)
 }
 
@@ -2024,7 +2040,9 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 		// point inverse projection has access to the live sim clock.
 		if clamped, hit := physics.ClampToSurface(c.State, c.Primary); hit {
 			outcome, lat, lon := classifySurfaceArrival(c, c.State.R, c.State.V, clock)
+			impactMS := c.State.V.Norm()
 			applySurfaceArrival(c, clamped, outcome, lat, lon)
+			w.recordSurface(c, impactMS)
 			// The Landed/Crashed early returns above skip the burn
 			// teardown below, so end any burn here or it pins warp at
 			// 10x and blocks the next ignition for good.
@@ -2058,7 +2076,9 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 			vOld := bodyVelocityIn(sys, calc, c.Primary, clock)
 			vNew := bodyVelocityIn(sys, calc, cand.Body, clock)
 			c.State = physics.Rebase(c.State, positions[c.Primary.ID], cand.Inertial, vOld.Sub(vNew))
+			fromSOI := c.Primary.EnglishName
 			c.Primary = cand.Body
+			w.recordSOI(c, fromSOI)
 			mu = c.Primary.GravitationalParameter()
 		}
 	}
@@ -2099,6 +2119,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 				DV:             c.ActiveBurn.PlannedDV,
 				NodesRemaining: len(c.Nodes),
 			})
+			w.recordBurnComplete(c)
 			w.noteBurnFinished(c) // a planted rendezvous burn that ended short withdraws its plan
 			c.ActiveBurn = nil
 			if c.SolidLit() { // ADR 0058 decision 4: a solid can't be cut; b with one lit does the same
@@ -2111,6 +2132,9 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 			// out by this tick's span so the duration window pauses rather
 			// than timing out (and getting torn down as "exhausted") while
 			// nobody ever thrust.
+			if c.ActiveStageFuel() <= 0 {
+				w.recordBurnStalled(c)
+			}
 			c.ActiveBurn.EndTime = c.ActiveBurn.EndTime.Add(simDelta)
 		}
 	}
@@ -2613,6 +2637,11 @@ func (w *World) chunkedSOIStep(c *spacecraft.Spacecraft, secs float64, step func
 			mu = c.Primary.GravitationalParameter()
 		}
 	}
+	// One row for the whole step, and only now: a bail above restores
+	// entryPrimary and the Verlet fallback redoes the switch.
+	if c.Primary.ID != entryPrimary.ID {
+		w.recordSOI(c, entryPrimary.EnglishName)
+	}
 	return true
 }
 
@@ -2707,7 +2736,9 @@ func (w *World) maybeSwitchPrimaryFor(c *spacecraft.Spacecraft) {
 
 	oldPos := positions[c.Primary.ID]
 	c.State = physics.Rebase(c.State, oldPos, newPrimary.Inertial, dv)
+	fromSOI := c.Primary.EnglishName
 	c.Primary = newPrimary.Body
+	w.recordSOI(c, fromSOI)
 }
 
 // bodyInertialVelocity returns the body's velocity in the system-
