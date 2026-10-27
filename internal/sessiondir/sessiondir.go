@@ -944,6 +944,23 @@ func (s *Store) payloadPath(fingerprint string) string {
 	return filepath.Join(s.dir, "players", hex.EncodeToString(sum[:])+".json")
 }
 
+// RecordingsDir is where one player's Flight Recordings live (ADR 0062):
+// <dir>/recordings/<handle>. The handle may be a raw fingerprint (a kicked
+// player's row is gone), which holds '/', so anything outside [A-Za-z0-9._-]
+// becomes '_' and the result is always one path component.
+func (s *Store) RecordingsDir(handle string) string {
+	name := strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-' {
+			return r
+		}
+		return '_'
+	}, handle)
+	if name == "" || name == "." || name == ".." {
+		name = "_" + name
+	}
+	return filepath.Join(s.dir, "recordings", name)
+}
+
 // SavePlayer persists the player's world as a save envelope at the
 // package's current SchemaVersion (the existing save machinery,
 // arbitrary path).

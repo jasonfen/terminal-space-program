@@ -276,7 +276,7 @@ func formatHeader(h Header) string {
 
 // columns lays out one line in the recording's fixed columns.
 func columns(sim, tp, alt, spd, mass, thr, stg, soi, hold, pt, ht, apo, peri, event string) string {
-	s := fmt.Sprintf("%-19s  %-8s %6s  %7s  %7s  %3s %3s  %-5s  %-16s  %5s %5s  %7s  %6s", sim, tp, alt, spd, mass, thr, stg, soi, hold, pt, ht, apo, peri)
+	s := fmt.Sprintf("%-19s  %-8s %6s  %7s  %9s  %3s %3s  %-5s  %-16s  %5s %5s  %7s  %6s", sim, tp, alt, spd, mass, thr, stg, soi, hold, pt, ht, apo, peri)
 	if event != "" {
 		s += "  " + event
 	}

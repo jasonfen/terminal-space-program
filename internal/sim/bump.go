@@ -374,6 +374,9 @@ func (w *World) checkBumps() {
 				when = w.Clock.SimTime
 			}
 			w.LastBumpEvent = &BumpEvent{When: when, PartnerName: partner.Name, SpeedMS: s, Latched: dockPairGateHolds(a, b) && w.isLocalReArmed(a.ID, b.ID)}
+			if ac := w.ActiveCraft(); ac == a || ac == b {
+				w.recordBump(ac, partner.Name, s, w.LastBumpEvent.Latched)
+			}
 		}
 	}
 }

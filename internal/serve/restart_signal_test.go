@@ -35,7 +35,16 @@ func TestSigtermSavesHostWorldBeforeExit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SavesDir: %v", err)
 	}
-	saved := func() int { e, _ := os.ReadDir(dir); return len(e) }
+	// The ticking host app's Flight Recording lives in saves/recordings; it is not a save.
+	saved := func() (n int) {
+		e, _ := os.ReadDir(dir)
+		for _, f := range e {
+			if f.Name() != "recordings" {
+				n++
+			}
+		}
+		return
+	}
 	if saved() != 0 {
 		t.Fatalf("test setup: saves already exist in %s", dir)
 	}

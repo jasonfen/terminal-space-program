@@ -77,11 +77,11 @@ func TestFormatRowMatchesGolden(t *testing.T) {
 	const (
 		h1  = `# Flight Recording  vessel 7 "Falcon 9 + Dragon"  Sol / Earth  pad Cape Canaveral 28.6N 80.6W`
 		h2  = `# T+0 = 2000-01-05 14:02:11 (liftoff) · alt apo peri km above surface · spd m/s vs soi body · trims deg`
-		h3  = `sim                  T+          alt      spd     mass  thr stg  soi    hold              ptrim htrim      apo    peri  event`
-		lof = `2000-01-05 14:02:11  0:00:00     0.0        0  560,062  100   2  Earth  Prograde (SURF)     0.0   0.0        -       -  liftoff`
+		h3  = `sim                  T+          alt      spd       mass  thr stg  soi    hold              ptrim htrim      apo    peri  event`
+		lof = `2000-01-05 14:02:11  0:00:00     0.0        0    560,062  100   2  Earth  Prograde (SURF)     0.0   0.0        -       -  liftoff`
 		// Other rows of the ADR mock that agree with the header columns.
-		stg = `2000-01-05 14:04:49  0:02:38    66.5    2,250  123,462  100   1  Earth  Prograde (SURF)    12.0   0.0       94     -45  stage: F9-S1 jettisoned, F9-S2 lit`
-		orb = `2000-01-05 14:11:23  0:09:12   250.0    7,759   45,960    0   1  Earth  Prograde           12.0   0.0      250     250  throttle_cut: orbit 250 x 250 km, incl 28.6`
+		stg = `2000-01-05 14:04:49  0:02:38    66.5    2,250    123,462  100   1  Earth  Prograde (SURF)    12.0   0.0       94     -45  stage: F9-S1 jettisoned, F9-S2 lit`
+		orb = `2000-01-05 14:11:23  0:09:12   250.0    7,759     45,960    0   1  Earth  Prograde           12.0   0.0      250     250  throttle_cut: orbit 250 x 250 km, incl 28.6`
 	)
 	w := &wall{t: epoch}
 	r, path := openRec(t, w, 7)
@@ -107,6 +107,25 @@ func TestFormatRowMatchesGolden(t *testing.T) {
 		t.Fatalf("orbit row\n got %q\nwant %q", g, orb)
 	}
 	_ = r
+}
+
+// Mass column: a Saturn V on the pad (2,901,847 kg) and the widest value (9,999,999) the
+// column holds (9,999,999) both keep every later column under its header.
+func TestMassColumnHoldsSaturnV(t *testing.T) {
+	w := &wall{t: epoch}
+	_, path := openRec(t, w, 7)
+	hdr := fileLines(t, path)[2]
+	for _, kg := range []float64{2901847, 9999999} {
+		row := Format(Row{Sim: epoch, TPlusKnown: true, MassKg: kg, SOI: "Earth", Hold: "Prograde", Event: "x"})
+		for _, c := range [][2]string{{"soi", "Earth"}, {"hold", "Prograde"}, {"event", "x"}} {
+			if hi, ri := strings.Index(hdr, c[0]), strings.LastIndex(row, c[1]); ri != hi {
+				t.Fatalf("mass %.0f: %q at %d in row, %q at %d in header\n%s\n%s", kg, c[1], ri, c[0], hi, hdr, row)
+			}
+		}
+		if got := len(row); got != len(Format(Row{Sim: epoch, TPlusKnown: true, MassKg: 1, SOI: "Earth", Hold: "Prograde", Event: "x"})) {
+			t.Fatalf("mass %.0f: row is %d bytes, differs from a 1 kg row", kg, got)
+		}
+	}
 }
 
 // Guard 2.
