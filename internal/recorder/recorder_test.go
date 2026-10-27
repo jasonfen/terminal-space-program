@@ -445,3 +445,34 @@ func TestSetLiftoffRewritesHeaderOnly(t *testing.T) {
 		t.Errorf("lines = %d, want %d", len(after), len(before)+1)
 	}
 }
+
+// A file written by an older build keeps its old column line; reopening
+// appends the current one so the rows after it line up. Reopening a file
+// already in the current format adds nothing (the equal case).
+func TestReopenRepeatsChangedColumnHeader(t *testing.T) {
+	w := &wall{t: epoch}
+	path := filepath.Join(t.TempDir(), "0007-test.txt")
+	old := "# Flight Recording  vessel 7\n# T+0 = first row\nsim                  T+          alt  event\n"
+	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	r, err := Open(path, testHeader(), 7, w.now, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Close()
+	cur := strings.TrimSuffix(columns("sim", "T+", "alt", "spd", "mass", "thr", "stg", "soi", "hold", "ptrim", "htrim", "apo", "peri", "event"), "\n")
+	lines := fileLines(t, path)
+	if got := lines[len(lines)-1]; got != cur {
+		t.Fatalf("last line after reopen = %q, want the current column line", got)
+	}
+	n := len(lines)
+	r, err = Open(path, testHeader(), 7, w.now, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Close()
+	if got := len(fileLines(t, path)); got != n {
+		t.Fatalf("reopen in the current format grew the file %d -> %d lines", n, got)
+	}
+}
