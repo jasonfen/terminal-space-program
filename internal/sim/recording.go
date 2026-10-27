@@ -4,8 +4,11 @@
 package sim
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -63,7 +66,43 @@ func (w *World) OpenActiveRecording() error {
 	}
 	w.Recording = r
 	w.rec = recState{vesselID: c.ID, t0: r.T0(), hold: w.holdText(c), warp: w.Clock.WarpIdx + 1}
+	if w.recMarker != "" && !w.recMarked[c.ID] {
+		if w.recMarked == nil {
+			w.recMarked = map[uint64]bool{}
+		}
+		w.recMarked[c.ID] = true
+		w.recordRow(w.recMarker)
+	}
 	return nil
+}
+
+// SetRecordingMarker sets the row each vessel's file gets the first time it is
+// opened under this World (`session start: <version>`, or `loaded save <id>`
+// after a load), and forgets which vessels already got one.
+func (w *World) SetRecordingMarker(text string) {
+	w.recMarker, w.recMarked = text, nil
+}
+
+// NewGameFolder creates and returns a fresh game folder name under dir, named
+// for the wall-clock minute (2026-10-27-1843); a taken name gets -2, -3, ...
+func NewGameFolder(dir string, now time.Time) (string, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	base := now.Format("2006-01-02-1504")
+	for n := 1; ; n++ {
+		name := base
+		if n > 1 {
+			name = fmt.Sprintf("%s-%d", base, n)
+		}
+		err := os.Mkdir(filepath.Join(dir, name), 0o755)
+		if err == nil {
+			return name, nil
+		}
+		if !errors.Is(err, fs.ErrExist) {
+			return "", err
+		}
+	}
 }
 
 // CloseRecording closes the open file, if any.

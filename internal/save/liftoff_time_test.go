@@ -50,7 +50,7 @@ func TestV17SaveLoadsWithZeroLiftoff(t *testing.T) {
 		}
 	}
 	s = strings.Join(out, "\n")
-	s = strings.Replace(s, `"version": 18`, `"version": 17`, 1)
+	s = strings.Replace(s, `"version": 19`, `"version": 17`, 1)
 	if !strings.Contains(s, `"version": 17`) {
 		t.Fatal("setup: version line not rewritten")
 	}

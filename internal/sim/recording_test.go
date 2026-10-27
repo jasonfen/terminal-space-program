@@ -665,3 +665,19 @@ func TestThrottleColumnReadsThrust(t *testing.T) {
 		t.Errorf("burning at 100%%: thr = %v, want 100", g)
 	}
 }
+
+// Guard 5: the plain minute name when free, -2 then -3 when taken (equal case:
+// the free name is used as is).
+func TestNewGameFolderCollisions(t *testing.T) {
+	root := t.TempDir()
+	now := time.Date(2026, 10, 27, 18, 43, 59, 0, time.Local)
+	for _, want := range []string{"2026-10-27-1843", "2026-10-27-1843-2", "2026-10-27-1843-3"} {
+		got, err := NewGameFolder(root, now)
+		if err != nil || got != want {
+			t.Fatalf("NewGameFolder = %q, %v; want %q", got, err, want)
+		}
+		if st, err := os.Stat(filepath.Join(root, got)); err != nil || !st.IsDir() {
+			t.Fatalf("folder %q not created: %v", got, err)
+		}
+	}
+}

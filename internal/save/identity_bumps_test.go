@@ -35,13 +35,14 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 	w.NameCounters = map[string]uint64{"Probe": 4}    // v17
 	c.BatchID, c.BatchLead = 9, true                  // v17
 	c.LiftoffSimTime = w.Clock.SimTime.Add(time.Hour) // v18
+	w.GameFolder = "2026-10-27-1843"                  // v19
 
 	path := filepath.Join(t.TempDir(), "save.json")
 	if err := Save(w, path); err != nil {
 		t.Fatal(err)
 	}
 	want := readFileForTest(t, path)
-	if want.Payload.Crafts[0].BatchID != 9 || want.Payload.Crafts[0].LiftoffSimTimeNano == 0 || want.Payload.NameCounters == nil ||
+	if want.Payload.Crafts[0].BatchID != 9 || want.Payload.Crafts[0].LiftoffSimTimeNano == 0 || want.Payload.GameFolder == "" || want.Payload.NameCounters == nil ||
 		want.Payload.Crafts[0].RendezvousPlan == nil || want.Payload.Crafts[0].BoosterThrottle == nil ||
 		want.Payload.Crafts[0].HeadingTrim == 0 || want.Payload.Crafts[0].Target == nil {
 		t.Fatalf("setup: a bump's key is missing: batch=%v counters=%v plan=%v booster=%v trim=%v target=%v", want.Payload.Crafts[0].BatchID, want.Payload.NameCounters, want.Payload.Crafts[0].RendezvousPlan, want.Payload.Crafts[0].BoosterThrottle, want.Payload.Crafts[0].HeadingTrim, want.Payload.Crafts[0].Target)
@@ -55,8 +56,9 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 		16: func(p *Payload) { p.Crafts[0].BoosterThrottle = nil },
 		17: func(p *Payload) { p.NameCounters, p.Crafts[0].BatchID, p.Crafts[0].BatchLead = nil, 0, false },
 		18: func(p *Payload) { p.Crafts[0].LiftoffSimTimeNano = 0 },
+		19: func(p *Payload) { p.GameFolder = "" },
 	}
-	for _, bump := range []int{10, 11, 14, 16, 17, 18} {
+	for _, bump := range []int{10, 11, 14, 16, 17, 18, 19} {
 		roundTrip(t, want, bump, "keys present")
 		absent := want
 		absent.Payload = Payload{}
