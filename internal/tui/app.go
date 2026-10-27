@@ -24,6 +24,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
+	"github.com/jasonfen/terminal-space-program/internal/version"
 )
 
 type screenID int
@@ -439,6 +440,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if a.recWorld != a.world {
 			a.attachRecording(a.world)
+			// A fresh start can rewind the clock to the same scenario: name it.
+			a.world.RecordEvent("session start: " + version.Version)
 		}
 		a.world.Tick()
 		if a.orbitView.RendezvousPickerOpen() {

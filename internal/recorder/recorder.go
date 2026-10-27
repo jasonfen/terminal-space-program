@@ -85,7 +85,31 @@ func Open(path string, h Header, windowDays int, now func() time.Time, anchor ti
 	}
 	r.lastPrune = now()
 	r.t0 = headerT0(path)
+	// A file from an older build keeps its old column line; repeat the
+	// current one so the rows written from here on line up under it.
+	if cols := columnLine(); lastColumnLine(path) != cols {
+		if _, err := r.f.Write([]byte(cols + "\n")); err != nil {
+			r.Close()
+			return nil, err
+		}
+	}
 	return r, nil
+}
+
+func columnLine() string {
+	return columns("sim", "T+", "alt", "spd", "mass", "thr", "stg", "soi", "hold", "ptrim", "htrim", "apo", "peri", "event")
+}
+
+// lastColumnLine is the file's last column line ("sim ..."), "" if none.
+func lastColumnLine(path string) string {
+	data, _ := os.ReadFile(path)
+	last := ""
+	for _, l := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(l, "sim ") {
+			last = l
+		}
+	}
+	return last
 }
 
 // Write appends one row (one unbuffered Write), then considers a prune
@@ -292,7 +316,7 @@ func formatHeader(h Header) string {
 	} else if !h.FirstRow.IsZero() {
 		t0 = h.FirstRow.UTC().Format(dateLayout) + " (first row, no liftoff on record)"
 	}
-	return l1 + "\n# T+0 = " + t0 + headerSuffix + "\n" + columns("sim", "T+", "alt", "spd", "mass", "thr", "stg", "soi", "hold", "ptrim", "htrim", "apo", "peri", "event") + "\n"
+	return l1 + "\n# T+0 = " + t0 + headerSuffix + "\n" + columnLine() + "\n"
 }
 
 // HoldWidth is the hold column: "Target Retrograde (TGT)", the widest

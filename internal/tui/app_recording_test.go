@@ -16,6 +16,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/recorder"
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/version"
 )
 
 // TestMain keeps every test in this package off the real saves dir: a ticking
@@ -220,5 +221,28 @@ func TestSettingsPushReachesRecorder(t *testing.T) {
 	rows := recRows(t, recFiles(t, dir)[0])
 	if hasRow(rows, "ancient") || hasRow(rows, "old") || !hasRow(rows, "edge") || !hasRow(rows, "anchor") {
 		t.Fatalf("rows = %q, want edge and anchor only (3-day window: exactly 3 days old stays, one second older goes)", rows)
+	}
+}
+
+// TestFirstTickWritesSessionStart: a game start is a row of its own, so a
+// fresh start that rewinds the clock to the same scenario reads as a new
+// session rather than a jump back in time.
+func TestFirstTickWritesSessionStart(t *testing.T) {
+	a, dir := recApp(t)
+	a.Update(sim.TickMsg(time.Now()))
+	files := recFiles(t, dir)
+	if len(files) != 1 {
+		t.Fatalf("recordings = %v, want one", files)
+	}
+	rows := recRows(t, files[0])
+	want := "session start: " + version.Version
+	n := 0
+	for _, r := range rows {
+		if strings.HasSuffix(r, want) {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%q rows = %d after two ticks, want 1; rows %q", want, n, rows)
 	}
 }
