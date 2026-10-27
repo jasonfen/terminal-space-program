@@ -521,6 +521,7 @@ func (s *Server) newGuestApp(fp string) (*tui.App, error) {
 	default:
 		return nil, err
 	}
+	app.SetRecordingsDir(s.store.RecordingsDir(s.nameFor(fp)))
 	app.SetGuestPersistence(func(w *sim.World) error {
 		if err := s.store.SavePlayer(fp, w); err != nil {
 			// Server log only: the error names host paths, which a guest
@@ -622,6 +623,10 @@ func (s *Server) persistMiddleware(next ssh.Handler) ssh.Handler {
 					s.ackPersisted(fp, app.World())
 				}
 			}
+		}
+		// The Flight Recording file closes with the session, after the final save.
+		if app, ok := sess.Context().Value(ctxKeyApp).(*tui.App); ok {
+			app.World().CloseRecording()
 		}
 		// Presence: pair the join marked at connect/enroll (v0.27 S6).
 		if joined {

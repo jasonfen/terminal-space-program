@@ -6,6 +6,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"io/fs"
 	"math"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -228,6 +229,12 @@ type App struct {
 	// through this per-player sink instead of the host's local saves,
 	// and the local Saves surface (F5/F9, menu Save/Load) is disabled.
 	guestSave func(*sim.World) error
+	// recDir is where the Flight Recording files go (ADR 0062): the local
+	// saves dir's recordings/ by default, the session dir's per-player folder
+	// for a guest (SetRecordingsDir). recWorld is the World recording is
+	// attached to; the first tick (or a load) attaches a World it differs from.
+	recDir   string
+	recWorld *sim.World
 	// onPersisted is called with the World after persistNow wrote it
 	// successfully (ADR 0040 amendment 3: the hosting App's autosaves
 	// acknowledge to the dock ledger).
@@ -297,7 +304,12 @@ func New(scenario *sim.StartScenario) (*App, error) {
 	// School is on unless explicitly switched off (#425), the Challenge
 	// ladder stays opt-in. v0.21 Slice 7.
 	w.SetEnabledMissionPrograms(enabledProgramsFromSettings(prefs))
+	recDir := ""
+	if d, err := save.SavesDir(); err == nil {
+		recDir = filepath.Join(d, "recordings")
+	}
 	return &App{
+		recDir:     recDir,
 		world:      w,
 		theme:      th,
 		keys:       DefaultKeymap(),
@@ -338,6 +350,22 @@ func (a *App) World() *sim.World { return a.world }
 // replaces every local autosave write and the local Saves surface is
 // refused with a toast. v0.27 S3 (ADR 0034).
 func (a *App) SetGuestPersistence(sink func(*sim.World) error) { a.guestSave = sink }
+
+// SetRecordingsDir points the Flight Recording files at dir (the serve layer,
+// per player). Call before the first tick: the file opens then.
+func (a *App) SetRecordingsDir(dir string) { a.recDir = dir }
+
+// attachRecording closes the recording of the World being left and opens the
+// Active Vessel's file for w, with the configured dir and window.
+func (a *App) attachRecording(w *sim.World) {
+	if a.recWorld != nil && a.recWorld != w {
+		a.recWorld.CloseRecording()
+	}
+	a.recWorld = w
+	w.RecordingsDir = a.recDir
+	w.RecordingWindowDays = a.orbitView.Settings().RecordingWindow()
+	_ = w.OpenActiveRecording()
+}
 
 // SetOnPersisted installs the hook persistNow calls after a successful write.
 func (a *App) SetOnPersisted(fn func(*sim.World)) { a.onPersisted = fn }
@@ -408,6 +436,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if sim.BoosterSolidsLit(c) {
 				boostersLit[c] = true
 			}
+		}
+		if a.recWorld != a.world {
+			a.attachRecording(a.world)
 		}
 		a.world.Tick()
 		if a.orbitView.RendezvousPickerOpen() {
@@ -2297,6 +2328,8 @@ func (a *App) loadWorldByID(id string) error {
 	// The loaded world starts with the nil ("all enabled") default; re-apply
 	// the player's program toggles so a load respects them. v0.21 Slice 7.
 	a.world.SetEnabledMissionPrograms(enabledProgramsFromSettings(a.orbitView.Settings()))
+	a.attachRecording(w)
+	a.world.RecordEvent("loaded save " + id)
 	a.fromMenu = false // a load lands on the map, never back on the menu (Q3)
 	a.menuHeld = false // the new world's own pause state applies
 	a.active = screenOrbit
@@ -2441,11 +2474,13 @@ func (a *App) answerQuit(id string) (tea.Model, tea.Cmd) {
 			a.world.Clock.Paused = a.menuPrevPaused
 		}
 		a.autosave()
+		a.world.CloseRecording()
 		return a, tea.Quit
 	case screens.QuitRowNoSave:
 		// Save before quitting? No: ask once more (#699).
 		a.raiseCard(cardQuit, screens.NewQuitSureCard(a.screensTheme()), (*App).answerQuit)
 	case screens.QuitRowSure:
+		a.world.CloseRecording()
 		return a, tea.Quit // quit writing nothing
 	case screens.QuitRowUnsure:
 		a.armQuit()
@@ -3807,12 +3842,17 @@ func (a *App) cycleAutosaveInterval() {
 }
 
 // cycleRecordingWindow advances the Flight Recording window and persists
-// it (ADR 0062 decision 9), mirroring cycleAutosaveInterval. Pushing the
-// value to the recorder is wired in S6.
+// it (ADR 0062 decision 9), mirroring cycleAutosaveInterval. The value also
+// goes to the live recorder (re-arming its prune check) and to the World, so
+// a file opened later by a vessel switch uses it too.
 func (a *App) cycleRecordingWindow() {
 	s := a.orbitView.Settings()
 	s.SetRecordingWindowDays(settings.NextRecordingWindowDays(s.RecordingWindow()))
 	a.orbitView.SetSettings(s)
+	a.world.RecordingWindowDays = s.RecordingWindow()
+	if a.world.Recording != nil {
+		a.world.Recording.SetWindowDays(s.RecordingWindow())
+	}
 	if err := settings.Save(s); err != nil {
 		a.flash(fmt.Sprintf("settings save failed: %v", err))
 	}
