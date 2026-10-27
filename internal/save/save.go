@@ -111,7 +111,11 @@ import (
 // counters (primed from the slate on first use), no batch, no order, so
 // no migration function is needed; the bump exists so a v16 binary
 // refuses a v17 envelope instead of dropping a satellite's raise order.
-const SchemaVersion = 17
+// ADR 0062 decision 2 bumps to v18 - Craft.liftoff_sim_time (UnixNano). Absent
+// decodes to the zero time, the truth for every earlier save, so no migration
+// function is needed; the bump exists so a v17 binary refuses a v18 envelope
+// instead of dropping the instant the Flight Recorder's T+ clock counts from.
+const SchemaVersion = 18
 
 // RaiseWire is spacecraft.RaiseOrder on the wire (StartAt as UnixNano).
 type RaiseWire struct {
@@ -337,6 +341,9 @@ type Craft struct {
 	// BatchID / BatchLead / BatchClampExemptUntilNano / Raise (ADR 0059
 	// decisions 4, 6, 8, schema v17). Absent decodes to no batch, no
 	// exemption, no order.
+	// LiftoffSimTime (schema v18, ADR 0062): UnixNano, absent = never lifted off.
+	LiftoffSimTimeNano int64 `json:"liftoff_sim_time,omitempty"`
+
 	BatchID                   uint64     `json:"batch_id,omitempty"`
 	BatchLead                 bool       `json:"batch_lead,omitempty"`
 	BatchClampExemptUntilNano int64      `json:"batch_clamp_exempt_until_unix_nano,omitempty"`

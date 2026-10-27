@@ -1893,8 +1893,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	if c.Landed && (c.ManualBurn != nil || c.ActiveBurn != nil) {
 		// #716, #734: a burning craft stays seated until thrust beats weight.
 		if w.canLiftOff(c) {
-			c.Landed = false
-			c.OnPad = false
+			w.leavePad(c)
 		} else {
 			w.burnSeated(c, simDelta)
 		}
