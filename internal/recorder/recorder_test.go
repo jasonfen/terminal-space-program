@@ -29,7 +29,7 @@ func testHeader() Header {
 func openRec(t *testing.T, w *wall, windowDays int) (*Recording, string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "recordings", "0007-test.txt")
-	r, err := Open(path, testHeader(), windowDays, w.now)
+	r, err := Open(path, testHeader(), windowDays, w.now, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,15 +160,87 @@ func TestOpenPrunesOnce(t *testing.T) {
 	w := &wall{t: epoch}
 	r, path := openRec(t, w, 7)
 	put(t, r, simAt(0), "old")
+	put(t, r, simAt(2*day-time.Second), "just outside")
+	put(t, r, simAt(2*day), "exactly window old") // equal case: kept
 	put(t, r, simAt(9*day), "new")
 	r.Close()
-	r2, err := Open(path, testHeader(), 7, w.now) // same wall instant: no minute has passed
+	r2, err := Open(path, testHeader(), 7, w.now, simAt(9*day)) // same wall instant: no minute has passed
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer r2.Close()
-	if got := rowsOnDisk(t, path); len(got) != 1 || !got[0].Equal(simAt(9*day)) {
-		t.Fatalf("rows after Open = %v, want only day 9", got)
+	if got := rowsOnDisk(t, path); len(got) != 2 || !got[0].Equal(simAt(2*day)) || !got[1].Equal(simAt(9*day)) {
+		t.Fatalf("rows after Open = %v, want days 2 and 9", got)
+	}
+}
+
+// F2: Open prunes against the caller's anchor (the live clock), not the
+// newest row on file, so a load to day 2 keeps the days that led to it.
+func TestOpenAnchorKeepsHistoryBeforeRewind(t *testing.T) {
+	w := &wall{t: epoch}
+	r, path := openRec(t, w, 7)
+	for _, d := range []time.Duration{0, 1 * day, 2 * day, 10 * day} {
+		put(t, r, simAt(d), "")
+	}
+	r.Close()
+	r2, err := Open(path, testHeader(), 7, w.now, simAt(2*day))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r2.Close()
+	if got := rowsOnDisk(t, path); len(got) != 4 {
+		t.Fatalf("rows after Open at anchor day 2 = %v, want all 4", got)
+	}
+}
+
+// F4: a failed prune at Open must not leak the file handle.
+func TestOpenClosesHandleWhenPruneFails(t *testing.T) {
+	w := &wall{t: epoch}
+	r, path := openRec(t, w, 7)
+	put(t, r, simAt(0), "old")
+	put(t, r, simAt(9*day), "new")
+	r.Close()
+	rewrite = func(string, []byte, os.FileMode) error { return os.ErrPermission }
+	t.Cleanup(func() { rewrite = atomicfile.Write })
+	fds := func() int { e, _ := os.ReadDir("/dev/fd"); return len(e) }
+	before := fds()
+	for i := 0; i < 20; i++ {
+		if _, err := Open(path, testHeader(), 7, w.now, time.Time{}); err == nil {
+			t.Fatal("Open succeeded with a failing rewrite")
+		}
+	}
+	if after := fds(); after-before >= 10 {
+		t.Fatalf("open descriptors grew %d -> %d across 20 failed Opens", before, after)
+	}
+}
+
+// F1: a vessel with no liftoff keeps its first-row T+0 across close and
+// reopen, and a prune of the old rows keeps the header line.
+func TestFirstRowT0SurvivesReopenAndPrune(t *testing.T) {
+	w := &wall{t: epoch}
+	path := filepath.Join(t.TempDir(), "0007-test.txt")
+	h := testHeader()
+	h.LiftoffKnown, h.FirstRow = false, simAt(time.Hour)
+	r, err := Open(path, h, 7, w.now, time.Time{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.T0().Equal(simAt(time.Hour)) {
+		t.Fatalf("T0 on create = %v, want %v", r.T0(), simAt(time.Hour))
+	}
+	put(t, r, simAt(time.Hour), "a")
+	put(t, r, simAt(20*day), "b")
+	r.Close()
+	r2, err := Open(path, h, 7, w.now, time.Time{}) // prunes the day-0 row
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r2.Close()
+	if !r2.T0().Equal(simAt(time.Hour)) {
+		t.Fatalf("T0 after reopen+prune = %v, want %v", r2.T0(), simAt(time.Hour))
+	}
+	if got := fileLines(t, path)[1]; !strings.Contains(got, "(first row, no liftoff on record)") {
+		t.Fatalf("header = %q", got)
 	}
 }
 
@@ -327,7 +399,7 @@ func TestTruncatedTailKept(t *testing.T) {
 	f, _ := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
 	f.WriteString("2000-01-0")
 	f.Close()
-	r, err := Open(path, testHeader(), 7, w.now)
+	r, err := Open(path, testHeader(), 7, w.now, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,7 +416,7 @@ func TestSetLiftoffRewritesHeaderOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "0007-test.txt")
 	h := testHeader()
 	h.LiftoffKnown = false
-	r, err := Open(path, h, 7, w.now)
+	r, err := Open(path, h, 7, w.now, time.Time{})
 	if err != nil {
 		t.Fatal(err)
 	}

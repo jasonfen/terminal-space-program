@@ -49,15 +49,18 @@ func (w *World) OpenActiveRecording() error {
 	}
 	h := recorder.Header{VesselID: c.ID, Name: c.Name, System: w.System().Name, Primary: c.Primary.EnglishName,
 		Liftoff: c.LiftoffSimTime, LiftoffKnown: !c.LiftoffSimTime.IsZero()}
+	if !h.LiftoffKnown {
+		h.FirstRow = w.Clock.SimTime
+	}
 	if c.HasLaunchSite {
 		h.Site = fmt.Sprintf("%s %s", latStr(c.LaunchLatDeg), lonStr(c.LaunchLonDeg))
 	}
-	r, err := recorder.Open(path, h, w.RecordingWindowDays, time.Now)
+	r, err := recorder.Open(path, h, w.RecordingWindowDays, time.Now, w.Clock.SimTime)
 	if err != nil {
 		return err
 	}
 	w.Recording = r
-	w.rec = recState{vesselID: c.ID}
+	w.rec = recState{vesselID: c.ID, t0: r.T0()}
 	return nil
 }
 
@@ -98,16 +101,7 @@ func (w *World) recTPlus(c *spacecraft.Spacecraft, sim time.Time) (time.Duration
 // holdText is the GUIDANCE box's hold cell: name and frame tag.
 func (w *World) holdText(c *spacecraft.Spacecraft) string {
 	name, frame := w.AttitudeHoldParts(c.AttitudeMode)
-	tag := "ORBIT"
-	switch frame {
-	case NavSurface:
-		tag = "SURF"
-	case NavTarget:
-		tag = "TGT"
-	case NavPort:
-		tag = "PORT"
-	}
-	return fmt.Sprintf("%s (%s)", name, tag)
+	return fmt.Sprintf("%s (%s)", name, frame.Tag())
 }
 
 // recApsides: altitudes of apo/peri above the surface, ok false when the

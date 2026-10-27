@@ -41,6 +41,13 @@ func TestHoldNamesPortModesInTheirOwnFrame(t *testing.T) {
 }
 
 func TestNavballButtonReadsPort(t *testing.T) {
+	// The frame words are shared with the Flight Recording's hold column
+	// (sim.NavMode.Tag), so a rename there must be noticed here.
+	for m, want := range map[sim.NavMode]string{sim.NavOrbit: "ORBIT", sim.NavSurface: "SURF", sim.NavTarget: "TGT", sim.NavPort: "PORT"} {
+		if got := navModeLabel(m); got != want {
+			t.Errorf("navModeLabel(%d) = %q, want %q", m, got, want)
+		}
+	}
 	if got := navModeLabel(sim.NavPort); got != "PORT" {
 		t.Errorf("navModeLabel(NavPort) = %q, want PORT", got)
 	}

@@ -193,17 +193,7 @@ var navballAxisRow = []axisButton{
 	{NavballControlTargetMinus, sim.NavballGlyphAntiTarget, "T-", render.ColorNavballMarkerTarget},
 }
 
-func navModeLabel(m sim.NavMode) string {
-	switch m {
-	case sim.NavSurface:
-		return "SURF"
-	case sim.NavTarget:
-		return "TGT"
-	case sim.NavPort:
-		return "PORT"
-	}
-	return "ORBIT"
-}
+func navModeLabel(m sim.NavMode) string { return m.Tag() }
 
 // sasTagLabel is the manual-flight attitude-model tag shown between
 // [MODE] and RCS. MAN = rate-limited slew (v0.10.0 default,
