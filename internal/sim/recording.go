@@ -317,3 +317,23 @@ func (w *World) recordSplit(restored []*spacecraft.Spacecraft, composite string,
 // RecordEvent writes a free-text row for the Active Vessel (S6: `loaded save
 // <name>`). Nil-safe.
 func (w *World) RecordEvent(text string) { w.recordRow(text) }
+
+// bumpSpeedText is the bump row's closing speed: one decimal under 10 m/s
+// (judged after rounding, so 9.95 reads "10", never "10.0"), grouped integer
+// from there.
+func bumpSpeedText(s float64) string {
+	if math.Round(s*10)/10 < 10 {
+		return fmt.Sprintf("%.1f", s)
+	}
+	return recorder.Grouped(s)
+}
+
+// recordBump writes the hull-bump row for c (the Active Vessel, one of the
+// pair), after the velocity kick so the numbers columns are the post-kick state.
+func (w *World) recordBump(c *spacecraft.Spacecraft, partner string, speedMS float64, latched bool) {
+	t := fmt.Sprintf("bump: %s, %s m/s", partner, bumpSpeedText(speedMS))
+	if latched {
+		t += ", re-arm latched"
+	}
+	w.recordRowFor(c, t)
+}

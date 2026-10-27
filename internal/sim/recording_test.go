@@ -281,6 +281,9 @@ func lifecycleCases() []lifecycleCase {
 			}, "burn start: node 1, Δv 50"},
 		{"burn stalled", burner, func(t *testing.T, w *World) { runBurn(w) }, "burn stalled: fuel out"},
 		{"burn complete", burner, func(t *testing.T, w *World) { runBurn(w) }, "burn complete: 200 of 200 m/s"},
+		{"bump", func(t *testing.T) *World { w, _, _ := bumpWorld(t, 30, -0.3); return w },
+			func(t *testing.T, w *World) { tickUntil(w, 2000, func() bool { return w.LastBumpEvent != nil }) },
+			"bump: S-IVB, 0.3 m/s"},
 		{"dock", func(t *testing.T) *World { return newPortPair(t, "rcs-tug", "ntr-tug", 0.3, 0, 0).w },
 			func(t *testing.T, w *World) { w.DockCrafts(0, 1) }, "dock: with "},
 		{"undock", func(t *testing.T) *World {
@@ -442,5 +445,18 @@ func TestRealisticFlightFile(t *testing.T) {
 	}
 	if rows < 8 {
 		t.Errorf("rows = %d, want a flight's worth", rows)
+	}
+}
+
+// The bump row's speed format: one decimal under 10 m/s judged after rounding
+// (9.95 reads "10", not "10.0"), grouped integer from 10.
+func TestBumpSpeedText(t *testing.T) {
+	for _, c := range []struct {
+		s    float64
+		want string
+	}{{0.3, "0.3"}, {9.94, "9.9"}, {9.95, "10"}, {10.0, "10"}, {1234.4, "1,234"}} {
+		if got := bumpSpeedText(c.s); got != c.want {
+			t.Errorf("bumpSpeedText(%v) = %q, want %q", c.s, got, c.want)
+		}
 	}
 }
