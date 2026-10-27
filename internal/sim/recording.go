@@ -313,3 +313,7 @@ func (w *World) recordSplit(restored []*spacecraft.Spacecraft, composite string,
 	}
 	w.recordRow("undock: " + strings.Join(names, ", "))
 }
+
+// RecordEvent writes a free-text row for the Active Vessel (S6: `loaded save
+// <name>`). Nil-safe.
+func (w *World) RecordEvent(text string) { w.recordRow(text) }

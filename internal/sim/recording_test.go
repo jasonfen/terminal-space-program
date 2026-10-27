@@ -335,7 +335,7 @@ func TestNilRecordingIsSilent(t *testing.T) {
 	w.SetActiveCraftIdx(0)
 	w.SetActiveCraftIdx(-1)
 	w.SetActiveCraftIdx(len(w.Crafts))
-	w.recordRow("x")
+	w.RecordEvent("x")
 	w.recordSample(time.Second)
 }
 
