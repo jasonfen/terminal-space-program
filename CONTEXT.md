@@ -1765,8 +1765,9 @@ The act of fusing two Vessels into one **Composite** (Docking) and the
 inverse (Undocking). Docking fires when the **Docking Gate** holds at a
 **Docking Port** for one tick and the **Magnet** then closes the last half
 metre; it never fires at a distance. Undocking fires on `U` against a
-Composite. On a **Batch** `U` asks first and numbers the pieces (ADR 0059);
-on a pair it is unchanged.
+Composite and opens the newest **Dock Seam** only (ADR 0063): the last
+vessel docked leaves, the rest stays joined. On an authored **Batch** `U`
+asks first and numbers the pieces (ADR 0059).
 
 Docking keeps the lead partner's position (its hull does not move), takes
 the momentum-conserving velocity, sums the pools and concatenates the
@@ -1774,13 +1775,16 @@ roles; the lead's identity (name, glyph, colour, Nodes, Burn, attitude
 mode) survives and the partner becomes a **Docked Component** stacked above
 the **Dock Seam**, drawn nose to the seam.
 
-Undocking restores each component where its hull was drawn, pointing back
-along the seam, with a 0.15 m/s **Spring Release** along the seam between
-each adjacent pair; the live per-stage fuel comes back with it (the legacy
-prorate applies only to pre-ADR-0009 saves). Composite-level state (Nodes,
-active Burn, Manual Burn, attitude mode, engine mode) is dropped. The pair
-is held apart by the **Re-arm Latch** until it clears 100 m or ten minutes
-pass, or `alt+u` clears it.
+Undocking releases the newest component in place, where its hull was drawn,
+pointing back along the seam, with a 0.05 m/s **Spring Release** shared by
+mass; the live per-stage fuel comes back with it (the legacy prorate applies
+only to pre-ADR-0009 saves). The flown vessel keeps its ID, and the released
+one gets the ID it docked with (so a target on it resolves again). Each
+piece resumes the hold it flew before the latch (`Inertial` when the record
+predates schema 20). Composite-level state (Nodes, active Burn, Manual Burn,
+engine mode) is dropped on a two-piece split. The pair is held apart by the
+**Re-arm Latch** until its ports clear 5 m or ten minutes pass, or `alt+u`
+clears it.
 _Avoid_: Mate / Demate, Fuse / Split, Couple / Decouple (collides with
 **Stage** decoupling).
 
@@ -1919,7 +1923,7 @@ _Avoid_: Collision, Crash (reserved for ground impact), Bounce.
 
 **Re-arm Latch**:
 The hold that keeps a just-undocked pair from re-docking at once. It lifts
-when the pair clears 100 m (twice the Docking Distance), after ten minutes
+when the pair's ports clear 5 m, after ten minutes
 of sim time, or when the player presses `alt+u`. Local to the World that
 undocked; the cross-player equivalent lives in the dock ledger.
 _Avoid_: Cooldown, Dock lock.
@@ -1953,8 +1957,8 @@ rendered. The notification, not the act.
 _Avoid_: Docking notification, Fuse record, Dock notice.
 
 **Spring Release**:
-The 0.15 m/s push along the **Dock Seam** between each adjacent pair of
-restored Vessels on **Undocking**, applied where the hulls stood: the pieces
+The 0.05 m/s relative push along the opened **Dock Seam** on **Undocking**,
+shared by mass (momentum-conserving, ADR 0063), applied where the hulls stood: the pieces
 come back port to port a row or two apart (1.5 m, or 3 m between two tall
 stages, where the sprite adds a taper row), nothing is teleported. Enough to open a
 gap the pilot can see within seconds, small enough that each restored orbit
@@ -2082,7 +2086,7 @@ nearest pair still passes at 0.35 m, with no bump. For one orbital period
 after the release the Batch's pieces do not hold the 50 m warp clamp on
 each other or the carrier (a stored instant on each piece); any other
 hull inside 50 m clamps as always.
-_Avoid_: Spring Release (the docked pair's 0.15 m/s axial push, which a
+_Avoid_: Spring Release (the docked pair's 0.05 m/s axial push, which a
 Batch does not use), Spin-up, Ejection, Deployer.
 
 **Batch Id** (ADR 0059):

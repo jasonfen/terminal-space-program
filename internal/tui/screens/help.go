@@ -168,7 +168,7 @@ var helpSections = []helpSection{
 		{"f", "spawn form: toggle scale-class system filter (show all ↔ filter to this system)"},
 		{"[ / ]", "cycle active vessel"},
 		{"1-9", "jump to vessel N (no-op when the slot is empty)"},
-		{"U", "undock the active composite: the pieces come back port to port 1.5 to 3 m apart, parting at 0.15 m/s"},
+		{"U", "undock the newest seam: the last vessel docked leaves port to port, parting at 0.05 m/s"},
 		{"U (batch)", "a carrier with two or more payloads: asks, then releases them all in a fan, parting sideways at cm/s; refused within 10° of the velocity ([q] radial first)"},
 		{"batch", "U releases a stack of payloads at once; [t] steps over it as one stop. About 30 vessels per player keeps the map quick"},
 		{"U (cross-player)", "release your partner's vessel from a shared stack; theirs comes back even if they're offline"},
@@ -195,7 +195,7 @@ var helpSections = []helpSection{
 		{"arrows (PORT)", "in PORT ↑ / ↓ / ← / → tip your nose 1° up / down / left / right across the port face (alt 0.25°); | clears"},
 		{"navball (PORT)", "pitch / yaw: how far your nose is above or below, right or left of, parallel to their port axis"},
 		{"p", "rcs pulse step: 0.1 / 0.01 / 0.001 m/s; the last metres want 0.01 or finer"},
-		{"U", "undock the active composite: the pieces come back port to port 1.5 to 3 m apart, parting at 0.15 m/s"},
+		{"U", "undock the newest seam: the last vessel docked leaves port to port, parting at 0.05 m/s"},
 		{"alt+u", "re-arm docking: an undocked pair re-docks once its ports are 5 m apart or after ten minutes; [alt+u] clears it now"},
 	}},
 	{"SPAWN FORM (n)", [][2]string{

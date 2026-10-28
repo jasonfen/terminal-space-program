@@ -67,3 +67,22 @@ func TestControlsDocNamesInertialHold(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0063 §4/§8: the `U` row and the Undocking paragraph of docs/controls.md
+// say newest seam, 0.05 m/s and the 5 m re-arm, and no longer 0.15 m/s / 100 m.
+func TestControlsDocUndockRowsAreCurrent(t *testing.T) {
+	doc, err := os.ReadFile("../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"| `U` | Undock the newest seam", "0.05 m/s relative, shared by mass", "opening\n  at 0.05 m/s. The pair cannot re-dock until it clears 5 m"} {
+		if !strings.Contains(string(doc), want) {
+			t.Errorf("docs/controls.md lacks %q", want)
+		}
+	}
+	for _, stale := range []string{"0.15 m/s", "clears 100 m"} {
+		if strings.Contains(string(doc), stale) {
+			t.Errorf("docs/controls.md still says %q", stale)
+		}
+	}
+}
