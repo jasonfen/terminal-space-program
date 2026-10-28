@@ -1779,9 +1779,10 @@ Undocking releases the newest component in place, where its hull was drawn,
 pointing back along the seam, with a 0.05 m/s **Spring Release** shared by
 mass; the live per-stage fuel comes back with it (the legacy prorate applies
 only to pre-ADR-0009 saves). The flown vessel keeps its ID, and the released
-one gets the ID it docked with (so a target on it resolves again). Each
-piece resumes the hold it flew before the latch (`Inertial` when the record
-predates schema 20). Composite-level state (Nodes, active Burn, Manual Burn,
+one gets the ID it docked with (so a target on it resolves again). The flown
+vessel resumes the hold it flew before the latch (`Inertial` when the record
+predates schema 20); the released one holds `Inertial`, so its port does not
+swing with the orbit while you back off. Composite-level state (Nodes, active Burn, Manual Burn,
 engine mode) is dropped on a two-piece split. The pair is held apart by the
 **Re-arm Latch** until its ports clear 5 m or ten minutes pass, or `alt+u`
 clears it.
