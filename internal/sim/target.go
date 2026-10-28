@@ -838,6 +838,11 @@ func (w *World) TargetName() string {
 		if c, _, ok := w.craftByID(w.Target.CraftID); ok {
 			return c.Name
 		}
+		// ADR 0063 section 3: the dock retired the partner's slate entry but
+		// the aim slot still holds its ID; the composite remembers the name.
+		if n, ok := w.DockedPartnerName(w.Target.CraftID); ok {
+			return n
+		}
 	case TargetGhost:
 		if g, ok := w.ghostByRef(w.Target.GhostOwner, w.Target.CraftID); ok {
 			if g.Handle != "" {
@@ -858,6 +863,22 @@ func (w *World) TargetName() string {
 		return "pending target lock"
 	}
 	return ""
+}
+
+// DockedPartnerName names a docked-with vessel by its pre-dock ID, from the
+// active composite's DockedComponents (the lead's own component included, it
+// cannot match a stranded ID).
+func (w *World) DockedPartnerName(id uint64) (string, bool) {
+	c := w.ActiveCraft()
+	if c == nil || id == 0 {
+		return "", false
+	}
+	for _, comp := range c.DockedComponents {
+		if comp.CraftID == id {
+			return comp.Name, true
+		}
+	}
+	return "", false
 }
 
 // GhostOwnerHandle resolves a ghost owner fingerprint to a display
