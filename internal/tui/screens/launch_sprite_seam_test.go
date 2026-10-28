@@ -116,6 +116,28 @@ func TestDockSeamGapRowIsDrawnInTheSeamColour(t *testing.T) {
 			t.Errorf("%s: row %d colour %q, want %q", c.name, c.row, got, c.want)
 		}
 	}
+
+	// A two-row gap (both stages tall enough for a taper row): the joint is
+	// still one thin row, the other gap row is empty, so the joint does not
+	// read as a 3 m adapter. Tall stages: a 0-5, taper 6, separator 7, b 8-13.
+	tall := []spacecraft.Stage{{LaunchSpriteRowsPx: 6, Color: "#FF0000"}, {LaunchSpriteRowsPx: 6, Color: "#00FF00"}}
+	rows := map[int]lipgloss.Color{}
+	for _, p := range ComposeLaunchSprite(tall, orbital.Vec3{Z: 1}, basis, 1, 1) {
+		rows[int(math.Round(p.OffsetWorld.Dot(basis.Y)))] = p.Color
+	}
+	green := 0
+	for _, r := range []int{6, 7} {
+		switch rows[r] {
+		case dockSeamColor():
+			green++
+		case "":
+		default:
+			t.Errorf("two-row seam gap: row %d drawn %q, want the joint or empty", r, rows[r])
+		}
+	}
+	if green != 1 {
+		t.Errorf("two-row seam gap: %d joint rows, want exactly 1", green)
+	}
 }
 
 // Two docked blocks flip each on their own, the gap between them staying put.

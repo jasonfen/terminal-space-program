@@ -1264,6 +1264,27 @@ func TestProximityHullFlipsDockedBlock(t *testing.T) {
 	}
 }
 
+// The joint between docked hulls is a line, not a block: one zero-length rect
+// across the hull, centred in the gap (1.5 m here, a separator row), so it
+// draws one dot thick at any zoom. a: 4 rows = 6 m, gap 6-7.5 m.
+func TestProximityDockSeamIsAThinLine(t *testing.T) {
+	a := spacecraft.Stage{LaunchSpriteRowsPx: 4, Color: "#FF0000"}
+	b := spacecraft.Stage{LaunchSpriteRowsPx: 4, Color: "#00FF00"}
+	var seam []hullRect
+	for _, r := range proximityHullRects([]spacecraft.Stage{a, b}, []int{1}) {
+		if r.color == dockSeamColor() {
+			seam = append(seam, r)
+		}
+	}
+	if len(seam) != 1 {
+		t.Fatalf("seam rects = %d, want 1", len(seam))
+	}
+	gapMid := 6.75 - sim.DockPortTipInsetM()
+	if r := seam[0]; r.headM != r.tailM || math.Abs(r.tailM-gapMid) > 1e-9 {
+		t.Errorf("seam rect %.3f..%.3f m, want a zero-length line at %.3f", r.tailM, r.headM, gapMid)
+	}
+}
+
 // hullProbe returns "is the canvas pixel at (a metres along the hull, u
 // metres across it) lit" for a hull anchored at anchor with the given
 // attitude, in the view's last render.
