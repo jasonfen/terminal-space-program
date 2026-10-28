@@ -47,7 +47,7 @@ func TestV18SaveLoadsWithNoGameFolder(t *testing.T) {
 			out = append(out, ln)
 		}
 	}
-	s = strings.Replace(strings.Join(out, "\n"), `"version": 19`, `"version": 18`, 1)
+	s = strings.Replace(strings.Join(out, "\n"), `"version": 20`, `"version": 18`, 1)
 	if !strings.Contains(s, `"version": 18`) {
 		t.Fatal("setup: version line not rewritten")
 	}

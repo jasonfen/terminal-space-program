@@ -107,6 +107,7 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 			Stages:           simStagesToWire(dc.Stages),
 			Owner:            dc.Owner,
 			CraftID:          dc.CraftID,
+			AttitudeMode:     modeToWire(dc.AttitudeMode),
 		})
 	}
 	for _, n := range c.Nodes {
@@ -386,6 +387,7 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			Stages:           wireStagesToSim(dc.Stages),
 			Owner:            dc.Owner,
 			CraftID:          dc.CraftID,
+			AttitudeMode:     modeFromWire(dc.AttitudeMode),
 		})
 	}
 	// A save written after a stage was dropped from the bottom (before #707's
@@ -522,4 +524,20 @@ func raiseFromWire(w *RaiseWire) *spacecraft.RaiseOrder {
 		return nil
 	}
 	return &spacecraft.RaiseOrder{TargetAltM: w.TargetAltM, StartAt: timeFromNano(w.StartAtNano), Started: w.Started, BatchID: w.BatchID}
+}
+
+func modeToWire(m *spacecraft.BurnMode) *int {
+	if m == nil {
+		return nil
+	}
+	i := int(*m)
+	return &i
+}
+
+func modeFromWire(i *int) *spacecraft.BurnMode {
+	if i == nil {
+		return nil
+	}
+	m := spacecraft.BurnMode(*i)
+	return &m
 }

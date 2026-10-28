@@ -120,7 +120,12 @@ import (
 // folder), the truth for every earlier save, so no migration function is
 // needed; the bump exists so a v18 binary refuses a v19 envelope instead of
 // dropping the folder and splitting a game's recordings across two.
-const SchemaVersion = 19
+// ADR 0063 §7 bumps to v20 - DockedComponent.attitude_mode, the hold a piece
+// flew before the latch. Absent decodes to nil (the undock reads it as Inertial),
+// the truth for every earlier save, so no migration function is needed; the
+// bump exists so a v19 binary refuses a v20 envelope instead of dropping the
+// holds and swinging every released piece to prograde.
+const SchemaVersion = 20
 
 // RaiseWire is spacecraft.RaiseOrder on the wire (StartAt as UnixNano).
 type RaiseWire struct {
@@ -583,6 +588,10 @@ type DockedComponent struct {
 	// so every pre-v0.28 save and all local docking round-trips unchanged.
 	Owner   string `json:"owner,omitempty"`
 	CraftID uint64 `json:"craft_id,omitempty"`
+	// AttitudeMode (schema v20, ADR 0063 §7): the hold the piece flew the tick
+	// before the latch. A pointer so an absent key (an older save) stays nil,
+	// which the undock reads as Inertial, never as Prograde (0).
+	AttitudeMode *int `json:"attitude_mode,omitempty"`
 }
 
 // ActiveBurn mirrors sim.ActiveBurn. Throttle (v0.7.6+, schema v4)
