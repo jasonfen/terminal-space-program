@@ -363,8 +363,10 @@ func (a *App) SetRecordingsDir(dir string) { a.recDir, a.recFolders = dir, false
 // attachRecording closes the recording of the World being left and opens the
 // Active Vessel's file for w, with the configured dir and window.
 func (a *App) attachRecording(w *sim.World) {
+	left := ""
 	if a.recWorld != nil && a.recWorld != w {
 		a.recWorld.CloseRecording()
+		left = a.recWorld.GameFolder
 	}
 	a.recWorld = w
 	w.RecordingsDir = a.recDir
@@ -375,9 +377,13 @@ func (a *App) attachRecording(w *sim.World) {
 		if f == "" || f != filepath.Base(f) || f == "." || f == ".." {
 			var err error
 			if f, err = sim.NewGameFolder(a.recDir, time.Now()); err != nil {
+				w.NoteRecordingError(err)
 				return
 			}
 			w.GameFolder = f
+		}
+		if left != f {
+			sim.RemoveAbandonedGameFolder(a.recDir, left)
 		}
 		w.RecordingsDir = filepath.Join(a.recDir, f)
 	}
@@ -506,6 +512,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.flash(fmt.Sprintf("%s: burn held off — target lock not resolved", e.CraftName))
 			}
 			a.world.LastNodeTargetRefusal = nil
+		}
+		if f := a.world.RecordingFault; f != "" {
+			a.flash("flight recording stopped: " + f)
+			a.world.RecordingFault = ""
 		}
 		// ADR 0048 / decision 4: burn fired / finished Event Flashes — the
 		// gap the ADR named ("a burn fires and finishes with no notice").

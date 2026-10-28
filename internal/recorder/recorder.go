@@ -164,6 +164,7 @@ func (r *Recording) SetLiftoff(t time.Time) (err error) {
 			break
 		}
 	}
+	r.t0 = t
 	return rewrite(r.path, bytes.Join(lines, nil), 0o644)
 }
 
@@ -277,6 +278,10 @@ func headerT0(path string) time.Time {
 
 // T0 is the header's T+0 instant (zero when it names none).
 func (r *Recording) T0() time.Time { return r.t0 }
+
+// RowTime parses a line's leading sim-time column; ok is false for header,
+// column and blank lines.
+func RowTime(line string) (time.Time, bool) { return rowTime([]byte(line)) }
 
 func rowTime(line []byte) (time.Time, bool) {
 	if len(line) < len(dateLayout) {

@@ -564,7 +564,12 @@ type World struct {
 	// GameFolder names this game's folder under the recordings dir (v0.63.3;
 	// "" = none yet). A save carries it, so a load continues the same folder.
 	GameFolder string
-	rec        recState
+	// RecordingFault is the first write/open error of the Flight Recording
+	// (#817), "" when none or already drained. app.go flashes and clears it;
+	// recFaulted keeps it to one flash per World.
+	RecordingFault string
+	recFaulted     bool
+	rec            recState
 	recMarker  string          // row written first time each vessel's file opens
 	recMarked  map[uint64]bool // vessels whose file already got the marker
 }

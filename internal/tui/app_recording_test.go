@@ -380,3 +380,62 @@ func TestMarkerOncePerFilePerSession(t *testing.T) {
 		}
 	}
 }
+
+// #817 item 4: start a game, then load a save at once: the fresh game's folder
+// holds only its marker row and goes. A game that did anything keeps its
+// folder, and loading the save of the folder being left removes nothing.
+func TestLoadRightAfterStartRemovesOrphanFolder(t *testing.T) {
+	cases := []struct {
+		name     string
+		act      func(b *App)
+		wantGone bool
+	}{
+		{"marker only", func(b *App) {}, true},
+		{"one real row (boundary)", func(b *App) { b.world.RecordEvent("did something") }, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			testStateDirs(t)
+			a1 := newGameApp(t)
+			dirA := a1.world.RecordingsDir
+			info, err := save.WriteNamed(a1.world, "snap")
+			if err != nil {
+				t.Fatal(err)
+			}
+			a1.world.CloseRecording()
+			b := newGameApp(t)
+			dirB := b.world.RecordingsDir
+			c.act(b)
+			if err := b.loadWorldByID(info.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(dirB); (err != nil) != c.wantGone {
+				t.Errorf("fresh game's folder gone = %v, want %v", err != nil, c.wantGone)
+			}
+			if _, err := os.Stat(dirA); err != nil {
+				t.Errorf("the loaded game's own folder vanished: %v", err)
+			}
+			// Same-folder load: nothing may be removed.
+			if err := b.loadWorldByID(info.ID); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(dirA); err != nil {
+				t.Errorf("reloading the same game removed its folder: %v", err)
+			}
+		})
+	}
+}
+
+// #817 item 2 (App side): a failing recording is flashed to the pilot.
+func TestRecordingFaultIsFlashed(t *testing.T) {
+	a, _ := recApp(t)
+	a.world.Recording.Close() // every write now fails
+	a.world.RecordEvent("lost")
+	a.Update(sim.TickMsg(time.Now()))
+	if !strings.Contains(a.statusMsg, "flight recording") {
+		t.Fatalf("status = %q, want a flight recording failure notice", a.statusMsg)
+	}
+	if a.world.RecordingFault != "" {
+		t.Errorf("fault not drained: %q", a.world.RecordingFault)
+	}
+}
