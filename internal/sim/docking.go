@@ -316,7 +316,10 @@ func (w *World) releaseNewestSeam(idx int, c *spacecraft.Spacecraft, axis orbita
 	if lead != c { // a kept composite keeps the hold it is flying
 		w.restoreHold(lead, c.DockedComponents[0].AttitudeMode, true)
 	}
-	w.restoreHold(released, top.AttitudeMode, false)
+	// The released vessel holds still: a restored orbit-relative hold turns
+	// with the orbit and swings a long hull's port across your path (v0.64.0
+	// playtest, Apollo's port 13 m off in 80 s).
+	released.HoldInertial()
 	w.recordSplit([]*spacecraft.Spacecraft{lead, released}, c.Name, false)
 	return true
 }

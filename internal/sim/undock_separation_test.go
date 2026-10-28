@@ -281,8 +281,10 @@ func TestUndockRestoresPreLatchHolds(t *testing.T) {
 		if got := w.Crafts[0].AttitudeMode; got != spacecraft.BurnRetrograde {
 			t.Errorf("flown vessel hold = %v, want Retrograde", got)
 		}
-		if got := w.Crafts[1].AttitudeMode; got != spacecraft.BurnNormalPlus {
-			t.Errorf("released vessel hold = %v, want Normal+", got)
+		// The released vessel holds still whatever it held before the latch
+		// (v0.64.0 playtest: a restored Prograde swung Apollo's port 13 m).
+		if got := w.Crafts[1].AttitudeMode; got != spacecraft.BurnInertial {
+			t.Errorf("released vessel hold = %v, want Inertial", got)
 		}
 	})
 	t.Run("recorded at the latch", func(t *testing.T) {
@@ -329,14 +331,15 @@ func TestUndockRestoresPreLatchHolds(t *testing.T) {
 func modePtr(m spacecraft.BurnMode) *spacecraft.BurnMode { return &m }
 
 // ADR 0063 §6: the stack that held Port+ before the latch parts with
-// misalign 0 degrees and zero lateral one tick after U.
+// misalign 0 degrees and zero lateral one tick after U, and the released partner (which held Prograde before the latch) keeps its
+// nose while you back off.
 func TestUndockPartsAlongTheLatchedPortAxis(t *testing.T) {
 	p := newPortPair(t, "rcs-tug", "ntr-tug", 0.3, 0, 0)
 	w := p.w
 	w.SetTargetCraft(1)
 	w.setNavMode(NavPort)
 	p.a.AttitudeMode = spacecraft.BurnPortIn
-	p.b.HoldInertial() // a partner that docks nose-on held that nose (a Prograde hold would have turned it away)
+	p.b.AttitudeMode = spacecraft.BurnPrograde
 	axis := p.axis
 	w.DockCrafts(0, 1)
 	tickFor(w, 5) // the stack rides docked for a while
@@ -349,6 +352,11 @@ func TestUndockPartsAlongTheLatchedPortAxis(t *testing.T) {
 	d := top.State.R.Sub(lead.State.R)
 	if lat := d.Sub(axis.Scale(d.Dot(axis))).Norm(); lat > 1e-3 {
 		t.Errorf("lateral %.6f m one tick after U, want 0", lat)
+	}
+	nose := top.CurrentAttitudeDir.Unit()
+	tickFor(w, 60)
+	if dot := top.CurrentAttitudeDir.Unit().Dot(nose); dot < 1-1e-9 {
+		t.Errorf("released partner turned its nose in 60 s (dot %.9f), want it held", dot)
 	}
 }
 
