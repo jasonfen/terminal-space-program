@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.63.4
+
+Proximity View centres on the target's docking port (PR `#823`, closes `#822`; tag `v0.63.4`). Save schema unchanged.
+
+- **The port is the middle of the picture.** The R/V cross, the view centre and the range rings sit on the target's docking port instead of the bottom of its stack, so a long target like the Apollo TLI start vessel no longer puts its port ~55 m off centre. A target without a port centres on the middle of its hull.
+- **The opening zoom still frames you** when you are behind the target's tail, farther from its port than from its base.
+
 ### v0.63.3
 
 Each game keeps its own Flight Recordings (PR `#821`; tag `v0.63.3`). **Save schema 18 → 19** (adds the game's recording folder; older saves load into a new folder).
