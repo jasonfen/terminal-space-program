@@ -681,10 +681,10 @@ type hullRect struct {
 func proximityHullRects(stages []spacecraft.Stage, seams []int) []hullRect {
 	var out []hullRect
 	for _, r := range flipDockedBlocks(launchStackLayout(stages), seams) {
-		tail := float64(r.rowBase)*vesselSubPixelM - sim.DockPortTipInsetM()
+		tail := r.tailRows()*vesselSubPixelM - sim.DockPortTipInsetM()
 		h := hullRect{tailM: tail, headM: tail + float64(r.rows)*vesselSubPixelM, widthM: stageHullWidthM(stages[r.stage]), color: r.color}
 		if r.kind == rectSeam { // the joint: a zero-length line, one dot thick at any zoom
-			h.tailM = (h.tailM + h.headM) / 2
+			h.tailM = r.seamLineRow() * vesselSubPixelM // a dot row, so no half-row edge inset
 			h.headM = h.tailM
 		}
 		if r.kind == rectSide {

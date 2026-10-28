@@ -2,6 +2,7 @@ package screens
 
 import (
 	"math"
+	"slices"
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
@@ -13,31 +14,34 @@ import (
 )
 
 // rowSpans reports, per colour, the lowest and highest sprite row (stride
-// units above the anchor) its pixels occupy, for a stack drawn straight up.
-func rowSpans(px []SpritePixel, basis widgets.Basis) map[lipgloss.Color][2]int {
-	out := map[lipgloss.Color][2]int{}
+// units above the anchor, fractional across a dock seam) its pixels occupy,
+// for a stack drawn straight up.
+func rowSpans(px []SpritePixel, basis widgets.Basis) map[lipgloss.Color][2]float64 {
+	out := map[lipgloss.Color][2]float64{}
 	for _, p := range px {
-		row := int(math.Round(p.OffsetWorld.Dot(basis.Y)))
+		row := p.OffsetWorld.Dot(basis.Y)
 		sp, ok := out[p.Color]
 		if !ok {
-			sp = [2]int{row, row}
+			sp = [2]float64{row, row}
 		}
-		if row < sp[0] {
-			sp[0] = row
-		}
-		if row > sp[1] {
-			sp[1] = row
-		}
+		sp[0], sp[1] = math.Min(sp[0], row), math.Max(sp[1], row)
 		out[p.Color] = sp
 	}
 	return out
 }
 
+// spanNear is whether two row spans agree to a micro-row.
+func spanNear(a, b [2]float64) bool {
+	return math.Abs(a[0]-b[0]) < 1e-9 && math.Abs(a[1]-b[1]) < 1e-9
+}
+
 // ADR 0053 "Settled here" item 1: a docked component above a seam is drawn
-// nose to the seam, flipped. A lead A (4 rows) with a docked block [B 6 rows,
-// C 4 rows] sits, unflipped, A 0-3, separator 4, B 5-10, separator 11, C 12-15.
-// Flipped, the block mirrors: C 5-8 (its nose to the seam), separator 9, B 10-15.
-// The lead and the total height do not change.
+// nose to the seam, flipped, with the gap at the seam shrunk to 0.6 m (0.4 of
+// a row). A lead A (4 rows) with a docked block [B 6 rows, C 4 rows] sits,
+// unflipped, A 0-3, separator 4, B 5-10, separator 11, C 12-15. Flipped, the
+// block mirrors: C 5-8 (its nose to the seam), separator 9, B 10-15; the
+// one-row gap then gives up 0.6 of a row, so everything above it is 0.6 lower:
+// C 4.4-7.4, B 9.4-14.4. The lead does not move.
 func TestComposeLaunchSpriteFlipsDockedBlockNoseToSeam(t *testing.T) {
 	a := spacecraft.Stage{LaunchSpriteRowsPx: 4, Color: "#FF0000"}
 	b := spacecraft.Stage{LaunchSpriteRowsPx: 6, Color: "#00FF00"}
@@ -47,55 +51,57 @@ func TestComposeLaunchSpriteFlipsDockedBlockNoseToSeam(t *testing.T) {
 	stages := []spacecraft.Stage{a, b, c}
 
 	plain := rowSpans(ComposeLaunchSprite(stages, cmd, basis, 1), basis)
-	want := map[string][2]int{"#FF0000": {0, 3}, "#00FF00": {5, 10}, "#0000FF": {12, 15}}
+	want := map[string][2]float64{"#FF0000": {0, 3}, "#00FF00": {5, 10}, "#0000FF": {12, 15}}
 	for col, sp := range want {
-		if plain[lipgloss.Color(col)] != sp {
+		if !spanNear(plain[lipgloss.Color(col)], sp) {
 			t.Fatalf("control (no seams): %s rows %v, want %v", col, plain[lipgloss.Color(col)], sp)
 		}
 	}
 
 	flipped := rowSpans(ComposeLaunchSprite(stages, cmd, basis, 1, 1), basis)
-	wantFlipped := map[string][2]int{"#FF0000": {0, 3}, "#0000FF": {5, 8}, "#00FF00": {10, 15}}
+	wantFlipped := map[string][2]float64{"#FF0000": {0, 3}, "#0000FF": {4.4, 7.4}, "#00FF00": {9.4, 14.4}}
 	for col, sp := range wantFlipped {
-		if flipped[lipgloss.Color(col)] != sp {
+		if !spanNear(flipped[lipgloss.Color(col)], sp) {
 			t.Errorf("seam at stage 1: %s rows %v, want %v", col, flipped[lipgloss.Color(col)], sp)
 		}
 	}
-	// Same hull height either way: the nose, and the port, do not move.
-	var maxPlain, maxFlipped int
-	for _, sp := range plain {
-		if sp[1] > maxPlain {
-			maxPlain = sp[1]
-		}
+	// The gap between the hulls' facing edges, in metres (one row = 1.5 m at
+	// pxSize 1.5): C's bottom edge less A's top edge.
+	gapM := (flipped["#0000FF"][0] - 0.5 - (flipped["#FF0000"][1] + 0.5)) * sim.DockStrideM
+	if math.Abs(gapM-0.6) > 1e-9 {
+		t.Errorf("gap between the docked hulls = %.4f m, want 0.6", gapM)
 	}
-	for _, sp := range flipped {
-		if sp[1] > maxFlipped {
-			maxFlipped = sp[1]
-		}
+	// The drawn stack is as long as sim says: bottom edge to nose edge.
+	topM := (flipped["#00FF00"][1] + 0.5 - (flipped["#FF0000"][0] - 0.5)) * sim.DockStrideM
+	if got := sim.StackLengthM(stages, []int{1}); math.Abs(got-topM) > 1e-9 {
+		t.Errorf("sim.StackLengthM = %.4f m but the flipped sprite is %.4f m tall", got, topM)
 	}
-	if maxPlain != maxFlipped {
-		t.Errorf("flipping changed the stack height: %d -> %d rows", maxPlain, maxFlipped)
-	}
-	if got, want := sim.StackRows(stages), maxFlipped+1; got != want {
-		t.Errorf("sim.StackRows = %d but the flipped sprite is %d rows tall", got, want)
+	// No seams: the sim length is the old row count, to the bit.
+	if got, want := sim.StackLengthM(stages, nil), float64(sim.StackRows(stages))*sim.DockStrideM; got != want {
+		t.Errorf("no-seam StackLengthM = %v, want StackRows x stride %v", got, want)
 	}
 }
 
-// The gap row at a dock seam is drawn in the dock seam colour, so the 1.5 to
-// 3 m between two docked hulls reads as the joint, not as empty space; a
+// The gap at a dock seam is drawn as one thin line in the dock seam colour at
+// the centre of the 0.6 m gap, so it reads as the joint, not as empty space; a
 // separator inside a block, and every separator of an undocked stack, stays
-// the stage separator colour. Layout as above: seam gap row 4, in-block
-// separator row 9 once flipped.
+// the stage separator colour. Layout as above: seam line at row 3.7 (A's top
+// edge 3.5 plus half the 0.4-row gap), in-block separator at row 8.4 once
+// flipped and shifted.
 func TestDockSeamGapRowIsDrawnInTheSeamColour(t *testing.T) {
 	a := spacecraft.Stage{LaunchSpriteRowsPx: 4, Color: "#FF0000"}
 	b := spacecraft.Stage{LaunchSpriteRowsPx: 6, Color: "#00FF00"}
 	c := spacecraft.Stage{LaunchSpriteRowsPx: 4, Color: "#0000FF"}
 	basis := widgets.Basis{X: orbital.Vec3{X: 1}, Y: orbital.Vec3{Z: 1}}
 	stages := []spacecraft.Stage{a, b, c}
-	rowColour := func(seams ...int) map[int]lipgloss.Color {
-		out := map[int]lipgloss.Color{}
+	// colourRows maps colour -> the sorted distinct rows drawn in it.
+	colourRows := func(stages []spacecraft.Stage, seams ...int) map[lipgloss.Color][]float64 {
+		out := map[lipgloss.Color][]float64{}
 		for _, p := range ComposeLaunchSprite(stages, orbital.Vec3{Z: 1}, basis, 1, seams...) {
-			out[int(math.Round(p.OffsetWorld.Dot(basis.Y)))] = p.Color
+			row := p.OffsetWorld.Dot(basis.Y)
+			if !slices.ContainsFunc(out[p.Color], func(x float64) bool { return math.Abs(x-row) < 1e-9 }) {
+				out[p.Color] = append(out[p.Color], row)
+			}
 		}
 		return out
 	}
@@ -105,42 +111,41 @@ func TestDockSeamGapRowIsDrawnInTheSeamColour(t *testing.T) {
 	for _, c := range []struct {
 		name  string
 		seams []int
-		row   int
-		want  lipgloss.Color
+		col   lipgloss.Color
+		want  float64
 	}{
-		{"seam gap", []int{1}, 4, dockSeamColor()},
-		{"separator inside the docked block", []int{1}, 9, stageSeparatorColor()},
-		{"same row, no dock", nil, 4, stageSeparatorColor()},
+		{"seam line", []int{1}, dockSeamColor(), 3.7},
+		{"separator inside the docked block", []int{1}, stageSeparatorColor(), 8.4},
+		{"same gap row, no dock", nil, stageSeparatorColor(), 4},
 	} {
-		if got := rowColour(c.seams...)[c.row]; got != c.want {
-			t.Errorf("%s: row %d colour %q, want %q", c.name, c.row, got, c.want)
+		rows := colourRows(stages, c.seams...)[c.col]
+		if !slices.ContainsFunc(rows, func(x float64) bool { return math.Abs(x-c.want) < 1e-9 }) {
+			t.Errorf("%s: rows drawn in %q are %v, want one at %.1f", c.name, c.col, rows, c.want)
 		}
+	}
+	if got := colourRows(stages, 1)[dockSeamColor()]; len(got) != 1 {
+		t.Errorf("seam colour is drawn on %d rows, want exactly 1 (a line)", len(got))
 	}
 
-	// A two-row gap (both stages tall enough for a taper row): the joint is
-	// still one thin row, the other gap row is empty, so the joint does not
-	// read as a 3 m adapter. Tall stages: a 0-5, taper 6, separator 7, b 8-13.
+	// A two-row gap (both stages tall enough for a taper row, a 0-5, taper 6,
+	// separator 7, b 8-13): the joint is still one thin line, and the stage
+	// above comes down 1.6 rows, so the gap is the same 0.4 row (0.6 m): line
+	// at 5.7, b from 6.4.
 	tall := []spacecraft.Stage{{LaunchSpriteRowsPx: 6, Color: "#FF0000"}, {LaunchSpriteRowsPx: 6, Color: "#00FF00"}}
-	rows := map[int]lipgloss.Color{}
-	for _, p := range ComposeLaunchSprite(tall, orbital.Vec3{Z: 1}, basis, 1, 1) {
-		rows[int(math.Round(p.OffsetWorld.Dot(basis.Y)))] = p.Color
+	rows := colourRows(tall, 1)
+	if got := rows[dockSeamColor()]; len(got) != 1 || math.Abs(got[0]-5.7) > 1e-9 {
+		t.Errorf("two-row seam gap: joint rows %v, want one at 5.7", got)
 	}
-	green := 0
-	for _, r := range []int{6, 7} {
-		switch rows[r] {
-		case dockSeamColor():
-			green++
-		case "":
-		default:
-			t.Errorf("two-row seam gap: row %d drawn %q, want the joint or empty", r, rows[r])
-		}
+	if lo := slices.Min(rows["#00FF00"]); math.Abs(lo-6.4) > 1e-9 {
+		t.Errorf("two-row seam gap: upper hull starts at row %.3f, want 6.4", lo)
 	}
-	if green != 1 {
-		t.Errorf("two-row seam gap: %d joint rows, want exactly 1", green)
+	if _, drawn := rows[stageSeparatorColor()]; drawn {
+		t.Error("two-row seam gap: a taper or separator row survives inside the gap")
 	}
 }
 
-// Two docked blocks flip each on their own, the gap between them staying put.
+// Two docked blocks flip each on their own, the gap between them staying put
+// and each giving up its share (0.6 of a row for a one-row gap).
 func TestComposeLaunchSpriteFlipsEachDockedBlock(t *testing.T) {
 	st := func(rows int, col string) spacecraft.Stage {
 		return spacecraft.Stage{LaunchSpriteRowsPx: rows, Color: col}
@@ -152,11 +157,17 @@ func TestComposeLaunchSpriteFlipsEachDockedBlock(t *testing.T) {
 	// Unflipped: L 0-2, sep 3, P 4-5, sep 6, Q 7-9, sep 10, R 11-12, sep 13, S 14-16.
 	// Block 1 occupies 4-9 and mirrors: Q 4-6, sep 7, P 8-9. The seam gap
 	// (sep 10) stays; block 2 occupies 11-16 and mirrors: S 11-13, sep 14, R 15-16.
-	want := map[string][2]int{"#100000": {0, 2}, "#300000": {4, 6}, "#200000": {8, 9}, "#500000": {11, 13}, "#400000": {15, 16}}
+	// Seam 1 (gap row 3) lowers everything above it by 0.6, seam 2 (gap row 10)
+	// lowers what is above that by another 0.6.
+	want := map[string][2]float64{"#100000": {0, 2}, "#300000": {3.4, 5.4}, "#200000": {7.4, 8.4}, "#500000": {9.8, 11.8}, "#400000": {13.8, 14.8}}
 	for col, sp := range want {
-		if got[lipgloss.Color(col)] != sp {
+		if !spanNear(got[lipgloss.Color(col)], sp) {
 			t.Errorf("%s rows %v, want %v", col, got[lipgloss.Color(col)], sp)
 		}
+	}
+	// Both gaps are 0.6 m (0.4 of a row): the second runs P's top edge 8.9 to S's bottom edge 9.3.
+	if gap := (got["#500000"][0] - 0.5 - (got["#200000"][1] + 0.5)) * sim.DockStrideM; math.Abs(gap-0.6) > 1e-9 {
+		t.Errorf("second seam gap = %.4f m, want 0.6", gap)
 	}
 }
 

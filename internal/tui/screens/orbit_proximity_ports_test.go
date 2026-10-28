@@ -248,6 +248,38 @@ func TestDockPortNoseRowsMatchDrawnSprite(t *testing.T) {
 			t.Errorf("%s: sim.StackWidthPx = %d, drawn composedStackMaxWidth = %d", name, got, want)
 		}
 	}
+	// Across dock seams (0.6 m gaps): the sim length is the drawn sprite's
+	// extent, bottom edge to nose edge, and the Proximity hull rects span the
+	// same length. Every single split and one two-seam split of each loadout.
+	checkSeams := func(name string, stages []spacecraft.Stage, seams ...int) {
+		t.Helper()
+		minRow, maxRow := math.Inf(1), math.Inf(-1)
+		basis := widgets.Basis{X: orbital.Vec3{X: 1}, Y: orbital.Vec3{Y: 1}}
+		for _, p := range ComposeLaunchSprite(stages, orbital.Vec3{Y: 1}, basis, vesselSubPixelM, seams...) {
+			minRow, maxRow = math.Min(minRow, p.OffsetWorld.Y), math.Max(maxRow, p.OffsetWorld.Y)
+		}
+		if got, want := sim.StackLengthM(stages, seams), maxRow-minRow+vesselSubPixelM; math.Abs(got-want) > 1e-9 {
+			t.Errorf("%s seams %v: sim.StackLengthM = %.4f m, drawn sprite is %.4f m", name, seams, got, want)
+		}
+		lo, hi := math.Inf(1), math.Inf(-1)
+		for _, r := range proximityHullRects(stages, seams) {
+			lo, hi = math.Min(lo, r.tailM), math.Max(hi, r.headM)
+		}
+		if got, want := sim.StackLengthM(stages, seams), hi-lo; math.Abs(got-want) > 1e-9 {
+			t.Errorf("%s seams %v: sim.StackLengthM = %.4f m, Proximity hull rects span %.4f m", name, seams, got, want)
+		}
+	}
+	for id, l := range spacecraft.Loadouts {
+		if l.Stages[0].LitWithAbove {
+			continue // a booster pair draws beside the core: its columns are not a seam
+		}
+		for n := 1; n < len(l.Stages); n++ {
+			checkSeams("loadout "+id, l.Stages, n)
+			if n+1 < len(l.Stages) {
+				checkSeams("loadout "+id, l.Stages, n, n+1)
+			}
+		}
+	}
 	for id, l := range spacecraft.Loadouts {
 		check("loadout "+id, l.Stages)
 		// Every prefix too: the stack after each staging press.
@@ -292,14 +324,24 @@ func TestDockPortNoseRowsMatchDrawnSprite(t *testing.T) {
 func TestProximityPortMarkLandsOnDrawnNose(t *testing.T) {
 	basis := widgets.Basis{X: orbital.Vec3{X: 1}, Y: orbital.Vec3{Y: 1}}
 	stack := stagesOf(t, "s-ivb-1", "apollo-descent", "apollo-ascent", "apollo-sm", "command-module")
-	g := sim.PortGeometryOf(stack, orbital.Vec3{Y: 1})
+	// Without a seam, then across one and two (the raw geometry: a live
+	// composite hides its in-use port, but the hull and the nose edge it
+	// would sit on are what the drawing has to agree with).
+	for _, seams := range [][]int{nil, {2}, {1, 3}} {
+		checkPortMark(t, basis, stack, seams)
+	}
+}
+
+func checkPortMark(t *testing.T, basis widgets.Basis, stack []spacecraft.Stage, seams []int) {
+	t.Helper()
+	g := sim.PortGeometryOf(stack, orbital.Vec3{Y: 1}, seams...)
 	if !g.HasPort() {
 		t.Fatal("setup: Apollo TLI stack must have a port")
 	}
 	for _, deg := range []float64{0, 17, 45, 90, 135, 200, 310} {
 		r := deg * math.Pi / 180
 		att := orbital.Vec3{X: math.Sin(r), Y: math.Cos(r)}
-		sprite := ComposeLaunchSprite(stack, att, basis, vesselSubPixelM)
+		sprite := ComposeLaunchSprite(stack, att, basis, vesselSubPixelM, seams...)
 		if len(sprite) == 0 {
 			t.Fatal("no sprite")
 		}
@@ -316,10 +358,10 @@ func TestProximityPortMarkLandsOnDrawnNose(t *testing.T) {
 		drawnBottom := minAlong - vesselSubPixelM/2
 		got := proximityPortWorld(orbital.Vec3{}, att, basis, g.Ports[0].OffsetM).Dot(axis)
 		if math.Abs(got-drawnTop) > 1e-6 {
-			t.Errorf("attitude %g deg: port drawn at %.3f m along the axis, sprite's nose edge is at %.3f m", deg, got, drawnTop)
+			t.Errorf("seams %v attitude %g deg: port drawn at %.3f m along the axis, sprite's nose edge is at %.3f m", seams, deg, got, drawnTop)
 		}
 		if math.Abs((drawnTop-drawnBottom)-g.NoseM) > 1e-6 {
-			t.Errorf("attitude %g deg: drawn hull is %.3f m long, sim says %.3f m", deg, drawnTop-drawnBottom, g.NoseM)
+			t.Errorf("seams %v attitude %g deg: drawn hull is %.3f m long, sim says %.3f m", seams, deg, drawnTop-drawnBottom, g.NoseM)
 		}
 	}
 }

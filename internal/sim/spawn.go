@@ -240,8 +240,8 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		// Port offsets from each vessel's position, along its own nose. A
 		// port-less hull spawns the same way: the nose edge is where a port
 		// would be, and it is still just a straight approach.
-		noseEdge := func(st []spacecraft.Stage) float64 {
-			return float64(StackRows(st))*DockStrideM - dockPortTipInsetM
+		noseEdge := func(st []spacecraft.Stage, seams []int) float64 {
+			return StackLengthM(st, seams) - dockPortTipInsetM
 		}
 		c.CurrentAttitudeDir = axis.Scale(-1)
 		// Hold that pointing: a SAS slew back to the default prograde would
@@ -255,7 +255,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		// Proximity picture. Equal inertial velocity would drift it 2 to 5 m a
 		// minute. The port rel speed then reads the gap times the orbit rate
 		// (about 0.028 m/s at 25 m), which falls as the gap closes.
-		spawnR := active.State.R.Add(axis.Scale(noseEdge(active.Stages) + alongsidePortGapM + noseEdge(c.Stages)))
+		spawnR := active.State.R.Add(axis.Scale(noseEdge(active.Stages, DockSeams(active)) + alongsidePortGapM + noseEdge(c.Stages, nil)))
 		orbitRate := active.State.R.Cross(active.State.V).Scale(1 / active.State.R.Dot(active.State.R))
 		c.State = physics.StateVector{
 			R: spawnR,

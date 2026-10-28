@@ -619,11 +619,12 @@ func TestProximityStateDockedCompositeAnchorsOnSeam(t *testing.T) {
 		t.Errorf("partner = %q, want Bravo (the piece above the newest seam)", st.TargetName)
 	}
 	c := w.ActiveCraft()
-	wantOff := float64(StackRows(c.Stages[:1])) * DockStrideM
+	// The seam's gap centre: the lower hull's nose edge, half a gap on.
+	wantOff := PortGeometryOf(c.Stages[:1], c.CurrentAttitudeDir).NoseM - dockPortTipInsetM + 0.3
 	if !near(st.SeamOffsetM, wantOff, 1e-9) {
 		t.Errorf("SeamOffsetM = %g, want %g", st.SeamOffsetM, wantOff)
 	}
-	if d := st.TargetWorld.Sub(st.CraftWorld).Sub(c.CurrentAttitudeDir.Unit().Scale(wantOff)).Norm(); d > 1e-6 {
+	if d := st.TargetWorld.Sub(st.CraftWorld).Sub(c.CurrentAttitudeDir.Unit().Scale(wantOff)).Norm(); d > 1e-3 { // both worlds are ~1.5e11 m from the Sun: float64 spacing there is 3e-5 m
 		t.Errorf("scene centre is %g m off the seam point", d)
 	}
 	if st.HasPort || st.HullGapM != 0 || st.RangeM != 0 {

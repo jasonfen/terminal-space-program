@@ -10,7 +10,8 @@ import (
 // Docking ports (ADR 0053 §2-3, slice A). A vessel's position (State.R) is
 // the BOTTOM of its stack: the composed sprite's row 0 sits at the anchor
 // and rows climb along CurrentAttitudeDir. So the nose, and the port on
-// it, is R + L*a_hat with L = composed stack rows x 1.5 m, not a half
+// it, is R + L*a_hat with L = StackLengthM (composed stack rows x 1.5 m, less
+// what each dock seam gives up), not a half
 // height from a centre. Nothing here is stored: every call re-derives the
 // geometry from the stack, and the port flag from the catalog
 // (spacecraft.Stage.Ports).
@@ -35,6 +36,12 @@ const (
 	// row, more than the 0.5 m gate and a 1.5 m visible gap between two
 	// docked hulls. TestProximityPortMarkLandsOnDrawnNose measures this.
 	dockPortTipInsetM = DockStrideM / 2
+
+	// DockSeamGapM is the gap between two docked hulls' facing edges at every
+	// dock seam, whatever the stages. Just over the 0.5 m port gate, so a
+	// fresh undock sits outside the gate without leaning on the re-arm latch
+	// (the #342 rule, TestUndockSeparationClearsDockingGates).
+	DockSeamGapM = 0.6
 
 	dockTaperThresholdRows = 6
 	dockDefaultWidthPx     = 2
@@ -67,6 +74,42 @@ func StackRows(stages []spacecraft.Stage) int {
 		}
 	}
 	return max(rows, sideTop)
+}
+
+// seamGapRows is the taper plus separator rows launchStackLayout puts between
+// stages[seam-1] and stages[seam]: the gap a dock seam replaces with
+// DockSeamGapM. 0 for a seam out of range or with no drawn stage below it.
+func seamGapRows(stages []spacecraft.Stage, seam int) int {
+	if seam <= 0 || seam >= len(stages) {
+		return 0
+	}
+	s, up := stages[seam-1], stages[seam]
+	if s.LaunchSpriteRowsPx <= 0 || boosterPair(stages, seam-1) {
+		return 0
+	}
+	rows := 0
+	if s.LaunchSpriteRowsPx >= dockTaperThresholdRows && up.LaunchSpriteRowsPx >= dockTaperThresholdRows {
+		rows++
+	}
+	if up.LaunchSpriteRowsPx > 0 {
+		rows++
+	}
+	return rows
+}
+
+// StackLengthM is the drawn stack's length in metres, row grid to the top row
+// (StackRows x DockStrideM) with each dock seam's gap shrunk to DockSeamGapM.
+// With no seams it is exactly StackRows x DockStrideM. Every sim length that
+// crosses a seam uses it, and the renderers shift what is above a seam by the
+// same amount (screens.joinSeamGaps), so the two cannot drift.
+func StackLengthM(stages []spacecraft.Stage, seams []int) float64 {
+	l := float64(StackRows(stages)) * DockStrideM
+	for _, sm := range seams {
+		if g := seamGapRows(stages, sm); g > 0 {
+			l -= float64(g)*DockStrideM - DockSeamGapM
+		}
+	}
+	return l
 }
 
 // boosterPair mirrors launch_sprite.go's boosterPairAt: stages[i] is marked
@@ -199,10 +242,10 @@ func (g PortGeometry) PortPoint(r orbital.Vec3, i int) orbital.Vec3 {
 // attitude. A vessel has a port when its TOP stage's part does. This is the
 // raw stack: VesselPortGeometry removes the ports a dock seam consumes, so a
 // docked composite or a loaded carrier has none until the partner leaves.
-func PortGeometryOf(stages []spacecraft.Stage, attitude orbital.Vec3) PortGeometry {
+func PortGeometryOf(stages []spacecraft.Stage, attitude orbital.Vec3, seams ...int) PortGeometry {
 	g := PortGeometry{
 		Axis:    attitude.Unit(),
-		NoseM:   float64(StackRows(stages)) * DockStrideM,
+		NoseM:   StackLengthM(stages, seams),
 		WidthM:  StackWidthM(stages),
 		Stacked: len(stages) > 1,
 	}
@@ -233,8 +276,9 @@ func VesselPortGeometry(c *spacecraft.Spacecraft) PortGeometry {
 	if c == nil {
 		return PortGeometry{}
 	}
-	g := PortGeometryOf(c.Stages, c.CurrentAttitudeDir)
-	if len(DockSeams(c)) > 0 && len(g.Ports) > 0 {
+	seams := DockSeams(c)
+	g := PortGeometryOf(c.Stages, c.CurrentAttitudeDir, seams...)
+	if len(seams) > 0 && len(g.Ports) > 0 {
 		g.Ports = nil
 		g.PortsInUse = true
 	}

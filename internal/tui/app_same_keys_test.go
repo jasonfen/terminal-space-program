@@ -231,7 +231,7 @@ func TestModalsOwningArrowsLeaveTrimsAlone(t *testing.T) {
 		{name: "transpose confirm", enter: func(t *testing.T, a *App) { a.askTranspose() }},
 		{name: "deploy confirm", enter: func(t *testing.T, a *App) { a.askDeploy("payload") }},
 		{name: "release batch confirm", enter: func(t *testing.T, a *App) {
-			a.askReleaseBatch("Starlink", 24, "they fan out sideways, 0.8 cm/s a seam, top 19")
+			a.askReleaseBatch("Starlink", 24, "they fan out sideways, 0.5 cm/s a seam, top 14")
 		}},
 		{name: "quit confirm", enter: func(t *testing.T, a *App) { a.armQuit() }},
 		{name: "boss shell", enter: func(t *testing.T, a *App) { a.Update(keyRunes("`")) }},
@@ -622,7 +622,7 @@ func TestReleaseBatchCardAsksThenReleases(t *testing.T) {
 		t.Fatal("U released the batch on the spot, it must ask first")
 	}
 	view := a.View()
-	for _, want := range []string{"Release all 24 Starlink?", "they fan out sideways, 0.8 cm/s a", "seam, top 19", "release", "cancel"} {
+	for _, want := range []string{"Release all 24 Starlink?", "they fan out sideways, 0.5 cm/s a", "seam, top 14", "release", "cancel"} {
 		if !cardKindUp(a, cardReleaseBatch) || !strings.Contains(view, want) {
 			t.Fatalf("U card lacks %q:\n%s", want, view)
 		}

@@ -86,12 +86,12 @@ func batchCentresM(c *spacecraft.Spacecraft) []float64 {
 	off := 0
 	for i, comp := range c.DockedComponents {
 		off += len(comp.Stages)
-		half := float64(StackRows(comp.Stages))*DockStrideM/2 - dockPortTipInsetM
+		half := StackLengthM(comp.Stages, nil)/2 - dockPortTipInsetM
 		if i == 0 {
 			out[0] = half
 			continue
 		}
-		out[i] = float64(StackRows(c.Stages[:off])-1)*DockStrideM - half
+		out[i] = StackLengthM(c.Stages[:off], DockSeams(c)) - DockStrideM - half
 	}
 	base := out[0]
 	for i := range out {

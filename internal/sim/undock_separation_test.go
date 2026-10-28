@@ -419,7 +419,7 @@ func TestUndockOpensTheSeamTheFlownVesselMade(t *testing.T) {
 	}
 	st, ok := w.dockedProximityState(c)
 	seams := DockSeams(c)
-	if !ok || st.TargetName != "Core" || st.SeamOffsetM != float64(StackRows(c.Stages[:seams[0]]))*DockStrideM {
+	if !ok || st.TargetName != "Core" || !near(st.SeamOffsetM, PortGeometryOf(c.Stages[:seams[0]], c.CurrentAttitudeDir).NoseM-dockPortTipInsetM+0.3, 1e-9) {
 		t.Errorf("docked scene = %q at %.1f m (ok %v), want Core at the Visitor|Core seam", st.TargetName, st.SeamOffsetM, ok)
 	}
 	if n, ok := w.DockedPartnerName(w.Target.CraftID); !ok || n != "Core" {
