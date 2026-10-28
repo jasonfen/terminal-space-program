@@ -316,7 +316,11 @@ func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis
 
 	var pixels []SpritePixel
 	for _, r := range flipDockedBlocks(launchStackLayout(stages), seams) {
-		for row := 0; row < r.rows; row++ {
+		first, last := 0, r.rows
+		if r.kind == rectSeam {
+			first, last = r.rows/2, r.rows/2+1
+		}
+		for row := first; row < last; row++ {
 			rowAbove := float64(row + r.rowBase)
 			for col := 0; col < r.width; col++ {
 				xPx := float64(col) - float64(r.width-1)/2.0
@@ -346,19 +350,14 @@ func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis
 // block and stay put. Rows within a block mirror: a rect at rowBase rb, n
 // rows tall, in a block spanning [lo, hi) lands at lo + (hi - rb - n):
 // its distance from the block's top becomes its distance from the block's
-// bottom. The gap rects at each seam take dockSeamColor. The rects are
-// returned as a copy; seams out of range or non-ascending are ignored.
+// bottom. The gap at each seam becomes one rectSeam (joinSeamGaps). The
+// rects are returned as a copy; seams out of range or non-ascending are
+// ignored.
 func flipDockedBlocks(rects []stackRect, seams []int) []stackRect {
 	if len(seams) == 0 {
 		return rects
 	}
 	out := append([]stackRect(nil), rects...)
-	for i, r := range out {
-		// The gap below each seam is the joint between two docked hulls.
-		if (r.kind == rectTaper || r.kind == rectSeparator) && slices.Contains(seams, r.stage+1) {
-			out[i].color = dockSeamColor()
-		}
-	}
 	for k, start := range seams {
 		end := math.MaxInt
 		if k+1 < len(seams) {
@@ -395,6 +394,33 @@ func flipDockedBlocks(rects []stackRect, seams []int) []stackRect {
 			}
 		}
 	}
+	return joinSeamGaps(out, seams)
+}
+
+// joinSeamGaps replaces the taper/separator rects in the gap below each seam
+// with one rectSeam spanning the gap, in dockSeamColor: the renderers draw it
+// as a thin line across the middle, so the joint reads as a joint, not a
+// 1.5-3 m adapter.
+func joinSeamGaps(rects []stackRect, seams []int) []stackRect {
+	out := rects[:0:0]
+	seamAt := map[int]int{} // lower stage index -> index of its rectSeam in out
+	for _, r := range rects {
+		if (r.kind != rectTaper && r.kind != rectSeparator) || !slices.Contains(seams, r.stage+1) {
+			out = append(out, r)
+			continue
+		}
+		i, ok := seamAt[r.stage]
+		if !ok {
+			seamAt[r.stage] = len(out)
+			out = append(out, stackRect{stage: r.stage, kind: rectSeam, rowBase: r.rowBase, rows: r.rows, width: r.width, color: dockSeamColor()})
+			continue
+		}
+		j := &out[i]
+		top := max(j.rowBase+j.rows, r.rowBase+r.rows)
+		j.rowBase = min(j.rowBase, r.rowBase)
+		j.rows = top - j.rowBase
+		j.width = max(j.width, r.width)
+	}
 	return out
 }
 
@@ -409,6 +435,9 @@ const (
 	// rectSide is one of the two columns of a marked booster stage (ADR 0058
 	// decision 10), drawn beside the stage above at xOffset from the axis.
 	rectSide
+	// rectSeam is the gap below a dock seam (joinSeamGaps), drawn as a
+	// one-row line across its middle.
+	rectSeam
 )
 
 // stackRect is one filled rectangle of the composed launch sprite:
