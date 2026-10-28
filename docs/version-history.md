@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.64.1
+
+Undock playtest fixes (PR `#828`; tag `v0.64.1`). Save schema unchanged.
+
+- **The vessel you release holds still.** It now holds Inertial instead of going back to its pre-dock hold. A long vessel on Prograde turned with the orbit and swung its port sideways faster than you backed off (Apollo TLI: 13 m in 80 s). Your own vessel still gets its pre-dock hold back.
+- **The docking joint is green.** The 1.5 to 3 m between two docked hulls draws in the DOCK READY green instead of separator grey, so it reads as the joint.
+
 ### v0.64.0
 
 Docking keeps the picture and undocking releases in place (ADR 0063, PRs `#826`, `#825`, `#827`, closes `#813`, `#815`), plus Flight Recording follow-ups (PR `#824`, closes `#817`; tag `v0.64.0`). **Save schema 19 → 20** (each docked piece remembers its hold, and a joined stack remembers which seam docked last; older saves load and their docked pieces undock to Inertial).
