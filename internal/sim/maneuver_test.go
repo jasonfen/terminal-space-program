@@ -2595,3 +2595,58 @@ func makeActiveEccentric(w *World) {
 	c := w.ActiveCraft()
 	c.State.V = c.State.V.Add(c.State.R.Scale(0.05 * c.State.V.Norm() / c.State.R.Norm()))
 }
+
+// ADR 0063 §1: arrows under Inertial rotate the held direction by exactly one
+// step (yaw about the radial, pitch about nose x radial), leave the trims at
+// 0, the vessel slews there and holds; under any other hold the call is
+// refused so the arrow falls through to its trim. Equal case: a zero nudge
+// consumes the key and moves nothing.
+func TestNudgeInertialHoldRotatesTheHeldNose(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := w.ActiveCraft()
+	up := c.State.R.Unit()
+	nose := c.State.V.Unit() // horizontal in a circular orbit
+	c.CurrentAttitudeDir = nose
+
+	if w.NudgeInertialHold(0.1, 0) {
+		t.Fatal("a Prograde hold consumed the nudge")
+	}
+	if c.InertialDir.Norm() != 0 {
+		t.Fatal("a refused nudge set InertialDir")
+	}
+	c.PitchTrim = 0.3 // a stale trim must not survive choosing the hold
+	w.SetAttitudeMode(spacecraft.BurnInertial)
+	if !w.NudgeInertialHold(0, 0) || c.InertialHold().Sub(nose).Norm() > 1e-12 {
+		t.Fatal("zero nudge must consume the key and leave the hold")
+	}
+	step := math.Pi / 36
+	w.NudgeInertialHold(step, 0) // ←: left
+	got := c.InertialHold()
+	if ang := math.Acos(got.Dot(nose)); math.Abs(ang-step) > 1e-9 {
+		t.Errorf("yaw turned the hold %.6f rad, want one step %.6f", ang, step)
+	}
+	if math.Abs(got.Dot(up)) > 1e-9 {
+		t.Errorf("yaw left the horizontal plane (dot up %.3g)", got.Dot(up))
+	}
+	if nose.Cross(got).Dot(up) <= 0 {
+		t.Errorf("positive yaw turned right, want left (counter-clockwise from above)")
+	}
+	w.NudgeInertialHold(0, step) // ↑: nose up
+	if s := got.Dot(up); math.Abs(w.ActiveCraft().InertialHold().Dot(up)-math.Sin(step)) > 1e-9 {
+		t.Errorf("pitch up gave elevation sin %.6f, want %.6f (was %.3g)", w.ActiveCraft().InertialHold().Dot(up), math.Sin(step), s)
+	}
+	if c.PitchTrim != 0 || c.HeadingTrim != 0 {
+		t.Errorf("trims = (%v, %v) under Inertial, want 0", c.PitchTrim, c.HeadingTrim)
+	}
+	// The nose chases the held direction and stays on it.
+	want := c.InertialHold()
+	for i := 0; i < 40; i++ {
+		w.Tick()
+	}
+	if d := c.CurrentAttitudeDir.Unit().Dot(want); d < 1-1e-6 {
+		t.Errorf("nose did not settle on the held direction (dot %.9f)", d)
+	}
+}

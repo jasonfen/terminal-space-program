@@ -61,7 +61,7 @@ func TestControlsDocNamesInertialHold(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"| `A` | Hold the nose where it points now (`hold: Inertial (ORBIT)`)", "a Port hold goes to Inertial with it"} {
+	for _, want := range []string{"| `A` | Hold the nose where it points now (`hold: Inertial (ORBIT)`)", "the arrows then turn the held nose instead of trimming", "a Port hold goes to Inertial with it"} {
 		if !strings.Contains(string(doc), want) {
 			t.Errorf("docs/controls.md lacks %q", want)
 		}

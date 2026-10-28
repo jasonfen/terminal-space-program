@@ -6,6 +6,7 @@
 package screens
 
 import (
+	"math"
 	"strings"
 	"testing"
 
@@ -14,6 +15,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // TestGuidanceBoxFPACellsAgreeWhileLanded is L7's regression: pre-fix,
@@ -112,5 +114,38 @@ func TestGuidanceHoldFrameWordIsMarkedWhenItDiffersFromNav(t *testing.T) {
 	c.AttitudeMode = spacecraft.BurnPrograde
 	if row := holdRow(); strings.Contains(row, th.Warning.Render("ORBIT")) {
 		t.Errorf("an orbit hold under nav: ORBIT is marked: %q", row)
+	}
+}
+
+// ADR 0063 §1: under Inertial the heading: cell reads where the nose points,
+// so a left arrow (a 5 degree turn of the hold) moves it by one step once the
+// vessel has slewed there, while trim: stays 0.
+func TestGuidanceHeadingFollowsTheInertialHold(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.CurrentAttitudeDir = c.State.V.Unit()
+	w.SetAttitudeMode(spacecraft.BurnInertial)
+	_, h0, ok := w.NavballNoseReading()
+	if !ok {
+		t.Fatal("no nose reading")
+	}
+	if row := v.buildGuidanceBox(w)[2]; !strings.Contains(row, readout.Heading(h0)) {
+		t.Fatalf("heading row %q lacks the nose bearing %s", row, readout.Heading(h0))
+	}
+	w.NudgeInertialHold(5*math.Pi/180, 0) // ← once
+	for i := 0; i < 40; i++ {
+		w.Tick()
+	}
+	_, h1, _ := w.NavballNoseReading()
+	if d := math.Mod(h0-h1+360, 360); math.Abs(d-5) > 0.1 {
+		t.Fatalf("setup: bearing moved %.3f deg, want 5 (left)", d)
+	}
+	row := v.buildGuidanceBox(w)[2]
+	if !strings.Contains(row, readout.Heading(h1)) || strings.Contains(row, readout.Heading(h0)) {
+		t.Errorf("heading row %q, want %s (moved from %s)", row, readout.Heading(h1), readout.Heading(h0))
 	}
 }

@@ -112,7 +112,7 @@ var helpSections = []helpSection{
 		{"a / d", "attitude normal+ / normal- (rcs: pulse-fire); PORT: left / right across the port"},
 		{"q / e", "attitude radial+ / radial- (rcs: pulse-fire); PORT: in / out along the port (main engine: q holds Port+)"},
 		{"W / S", "attitude surface prograde / retrograde (locks to ground)"},
-		{"A", "attitude inertial: hold the nose where it points (trims off; rcs: sets the hold, no pulse)"},
+		{"A", "attitude inertial: hold the nose where it points; arrows then turn it 5° (alt 1°), trims stay 0"},
 		{"← / →", "pitch trim 5° back from / toward your heading (hold to ramp); in PORT 1° left / right across the port face"},
 		{"↑ / ↓", "heading trim 5° toward north / south off due east (hold to ramp); in PORT 1° up / down across the port face"},
 		{"alt+← / alt+→", "pitch trim 1° back from / toward your heading (fine: alt makes any trim fine); in PORT 0.25°"},

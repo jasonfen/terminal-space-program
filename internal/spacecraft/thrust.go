@@ -212,13 +212,30 @@ const (
 	BurnPortRight
 
 	// BurnInertial (ADR 0063 §1): hold the nose where it points now. The
-	// direction is the vessel's own CurrentAttitudeDir, so the slew is a
-	// no-op, and trims do not apply (they would turn the nose every tick).
+	// direction is InertialHold (set to the nose when chosen, rotated by the
+	// arrow keys), and trims do not apply (they would turn the nose every tick).
 	// A live hold only: a planted node has no nose to keep, so it is not in
 	// AllBurnModes (the player reaches it with the A key). Appended last so
 	// persisted mode ints keep their meaning.
 	BurnInertial
 )
+
+// InertialHold is the direction a BurnInertial hold aims at: InertialDir
+// once set, else the current nose.
+func (s *Spacecraft) InertialHold() orbital.Vec3 {
+	if s.InertialDir.Norm() != 0 {
+		return s.InertialDir.Unit()
+	}
+	return s.CurrentAttitudeDir.Unit()
+}
+
+// HoldInertial puts s on the Inertial hold at its current nose. The trims
+// zero: Inertial ignores them, and the arrows rotate the hold itself.
+func (s *Spacecraft) HoldInertial() {
+	s.AttitudeMode = BurnInertial
+	s.InertialDir = s.CurrentAttitudeDir.Unit()
+	s.PitchTrim, s.HeadingTrim, s.PortPitchTrim, s.PortYawTrim = 0, 0, 0, 0
+}
 
 // IsPortMode reports whether m is one of the six PORT-frame modes.
 func IsPortMode(m BurnMode) bool {
@@ -776,7 +793,7 @@ func (s *Spacecraft) ThrustAccelFnAtWithTargetAtt(mode BurnMode, mu, throttle fl
 	pitchTrim := s.PitchTrim
 	headingTrim := s.HeadingTrim
 	portPitch, portYaw := s.PortPitchTrim, s.PortYawTrim
-	nose := s.CurrentAttitudeDir.Unit() // BurnInertial's direction
+	nose := s.InertialHold() // BurnInertial's direction
 	return func(r, v orbital.Vec3, _ float64) orbital.Vec3 {
 		gravity := physics.Accel(r, mu)
 		if thrust == 0 || mass == 0 {

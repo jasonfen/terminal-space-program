@@ -770,7 +770,7 @@ func (w *World) fuseCompositeAt(lead, drop int, atCentroid bool) (*spacecraft.Sp
 	// ADR 0063 §1: a composite exposes no port, so a Port* hold becomes
 	// Inertial here and the stack keeps its nose (no slew toward prograde).
 	if spacecraft.IsPortMode(composite.AttitudeMode) {
-		composite.AttitudeMode = spacecraft.BurnInertial
+		composite.HoldInertial()
 	}
 
 	// v0.9.1+: composite Stages = lead's stages with the partner's

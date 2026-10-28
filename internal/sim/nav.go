@@ -236,7 +236,7 @@ func (w *World) resetDanglingPortHold() {
 	switch c.AttitudeMode {
 	case spacecraft.BurnPortIn, spacecraft.BurnPortOut, spacecraft.BurnPortUp,
 		spacecraft.BurnPortDown, spacecraft.BurnPortLeft, spacecraft.BurnPortRight:
-		c.AttitudeMode = spacecraft.BurnInertial
+		c.HoldInertial()
 	}
 }
 

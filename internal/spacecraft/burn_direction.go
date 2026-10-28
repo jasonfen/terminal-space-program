@@ -125,7 +125,7 @@ func (s *Spacecraft) BurnDirectionUntrimmedWithTargetAtt(mode BurnMode, rT, vT, 
 	var dir orbital.Vec3
 	switch mode {
 	case BurnInertial:
-		dir = s.CurrentAttitudeDir.Unit()
+		dir = s.InertialHold()
 	case BurnSurfacePrograde, BurnSurfaceRetrograde:
 		vSurf := s.State.V.Sub(omega.Cross(s.State.R))
 		n := vSurf.Norm()

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"math"
 	"testing"
 	"time"
 
@@ -782,5 +783,51 @@ func TestAttitudeInertialKeySetsHoldInBothEngineModes(t *testing.T) {
 		if label, frame := a.world.AttitudeHoldParts(c.AttitudeMode); label != "Inertial" || frame != sim.NavOrbit {
 			t.Errorf("hold parts = (%q, %v), want (Inertial, ORBIT)", label, frame)
 		}
+	}
+}
+
+// ADR 0063 §1: under Inertial the four arrows (and their alt chords) turn the
+// held nose, ← / → heading, ↑ / ↓ pitch, and leave the trims at 0; under any
+// other hold they trim as before.
+func TestArrowsTurnTheInertialHoldNotTheTrims(t *testing.T) {
+	cases := []struct {
+		name string
+		key  tea.KeyMsg
+		step float64
+		up   bool // pitch (elevation changes) vs heading (stays level)
+	}{
+		{"left", tea.KeyMsg{Type: tea.KeyLeft}, 5, false},
+		{"right", tea.KeyMsg{Type: tea.KeyRight}, 5, false},
+		{"up", tea.KeyMsg{Type: tea.KeyUp}, 5, true},
+		{"down", tea.KeyMsg{Type: tea.KeyDown}, 5, true},
+		{"alt+left", tea.KeyMsg{Type: tea.KeyLeft, Alt: true}, 1, false},
+		{"alt+up", tea.KeyMsg{Type: tea.KeyUp, Alt: true}, 1, true},
+	}
+	for _, tc := range cases {
+		a, err := New(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := a.world.ActiveCraft()
+		nose := c.State.V.Unit()
+		c.CurrentAttitudeDir = nose
+		pressKey(a, 'A')
+		a.Update(tc.key)
+		ang := math.Acos(c.InertialHold().Dot(nose)) * 180 / math.Pi
+		if math.Abs(ang-tc.step) > 1e-6 {
+			t.Errorf("%s: hold turned %.4f deg, want %v", tc.name, ang, tc.step)
+		}
+		if lvl := math.Abs(c.InertialHold().Dot(c.State.R.Unit())); tc.up == (lvl < 1e-9) {
+			t.Errorf("%s: elevation %.3g does not match a %s nudge", tc.name, lvl, map[bool]string{true: "pitch", false: "heading"}[tc.up])
+		}
+		if c.PitchTrim != 0 || c.HeadingTrim != 0 {
+			t.Errorf("%s: trims (%v, %v), want 0", tc.name, c.PitchTrim, c.HeadingTrim)
+		}
+	}
+	a, _ := New(nil)
+	a.world.ActiveCraft().AttitudeMode = spacecraft.BurnPrograde
+	a.Update(tea.KeyMsg{Type: tea.KeyRight})
+	if a.world.ActiveCraft().PitchTrim == 0 {
+		t.Error("→ under Prograde no longer trims")
 	}
 }

@@ -193,6 +193,13 @@ type Spacecraft struct {
 	// mid-slew restores its real nose.
 	CurrentAttitudeDir orbital.Vec3
 
+	// InertialDir (ADR 0063 §1) is the direction a BurnInertial hold slews
+	// to and keeps; the arrow keys rotate it. Zero means "the current nose".
+	// shortcut: not persisted (no schema bump), so after a load the hold
+	// falls back to the current nose and only an in-progress slew is lost;
+	// fold it into the schema-20 bump if that ever matters.
+	InertialDir orbital.Vec3
+
 	// AttitudeRate (ADR 0055 slice 0) is the nose's inertial angular
 	// velocity in rad/s, world axes, measured by the sim from the slew it
 	// applied this tick. It is what makes a port point's velocity more than

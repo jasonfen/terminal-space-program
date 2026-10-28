@@ -423,6 +423,17 @@ func TestBurnInertialHoldsTheNoseThroughTrims(t *testing.T) {
 	if thrust.Norm() == 0 || thrust.Scale(1/thrust.Norm()).Sub(nose).Norm() > 1e-9 {
 		t.Errorf("InstantSAS thrust along %+v, want the nose %+v", thrust, nose)
 	}
+	// Once the hold has its own direction (the arrows rotate it), that wins
+	// over the nose, in both paths.
+	held := orbital.Vec3{X: 0.8, Z: -0.6}
+	sc.InertialDir = held
+	if got := sc.BurnDirection(BurnInertial); got.Sub(held).Norm() > 1e-12 {
+		t.Errorf("BurnDirection(Inertial) = %+v, want InertialDir %+v", got, held)
+	}
+	thrust = sc.ThrustAccelFnAtWithTargetAtt(BurnInertial, mu, 1, orbital.Vec3{}, orbital.Vec3{}, orbital.Vec3{})(sc.State.R, sc.State.V, 0).Sub(gravity)
+	if thrust.Norm() == 0 || thrust.Scale(1/thrust.Norm()).Sub(held).Norm() > 1e-9 {
+		t.Errorf("InstantSAS thrust along %+v, want InertialDir %+v", thrust, held)
+	}
 	if BurnInertial.String() != "Inertial" || BurnInertial <= BurnPortRight {
 		t.Errorf("BurnInertial = %d %q, want a new last mode labelled Inertial", BurnInertial, BurnInertial)
 	}

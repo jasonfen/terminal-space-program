@@ -832,8 +832,11 @@ put Mercury first from LEO and made the Moon the ninth press).
 **Inertial** (hold, ADR 0063):
 The attitude hold that keeps the nose where it points now, chosen with `A`.
 Frame tag `ORBIT`, label `Inertial`; its direction is the vessel's own current
-attitude, so the slew is a no-op, the Pitch Trim and Heading Trim do nothing
-under it, and the navball draws no hold marker for it. A `Port` hold becomes
+attitude, so the slew is a no-op, and the navball draws no hold marker for it.
+Under it the arrow keys turn the held direction instead of trimming (←/→ heading
+about the local radial, ↑/↓ pitch, same step as the trims, alt fine); the
+vessel slews there and holds, and the trim rows stay 0°. The held direction is
+not saved: after a load the hold is the current nose. A `Port` hold becomes
 Inertial when the ports latch (a docked stack exposes no port) and when PORT
 drops. Real term: Shuttle DAP `INRTL`. Not a planted-node mode.
 _Avoid_: Free drift, SAS off (TSP models no spin, so they would look the same).

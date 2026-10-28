@@ -278,6 +278,34 @@ func (w *World) SetAttitudeMode(mode spacecraft.BurnMode) {
 		return
 	}
 	c.AttitudeMode = mode
+	if mode == spacecraft.BurnInertial {
+		c.HoldInertial()
+	}
+}
+
+// NudgeInertialHold rotates the active vessel's Inertial hold (ADR 0063 §1):
+// yawRad about the local radial (positive turns left), then pitchRad about
+// the horizontal axis perpendicular to the nose and radial (positive tips
+// the nose up). The vessel slews there at its slew rate. Reports whether the
+// hold is Inertial, so the caller knows the arrow was consumed; gated like
+// SetAttitudeMode. A nose along the radial has no pitch axis and ignores pitch.
+func (w *World) NudgeInertialHold(yawRad, pitchRad float64) bool {
+	c := w.ActiveCraft()
+	if c == nil || c.AttitudeMode != spacecraft.BurnInertial {
+		return false
+	}
+	if !w.canCommand(c) || w.dockMagnetPulls(c) || w.ghostMagnetPulls(c) {
+		return true
+	}
+	dir, up := c.InertialHold(), c.State.R.Unit()
+	if yawRad != 0 {
+		dir = orbital.Rotate(dir, up, yawRad)
+	}
+	if axis := dir.Cross(up); pitchRad != 0 && axis.Norm() > 1e-9 {
+		dir = orbital.Rotate(dir, axis.Unit(), pitchRad)
+	}
+	c.InertialDir = dir.Unit()
+	return true
 }
 
 // PlanNode inserts a node into the active craft's Nodes slice,
