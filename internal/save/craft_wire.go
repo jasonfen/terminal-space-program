@@ -88,6 +88,7 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 	// simStagesToWire with DockedComponent.Stages so a new Stage field
 	// can't be dropped from one path but not the other.
 	wc.Stages = simStagesToWire(c.Stages)
+	wc.NewestSeam = c.NewestSeam
 	for _, dc := range c.DockedComponents {
 		wc.DockedComponents = append(wc.DockedComponents, DockedComponent{
 			Name:             dc.Name,
@@ -368,6 +369,7 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 	// whose stages already carry the attribute.
 	spacecraft.EnsureCommandSource(c)
 	c.SyncFields()
+	c.NewestSeam = wc.NewestSeam
 	for _, dc := range wc.DockedComponents {
 		c.DockedComponents = append(c.DockedComponents, spacecraft.DockedComponent{
 			Name:             dc.Name,

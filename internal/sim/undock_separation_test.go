@@ -374,3 +374,121 @@ func TestRecordingContinuesThroughDockAndUndock(t *testing.T) {
 		t.Error("the undock row is missing from the flown vessel's file")
 	}
 }
+
+// visitorOnto docks a lone RCS tug (the active, leading vessel) onto the
+// existing composite at slate index 0 and returns the new composite's index.
+func visitorOnto(t *testing.T, w *World) *spacecraft.Spacecraft {
+	t.Helper()
+	comp := w.Crafts[0]
+	v := spacecraft.NewFromLoadout("RCS-tug")
+	v.Name, v.Primary = "Visitor", comp.Primary
+	v.State = physics.StateVector{R: comp.State.R, V: comp.State.V, M: v.TotalMass()}
+	v.CurrentAttitudeDir = comp.CurrentAttitudeDir
+	w.Crafts = []*spacecraft.Spacecraft{v, comp}
+	w.stampCraftID(v)
+	w.ActiveCraftIdx = 0
+	placePortToPort(v, comp, 0.3)
+	w.SetTargetCraft(1)
+	w.DockCrafts(0, 1)
+	if len(w.Crafts) != 1 {
+		t.Fatalf("fixture dock left %d vessels", len(w.Crafts))
+	}
+	return w.Crafts[0]
+}
+
+// ADR 0063 §4 (batch review finding 1): the flown vessel docking onto a
+// composite lists [Visitor, Core, Comp]; the newest seam is Visitor|Core, so U
+// releases the whole Core+Comp block as one composite with Core's docked-with
+// ID, the target resolves, and the docked Proximity scene names the same
+// partner at the same seam.
+func TestUndockOpensTheSeamTheFlownVesselMade(t *testing.T) {
+	w, _ := NewWorld()
+	buildStack(t, w, 2)
+	coreID, compID := w.Crafts[0].DockedComponents[0].CraftID, w.Crafts[0].DockedComponents[1].CraftID
+	c := visitorOnto(t, w)
+	if n := len(c.DockedComponents); n != 3 || c.NewestSeamStart() != 1 {
+		t.Fatalf("setup: %d components, newest seam start %d, want 3 and 1", n, c.NewestSeamStart())
+	}
+	st, ok := w.dockedProximityState(c)
+	seams := DockSeams(c)
+	if !ok || st.TargetName != "Core" || st.SeamOffsetM != float64(StackRows(c.Stages[:seams[0]]))*DockStrideM {
+		t.Errorf("docked scene = %q at %.1f m (ok %v), want Core at the Visitor|Core seam", st.TargetName, st.SeamOffsetM, ok)
+	}
+	if n, ok := w.DockedPartnerName(w.Target.CraftID); !ok || n != "Core" {
+		t.Errorf("DockedPartnerName = %q %v, want Core", n, ok)
+	}
+	if !w.Undock(0) {
+		t.Fatal("Undock refused")
+	}
+	if len(w.Crafts) != 2 {
+		t.Fatalf("slate = %d, want 2", len(w.Crafts))
+	}
+	lead, rel := w.Crafts[0], w.Crafts[1]
+	if lead.Name != "Visitor" || len(lead.DockedComponents) != 0 {
+		t.Errorf("flown vessel = %q with %d components, want the lone Visitor", lead.Name, len(lead.DockedComponents))
+	}
+	if rel.ID != coreID || len(rel.DockedComponents) != 2 || rel.DockedComponents[1].CraftID != compID {
+		t.Errorf("released id %d with %d components, want Core's id %d keeping [Core, Comp]", rel.ID, len(rel.DockedComponents), coreID)
+	}
+	if c, _, ok := w.targetCraft(); !ok || c != rel {
+		t.Error("the Core target did not resolve to the released composite")
+	}
+}
+
+// Batch review finding 2: a stage dropped while docked must not erase the
+// flown vessel's pre-latch hold (rebuildComponentAround), and a bottom
+// component dropping shifts the newest-seam marker with the components.
+func TestStageDropWhileDockedKeepsThePreLatchHold(t *testing.T) {
+	w, _, _ := dockedLoadoutPair(t, "Apollo-TLI", "RCS-tug")
+	c := w.Crafts[0]
+	if len(c.DockedComponents[0].Stages) < 2 {
+		t.Fatal("setup: the lead needs two stages")
+	}
+	c.DockedComponents[0].AttitudeMode = modePtr(spacecraft.BurnRetrograde)
+	c.Stages = c.Stages[1:] // a bottom stage left while docked
+	c.ReconcileDockedComponents()
+	if m := c.DockedComponents[0].AttitudeMode; m == nil || *m != spacecraft.BurnRetrograde {
+		t.Fatalf("lead record after the drop = %v, want Retrograde", m)
+	}
+	w.Undock(0)
+	if got := w.Crafts[0].AttitudeMode; got != spacecraft.BurnRetrograde {
+		t.Errorf("flown vessel hold after U = %v, want Retrograde", got)
+	}
+
+	// The marker follows a whole component leaving the bottom.
+	d := &spacecraft.Spacecraft{
+		Stages:           []spacecraft.Stage{{Name: "B"}, {Name: "C"}},
+		DockedComponents: []spacecraft.DockedComponent{{Name: "A", Stages: []spacecraft.Stage{{Name: "A"}}}, {Name: "B", Stages: []spacecraft.Stage{{Name: "B"}}}, {Name: "C", Stages: []spacecraft.Stage{{Name: "C"}}}},
+		NewestSeam:       2,
+	}
+	if !d.ReconcileDockedComponents() || d.NewestSeam != 1 || d.NewestSeamStart() != 1 {
+		t.Errorf("after A left: changed marker = %d (start %d), want 1", d.NewestSeam, d.NewestSeamStart())
+	}
+}
+
+// Batch review finding 3: a flown vessel docked as lead onto an authored
+// carrier is not a batch (the lead carries a live ID); the same carrier alone
+// still is; and no vessel can fly onto a tiled carrier through the port gate,
+// because its seams consume every port (VesselPortGeometry), so the pair is
+// only reachable through the fixture dock.
+func TestFlownLeadOnAnAuthoredCarrierIsNotABatch(t *testing.T) {
+	w, idx := batchFixture(t, 90, false)
+	if !w.IsBatch(idx) {
+		t.Fatal("setup: the carrier alone is not a batch")
+	}
+	carrier := w.Crafts[idx]
+	if g := VesselPortGeometry(carrier); g.HasPort() {
+		t.Errorf("a tiled carrier exposes a free port %+v: the gate could admit a visitor", g.Ports)
+	}
+	v := spacecraft.NewFromLoadout("RCS-tug")
+	v.Name, v.Primary = "Visitor", carrier.Primary
+	v.State = physics.StateVector{R: carrier.State.R, V: carrier.State.V, M: v.TotalMass()}
+	v.CurrentAttitudeDir = carrier.CurrentAttitudeDir
+	w.Crafts = append(w.Crafts, v)
+	w.stampCraftID(v)
+	w.SetActiveCraftIdx(len(w.Crafts) - 1)
+	w.DockCrafts(len(w.Crafts)-1, idx)
+	if w.IsBatch(w.ActiveCraftIdx) {
+		t.Error("a flown lead on an authored carrier reads as a batch")
+	}
+}

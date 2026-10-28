@@ -224,6 +224,13 @@ type Spacecraft struct {
 	// its own components and the other's identity to the result).
 	DockedComponents []DockedComponent
 
+	// NewestSeam (schema v20, ADR 0063 §4) is the index in DockedComponents
+	// where the block docked last begins: [lead..., drop...] puts the drop's
+	// components after the lead's, so the newest seam is not always the top.
+	// 0 means unknown (a record from an older save, a spawned stack): the last
+	// component. Read it through NewestSeamStart.
+	NewestSeam int
+
 	// Landed (v0.9.2+): true when the craft is parked on the
 	// primary's surface co-rotating with the ground. While Landed,
 	// the integrator bypasses gravity / drag / thrust and recomputes

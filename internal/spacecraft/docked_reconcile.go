@@ -38,6 +38,7 @@ func (c *Spacecraft) ReconcileDockedComponents() bool {
 		if n <= excess {
 			excess -= n
 			comps = comps[1:]
+			c.NewestSeam-- // the marked block moved down with the components
 			continue
 		}
 		comps[0] = rebuildComponentAround(comps[0], comps[0].Stages[excess:])
@@ -49,7 +50,24 @@ func (c *Spacecraft) ReconcileDockedComponents() bool {
 		comps = nil
 	}
 	c.DockedComponents = comps
+	if c.NewestSeam < 0 {
+		c.NewestSeam = 0
+	}
 	return true
+}
+
+// NewestSeamStart is the index of the first component of the block docked
+// last (ADR 0063 §4): NewestSeam when it is a real seam (1..n-1), else the
+// last component. 0 for a vessel with fewer than two components.
+func (c *Spacecraft) NewestSeamStart() int {
+	n := len(c.DockedComponents)
+	if n < 2 {
+		return 0
+	}
+	if c.NewestSeam >= 1 && c.NewestSeam < n {
+		return c.NewestSeam
+	}
+	return n - 1
 }
 
 // rebuildComponentAround returns dc re-recorded around the stages that are
@@ -62,6 +80,7 @@ func rebuildComponentAround(dc DockedComponent, left []Stage) DockedComponent {
 	out := tmp.AsDockedComponent()
 	out.Name, out.Role = dc.Name, dc.Role
 	out.Owner, out.CraftID = dc.Owner, dc.CraftID
+	out.AttitudeMode = dc.AttitudeMode // the pre-latch hold survives a stage drop while docked
 	out.LoadoutID, out.Glyph, out.Color = bottom.LoadoutID, bottom.Glyph, bottom.Color
 	return out
 }

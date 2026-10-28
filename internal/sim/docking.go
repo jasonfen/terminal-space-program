@@ -249,28 +249,37 @@ func (w *World) legacyComponentStages(c *spacecraft.Spacecraft, comp spacecraft.
 	}}
 }
 
-// releaseNewestSeam is the ADR 0063 §4-§8 release: the last component docked
-// leaves as one vessel, straight back along the stack axis at the shared
-// spring; the flown vessel keeps its ID, its place in the slate, and (when
-// more than one component is left) the composite itself. Needs the per-stage
-// breakdown (undockSplit's useBreakdown).
+// releaseNewestSeam is the ADR 0063 §4-§8 release: the block docked last (from
+// NewestSeamStart to the top) leaves as one vessel, straight back along the
+// stack axis at the shared spring, with its own internal seams kept when it is
+// several components; the flown vessel keeps its ID, its place in the slate,
+// and (when more than one component is left) the composite itself. Needs the
+// per-stage breakdown (undockSplit's useBreakdown).
 func (w *World) releaseNewestSeam(idx int, c *spacecraft.Spacecraft, axis orbital.Vec3) bool {
-	n := len(c.DockedComponents)
-	top := c.DockedComponents[n-1]
-	keep := len(c.Stages) - len(top.Stages)
+	k := c.NewestSeamStart()
+	blockComps := append([]spacecraft.DockedComponent(nil), c.DockedComponents[k:]...)
+	keep := 0
+	for _, comp := range c.DockedComponents[:k] {
+		keep += len(comp.Stages)
+	}
+	top := blockComps[0]
 	// Where the released hull was drawn: its bottom row sits at the top of
 	// the stack's block (the composite sprite reflects it).
 	r := c.State.R
 	if rows := StackRows(c.Stages); rows > 0 {
 		r = r.Add(axis.Scale(float64(rows-1) * DockStrideM))
 	}
-	released := w.restoreComponentCraft(c, top, append([]spacecraft.Stage(nil), c.Stages[keep:]...), r, c.State.V)
+	blockStages := append([]spacecraft.Stage(nil), c.Stages[keep:]...)
+	released := w.restoreComponentCraft(c, top, blockStages, r, c.State.V)
+	if len(blockComps) > 1 {
+		released.DockedComponents = blockComps // its own seams come back with it
+	}
 	released.CurrentAttitudeDir = axis.Scale(-1)
 	released.ID = top.CraftID
 	w.claimCraftID(released)
 
 	var lead *spacecraft.Spacecraft
-	if n == 2 {
+	if k == 1 {
 		lead = w.restoreComponentCraft(c, c.DockedComponents[0], append([]spacecraft.Stage(nil), c.Stages[:keep]...), c.State.R, c.State.V)
 		lead.CurrentAttitudeDir = c.CurrentAttitudeDir
 		// The flown vessel's launch bookkeeping rides along so its recording
@@ -278,10 +287,11 @@ func (w *World) releaseNewestSeam(idx int, c *spacecraft.Spacecraft, axis orbita
 		lead.LiftoffSimTime, lead.HasLaunchSite = c.LiftoffSimTime, c.HasLaunchSite
 		lead.LaunchLatDeg, lead.LaunchLonDeg = c.LaunchLatDeg, c.LaunchLonDeg
 	} else {
-		// Three or more: the composite shrinks in place (as Deploy does).
+		// Two or more left: the composite shrinks in place (as Deploy does).
 		lead = c
 		lead.Stages = append([]spacecraft.Stage(nil), c.Stages[:keep]...)
-		lead.DockedComponents = append([]spacecraft.DockedComponent(nil), c.DockedComponents[:n-1]...)
+		lead.DockedComponents = append([]spacecraft.DockedComponent(nil), c.DockedComponents[:k]...)
+		lead.NewestSeam = 0 // the history before this seam is not recorded
 		lead.SyncFields()
 		lead.State.M = lead.TotalMass()
 	}
@@ -938,11 +948,14 @@ func (w *World) fuseCompositeAt(lead, drop int, atCentroid bool) (*spacecraft.Sp
 	// composite, splice its components into the new list rather
 	// than nesting.
 	composite.DockedComponents = nil
+	composite.NewestSeam = 0
 	if len(a.DockedComponents) > 0 {
 		composite.DockedComponents = append(composite.DockedComponents, a.DockedComponents...)
 	} else {
 		composite.DockedComponents = append(composite.DockedComponents, a.AsDockedComponent())
 	}
+	// ADR 0063 §4: the drop's block starts here, whichever vessel led.
+	composite.NewestSeam = len(composite.DockedComponents)
 	if len(b.DockedComponents) > 0 {
 		composite.DockedComponents = append(composite.DockedComponents, b.DockedComponents...)
 	} else {

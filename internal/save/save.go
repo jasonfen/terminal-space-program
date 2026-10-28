@@ -278,6 +278,9 @@ type Craft struct {
 	// v0.8.3+: docked-composite components for Undock to restore.
 	// Empty for non-composite craft.
 	DockedComponents []DockedComponent `json:"docked_components,omitempty"`
+	// NewestSeam (schema v20, ADR 0063 §4): where the block docked last begins.
+	// Absent decodes to 0, which reads as the last component.
+	NewestSeam int `json:"newest_seam,omitempty"`
 	// v0.8.1+ — per-craft burn state. Pre-v5 saves had Nodes /
 	// ActiveBurn / etc. on the Payload (one shared list); the
 	// migration on load splits the singular into the active craft's

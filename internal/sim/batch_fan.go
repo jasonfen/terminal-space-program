@@ -37,8 +37,8 @@ func stackAxis(c *spacecraft.Spacecraft) orbital.Vec3 {
 
 // IsBatch reports whether the vessel at idx is a batch: a same-player
 // composite with two or more components above its lead whose record tiles the
-// live stack, every one of them authored (the VAB or spawn form built it, so
-// no component carries the ID of a vessel that flew in; ADR 0063 §4). A pair,
+// live stack, every component authored, the lead's included (the VAB or spawn
+// form built it, so none carries the ID of a vessel that flew in; ADR 0063 §4). A pair,
 // a CSM with its LM, a single-payload carrier or a flown dock chain is not,
 // and keeps U's newest-seam release. Like Undock it repairs a stack that lost bottom stages
 // (a spent F9-S1) before looking.
@@ -51,7 +51,7 @@ func (w *World) IsBatch(idx int) bool {
 	if len(c.DockedComponents) < 3 || DockSeams(c) == nil || StackHasGuest(c) {
 		return false
 	}
-	for _, comp := range c.DockedComponents[1:] {
+	for _, comp := range c.DockedComponents {
 		if comp.CraftID != 0 {
 			return false
 		}
