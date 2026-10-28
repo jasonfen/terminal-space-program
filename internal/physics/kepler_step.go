@@ -6,6 +6,13 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
+// keplerCircularTol is the eccentricity under which the propagator treats the
+// orbit as circular. Below it cosE = (1 - r/a)/e amplifies float noise by 1/e
+// (a warp-lock teleport, #90), but at 1e-8 that is 1e-8 rad, a few cm in LEO,
+// where the old 1e-6 left a branch seam of up to 2 a e (about 14 m) between a
+// craft just under it and its neighbours just over.
+const keplerCircularTol = 1e-8
+
 // KeplerStep advances a state vector by dt using analytic Kepler
 // propagation. Snapshots orbital elements, advances mean anomaly by
 // n·dt, and reconstructs (r, v) from the new true anomaly. Exact
@@ -39,7 +46,7 @@ func keplerElementsAndAnomaly(s StateVector, mu float64) (el orbital.Elements, M
 	if mu <= 0 {
 		return el, 0, false
 	}
-	el = orbital.ElementsFromState(s.R, s.V, mu)
+	el = orbital.ElementsFromStateTol(s.R, s.V, mu, keplerCircularTol)
 	if el.E >= 1 || el.A <= 0 {
 		return el, 0, false
 	}
@@ -50,12 +57,11 @@ func keplerElementsAndAnomaly(s StateVector, mu float64) (el orbital.Elements, M
 	}
 
 	// Mean anomaly at t=0 derived from current state.
-	// Match orbital.ElementsFromState's circularTol (1e-6). For e below
-	// it, cosE = (1 − r/a)/e amplifies float noise by ~1/e, clamping
+	// For e below keplerCircularTol, cosE = (1 − r/a)/e amplifies float noise by ~1/e, clamping
 	// cosE to ±1 and snapping the craft back to periapsis (a warp-lock
 	// teleport). The perifocal-angle branch below is noise-free for that
 	// near-circular band. (#90)
-	if el.E > 1e-6 {
+	if el.E > keplerCircularTol {
 		// Elliptic, non-circular. Standard formulas:
 		//   r = a(1 − e cos E)  →  cos E = (1 − r/a) / e
 		//   r·v = √(µa) · e · sin E
