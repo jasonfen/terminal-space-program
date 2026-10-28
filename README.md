@@ -3,76 +3,90 @@
 # Terminal Space Program
 
 A Kerbal Space Program for your terminal: a real orbital-mechanics rocket
-simulator drawn in braille-canvas graphics, driven entirely from the keyboard,
-and shipped as a single static Go binary.
+simulator drawn in braille-canvas graphics, played from the keyboard, and
+shipped as a single static Go binary.
 
 <img align="right" width="250" src="media/orbit-rendering.gif" alt="Orbit rendering in the launch / landing chase-cam view">
 
-I love **Kerbal Space Program** and I love **TUI applications**, so I married
-the two for whenever I'm bored and have a terminal available.
+I love Kerbal Space Program and I love TUI applications, so I married the two
+for whenever I'm bored and have a terminal available.
 
 Plan transfers between planets and moons, fly your rocket off the pad and into
 orbit by hand, rendezvous and dock, stage away spent boosters, and bring a
-capsule home under parachute. No mouse, no GUI.
+capsule home under parachute.
 
-Under the hood it's a real sim: gravity, fuel, atmospheric drag, and timing all
-matter the way they do in real life. The default game renders our own solar
-system at full scale. Reaching low Earth orbit costs 7.5 km/s, the Moon's orbit
-is inclined, the Earth is tilted on its axis, and the shipped vessels are real
-rockets with accurate thrust and fuel loadouts.
+Under the hood it's a real sim of gravity, fuel, atmospheric drag and timing.
+The default game is our own solar system at full scale. Reaching low Earth
+orbit takes about 9.4 km/s, the Moon's orbit is inclined, the Earth is tilted
+on its axis, and the Sol launch vehicles are real rockets (Saturn V, SLS,
+Falcon 9) with accurate thrust and fuel loadouts.
 
 ## Features
 
-- **Patched-conic physics.** Symplectic integration in free flight, RK4 under
+- Patched-conic physics: symplectic integration in free flight, RK4 under
   thrust with rocket-equation mass loss, sphere-of-influence handoffs, drag,
   and surface contact.
-- **Five star systems.** Sol at full scale, plus **Lumen**, a familiar
-  1/10th-scale system (Kernel with its moons Cursor and Glyph, and the red
-  planet Rust) with its own scaled vessels, and three exoplanet systems.
-  `TAB` cycles systems; a vessel stays bound to the system it spawned in.
-- **Maneuver planning.** Plant and edit burn nodes, one-key Hohmann transfers
-  with inclination change (`H`), Lambert and porkchop solvers, and a live
-  projected post-burn orbit.
-- **Encounter preview.** When your trajectory enters a body's sphere of
-  influence the map draws the full arc (entry, perilune, exit) with an
-  always-on **SOI PASS** chip. `j` steps a highlight through every marker the
-  map drew and names it; `f` focuses the body so the capture curve fills the
-  canvas.
-- **Vehicle Assembly Building.** `Esc → [Build (VAB)]` composes engines,
-  tanks, command cores, antennas, and structure into stages with a live
-  **Δv / TWR / mass** readout. Crack open a shipped rocket to tweak it, set a
-  Σ Δv target, and your designs appear in the spawn form next to the built-in
-  fleet.
-- **Staging, docking, and payloads.** Player-managed decouple chains, docking
-  flown port to port with a proximity view, nose payloads on dock seams, deployable comsats, and
-  a CommNet link model.
-- **Multiplayer over ssh.** Host from your own game; guests join from any
+- Five star systems. Sol is at full scale. Lumen is a 1/10-scale system
+  modelled on KSP's (the home planet Kern with its moons Cursor and Glyph, and
+  the red planet Rust) and has its own scaled fleet. Alpha Centauri,
+  Kepler-452 and TRAPPIST-1 are the other three. `Tab` switches the view
+  between systems; a vessel stays in the system it spawned in.
+- A launch catalog that includes the Apollo stack on a Saturn V, SLS with
+  Orion, Falcon 9 with a Dragon, a Cargo Dragon or 24 Starlink satellites, plus
+  tugs, relays, landers and probes.
+- Hand-flown launches from named sites (KSC, Baikonur and others) in a
+  chase-cam launch view. On the pad with a target set, `G` warps you to the
+  launch window.
+- Maneuver planning: plant and edit burn nodes, plan a Hohmann transfer with
+  inclination change in one key (`H`), use the Lambert and porkchop solvers
+  for trips to other planets, and watch a live preview of the orbit a burn
+  will leave you in.
+- SOI pass preview. When your path enters a body's sphere of influence, the
+  map draws the pass (entry, perilune, exit) and an SOI PASS readout. `j`
+  steps a highlight through everything the map drew and names it; focusing
+  the body with `f` fits the camera to the pass.
+- Rendezvous and docking. `K` plans a rendezvous with a target vessel, and
+  opens the Rendezvous Planner when you are too far apart in phase for one
+  nudge. The Proximity view (`o`) shows both hulls at true scale for the last
+  kilometres, with a Centerline scope for lining up the ports, and you fly
+  the dock port to port.
+- Staging you manage yourself, boosters that light with their core,
+  deployable payloads (a whole Starlink batch releases at once), and a CommNet
+  link model.
+- A Vehicle Assembly Building (`Esc → Build (VAB)`) that builds stages from
+  engines, tanks, command cores, antennas and structure, with a live
+  Δv / TWR / mass readout. You can crack open a shipped rocket to tweak it and
+  set a Σ Δv target, and your designs appear in the spawn form next to the
+  built-in fleet.
+- Flight School and a Challenge ladder of missions (`M`).
+- A Flight Recording for every vessel: a text file of what it did, a row at a
+  time, that you can paste into a bug report.
+- Multiplayer over ssh. Host from your own game; guests join from any
   terminal, each with their own persistent program and independent time.
-- **Saves that stay out of the way.** Named saves, `F5`/`F9` quicksave, and
-  rotating autosaves, all flat files under
-  `~/.local/state/terminal-space-program/saves/`.
-- **Data, not code.** Star systems, vessels, and parts are JSON; drop files in
+- Named saves, `F5`/`F9` quicksave and three rotating autosaves, all flat
+  files under `~/.local/state/terminal-space-program/saves/`.
+- Star systems, vessels, parts and missions are JSON. Drop files in
   `~/.config/terminal-space-program/` to add or override any of them.
 
 ## Quick start
 
-You spawn as **Apollo TLI-1**, an Apollo S-IVB with the Lunar Module and the CSM still on top, in a 500 km
-circular Earth orbit tilted 51.6° to the equator (so a launch from the KSC pad can meet it).
-Press `t` to target the Moon (`T` clears it), then `H` to plant a Hohmann
-transfer with inclination change, or fly it all by hand. `F1` shows every key
-in-game. See the **[controls & flight guide](docs/controls.md)** for a tour, a
-launch walkthrough, and the full key list.
+You spawn as Apollo TLI-1, an Apollo S-IVB with the Lunar Module and the CSM
+still on top, in a 500 km circular Earth orbit tilted 51.6° to the equator, so
+a launch from the KSC pad can reach it. Press `t` to target the Moon (`T`
+clears it), then `H` to plant a transfer, or fly it all by hand. `F1` shows
+every key in-game. The [controls & flight guide](docs/controls.md) has a tour,
+a launch walkthrough, and the full key list.
 
-**Terminal size:** the game is designed for a 140×40 terminal. It runs down
-to a hard floor of 104×24 — below that it shows a "terminal too small"
-screen — but between the two, HUD chips shrink to a compact form and, at
-worst, collapse behind a `▸ +N hidden` marker rather than overlap.
+The game is designed for a 140×40 terminal. It runs down to 104×24 and shows a
+"terminal too small" screen below that. Between the two sizes, HUD chips
+shrink to a compact form and, at worst, collapse behind a `▸ +N hidden`
+marker so they never overlap.
 
-**New to the game?** Flight School is on by default: a five-rung ladder
-that starts with the camera and the planner, then walks you through a
-pad launch to orbit and a rendezvous-and-dock, one objective at a time.
-Press `M` to see the ladder and your progress on it. Don't want it? `M`,
-`1`, `Esc` turns it off in three presses.
+Flight School is on by default: a five-rung ladder that starts with the camera
+and the planner, then walks you through a pad launch to orbit and a
+rendezvous and dock, one objective at a time. Press `M` to see the ladder and
+your progress on it. To turn it off, press `M`, `1`, `Esc`. The Challenge
+ladder is off until you enable it in Settings.
 
 ## Install
 
@@ -143,7 +157,16 @@ curl -L https://github.com/jasonfen/terminal-space-program/releases/latest/downl
 Replace `linux-amd64` with `linux-arm64`, `darwin-amd64`, `darwin-arm64`, or
 `windows-amd64` (use the `.zip` variant on Windows).
 
-No Go toolchain, no libc dance. `CGO_ENABLED=0` static binaries.
+The release binaries are static (`CGO_ENABLED=0`), so they need no Go
+toolchain and no particular libc.
+
+### Go install
+
+```bash
+go install github.com/jasonfen/terminal-space-program/cmd/terminal-space-program@latest
+```
+
+A binary built this way reports its version as `dev`.
 
 ### Build from source
 
@@ -154,7 +177,7 @@ go build ./cmd/terminal-space-program
 ./terminal-space-program
 ```
 
-Requires Go 1.26 or newer.
+Both need Go 1.26 or newer.
 
 ## Command-line flags
 
@@ -171,13 +194,13 @@ terminal-space-program --list-bodies --system Lumen           # discover names
 terminal-space-program --version
 ```
 
-`--version` and the `--list-*` discovery flags print and exit. See the
-**[command-line reference](docs/cli.md)** for every flag, units, defaults, and
-more examples.
+`--version` and the `--list-*` discovery flags print and exit. The
+[command-line reference](docs/cli.md) lists every flag, with units, defaults,
+and more examples.
 
 ## Multiplayer (ssh)
 
-Host a shared session straight from your own game, no separate server:
+The game hosts a shared session itself; there is no separate server to run:
 
 ```bash
 terminal-space-program --serve                 # play AND accept guests (port 23234)
@@ -194,32 +217,35 @@ to, spectate, or rendezvous-warp with them. Get close enough and your clocks
 couple, so you can dock across players, hand over control of a shared stack,
 and coordinate it all in the in-game chat (`~`).
 
-The **[multiplayer guide](docs/multiplayer.md)** covers hosting from inside a
+The [multiplayer guide](docs/multiplayer.md) covers hosting from inside a
 running game, admins, rendezvous warp and the terminal phase, cross-player
 docking, and chat.
 
 ## Custom vehicles
 
-Vehicle loadouts and stage parts are **data, not code**. Drop a `.json` file in
-`~/.config/terminal-space-program/loadouts/` (or under `$XDG_CONFIG_HOME`) to add
-your own loadouts and parts, or override a built-in by reusing its `id`. A loadout
-is an ordered list of part references; a part is one atomic stage. Designs saved
-from the VAB land in the sibling `designs/` directory in the same format. Run
+Vehicle loadouts and stage parts are JSON files. Drop a `.json` file in
+`~/.config/terminal-space-program/loadouts/` (or
+`$XDG_CONFIG_HOME/terminal-space-program/loadouts/`) to add your own loadouts
+and parts, or override a built-in by reusing its `id`. A loadout is an ordered
+list of part references; a part is one atomic stage. Designs saved from the
+VAB land in the sibling `designs/` directory in the same format. Run
 `terminal-space-program --list-loadouts` to see the merged catalog and confirm
-yours loaded; a malformed file is skipped with a warning, never failing the rest.
-See the [command-line reference](docs/cli.md#custom-vehicles) for the format.
+yours loaded. A malformed file is skipped with a warning and the rest still
+load. The format is in the [command-line reference](docs/cli.md#custom-vehicles).
 
 ## Learn more
 
-- **[Controls & flight guide](docs/controls.md)**: a quick tour, a launch
+- The [controls & flight guide](docs/controls.md) has a quick tour, a launch
   walkthrough, and the full list of keys.
-- **[Multiplayer guide](docs/multiplayer.md)**: hosting, independent time,
-  rendezvous warp, cross-player docking, and chat.
-- **[Constellation deployment](docs/constellation-deploy.md)**: dropping an
-  evenly-spaced ring of comsats from one carrier, and the phasing-orbit math
+- The [multiplayer guide](docs/multiplayer.md) covers hosting, independent
+  time, rendezvous warp, cross-player docking, and chat.
+- [Constellation deployment](docs/constellation-deploy.md) explains how to drop
+  an evenly spaced ring of comsats from one carrier, and the phasing-orbit math
   that makes it cheap.
-- **[Command-line reference](docs/cli.md)**: every startup flag with examples.
-- **[Version history](docs/version-history.md)**: what landed in each release.
+- The [command-line reference](docs/cli.md) lists every startup flag with
+  examples.
+- The [version history](docs/version-history.md) lists what landed in each
+  release.
 
 ## Credits and license
 
@@ -229,6 +255,6 @@ The visual foundation was lifted (with MIT attribution) from
 [furan917/go-solar-system](https://github.com/furan917/go-solar-system). See
 [NOTICE.md](NOTICE.md) for the full acknowledgments list.
 
-## Star History
+## Star history
 
 [![Star History Chart](https://api.star-history.com/chart?repos=jasonfen/terminal-space-program&type=date&legend=bottom-right&sealed_token=dbwjcj7yk5KnzsyrH6GvpkZ9uYMbo-cqySjIk2qjHWcbz8FWAE3joeX41ruigOvYcuim7wL57pKOb3OLyvdIobXwjsULwza07zkUdQ13jeYLAF6M2qGxXykxRAoJcewhjzYYDGSDd3VaIzW8CKc2iv9Grg1Rz0-h3vkXpUPxhNfzGLar0_VyF4BnQfvj)](https://www.star-history.com/?repos=jasonfen%2Fterminal-space-program&type=date&legend=bottom-right)
