@@ -357,3 +357,49 @@ func TestDockMagnetLongStackPortNeverLeavesTheGate(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0063 §1: the latch keeps the stack's nose. A Port* hold has no port to
+// hold on a composite, so it becomes Inertial and the stack does not slew
+// toward prograde, on the latch tick or after. Any other hold is left alone
+// (and still slews, so the fixture can tell a hold from a turn).
+func TestDockLatchKeepsNoseAndTurnsPortHoldInertial(t *testing.T) {
+	cases := []struct {
+		name string
+		nav  NavMode
+		hold spacecraft.BurnMode
+		want spacecraft.BurnMode
+	}{
+		{"port hold in PORT", NavPort, spacecraft.BurnPortIn, spacecraft.BurnInertial},
+		{"port hold, nav moved on to ORBIT", NavOrbit, spacecraft.BurnPortIn, spacecraft.BurnInertial},
+		{"non-port hold untouched", NavOrbit, spacecraft.BurnRetrograde, spacecraft.BurnRetrograde},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newPortPair(t, "rcs-tug", "rcs-tug", 0.4, 0, 0)
+			w := p.w
+			// Nose well off prograde (+Y), so a slew toward prograde shows.
+			nose := orbital.Vec3{X: 1}
+			p.a.CurrentAttitudeDir = nose
+			p.b.CurrentAttitudeDir = nose.Scale(-1)
+			w.SetTargetCraft(1)
+			w.NavMode = tc.nav
+			p.a.AttitudeMode = tc.hold
+			w.DockCrafts(0, 1)
+			if len(w.Crafts) != 1 {
+				t.Fatalf("slate = %d, want one composite", len(w.Crafts))
+			}
+			c := w.Crafts[0]
+			if c.AttitudeMode != tc.want {
+				t.Errorf("hold after latch = %v, want %v", c.AttitudeMode, tc.want)
+			}
+			tickFor(w, 3)
+			dot := c.CurrentAttitudeDir.Unit().Dot(nose)
+			if tc.want == spacecraft.BurnInertial && dot < 1-1e-9 {
+				t.Errorf("stack nose moved off the latch attitude (dot %.9f)", dot)
+			}
+			if tc.want == spacecraft.BurnRetrograde && dot > 1-1e-3 {
+				t.Errorf("a real hold must still slew (dot %.9f): fixture cannot tell a slew from a hold", dot)
+			}
+		})
+	}
+}

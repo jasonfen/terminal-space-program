@@ -416,11 +416,11 @@ func TestTiltWorksInTiltedView(t *testing.T) {
 	}
 }
 
-// Audit 2026-10-18 #2: the w/s/a/d/q/e and W/S attitude keys dereferenced
+// Audit 2026-10-18 #2: the w/s/a/d/q/e, W/S and A attitude keys dereferenced
 // ActiveCraft() with no nil check, so any of them on an empty slate (after
 // end-flight removed the last vessel) crashed the process.
 func TestAttitudeKeysRefuseNoVessel(t *testing.T) {
-	for _, r := range []rune{'w', 's', 'a', 'd', 'q', 'e', 'W', 'S'} {
+	for _, r := range []rune{'w', 's', 'a', 'd', 'q', 'e', 'W', 'S', 'A'} {
 		a, err := New(nil)
 		if err != nil {
 			t.Fatalf("New: %v", err)

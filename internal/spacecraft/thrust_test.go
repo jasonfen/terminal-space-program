@@ -6,6 +6,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 )
 
@@ -391,6 +392,54 @@ func TestApplyImpulsiveEnginelessGainsNothing(t *testing.T) {
 		sc.ApplyImpulsiveDir(v0.Unit(), 1000)
 		if d := sc.State.V.Sub(v0).Norm(); d != 0 {
 			t.Errorf("%s=0: gained %.1f m/s", name, d)
+		}
+	}
+}
+
+// TestBurnInertialHoldsTheNoseThroughTrims (ADR 0063 §1): the Inertial hold's
+// direction is the vessel's own nose, exactly, with nonzero pitch, heading and
+// port trims (a trim folded in would turn the nose again every tick), both on
+// the slew path (BurnDirection) and the InstantSAS thrust closure. It is a
+// live hold only, so it is not in AllBurnModes, and it is the last mode so
+// persisted ints keep their meaning.
+func TestBurnInertialHoldsTheNoseThroughTrims(t *testing.T) {
+	systems, _ := bodies.LoadAll()
+	earth := systems[0].FindBody("Earth")
+	sc := NewInLEO(*earth)
+	mu := earth.GravitationalParameter()
+	nose := orbital.Vec3{X: 0.6, Z: 0.8} // off prograde, off radial
+	sc.CurrentAttitudeDir = nose
+	sc.PitchTrim, sc.HeadingTrim = 0.3, 0.5
+	sc.PortPitchTrim, sc.PortYawTrim = 0.2, 0.2
+
+	if got := sc.BurnDirection(BurnInertial); got.Sub(nose).Norm() > 1e-12 {
+		t.Errorf("BurnDirection(Inertial) = %+v, want the nose %+v", got, nose)
+	}
+	if got := sc.BurnDirectionUntrimmedWithTargetAtt(BurnInertial, orbital.Vec3{}, orbital.Vec3{}, orbital.Vec3{}); got.Sub(nose).Norm() > 1e-12 {
+		t.Errorf("untrimmed Inertial = %+v, want the nose %+v", got, nose)
+	}
+	gravity := physics.Accel(sc.State.R, mu)
+	thrust := sc.ThrustAccelFnAtWithTargetAtt(BurnInertial, mu, 1, orbital.Vec3{}, orbital.Vec3{}, orbital.Vec3{})(sc.State.R, sc.State.V, 0).Sub(gravity)
+	if thrust.Norm() == 0 || thrust.Scale(1/thrust.Norm()).Sub(nose).Norm() > 1e-9 {
+		t.Errorf("InstantSAS thrust along %+v, want the nose %+v", thrust, nose)
+	}
+	// Once the hold has its own direction (the arrows rotate it), that wins
+	// over the nose, in both paths.
+	held := orbital.Vec3{X: 0.8, Z: -0.6}
+	sc.InertialDir = held
+	if got := sc.BurnDirection(BurnInertial); got.Sub(held).Norm() > 1e-12 {
+		t.Errorf("BurnDirection(Inertial) = %+v, want InertialDir %+v", got, held)
+	}
+	thrust = sc.ThrustAccelFnAtWithTargetAtt(BurnInertial, mu, 1, orbital.Vec3{}, orbital.Vec3{}, orbital.Vec3{})(sc.State.R, sc.State.V, 0).Sub(gravity)
+	if thrust.Norm() == 0 || thrust.Scale(1/thrust.Norm()).Sub(held).Norm() > 1e-9 {
+		t.Errorf("InstantSAS thrust along %+v, want InertialDir %+v", thrust, held)
+	}
+	if BurnInertial.String() != "Inertial" || BurnInertial <= BurnPortRight {
+		t.Errorf("BurnInertial = %d %q, want a new last mode labelled Inertial", BurnInertial, BurnInertial)
+	}
+	for _, m := range AllBurnModes {
+		if m == BurnInertial {
+			t.Fatal("BurnInertial must not be in AllBurnModes (live hold only)")
 		}
 	}
 }

@@ -829,6 +829,18 @@ Target itself never jumps on an SOI change. There is no reverse cycle.
 _Avoid_: Aim, Lock, Selection, Catalog order (the pre-#425 cycle, which
 put Mercury first from LEO and made the Moon the ninth press).
 
+**Inertial** (hold, ADR 0063):
+The attitude hold that keeps the nose where it points now, chosen with `A`.
+Frame tag `ORBIT`, label `Inertial`; its direction is the vessel's own current
+attitude, so the slew is a no-op, and the navball draws no hold marker for it.
+Under it the arrow keys turn the held direction instead of trimming (←/→ heading
+about the local radial, ↑/↓ pitch, same step as the trims, alt fine); the
+vessel slews there and holds, and the trim rows stay 0°. The held direction is
+not saved: after a load the hold is the current nose. A `Port` hold becomes
+Inertial when the ports latch (a docked stack exposes no port) and when PORT
+drops. Real term: Shuttle DAP `INRTL`. Not a planted-node mode.
+_Avoid_: Free drift, SAS off (TSP models no spin, so they would look the same).
+
 **NavMode**:
 The orientation the navball displays directions in. Four values:
 **NavOrbit** (frame of the active Vessel's current orbit), **NavSurface**
@@ -837,7 +849,7 @@ The orientation the navball displays directions in. Four values:
 **NavPort** (the aimed **Docking Port**'s frame: in and out along its axis,
 up/down and left/right across its face; `;` offers it only when the Target
 has a port, the self-switch never enters it, and it drops to NavOrbit when
-the Target changes or loses its port, and a `Port` hold resets to Prograde
+the Target changes or loses its port, and a `Port` hold resets to **Inertial**
 when it does). `Port+` is the hold that puts your nose on the port axis, the
 docking attitude. Reaching PORT turns nothing on any vessel; the flash reads
 `nav: PORT`. In PORT the navball's text row reads `pitch` / `yaw` to the port
