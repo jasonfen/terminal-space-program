@@ -2,6 +2,12 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.64.2
+
+Homebrew upgrade warning fixed (PR `#829`; tag `v0.64.2`). Save schema unchanged.
+
+- **No more `postflight` warning on `brew upgrade`.** The cask clears the macOS quarantine flag with Homebrew's `postflight_steps` instead of the deprecated `postflight` block. Same effect: the unsigned binary still launches without a Gatekeeper prompt.
+
 ### v0.64.1
 
 Undock playtest fixes (PR `#828`; tag `v0.64.1`). Save schema unchanged.
