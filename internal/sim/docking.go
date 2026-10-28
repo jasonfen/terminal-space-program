@@ -104,6 +104,7 @@ func (w *World) undockSplit(idx int, batch bool) bool {
 	// keeps them from re-fusing; with a 0.5 m / 4 degree gate an accidental
 	// re-dock needs a flown approach anyway (#343's secular-drift worry).
 	axis := stackAxis(c)
+	seams := DockSeams(c)
 
 	// ADR 0063 §4: U opens the newest seam only. The last component docked
 	// leaves as one vessel; the rest stays a composite (batch and the legacy
@@ -133,8 +134,8 @@ func (w *World) undockSplit(idx int, batch bool) bool {
 			// Where this component's bottom row was drawn: the composite
 			// sprite reflects it, so its row 0 sits at the TOP of its block.
 			if useBreakdown {
-				if top := StackRows(c.Stages[:stageOffset]); top > 0 {
-					r = r.Add(axis.Scale(float64(top-1) * DockStrideM))
+				if len(c.Stages[:stageOffset]) > 0 {
+					r = r.Add(axis.Scale(StackLengthM(c.Stages[:stageOffset], seams) - DockStrideM))
 				}
 			}
 			if !batch {
@@ -266,8 +267,8 @@ func (w *World) releaseNewestSeam(idx int, c *spacecraft.Spacecraft, axis orbita
 	// Where the released hull was drawn: its bottom row sits at the top of
 	// the stack's block (the composite sprite reflects it).
 	r := c.State.R
-	if rows := StackRows(c.Stages); rows > 0 {
-		r = r.Add(axis.Scale(float64(rows-1) * DockStrideM))
+	if StackRows(c.Stages) > 0 {
+		r = r.Add(axis.Scale(StackLengthM(c.Stages, DockSeams(c)) - DockStrideM))
 	}
 	blockStages := append([]spacecraft.Stage(nil), c.Stages[keep:]...)
 	released := w.restoreComponentCraft(c, top, blockStages, r, c.State.V)

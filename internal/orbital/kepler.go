@@ -106,6 +106,15 @@ func PeriapsisDirection(r, v Vec3, mu float64) (Vec3, bool) {
 }
 
 func ElementsFromState(r, v Vec3, mu float64) Elements {
+	return ElementsFromStateTol(r, v, mu, 1e-6)
+}
+
+// ElementsFromStateTol is ElementsFromState with the near-circular snap
+// (omega pinned to 0 below circularTol) as a parameter. The display keeps
+// 1e-6 for a stable basis; the analytic propagator asks for a far smaller one,
+// because snapping omega puts the periapsis at the node and displaces the
+// propagated craft by up to 2 a e (about 14 m at e = 1e-6 in LEO).
+func ElementsFromStateTol(r, v Vec3, mu, circularTol float64) Elements {
 	rMag := r.Norm()
 	vMag := v.Norm()
 	if rMag == 0 || vMag == 0 || mu == 0 {
@@ -178,7 +187,6 @@ func ElementsFromState(r, v Vec3, mu float64) Elements {
 	// "ω = 0" being a definition convention rather than an extracted
 	// value (consistent with the existing eMag == 0 fallthrough that
 	// already left argp at zero).
-	const circularTol = 1e-6
 	var argp float64
 	switch {
 	case eMag < circularTol:

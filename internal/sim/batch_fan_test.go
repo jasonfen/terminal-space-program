@@ -63,22 +63,35 @@ func releasedFan(t *testing.T, angleDeg float64, dry bool) (*World, int, orbital
 
 // The fan, dry carrier, stack radial (ADR 0059 guard 13). The hulls are where
 // Undock draws them: the carrier (F9-S2, 8 rows) spans -0.75..11.25 m from its
-// anchor and sat 1 (row 9, 13.5 m) spans 12.75..14.25, so d_1 is 13.5 - 5.25 =
-// 8.25 m. The ADR writes 6.75 (its own 13.5 + 0.75 - 6 is 8.25); every number
-// below is from 8.25: d_i = 8.25 + 3 (i - 1), d_24 = 77.25 m, d_cm = 35.2 m.
+// anchor, then the 0.6 m seam gap (DockSeamGapM), then sat 1 (1.5 m long), and
+// each sat after it one hull plus one gap further. d_i is a sat's hull centre
+// from the carrier's, built here from those lengths, not read from the sim.
+func fanDistances(carrierRows int, sats int) []float64 {
+	carrierLen := float64(carrierRows) * DockStrideM
+	carrierCentre := carrierLen/2 - dockPortTipInsetM
+	out := make([]float64, sats)
+	for i := range out {
+		sat1Centre := carrierLen - dockPortTipInsetM + DockSeamGapM + DockStrideM/2
+		out[i] = sat1Centre + float64(i)*(DockStrideM+DockSeamGapM) - carrierCentre
+	}
+	return out
+}
+
 func TestBatchFanSpeedsMomentumAndCentre(t *testing.T) {
 	w, idx, v0, sats := releasedFan(t, 90, true)
 	lead := w.Crafts[idx]
 	cmS := func(a, b *spacecraft.Spacecraft) float64 { return a.State.V.Sub(b.State.V).Norm() * 100 }
+	dist := fanDistances(8, 24)
+	omegaCm := BatchFanRateRadPerS * 100 // cm/s per metre
 
-	if got := cmS(sats[1], sats[0]); math.Abs(got-0.75) > 0.01 {
-		t.Errorf("neighbour step = %.3f cm/s, want 0.75", got)
+	if got, want := cmS(sats[1], sats[0]), omegaCm*(dist[1]-dist[0]); math.Abs(got-want) > 0.01 {
+		t.Errorf("neighbour step = %.3f cm/s, want %.3f", got, want)
 	}
-	if got := cmS(sats[0], lead); math.Abs(got-2.0625) > 0.01 {
-		t.Errorf("sat 1 to carrier = %.3f cm/s, want 2.06 (2.5e-3 x 8.25)", got)
+	if got, want := cmS(sats[0], lead), omegaCm*dist[0]; math.Abs(got-want) > 0.01 {
+		t.Errorf("sat 1 to carrier = %.3f cm/s, want %.3f", got, want)
 	}
-	if got := cmS(sats[23], lead); math.Abs(got-19.3125) > 0.01 {
-		t.Errorf("sat 24 to carrier = %.3f cm/s, want 19.31 (2.5e-3 x 77.25)", got)
+	if got, want := cmS(sats[23], lead), omegaCm*dist[23]; math.Abs(got-want) > 0.01 {
+		t.Errorf("sat 24 to carrier = %.3f cm/s, want %.3f", got, want)
 	}
 
 	// Momentum is zero about the pre-release velocity, and the carrier's
@@ -89,16 +102,13 @@ func TestBatchFanSpeedsMomentumAndCentre(t *testing.T) {
 	for i, c := range all {
 		d := 0.0
 		if i > 0 {
-			d = 8.25 + 3*float64(i-1)
+			d = dist[i-1]
 		}
 		m += c.TotalMass()
 		md += c.TotalMass() * d
 		p = p.Add(c.State.V.Sub(v0).Scale(c.TotalMass()))
 	}
 	cm := md / m
-	if math.Abs(cm-35.2) > 0.1 {
-		t.Errorf("d_cm = %.2f m, want 35.2 +- 0.1", cm)
-	}
 	if p.Norm() > 1e-6 {
 		t.Errorf("momentum sum = %.3g kg m/s, want 0 (1e-6)", p.Norm())
 	}
@@ -109,7 +119,7 @@ func TestBatchFanSpeedsMomentumAndCentre(t *testing.T) {
 	// The card prints the two attitude-free facts.
 	w2, idx2 := batchFixture(t, 90, true)
 	if name, n, note, ok := w2.BatchReleaseCard(idx2); !ok || name != "Starlink" || n != 24 ||
-		note != "they fan out sideways, 0.8 cm/s a seam, top 19" {
+		note != "they fan out sideways, 0.5 cm/s a seam, top 14" {
 		t.Errorf("card = %q %d %q %v", name, n, note, ok)
 	}
 }

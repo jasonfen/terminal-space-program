@@ -1265,23 +1265,93 @@ func TestProximityHullFlipsDockedBlock(t *testing.T) {
 }
 
 // The joint between docked hulls is a line, not a block: one zero-length rect
-// across the hull, centred in the gap (1.5 m here, a separator row), so it
-// draws one dot thick at any zoom. a: 4 rows = 6 m, gap 6-7.5 m.
+// across the hull, centred in the 0.6 m gap, so it draws one dot thick at any
+// zoom. The gap is measured from the two hulls' own rects, and is the same for
+// a one-row seam (a, b: 4 rows) and a taper-plus-separator one (tall).
 func TestProximityDockSeamIsAThinLine(t *testing.T) {
-	a := spacecraft.Stage{LaunchSpriteRowsPx: 4, Color: "#FF0000"}
-	b := spacecraft.Stage{LaunchSpriteRowsPx: 4, Color: "#00FF00"}
-	var seam []hullRect
-	for _, r := range proximityHullRects([]spacecraft.Stage{a, b}, []int{1}) {
-		if r.color == dockSeamColor() {
-			seam = append(seam, r)
+	for _, c := range []struct {
+		name string
+		rows int
+	}{{"one separator row", 4}, {"taper and separator rows", 6}} {
+		a := spacecraft.Stage{LaunchSpriteRowsPx: c.rows, Color: "#FF0000"}
+		b := spacecraft.Stage{LaunchSpriteRowsPx: c.rows, Color: "#00FF00"}
+		var seam []hullRect
+		var lowHead, highTail float64
+		for _, r := range proximityHullRects([]spacecraft.Stage{a, b}, []int{1}) {
+			switch r.color {
+			case dockSeamColor():
+				seam = append(seam, r)
+			case "#FF0000":
+				lowHead = r.headM
+			case "#00FF00":
+				highTail = r.tailM
+			}
+		}
+		if len(seam) != 1 {
+			t.Fatalf("%s: seam rects = %d, want 1", c.name, len(seam))
+		}
+		if gap := highTail - lowHead; math.Abs(gap-0.6) > 1e-9 {
+			t.Errorf("%s: gap between the hulls = %.3f m, want 0.6", c.name, gap)
+		}
+		gapMid := (lowHead + highTail) / 2
+		if r := seam[0]; r.headM != r.tailM || math.Abs(r.tailM-gapMid) > 1e-9 {
+			t.Errorf("%s: seam rect %.3f..%.3f m, want a zero-length line at %.3f", c.name, r.tailM, r.headM, gapMid)
 		}
 	}
-	if len(seam) != 1 {
-		t.Fatalf("seam rects = %d, want 1", len(seam))
-	}
-	gapMid := 6.75 - sim.DockPortTipInsetM()
-	if r := seam[0]; r.headM != r.tailM || math.Abs(r.tailM-gapMid) > 1e-9 {
-		t.Errorf("seam rect %.3f..%.3f m, want a zero-length line at %.3f", r.tailM, r.headM, gapMid)
+}
+
+// What U releases is where the composite drew it: after a dock and an undock,
+// the released piece's hull (from its own position and length) lies exactly
+// where the docked picture's upper block was, and sits 0.6 m off the lead's
+// nose, for a one-row seam and a taper-plus-separator one.
+func TestUndockReleasesPieceWhereTheSeamDrewIt(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		own, tgt []string
+	}{
+		{"one separator row", []string{"rcs-tug"}, []string{"nudge-tug"}},
+		{"taper and separator", []string{"ntr-tug"}, []string{"ntr-tug"}},
+	} {
+		w := portedPairWorld(t, c.own, c.tgt, orbital.Vec3{X: 0.3}, 0)
+		w.DockCrafts(0, 1)
+		comp := w.Crafts[0]
+		seams := sim.DockSeams(comp)
+		if len(seams) != 1 {
+			t.Fatalf("%s: seams = %v, want one", c.name, seams)
+		}
+		axis := comp.CurrentAttitudeDir.Unit()
+		var seamAt float64
+		var drawn []hullRect
+		for _, r := range proximityHullRects(comp.Stages, seams) {
+			if r.color == dockSeamColor() {
+				seamAt = r.tailM
+			} else {
+				drawn = append(drawn, r)
+			}
+		}
+		lowHead, upTail, upHead := math.Inf(-1), math.Inf(1), math.Inf(-1)
+		for _, r := range drawn {
+			if r.headM <= seamAt {
+				lowHead = math.Max(lowHead, r.headM)
+			} else {
+				upTail, upHead = math.Min(upTail, r.tailM), math.Max(upHead, r.headM)
+			}
+		}
+		if !w.Undock(0) || len(w.Crafts) != 2 {
+			t.Fatalf("%s: undock failed", c.name)
+		}
+		lead, rel := w.Crafts[0], w.Crafts[1]
+		at := rel.State.R.Sub(lead.State.R).Dot(axis) // the released piece's anchor along the stack
+		relLen := sim.PortGeometryOf(rel.Stages, rel.CurrentAttitudeDir).NoseM
+		// The piece points back down the stack: its hull runs from its anchor's
+		// half-row inset down to the anchor less its length plus the inset.
+		gotHi, gotLo := at+sim.DockPortTipInsetM(), at+sim.DockPortTipInsetM()-relLen
+		if math.Abs(gotHi-upHead) > 1e-6 || math.Abs(gotLo-upTail) > 1e-6 {
+			t.Errorf("%s: released hull spans %.3f..%.3f m, the docked picture drew it at %.3f..%.3f", c.name, gotLo, gotHi, upTail, upHead)
+		}
+		if gap := gotLo - lowHead; math.Abs(gap-0.6) > 1e-6 {
+			t.Errorf("%s: released hull is %.4f m off the lead's nose, want 0.6", c.name, gap)
+		}
 	}
 }
 

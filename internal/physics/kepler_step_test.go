@@ -49,3 +49,27 @@ func TestKeplerStepNearCircularConsistency(t *testing.T) {
 		t.Errorf("stepped position moved %.4f rad from start, want ≈%.4f (advance by n·dt); large gap indicates a periapsis-snap teleport", sep, wantAdvance)
 	}
 }
+
+// Two near-circular states a millimetre per second apart, one each side of the
+// old 1e-6 eccentricity snap, must propagate to nearby states. With the snap
+// the pair parted by metres in one 5 s warp tick (a released Starlink batch
+// bumped itself). The pair also straddles the equal case: e = 1e-6 exactly.
+func TestKeplerStepIsContinuousAcrossTheOldCircularSnap(t *testing.T) {
+	const mu = 3.986004418e14
+	r := 6871000.0
+	vc := math.Sqrt(mu / r)
+	for _, e := range []float64{0.9e-6, 1.0e-6, 1.1e-6} {
+		// Radial-velocity-free state at periapsis off the node: v = vc(1+e/2) puts
+		// the periapsis at the position and gives eccentricity e.
+		a := StateVector{R: orbital.Vec3{X: r * 0.6, Y: r * 0.8}, V: orbital.Vec3{X: -0.8, Y: 0.6}.Scale(vc * (1 + e/2)), M: 1}
+		b := StateVector{R: a.R, V: a.V.Scale(1 + 1e-7), M: 1} // a different e, 0.8 mm/s away
+		na, okA := KeplerStep(a, mu, 5)
+		nb, okB := KeplerStep(b, mu, 5)
+		if !okA || !okB {
+			t.Fatalf("e=%g: KeplerStep refused", e)
+		}
+		if d := na.R.Sub(nb.R).Norm(); d > 0.05 {
+			t.Errorf("e=%g: 0.8 mm/s apart before, %.3f m apart after one 5 s step", e, d)
+		}
+	}
+}

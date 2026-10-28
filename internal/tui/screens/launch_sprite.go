@@ -10,6 +10,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
@@ -305,7 +306,8 @@ func ComposeEngineBell(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis w
 // vessel). Each docked component above a seam is drawn NOSE TO THE SEAM,
 // flipped: its stages run in reverse order up the stack, so the joined picture
 // is the two hulls as they sat the tick before the dock. The total height is
-// unchanged, so the nose, and the port on it, stay where StackRows says.
+// shortened by what each seam's gap gives up (joinSeamGaps), which is what
+// sim.StackLengthM says, so the nose, and the port on it, stay where sim puts them.
 func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis widgets.Basis, scaleMPerPx float64, seams ...int) []SpritePixel {
 	pxSize := scaleMPerPx // one braille sub-pixel = scaleMPerPx world metres
 	stackX, stackY := stackDirScreen(cmdWorld, basis)
@@ -318,10 +320,13 @@ func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis
 	for _, r := range flipDockedBlocks(launchStackLayout(stages), seams) {
 		first, last := 0, r.rows
 		if r.kind == rectSeam {
-			first, last = r.rows/2, r.rows/2+1
+			first, last = 0, 1
 		}
 		for row := first; row < last; row++ {
-			rowAbove := float64(row + r.rowBase)
+			rowAbove := float64(row+r.rowBase) + r.shiftRows
+			if r.kind == rectSeam {
+				rowAbove = r.seamLineRow()
+			}
 			for col := 0; col < r.width; col++ {
 				xPx := float64(col) - float64(r.width-1)/2.0
 				screenSX := rowAbove*pxSize*stackX + xPx*pxSize*widthX
@@ -398,9 +403,11 @@ func flipDockedBlocks(rects []stackRect, seams []int) []stackRect {
 }
 
 // joinSeamGaps replaces the taper/separator rects in the gap below each seam
-// with one rectSeam spanning the gap, in dockSeamColor: the renderers draw it
-// as a thin line across the middle, so the joint reads as a joint, not a
-// 1.5-3 m adapter.
+// with one rectSeam, in dockSeamColor: the renderers draw it as a thin line
+// across the middle of the gap, so the joint reads as a joint, not an adapter.
+// The gap itself shrinks to sim.DockSeamGapM: every rect above it takes the
+// difference as a negative shiftRows (cumulative over seams), the same amount
+// sim.StackLengthM takes off the stack.
 func joinSeamGaps(rects []stackRect, seams []int) []stackRect {
 	out := rects[:0:0]
 	seamAt := map[int]int{} // lower stage index -> index of its rectSeam in out
@@ -421,8 +428,31 @@ func joinSeamGaps(rects []stackRect, seams []int) []stackRect {
 		j.rows = top - j.rowBase
 		j.width = max(j.width, r.width)
 	}
+	for _, g := range slices.Clone(out) {
+		if g.kind != rectSeam {
+			continue
+		}
+		shrink := float64(g.rows) - seamGapRows
+		for i := range out {
+			if out[i].rowBase >= g.rowBase+g.rows {
+				out[i].shiftRows -= shrink
+			}
+		}
+	}
 	return out
 }
+
+// seamGapRows is sim.DockSeamGapM in sprite rows.
+const seamGapRows = sim.DockSeamGapM / vesselSubPixelM
+
+// seamLineRow is where a rectSeam's line sits: the middle of the shrunken gap,
+// which starts half a row below the gap's first row.
+func (r stackRect) seamLineRow() float64 {
+	return float64(r.rowBase) + r.shiftRows - 0.5 + seamGapRows/2
+}
+
+// tailRows is the rect's bottom in rows, shift included.
+func (r stackRect) tailRows() float64 { return float64(r.rowBase) + r.shiftRows }
 
 // stackRectKind says what a stackRect is: a stage body, the inter-stage
 // taper band, or the dark separator row.
@@ -436,7 +466,7 @@ const (
 	// decision 10), drawn beside the stage above at xOffset from the axis.
 	rectSide
 	// rectSeam is the gap below a dock seam (joinSeamGaps), drawn as a
-	// one-row line across its middle.
+	// thin line at the centre of the shrunken gap (seamLineRow).
 	rectSeam
 )
 
@@ -451,6 +481,9 @@ type stackRect struct {
 	rows    int
 	width   int
 	color   lipgloss.Color
+	// shiftRows moves the rect down (negative) by what the dock seams below
+	// it gave up (joinSeamGaps). Zero for a stack with no seams.
+	shiftRows float64
 	// xOffset shifts the rect's centre off the stack axis (rectSide only).
 	xOffset float64
 }
@@ -590,7 +623,7 @@ func stageSeparatorColor() lipgloss.Color {
 	return render.ColorDim
 }
 
-// dockSeamColor paints the gap rows between two docked hulls (the 1.5 to 3 m
+// dockSeamColor paints the joint line between two docked hulls (the 0.6 m gap
 // the undock releases them apart by), so the joint reads as a joint. The
 // target green, which the DOCK READY callout already uses for "joined at the
 // port". Read fresh for the same theme reason as stageSeparatorColor.

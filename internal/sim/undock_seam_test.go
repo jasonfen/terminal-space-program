@@ -41,8 +41,9 @@ func TestUndockPlacesTopComponentAtSeamAndPushesAlongAxis(t *testing.T) {
 	}
 	_ = leadV
 	// RCS Tug 4 rows + separator 1 + NTR tug 8 rows = 13 composite rows
-	// (hand count); the flipped block's bottom row is composite row 12.
-	wantR := leadR.Add(axis.Scale(12 * DockStrideM))
+	// (hand count); the flipped block's bottom row is composite row 12, less
+	// what the seam gives up: its one separator row (1.5 m) shrinks to 0.6 m.
+	wantR := leadR.Add(axis.Scale(12*DockStrideM - (DockStrideM - DockSeamGapM)))
 	if d := top.State.R.Sub(wantR).Norm(); d > 1e-6 {
 		t.Errorf("top component placed %.3f m from where its hull was drawn (want %+v, got %+v)", d, wantR, top.State.R)
 	}
