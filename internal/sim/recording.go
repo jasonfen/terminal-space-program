@@ -62,7 +62,15 @@ func (w *World) OpenActiveRecording() error {
 	}
 	r, err := recorder.Open(path, h, w.RecordingWindowDays, time.Now, w.Clock.SimTime)
 	if err != nil {
+		w.noteRecordingError(err)
 		return err
+	}
+	// A vessel that lifted off while another was Active was stamped without a
+	// recordLiftoff; its header still says "no liftoff on record" (#817).
+	if h.LiftoffKnown && !r.T0().Equal(h.Liftoff) {
+		if err := r.SetLiftoff(h.Liftoff); err != nil {
+			w.noteRecordingError(err)
+		}
 	}
 	w.Recording = r
 	w.rec = recState{vesselID: c.ID, t0: r.T0(), hold: w.holdText(c), warp: w.Clock.WarpIdx + 1}
@@ -75,6 +83,17 @@ func (w *World) OpenActiveRecording() error {
 	}
 	return nil
 }
+
+// NoteRecordingError records the first recording failure (a full disk, a
+// read-only saves dir) for the App to flash once; later ones stay quiet.
+func (w *World) NoteRecordingError(err error) {
+	if err == nil || w.recFaulted {
+		return
+	}
+	w.recFaulted, w.RecordingFault = true, err.Error()
+}
+
+func (w *World) noteRecordingError(err error) { w.NoteRecordingError(err) }
 
 // SetRecordingMarker sets the row each vessel's file gets the first time it is
 // opened under this World (`session start: <version>`, or `loaded save <id>`
@@ -103,6 +122,37 @@ func NewGameFolder(dir string, now time.Time) (string, error) {
 			return "", err
 		}
 	}
+}
+
+// RemoveAbandonedGameFolder deletes dir/folder when every file in it holds at
+// most one dated row and that row is a session marker ("session start:" or
+// "loaded save"): the first-tick folder of a game that was abandoned by an
+// immediate load (#817). Anything else in the folder keeps it. Best effort.
+func RemoveAbandonedGameFolder(dir, folder string) {
+	if folder == "" || folder != filepath.Base(folder) || folder == "." || folder == ".." {
+		return
+	}
+	path := filepath.Join(dir, folder)
+	ents, err := os.ReadDir(path)
+	if err != nil {
+		return
+	}
+	for _, e := range ents {
+		b, err := os.ReadFile(filepath.Join(path, e.Name()))
+		if err != nil || e.IsDir() || !strings.HasSuffix(e.Name(), ".txt") {
+			return
+		}
+		rows := 0
+		for _, l := range strings.Split(string(b), "\n") {
+			if _, ok := recorder.RowTime(l); !ok {
+				continue
+			}
+			if rows++; rows > 1 || !(strings.Contains(l, "session start:") || strings.Contains(l, "loaded save ")) {
+				return
+			}
+		}
+	}
+	_ = os.RemoveAll(path)
 }
 
 // CloseRecording closes the open file, if any.
@@ -183,7 +233,7 @@ func (w *World) rowFor(c *spacecraft.Spacecraft, event string) recorder.Row {
 func (w *World) recordRowFor(c *spacecraft.Spacecraft, event string) {
 	if w.recFor(c) {
 		w.recordHoldChange(c)
-		_ = w.Recording.Write(w.rowFor(c, event))
+		w.noteRecordingError(w.Recording.Write(w.rowFor(c, event)))
 	}
 }
 
@@ -199,7 +249,7 @@ func (w *World) recordHoldChange(c *spacecraft.Spacecraft) {
 	seen := w.rec.hold != ""
 	w.rec.hold = h
 	if seen {
-		_ = w.Recording.Write(w.rowFor(c, "hold: "+h))
+		w.noteRecordingError(w.Recording.Write(w.rowFor(c, "hold: "+h)))
 	}
 }
 
@@ -214,7 +264,7 @@ func (w *World) recordWarpChange(c *spacecraft.Spacecraft) {
 	seen := w.rec.warp != 0
 	w.rec.warp = n
 	if seen {
-		_ = w.Recording.Write(w.rowFor(c, fmt.Sprintf("warp: %gx", WarpFactors[w.Clock.WarpIdx])))
+		w.noteRecordingError(w.Recording.Write(w.rowFor(c, fmt.Sprintf("warp: %gx", WarpFactors[w.Clock.WarpIdx]))))
 	}
 }
 
@@ -315,7 +365,7 @@ func (w *World) recordLiftoff(c *spacecraft.Spacecraft) {
 	if !w.recFor(c) {
 		return
 	}
-	_ = w.Recording.SetLiftoff(c.LiftoffSimTime)
+	w.noteRecordingError(w.Recording.SetLiftoff(c.LiftoffSimTime))
 	w.recordRowFor(c, "liftoff")
 }
 

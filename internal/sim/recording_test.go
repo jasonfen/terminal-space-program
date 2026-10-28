@@ -236,6 +236,54 @@ func TestTPlusSurvivesReopenWithoutLiftoff(t *testing.T) {
 	}
 }
 
+// #817 item 1: a vessel that lifts off while another is Active gets its stamp
+// but no recordLiftoff; its header must name the liftoff once it is flown
+// again, and a header that already agrees is left alone (equal case).
+func TestStaleHeaderFixedWhenFlownAfterNonActiveLiftoff(t *testing.T) {
+	w := mustWorld(t)
+	dir := recAttach(t, w)
+	a := w.ActiveCraft()
+	if _, err := w.SpawnCraft(SpawnSpec{AltitudeM: 600e3}); err != nil {
+		t.Fatal(err)
+	}
+	stamp := w.Clock.SimTime.Add(5 * time.Minute)
+	a.LiftoffSimTime, a.OnPad = stamp, false
+	want := "# T+0 = " + stamp.UTC().Format("2006-01-02 15:04:05") + " (liftoff)"
+	var aFile string
+	files, _ := filepath.Glob(filepath.Join(dir, padID(a.ID)+"*.txt"))
+	aFile = files[0]
+	for i := 0; i < 2; i++ { // the second open is the equal case
+		w.SetActiveCraftIdx(0)
+		b, _ := os.ReadFile(aFile)
+		if n := strings.Count(string(b), "# T+0 = "); n != 1 || !strings.Contains(string(b), want) {
+			t.Fatalf("open %d: header lacks %q (T+0 lines: %d):\n%s", i, want, n, strings.SplitN(string(b), "\n", 3)[1])
+		}
+		w.SetActiveCraftIdx(1)
+	}
+}
+
+// #817 item 2: a write error is surfaced once, not swallowed. Closing the
+// file under the recorder makes every Write fail; many failing rows yield one
+// fault, and a World whose recording works has none (positive control).
+func TestRecordingWriteErrorIsSurfacedOnce(t *testing.T) {
+	w, _ := recWorld(t)
+	w.RecordEvent("fine")
+	if w.RecordingFault != "" {
+		t.Fatalf("fault on a healthy recording: %q", w.RecordingFault)
+	}
+	w.Recording.Close()
+	w.RecordEvent("lost")
+	first := w.RecordingFault
+	if first == "" {
+		t.Fatal("write error swallowed: RecordingFault empty")
+	}
+	w.RecordingFault = "" // the App drained it
+	w.RecordEvent("lost again")
+	if w.RecordingFault != "" {
+		t.Errorf("second failure re-raised the fault: %q", w.RecordingFault)
+	}
+}
+
 func padID(id uint64) string { return fmt.Sprintf("%04d-", id) }
 
 // allEvents is every event text in every file under dir.
