@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.64.3
+
+Docked vessels look joined, and a near-circular warp fix (PRs `#830`, `#831`; tag `v0.64.3`). Save schema unchanged.
+
+- **Docked hulls sit 0.6 m apart**, not 1.5 to 3 m, with the joint drawn as one thin green line between them. Undocking starts them 0.6 m apart, just outside the docking gate.
+- **Near-circular orbits no longer jump under warp.** An orbit with eccentricity just under one in a million was snapped to circular each warp step, moving the vessel up to 12 m at a time; it now stays within centimetres.
+
 ### v0.64.2
 
 Homebrew upgrade warning fixed (PR `#829`; tag `v0.64.2`). Save schema unchanged.
