@@ -28,22 +28,22 @@ type localReArm struct {
 	releasedAt time.Time
 }
 
-// Undock splits the craft at idx back into its DockedComponents,
-// removing the composite from the slate and inserting one craft
-// per component. Each restored craft inherits a share of the
-// composite's current Fuel + Monoprop pools, prorated by its
-// pre-dock capacity. The lead stays exactly where it is; each component
-// above it appears where its hull was drawn (nose to the seam, pointing
-// back along -a_hat) and drifts off along the seam at UndockSpringMS (the
-// "spring release"), no teleport (ADR 0053 "Settled here" item 4). A
-// re-arm latch keeps the pair from re-capturing at once. v0.8.3+.
+// Undock opens the newest seam of the composite at idx (ADR 0063 §4): the
+// last component docked leaves as one vessel, where its hull was drawn (nose
+// to the seam, pointing back along -a_hat), and the two parts open at
+// UndockSpringMS relative, shared by mass (the "spring release", ADR 0053
+// "Settled here" item 4, ADR 0063 §8). The flown vessel keeps its ID and
+// slate slot (so its recording and target carry on), the released one gets
+// the ID it docked with, and each takes back the hold it flew before the
+// latch (§5, §7). With three or more components the rest stays a composite;
+// press again for the next seam. A re-arm latch keeps the pair from
+// re-capturing at once. Each released component inherits its share of the
+// live Fuel + Monoprop pools (per-stage when the record tiles).
 //
-// No-op when the craft has no DockedComponents (i.e. wasn't a
-// composite). Active idx tracks to the first restored component
-// so the player keeps flying the most-recently-active vessel's
-// identity. The composite's Nodes / ActiveBurn / ManualBurn /
-// AttitudeMode / EngineMode are dropped — they were tied to the
-// composite, which no longer exists.
+// No-op when the craft has no DockedComponents. Active idx stays on the flown
+// vessel. A two-piece split drops the composite's Nodes / ActiveBurn /
+// ManualBurn / EngineMode (they were tied to the composite); a kept composite
+// keeps them.
 func (w *World) Undock(idx int) bool { return w.undockSplit(idx, false) }
 
 // undockSplit is the split Undock and ReleaseBatch share. batch swaps the
