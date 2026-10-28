@@ -89,11 +89,14 @@ homebrew_casks:
       email: goreleaserbot@users.noreply.github.com
     # The binary isn't code-signed/notarized, so strip the quarantine
     # bit on install — otherwise macOS Gatekeeper blocks first launch.
+    # install_steps (GoReleaser v2.19+) writes Homebrew's declarative
+    # postflight_steps; the old `install` wrote `postflight do`, which
+    # Homebrew now warns is deprecated on every `brew upgrade`.
     hooks:
       post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/terminal-space-program"]
+        install_steps: |
+          on_macos do
+            run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ .StagedPath }}/terminal-space-program"]
           end
 
 # Linux packages attached to each release, so Linux users don't need brew.
