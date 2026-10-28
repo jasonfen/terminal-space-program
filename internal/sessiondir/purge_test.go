@@ -94,3 +94,44 @@ func TestPurgePlayerKeepsThePayloadWhenTheBackupFails(t *testing.T) {
 		t.Error("the payload was deleted although its backup failed")
 	}
 }
+
+// #817 item 3: a purge takes the player's Flight Recordings with it, under
+// their roster handle and under the raw fingerprint (a kicked player's row is
+// gone, so their folder was named by it); a neighbour's folder stays. Runs
+// with and without a payload.
+func TestPurgePlayerRemovesRecordings(t *testing.T) {
+	for _, withPayload := range []bool{true, false} {
+		s := openStore(t)
+		const fp = "SHA256:pilot/2"
+		inv, err := s.MintInvite("placeholder")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Enroll(inv.Code, fp, "pilot2"); err != nil {
+			t.Fatal(err)
+		}
+		if withPayload {
+			w, _ := sim.NewWorld()
+			if err := s.SavePlayer(fp, w); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for _, h := range []string{"pilot2", fp, "neighbour"} {
+			d := s.RecordingsDir(h)
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(d, "0001-x.txt"), []byte("rows\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := s.PurgePlayer(fp); err != nil {
+			t.Fatal(err)
+		}
+		for h, want := range map[string]bool{"pilot2": false, fp: false, "neighbour": true} {
+			if _, err := os.Stat(s.RecordingsDir(h)); (err == nil) != want {
+				t.Errorf("payload=%v: recordings for %q present=%v, want %v", withPayload, h, err == nil, want)
+			}
+		}
+	}
+}

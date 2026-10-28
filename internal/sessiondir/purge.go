@@ -45,10 +45,16 @@ func (s *Store) PurgePlayer(fingerprint string) (PurgeResult, error) {
 	if fingerprint == HostFingerprint {
 		return PurgeResult{}, errors.New("sessiondir: can't purge the host")
 	}
+	// Resolved before the lock: FindPlayer takes it too.
+	handle := ""
+	if p, err := s.FindPlayer(fingerprint); err == nil {
+		handle = p.Handle
+	}
 	defer s.lock()()
 	src := s.payloadPath(fingerprint)
 	data, err := os.ReadFile(src)
 	if errors.Is(err, os.ErrNotExist) {
+		s.removeRecordings(fingerprint, handle)
 		return PurgeResult{}, nil
 	}
 	if err != nil {
@@ -61,5 +67,17 @@ func (s *Store) PurgePlayer(fingerprint string) (PurgeResult, error) {
 	if err := os.Remove(src); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return PurgeResult{BackupPath: bak}, fmt.Errorf("sessiondir: purge: delete: %w", err)
 	}
+	s.removeRecordings(fingerprint, handle)
 	return PurgeResult{BackupPath: bak}, nil
+}
+
+// removeRecordings drops the player's Flight Recording folders (#817): under
+// the roster handle, and under the fingerprint a kicked player's were named
+// by. Best effort: recordings are not worth failing a purge over.
+func (s *Store) removeRecordings(fingerprint, handle string) {
+	for _, h := range []string{handle, fingerprint} {
+		if h != "" {
+			_ = os.RemoveAll(s.RecordingsDir(h))
+		}
+	}
 }
