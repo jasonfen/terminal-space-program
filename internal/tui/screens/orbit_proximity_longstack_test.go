@@ -74,3 +74,35 @@ func TestProximityGateRingIsCentredOnTheTargetPort(t *testing.T) {
 		t.Errorf("ring centre %.3f m from the target's port, want on it", d)
 	}
 }
+
+// #822: the view and its R/V cross are centred on the target's port, not on
+// the bottom of a 55 m stack, so the part being flown to sits in the middle.
+func TestProximityViewIsCentredOnTheTargetPort(t *testing.T) {
+	w := startVesselTugWorld(t, 20)
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(DesignWidth, DesignHeight)
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	st, _ := w.ProximityState()
+	port := st.TargetWorld.Add(st.Target.Axis.Scale(st.Target.Ports[0].OffsetM))
+	if port.Sub(st.TargetWorld).Norm() < 10 {
+		t.Fatal("fixture: the port should sit well off the stack bottom")
+	}
+	if d := v.canvas.CenterWorld().Sub(port).Norm(); d > 1e-6 {
+		t.Errorf("view centre %.1f m from the target's port, want on it", d)
+	}
+}
+
+// #822: centring on the port must still frame a chaser behind the stack's
+// tail, which is farther from the port than the anchor-to-anchor range.
+func TestProximityFitFramesAChaserBehindTheTail(t *testing.T) {
+	w := startVesselTugWorld(t, 20)
+	home, tug := w.Crafts[0], w.ActiveCraft()
+	tug.State.R = home.State.R.Sub(sim.VesselPortGeometry(home).Axis.Scale(5))
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(DesignWidth, DesignHeight)
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	st, _ := w.ProximityState()
+	if _, _, on := v.canvas.Project(st.CraftWorld); !on {
+		t.Errorf("chaser 5 m behind the tail is off canvas at the entry fit (range %.0f m)", st.RangeM)
+	}
+}
