@@ -3,6 +3,7 @@ package screens
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 
 	"github.com/charmbracelet/lipgloss"
@@ -345,13 +346,19 @@ func ComposeLaunchSprite(stages []spacecraft.Stage, cmdWorld orbital.Vec3, basis
 // block and stay put. Rows within a block mirror: a rect at rowBase rb, n
 // rows tall, in a block spanning [lo, hi) lands at lo + (hi - rb - n):
 // its distance from the block's top becomes its distance from the block's
-// bottom. The rects are returned as a copy; seams out of range or
-// non-ascending are ignored.
+// bottom. The gap rects at each seam take dockSeamColor. The rects are
+// returned as a copy; seams out of range or non-ascending are ignored.
 func flipDockedBlocks(rects []stackRect, seams []int) []stackRect {
 	if len(seams) == 0 {
 		return rects
 	}
 	out := append([]stackRect(nil), rects...)
+	for i, r := range out {
+		// The gap below each seam is the joint between two docked hulls.
+		if (r.kind == rectTaper || r.kind == rectSeparator) && slices.Contains(seams, r.stage+1) {
+			out[i].color = dockSeamColor()
+		}
+	}
 	for k, start := range seams {
 		end := math.MaxInt
 		if k+1 < len(seams) {
@@ -552,6 +559,14 @@ func taperRowBetween(lower, upper spacecraft.Stage) int {
 // as every other render.ColorDim call site in this file.
 func stageSeparatorColor() lipgloss.Color {
 	return render.ColorDim
+}
+
+// dockSeamColor paints the gap rows between two docked hulls (the 1.5 to 3 m
+// the undock releases them apart by), so the joint reads as a joint. The
+// target green, which the DOCK READY callout already uses for "joined at the
+// port". Read fresh for the same theme reason as stageSeparatorColor.
+func dockSeamColor() lipgloss.Color {
+	return render.ColorTarget
 }
 
 // separatorRowBetween returns 1 whenever `upper` is itself a rendered

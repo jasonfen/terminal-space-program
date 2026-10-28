@@ -81,6 +81,43 @@ func TestComposeLaunchSpriteFlipsDockedBlockNoseToSeam(t *testing.T) {
 	}
 }
 
+// The gap row at a dock seam is drawn in the dock seam colour, so the 1.5 to
+// 3 m between two docked hulls reads as the joint, not as empty space; a
+// separator inside a block, and every separator of an undocked stack, stays
+// the stage separator colour. Layout as above: seam gap row 4, in-block
+// separator row 9 once flipped.
+func TestDockSeamGapRowIsDrawnInTheSeamColour(t *testing.T) {
+	a := spacecraft.Stage{LaunchSpriteRowsPx: 4, Color: "#FF0000"}
+	b := spacecraft.Stage{LaunchSpriteRowsPx: 6, Color: "#00FF00"}
+	c := spacecraft.Stage{LaunchSpriteRowsPx: 4, Color: "#0000FF"}
+	basis := widgets.Basis{X: orbital.Vec3{X: 1}, Y: orbital.Vec3{Z: 1}}
+	stages := []spacecraft.Stage{a, b, c}
+	rowColour := func(seams ...int) map[int]lipgloss.Color {
+		out := map[int]lipgloss.Color{}
+		for _, p := range ComposeLaunchSprite(stages, orbital.Vec3{Z: 1}, basis, 1, seams...) {
+			out[int(math.Round(p.OffsetWorld.Dot(basis.Y)))] = p.Color
+		}
+		return out
+	}
+	if dockSeamColor() == stageSeparatorColor() {
+		t.Fatal("dock seam colour equals the stage separator colour: nothing to tell apart")
+	}
+	for _, c := range []struct {
+		name  string
+		seams []int
+		row   int
+		want  lipgloss.Color
+	}{
+		{"seam gap", []int{1}, 4, dockSeamColor()},
+		{"separator inside the docked block", []int{1}, 9, stageSeparatorColor()},
+		{"same row, no dock", nil, 4, stageSeparatorColor()},
+	} {
+		if got := rowColour(c.seams...)[c.row]; got != c.want {
+			t.Errorf("%s: row %d colour %q, want %q", c.name, c.row, got, c.want)
+		}
+	}
+}
+
 // Two docked blocks flip each on their own, the gap between them staying put.
 func TestComposeLaunchSpriteFlipsEachDockedBlock(t *testing.T) {
 	st := func(rows int, col string) spacecraft.Stage {
