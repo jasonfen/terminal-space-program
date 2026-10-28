@@ -76,6 +76,15 @@ func (v *OrbitView) buildTargetBox(w *sim.World) []string {
 	if c == nil || c.Crashed {
 		cells.leadV = "—"
 	}
+	if c != nil && w.Target.Kind == sim.TargetCraft {
+		if _, _, resolves := w.ResolveTargetCraft(); !resolves && name == "—" {
+			// ADR 0063 section 3: the dock retired the partner's slate entry; the
+			// aim slot still names it, rows stay dashed.
+			if n, ok := w.DockedPartnerName(w.Target.CraftID); ok {
+				name, titleBadge = n+" · docked", ""
+			}
+		}
+	}
 	title := v.theme.Primary.Render("TARGET") + "  " + name + titleBadge
 	return []string{
 		title,
