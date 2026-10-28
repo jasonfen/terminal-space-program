@@ -117,3 +117,27 @@ func readFileForTest(t *testing.T, path string) File {
 	}
 	return f
 }
+
+// ADR 0063 §7: a pre-latch hold of Prograde (0) survives the wire as present,
+// distinct from an absent record (nil, read as Inertial), including through the
+// cross-player transfer wire (additive JSON).
+func TestDockedComponentHoldRoundTripsPresenceNotJustValue(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := w.ActiveCraft()
+	prograde := spacecraft.BurnPrograde
+	c.DockedComponents = []spacecraft.DockedComponent{{Name: "Core", AttitudeMode: &prograde}, {Name: "Tug"}}
+	got, err := CraftFromWire(CraftToWireForTransfer(c), w.Systems)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dcs := got.DockedComponents
+	if dcs[0].AttitudeMode == nil || *dcs[0].AttitudeMode != spacecraft.BurnPrograde {
+		t.Errorf("Prograde record came back %v, want present Prograde", dcs[0].AttitudeMode)
+	}
+	if dcs[1].AttitudeMode != nil {
+		t.Errorf("absent record came back %v, want nil", *dcs[1].AttitudeMode)
+	}
+}
