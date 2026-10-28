@@ -144,9 +144,11 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 		v.canvas.Center(proximityGateRingCentre(st).Add(v.panOffset))
 		v.drawProximityAxes(w, st)
 		v.drawProximityRangeRings(w, st)
-		v.drawProximityDockGate(w, st)
-		v.drawProximityCorridor(st)
-		v.drawProximityDriftPath(w, st)
+		if !st.Docked { // no gap to close: no gate ring, corridor or drift
+			v.drawProximityDockGate(w, st)
+			v.drawProximityCorridor(st)
+			v.drawProximityDriftPath(w, st)
+		}
 		v.drawProximityVessels(w, st)
 		v.drawProximityVelocityVector(st)
 	}
@@ -164,7 +166,11 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 	// nothing composites over.
 	label := "view: Proximity"
 	if sceneOK {
-		label += " — " + st.TargetName + "   →+V prograde  ↓" + proximityPrimaryName(w)
+		who := st.TargetName
+		if st.Docked {
+			who = "docked with " + who
+		}
+		label += " — " + who + "   →+V prograde  ↓" + proximityPrimaryName(w)
 	}
 	v.canvas.SetCellLabelColored(0, v.canvas.Rows()-1, label, v.theme.Primary.GetForeground())
 	// The Proximity View shares the map's last canvas row for its own
@@ -492,6 +498,11 @@ func (v *OrbitView) drawProximityDockGate(w *sim.World, st sim.ProximityState) {
 // port outside it (review finding 4); the zone itself is hull to hull
 // (sim.HullDistanceM).
 func proximityGateRingCentre(st sim.ProximityState) orbital.Vec3 {
+	if st.Docked {
+		// The newest seam as the own sprite draws it (the same screen-plane
+		// projection the port marks use), not the raw 3-D axis.
+		return proximityPortWorld(st.CraftWorld, st.Own.Axis, widgets.Basis{X: st.Frame.AlongTrack, Y: st.Frame.RadialOut}, st.SeamOffsetM)
+	}
 	g := st.Target
 	switch {
 	case g.Known && g.HasPort():
@@ -762,7 +773,9 @@ func (v *OrbitView) drawProximityVessels(w *sim.World, st sim.ProximityState) {
 	// pixel they share with it (ADR 0053 decision 6).
 	v.drawProximityPortLine(w, st)
 
-	if g, _, isGhost := w.ResolveTargetGhost(); isGhost {
+	if st.Docked {
+		// Both hulls are the own composite sprite: no target hull to draw.
+	} else if g, _, isGhost := w.ResolveTargetGhost(); isGhost {
 		// A friend's vessel: one rectangle of the reported nose_m x width_m
 		// (ADR 0053 decision 9), or the diamond when the report carries no
 		// shape.
@@ -911,6 +924,17 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 			v.theme.Primary.Render("PROXIMITY"),
 			"  " + w.ProximityRefusal(),
 			"  [t] target a vessel · [o] back to the map",
+		}
+	}
+	if st.Docked {
+		return []string{
+			v.proximityChipHeader(st),
+			chipRow("range:", "docked"),
+			proximityHoldRow(w),
+			proximityTrimRow(w),
+			v.proximityEngineRow(w),
+			v.proximityRCSRow(w),
+			proximityMonopropRow(w),
 		}
 	}
 	// Three rows, not four: the target's name rides the header rather than
@@ -1063,6 +1087,14 @@ func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
 			v.theme.Primary.Render("PROXIMITY") + "  " + w.ProximityRefusal(),
 			"  [t] target a vessel · [o] back to the map",
 		}
+	}
+	if st.Docked {
+		// ADR 0063 section 2: header, range: and hold: survive the shrink.
+		lines := []string{v.proximityChipHeader(st), chipRow("range:", "docked"), proximityHoldRow(w)}
+		if c := w.ActiveCraft(); c != nil && (c.PitchTrim != 0 || c.HeadingTrim != 0) {
+			lines = append(lines, proximityTrimRow(w))
+		}
+		return lines
 	}
 	lines := []string{
 		v.proximityChipHeader(st),

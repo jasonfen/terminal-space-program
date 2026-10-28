@@ -136,6 +136,8 @@ func proximityPortOutOfGate(st sim.ProximityState) bool {
 func (v *OrbitView) proximityChipHeader(st sim.ProximityState) string {
 	tag := "no port"
 	switch {
+	case st.Docked:
+		tag = "docked"
 	case st.PortUnknown:
 		tag = "port: unknown"
 	case st.TargetHasPort:

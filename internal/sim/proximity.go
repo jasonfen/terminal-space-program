@@ -122,6 +122,14 @@ type ProximityState struct {
 	// Own / Target are the two hulls' derived geometry, for the screen to
 	// draw ports on.
 	Own, Target PortGeometry
+
+	// Docked is the ADR 0063 section 2 scene: the active vessel is a
+	// composite and no target resolves, so the view anchors on the newest
+	// seam (SeamOffsetM along the own axis from the vessel position, where
+	// the partner's port was). TargetName then holds the partner above that
+	// seam; TargetWorld is the seam point. Every gap field stays zero.
+	Docked      bool
+	SeamOffsetM float64
 }
 
 // ProximityState resolves the close-range scene against the current
@@ -139,7 +147,7 @@ func (w *World) ProximityState() (ProximityState, bool) {
 	// coast read, so the picture can't disagree with them.
 	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
 	if !ok {
-		return ProximityState{}, false
+		return w.dockedProximityState(c)
 	}
 	frame, ok := orbital.LVLHBasis(rT, vT)
 	if !ok {
@@ -181,6 +189,32 @@ func (w *World) ProximityState() (ProximityState, bool) {
 		}
 	}
 	return st, true
+}
+
+// dockedProximityState is the no-target branch (ADR 0063 section 2): a
+// composite keeps the picture it had at the latch, centred on its newest
+// seam with the LVLH basis of its own orbit. ok=false for a lone vessel.
+func (w *World) dockedProximityState(c *spacecraft.Spacecraft) (ProximityState, bool) {
+	seams := DockSeams(c)
+	if len(seams) == 0 {
+		return ProximityState{}, false
+	}
+	frame, ok := orbital.LVLHBasis(c.State.R, c.State.V)
+	if !ok {
+		return ProximityState{}, false
+	}
+	off := float64(StackRows(c.Stages[:seams[len(seams)-1]])) * DockStrideM
+	primaryPos := w.BodyPosition(c.Primary)
+	craft := primaryPos.Add(c.State.R)
+	return ProximityState{
+		Frame:       frame,
+		TargetWorld: craft.Add(c.CurrentAttitudeDir.Unit().Scale(off)),
+		CraftWorld:  craft,
+		TargetName:  c.DockedComponents[len(c.DockedComponents)-1].Name,
+		Own:         VesselPortGeometry(c),
+		Docked:      true,
+		SeamOffsetM: off,
+	}, true
 }
 
 // resolveProximityPorts fills the docking-port half of the scene (ADR 0053

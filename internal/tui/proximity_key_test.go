@@ -142,3 +142,28 @@ func TestProximityViewShowsTheTrimItsArrowsMove(t *testing.T) {
 		t.Errorf("an ↑ press changed no visible heading reading: %q -> %q", hdgBefore, hdgAfter)
 	}
 }
+
+// ADR 0063 section 2: entering while docked names the partner, not the
+// stranded aim slot's blank.
+func TestProximityKeyWhileDockedNamesPartner(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	if _, err := a.world.SpawnCraft(sim.SpawnSpec{AltitudeM: 400e3}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	a.world.ActiveCraftIdx = 0
+	a.world.SetTargetCraft(1)
+	partner := a.world.Crafts[1].Name
+	a.world.DockCrafts(0, 1)
+	a.world.ViewMode = sim.ViewTop
+
+	pressO(a)
+	if a.world.ViewMode != sim.ViewProximity {
+		t.Fatalf("docked [o]: ViewMode = %s, want proximity (toast %q)", a.world.ViewMode, a.statusMsg)
+	}
+	if want := "docked with " + partner; !strings.Contains(a.statusMsg, want) {
+		t.Errorf("entry toast = %q, want it to contain %q", a.statusMsg, want)
+	}
+}

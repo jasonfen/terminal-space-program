@@ -598,3 +598,56 @@ func setProximityRange(t *testing.T, w *World, rangeM float64) {
 	}
 	tc.State.R = active.State.R.Add(dir.Scale(rangeM))
 }
+
+// ADR 0063 section 2/3: docking keeps Proximity View up. The aim slot is
+// stranded on the partner's retired ID (nothing clears it), no target
+// resolves, and the scene anchors on the newest seam.
+func TestProximityStateDockedCompositeAnchorsOnSeam(t *testing.T) {
+	p := newPortPair(t, "rcs-tug", "ntr-tug", 0.3, 0, 0)
+	w := p.w
+	w.SetTargetCraft(1)
+	partnerID := w.Crafts[1].ID
+	w.DockCrafts(0, 1)
+	if w.Target.Kind != TargetCraft || w.Target.CraftID != partnerID {
+		t.Fatalf("aim slot = %+v, want the partner's retired ID %d kept", w.Target, partnerID)
+	}
+	st, ok := w.ProximityState()
+	if !ok || !st.Docked {
+		t.Fatalf("ProximityState ok=%v docked=%v, want the docked scene", ok, st.Docked)
+	}
+	if st.TargetName != "Bravo" {
+		t.Errorf("partner = %q, want Bravo (the piece above the newest seam)", st.TargetName)
+	}
+	c := w.ActiveCraft()
+	wantOff := float64(StackRows(c.Stages[:1])) * DockStrideM
+	if !near(st.SeamOffsetM, wantOff, 1e-9) {
+		t.Errorf("SeamOffsetM = %g, want %g", st.SeamOffsetM, wantOff)
+	}
+	if d := st.TargetWorld.Sub(st.CraftWorld).Sub(c.CurrentAttitudeDir.Unit().Scale(wantOff)).Norm(); d > 1e-6 {
+		t.Errorf("scene centre is %g m off the seam point", d)
+	}
+	if st.HasPort || st.HullGapM != 0 || st.RangeM != 0 {
+		t.Errorf("docked scene carries gap data: %+v", st)
+	}
+	if r := w.ProximityRefusal(); r != "" {
+		t.Errorf("docked composite refused: %q", r)
+	}
+	// o out and back in while docked: admitted both ways.
+	w.ViewMode = ViewOrbitFlat
+	for _, wantEntered := range []bool{true, false, true} {
+		if entered, refusal := w.ToggleProximityView(); entered != wantEntered || refusal != "" {
+			t.Fatalf("toggle: entered=%v refusal=%q, want entered=%v", entered, refusal, wantEntered)
+		}
+	}
+	// A body target while docked still gets the docked scene; a lone vessel
+	// with no target is still refused.
+	w.SetTargetBody(1)
+	if !w.ProximityAvailable() {
+		t.Error("docked composite with a body target refused")
+	}
+	w.Undock(0)
+	w.ClearTarget()
+	if w.ProximityAvailable() {
+		t.Error("lone vessel with no target admitted")
+	}
+}

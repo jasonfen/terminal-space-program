@@ -1762,7 +1762,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case refusal != "":
 					a.toast("proximity view — " + refusal)
 				case entered:
-					a.toast(fmt.Sprintf("proximity view — %s centred; [o] returns to the map", a.world.TargetName()))
+					if st, ok := a.world.ProximityState(); ok && st.Docked {
+						a.toast(fmt.Sprintf("proximity view — docked with %s; [o] returns to the map", st.TargetName))
+					} else {
+						a.toast(fmt.Sprintf("proximity view — %s centred; [o] returns to the map", a.world.TargetName()))
+					}
 				default:
 					a.toast("proximity view off — back on the map")
 				}

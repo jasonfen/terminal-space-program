@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -109,5 +110,23 @@ func TestTargetBoxOwnOrbitalShapeSurvivesWhileLanded(t *testing.T) {
 	shapeRow := lines[2] // Ap/Pe/incl row
 	if strings.Count(shapeRow, "—") == 3 {
 		t.Errorf("target orbital-shape row while Landed = %q, want the target's own Ap/Pe/incl still populated (only the encounter half is withheld)", shapeRow)
+	}
+}
+
+// ADR 0063 section 3: after the dock the aim slot still holds the partner's
+// retired ID; the box names it with a docked badge and keeps every row dashed.
+func TestTargetBoxNamesDockedPartner(t *testing.T) {
+	w := portedPairWorld(t, []string{"rcs-tug"}, []string{"nudge-tug"}, orbital.Vec3{X: 0.3}, 0)
+	partner := w.Crafts[1].Name
+	w.DockCrafts(0, 1)
+	v := NewOrbitView(launchThemeForTest())
+	lines := v.buildTargetBox(w)
+	if !strings.Contains(lines[0], partner+" · docked") {
+		t.Errorf("title = %q, want %q", lines[0], partner+" · docked")
+	}
+	for i, row := range lines[1:] {
+		if !strings.Contains(row, "—") {
+			t.Errorf("row %d = %q, want dash cells", i+1, row)
+		}
 	}
 }

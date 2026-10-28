@@ -353,3 +353,21 @@ func TestTargetNameForBody(t *testing.T) {
 		t.Errorf("TargetName: got %q, want %q", got, want)
 	}
 }
+
+// ADR 0063 section 3: the TARGET box keeps naming the partner through the dock.
+func TestTargetNameKeepsDockedPartner(t *testing.T) {
+	p := newPortPair(t, "rcs-tug", "ntr-tug", 0.3, 0, 0)
+	w := p.w
+	w.SetTargetCraft(1)
+	if got := w.TargetName(); got != "Bravo" {
+		t.Fatalf("pre-dock TargetName = %q, want Bravo", got)
+	}
+	w.DockCrafts(0, 1)
+	if got := w.TargetName(); got != "Bravo" {
+		t.Errorf("docked TargetName = %q, want Bravo from DockedComponents", got)
+	}
+	w.Target.CraftID = 999999 // an ID the composite never held
+	if got := w.TargetName(); got != "" {
+		t.Errorf("unknown stranded ID named %q, want empty", got)
+	}
+}

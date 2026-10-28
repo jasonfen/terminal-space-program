@@ -2,6 +2,7 @@ package screens
 
 import (
 	"math"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -1393,5 +1394,82 @@ func TestProximityHullBoxIsADottedOutlineInTargetGreen(t *testing.T) {
 	// the mark is checked at that cell.
 	if got := strings.Count(ansi.Strip(v.Render(w, 0, DesignWidth, DesignHeight)), "○"); got < 1 {
 		t.Errorf("port marks = %d, want the box to keep its mark", got)
+	}
+}
+
+// dockedProximityFlow flies the ADR 0063 scene: a ported pair 0.3 m apart in
+// Proximity View, the view zoomed and panned by the player, rendered the tick
+// before the latch and the tick after. Returns both frames and the partner.
+func dockedProximityFlow(t *testing.T, cols, rows int) (v *OrbitView, w *sim.World, partner, before, after string, zoom, scale float64, pan orbital.Vec3) {
+	t.Helper()
+	w = portedPairWorld(t, []string{"rcs-tug"}, []string{"nudge-tug"}, orbital.Vec3{X: 0.3}, 0)
+	partner = w.Crafts[1].Name
+	v = newProximityTestView(t, cols, rows)
+	v.Render(w, 0, cols, rows)
+	v.ZoomIn()
+	v.PanRight()
+	before = v.Render(w, 0, cols, rows)
+	zoom, scale, pan = v.userZoom, v.canvas.Scale(), v.panOffset
+	w.DockCrafts(0, 1)
+	if len(w.Crafts) != 1 {
+		t.Fatalf("fixture dock failed: %d vessels", len(w.Crafts))
+	}
+	after = v.Render(w, 0, cols, rows)
+	return
+}
+
+// ADR 0063 section 2: the latch keeps the picture. Zoom, pan and scale do not
+// move on the latch tick; the chip loses the gap rows and says docked; both
+// hulls are the own composite sprite; o out and back in shows the same scene.
+func TestProximityStaysUpWhileDocked(t *testing.T) {
+	v, w, partner, before, after, zoom, scale, pan := dockedProximityFlow(t, 140, 40)
+	if strings.Contains(before, "docked") && !strings.Contains(before, "undocked") {
+		t.Errorf("pre-latch frame already says docked\n%s", before)
+	}
+	if v.userZoom != zoom || v.canvas.Scale() != scale || v.panOffset != pan {
+		t.Errorf("latch tick moved the camera: zoom %v->%v scale %v->%v pan %v->%v",
+			zoom, v.userZoom, scale, v.canvas.Scale(), pan, v.panOffset)
+	}
+	for _, want := range []string{
+		"PROXIMITY  " + partner + "  docked",
+		"view: Proximity — docked with " + partner,
+		"hold:", "trim:", "throttle:", "rcs:", "monoprop:",
+	} {
+		if !strings.Contains(after, want) {
+			t.Errorf("docked frame is missing %q\n%s", want, after)
+		}
+	}
+	if !regexp.MustCompile(`range:\s+docked`).MatchString(after) {
+		t.Errorf("docked frame has no `range: docked` row\n%s", after)
+	}
+	for _, gone := range []string{"port:", "misalign:", "lateral:", "rel speed:", "closing:", "no vessel", "isn't resolvable"} {
+		if strings.Contains(after, gone) {
+			t.Errorf("docked frame still carries %q\n%s", gone, after)
+		}
+	}
+	if !v.proxOwnSpriteShown {
+		t.Error("the composite sprite is not drawn while docked")
+	}
+	// o out and back in while docked: the same scene (re-entry is a Framing
+	// Event that clears the pan, so compare from a pan of zero).
+	v.panOffset = orbital.Vec3{}
+	after = v.Render(w, 0, 140, 40)
+	w.ViewMode = sim.ViewOrbitFlat
+	v.Render(w, 0, 140, 40)
+	if entered, refusal := w.ToggleProximityView(); !entered || refusal != "" {
+		t.Fatalf("re-entry while docked: entered=%v refusal=%q", entered, refusal)
+	}
+	if again := v.Render(w, 0, 140, 40); again != after {
+		t.Errorf("o out and back in changed the docked scene\nfirst:\n%s\nagain:\n%s", after, again)
+	}
+}
+
+// Compact Form keeps the header, range: and hold: while docked.
+func TestProximityDockedCompactForm(t *testing.T) {
+	_, _, partner, _, after, _, _, _ := dockedProximityFlow(t, 80, 24)
+	for _, want := range []string{"PROXIMITY  " + partner, "docked", "hold:"} {
+		if !strings.Contains(after, want) {
+			t.Errorf("80x24 docked frame is missing %q\n%s", want, after)
+		}
 	}
 }
