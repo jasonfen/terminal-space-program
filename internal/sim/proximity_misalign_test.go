@@ -60,17 +60,17 @@ func TestMisalignPairZeroWithoutPorts(t *testing.T) {
 	}
 }
 
-// ADR 0055 amendment (slice 4's remainder): PORT dropping resets a Port
-// hold to Prograde; any other hold is left alone.
-func TestReconcileDropResetsPortHoldToPrograde(t *testing.T) {
+// ADR 0063 §1 (supersedes ADR 0055's Prograde): PORT dropping resets a Port
+// hold to Inertial; any other hold is left alone.
+func TestReconcileDropResetsPortHoldToInertial(t *testing.T) {
 	for _, m := range []spacecraft.BurnMode{spacecraft.BurnPortIn, spacecraft.BurnPortOut, spacecraft.BurnPortUp,
 		spacecraft.BurnPortDown, spacecraft.BurnPortLeft, spacecraft.BurnPortRight} {
 		w := portPairWorld(t)
 		w.NavMode = NavPort
 		w.ActiveCraft().AttitudeMode = m
 		w.ClearTarget()
-		if got := w.ActiveCraft().AttitudeMode; got != spacecraft.BurnPrograde {
-			t.Errorf("hold %v after PORT dropped = %v, want Prograde", m, got)
+		if got := w.ActiveCraft().AttitudeMode; got != spacecraft.BurnInertial {
+			t.Errorf("hold %v after PORT dropped = %v, want Inertial", m, got)
 		}
 	}
 	// A non-port hold survives the drop.
@@ -88,8 +88,8 @@ func TestReconcileDropResetsPortHoldToPrograde(t *testing.T) {
 	w.Crafts[1].Stages = []spacecraft.Stage{stageOf(t, "s-ivb-1")}
 	w.Crafts[1].SyncFields()
 	w.Tick()
-	if got := w.ActiveCraft().AttitudeMode; got != spacecraft.BurnPrograde {
-		t.Errorf("hold after target shed its port = %v, want Prograde", got)
+	if got := w.ActiveCraft().AttitudeMode; got != spacecraft.BurnInertial {
+		t.Errorf("hold after target shed its port = %v, want Inertial", got)
 	}
 }
 

@@ -578,6 +578,10 @@ func TestRealisticFlightFile(t *testing.T) {
 	if want := w.holdText(w.ActiveCraft()); want != "Radial+ (ORBIT)" {
 		t.Errorf("holdText = %q", want)
 	}
+	w.ActiveCraft().AttitudeMode = spacecraft.BurnInertial // ADR 0063: the hold column follows
+	if want := w.holdText(w.ActiveCraft()); want != "Inertial (ORBIT)" {
+		t.Errorf("holdText = %q, want Inertial (ORBIT)", want)
+	}
 	if rows < 8 {
 		t.Errorf("rows = %d, want a flight's worth", rows)
 	}

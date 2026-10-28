@@ -246,6 +246,9 @@ type Keymap struct {
 	AttitudeSurfacePrograde   key.Binding
 	AttitudeSurfaceRetrograde key.Binding
 
+	// AttitudeInertial (ADR 0063 §1): hold the nose where it points now.
+	AttitudeInertial key.Binding
+
 	// PitchTrimEast / PitchTrimWest (v0.9.2+; ADR 0052 decision 2: on →
 	// and ←): lean the nose ±5° toward / back from the commanded heading
 	// off the active mode's natural direction (east only at the default
@@ -472,6 +475,7 @@ func DefaultKeymap() Keymap {
 
 		AttitudeSurfacePrograde:   key.NewBinding(key.WithKeys("W"), key.WithHelp("W", "attitude: surface prograde")),
 		AttitudeSurfaceRetrograde: key.NewBinding(key.WithKeys("S"), key.WithHelp("S", "attitude: surface retrograde")),
+		AttitudeInertial:          key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "attitude: inertial (hold the nose where it points)")),
 		PitchTrimEast:             key.NewBinding(key.WithKeys("right"), key.WithHelp("→", "pitch trim 5° toward your heading")),
 		PitchTrimWest:             key.NewBinding(key.WithKeys("left"), key.WithHelp("←", "pitch trim 5° back from your heading")),
 		HeadingTrimNorth:          key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "heading trim -5° (toward north)")),

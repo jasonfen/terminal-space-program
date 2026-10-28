@@ -49,6 +49,11 @@ func (v *OrbitView) buildGuidanceBox(w *sim.World) []string {
 	navLabel := fmt.Sprintf("%s", w.NavMode)
 
 	headingAbsDeg := (spacecraft.HeadingTrimDueEastRad + c.HeadingTrim) * 180 / math.Pi
+	if c.AttitudeMode == spacecraft.BurnInertial { // ADR 0063: the arrows turn the hold, so read where the nose points
+		if _, hdg, ok := w.NavballNoseReading(); ok {
+			headingAbsDeg = hdg
+		}
+	}
 	headingLabel := readout.Heading(headingAbsDeg)
 	trimDeg := w.TrimNoseDownDeg(c)
 	trimLabel := readout.TrimAngle(trimDeg)

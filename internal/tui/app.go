@@ -2048,11 +2048,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.AttitudeSurfaceRetrograde):
 			a.handleAttitudeKey(spacecraft.BurnSurfaceRetrograde)
 			return a, nil
+		case key.Matches(m, a.keys.AttitudeInertial):
+			// A set-hold even with RCS armed: an inertial "pulse" has no direction.
+			if a.world.ActiveCraft() == nil {
+				a.refuse("attitude", "no vessel")
+				return a, nil
+			}
+			a.world.SetAttitudeMode(spacecraft.BurnInertial)
+			return a, nil
 		case key.Matches(m, a.keys.PitchTrimEast):
 			// Arrows trim (ADR 0052): only on the flight screen. Body info
 			// and the mission ladder share this switch, and an arrow there
 			// must not steer a vessel the player cannot see.
 			if a.active != screenOrbit {
+				return a, nil
+			}
+			if a.world.NudgeInertialHold(-spacecraft.HeadingTrimStepRad, 0) { // ADR 0063: under Inertial → turns the held nose right
 				return a, nil
 			}
 			if a.portTrim(0, +spacecraft.PortTrimStepRad) { // ADR 0055: PORT turns the nose across the port face
@@ -2067,6 +2078,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// and the mission ladder share this switch, and an arrow there
 			// must not steer a vessel the player cannot see.
 			if a.active != screenOrbit {
+				return a, nil
+			}
+			if a.world.NudgeInertialHold(+spacecraft.HeadingTrimStepRad, 0) {
 				return a, nil
 			}
 			if a.portTrim(0, -spacecraft.PortTrimStepRad) {
@@ -2088,6 +2102,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// with HeadingTrimSouth's is exactly the risk
 			// TestHeadingArrowsReadTheCorrectCompassDirection
 			// sabotage-proves in app_same_keys_test.go.
+			if a.world.NudgeInertialHold(0, +spacecraft.PitchTrimStepRad) {
+				return a, nil
+			}
 			if a.portTrim(+spacecraft.PortTrimStepRad, 0) { // ↑ tips the nose up across the port face
 				return a, nil
 			}
@@ -2100,6 +2117,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// and the mission ladder share this switch, and an arrow there
 			// must not steer a vessel the player cannot see.
 			if a.active != screenOrbit {
+				return a, nil
+			}
+			if a.world.NudgeInertialHold(0, -spacecraft.PitchTrimStepRad) {
 				return a, nil
 			}
 			if a.portTrim(-spacecraft.PortTrimStepRad, 0) {
@@ -2120,6 +2140,21 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// ADR 0055: in PORT alt is 0.25° across the port face. Only the
 			// four arrow chords reach here (alt+f / alt+b are the
 			// emacs-style aliases of alt+→ / alt+←, same keys, same effect).
+			hf, pf := spacecraft.HeadingTrimFineStepRad, spacecraft.PitchTrimFineStepRad
+			var yaw, pitch float64
+			switch {
+			case key.Matches(m, a.keys.PitchTrimEastFine):
+				yaw = -hf
+			case key.Matches(m, a.keys.PitchTrimWestFine):
+				yaw = hf
+			case key.Matches(m, a.keys.HeadingTrimNorthFine):
+				pitch = pf
+			default:
+				pitch = -pf
+			}
+			if a.world.NudgeInertialHold(yaw, pitch) { // ADR 0063: alt = fine, under Inertial too
+				return a, nil
+			}
 			step := spacecraft.PortTrimFineStepRad
 			switch {
 			case key.Matches(m, a.keys.PitchTrimEastFine):
