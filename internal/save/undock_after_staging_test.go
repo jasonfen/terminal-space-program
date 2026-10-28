@@ -50,8 +50,10 @@ func tiles(c *spacecraft.Spacecraft) bool {
 
 func undockAndCheck(t *testing.T, w *sim.World) {
 	t.Helper()
-	if !w.Undock(w.ActiveCraftIdx) {
-		t.Fatal("Undock refused")
+	for len(w.ActiveCraft().DockedComponents) >= 2 { // one seam per U (ADR 0063 §4)
+		if !w.Undock(w.ActiveCraftIdx) {
+			t.Fatal("Undock refused")
+		}
 	}
 	comsats := 0
 	for _, k := range w.Crafts {

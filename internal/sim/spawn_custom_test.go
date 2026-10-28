@@ -229,10 +229,8 @@ func TestSpawnMultiNosePayloadComposite(t *testing.T) {
 		}
 	}
 
-	// Undock still releases every component as its own coherent craft.
-	if !w.Undock(w.ActiveCraftIdx) {
-		t.Fatal("Undock of the multi-payload composite returned false")
-	}
+	// Pressing U seam by seam still releases every component as its own coherent craft.
+	undockAll(t, w, w.ActiveCraftIdx)
 	got := map[string]bool{}
 	for _, cc := range w.Crafts {
 		if len(cc.Stages) == 1 {

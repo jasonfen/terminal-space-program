@@ -224,6 +224,13 @@ type Spacecraft struct {
 	// its own components and the other's identity to the result).
 	DockedComponents []DockedComponent
 
+	// NewestSeam (schema v20, ADR 0063 §4) is the index in DockedComponents
+	// where the block docked last begins: [lead..., drop...] puts the drop's
+	// components after the lead's, so the newest seam is not always the top.
+	// 0 means unknown (a record from an older save, a spawned stack): the last
+	// component. Read it through NewestSeamStart.
+	NewestSeam int
+
 	// Landed (v0.9.2+): true when the craft is parked on the
 	// primary's surface co-rotating with the ground. While Landed,
 	// the integrator bypasses gravity / drag / thrust and recomputes
@@ -491,13 +498,21 @@ type DockedComponent struct {
 	// schema bump (matching the CanSoftLand / Stages precedent above).
 	Owner   string
 	CraftID uint64
+
+	// AttitudeMode (schema v20, ADR 0063 §7) is the hold the vessel flew the
+	// tick BEFORE the latch, so an undock gives each piece its hold back. A
+	// pointer because nil (a record from an older save) must mean Inertial,
+	// not Prograde, the zero BurnMode.
+	AttitudeMode *BurnMode
 }
 
 // AsDockedComponent captures s's identity + capacity fields into a
 // DockedComponent record. v0.8.3+: used by DockCrafts to populate
 // the composite's DockedComponents list.
 func (s *Spacecraft) AsDockedComponent() DockedComponent {
+	mode := s.AttitudeMode
 	return DockedComponent{
+		AttitudeMode:     &mode,
 		Name:             s.Name,
 		LoadoutID:        s.LoadoutID,
 		Role:             s.Role,
@@ -515,10 +530,9 @@ func (s *Spacecraft) AsDockedComponent() DockedComponent {
 		// v0.12 / ADR 0009: record the full stage breakdown so a
 		// multi-stage component (the LM) round-trips through Undock.
 		Stages: append([]Stage(nil), s.Stages...),
-		// v0.28 S5: carry the pre-dock stable identity. Local docking
-		// still stamps fresh IDs on undock (Undock ignores this), but a
-		// cross-player dock reads it back so the guest craft returns home
-		// with the same ID. Owner is left empty here — DockGuestCraft
+		// v0.28 S5: carry the pre-dock stable identity. Both undocks hand it
+		// back (ADR 0063 §5: the cross-player return and the local release).
+		// Owner is left empty here — DockGuestCraft
 		// stamps it on the guest's contributed components.
 		CraftID: s.ID,
 	}

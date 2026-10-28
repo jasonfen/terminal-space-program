@@ -281,18 +281,8 @@ func (w *World) AdoptCraft(c *spacecraft.Spacecraft, makeActive bool) int {
 	if c == nil {
 		return -1
 	}
-	// Collision check must run BEFORE the append so craftByID scans only the
-	// existing slate, not c itself. A hit forces a fresh stamp below.
-	if c.ID != 0 {
-		if _, _, taken := w.craftByID(c.ID); taken {
-			c.ID = 0
-		}
-	}
+	w.claimCraftID(c) // before the append, so craftByID scans only the existing slate
 	w.Crafts = append(w.Crafts, c)
-	if c.ID != 0 && w.NextCraftID <= c.ID {
-		w.NextCraftID = c.ID + 1
-	}
-	w.stampCraftID(c) // no-op when it kept its ID; fresh id when zeroed above
 	idx := len(w.Crafts) - 1
 	if makeActive {
 		w.SetActiveCraftIdx(idx)
@@ -523,4 +513,20 @@ func StackHasGuest(c *spacecraft.Spacecraft) bool {
 		}
 	}
 	return false
+}
+
+// claimCraftID is AdoptCraft's preserve-or-stamp rule, shared with the local
+// undock (ADR 0063 §5): c keeps the ID it carries when nothing in the slate
+// holds it, else (or when it carries none) it gets a fresh stamp. NextCraftID
+// moves past a preserved ID. Call it before c joins the slate.
+func (w *World) claimCraftID(c *spacecraft.Spacecraft) {
+	if c.ID != 0 {
+		if _, _, taken := w.craftByID(c.ID); taken {
+			c.ID = 0
+		}
+	}
+	if c.ID != 0 && w.NextCraftID <= c.ID {
+		w.NextCraftID = c.ID + 1
+	}
+	w.stampCraftID(c)
 }

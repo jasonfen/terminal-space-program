@@ -6,9 +6,9 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
-// #709: the undock flash counts the pieces this undock produced, not every
-// vessel on the slate.
-func TestUndockFlashCountsOnlyThePiecesItProduced(t *testing.T) {
+// #709, ADR 0063 §4: the undock flash names the one vessel this U released,
+// whatever else is on the slate.
+func TestUndockFlashNamesTheReleasedVessel(t *testing.T) {
 	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -29,7 +29,7 @@ func TestUndockFlashCountsOnlyThePiecesItProduced(t *testing.T) {
 	if len(a.world.Crafts) != 3 {
 		t.Fatalf("setup: undock left %d vessels, want 3", len(a.world.Crafts))
 	}
-	if want := "undocked into 2 components"; a.statusMsg != want {
+	if want := "undocked from " + a.world.Crafts[1].Name; a.statusMsg != want {
 		t.Errorf("flash = %q, want %q", a.statusMsg, want)
 	}
 }

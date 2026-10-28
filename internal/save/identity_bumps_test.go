@@ -36,6 +36,9 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 	c.BatchID, c.BatchLead = 9, true                  // v17
 	c.LiftoffSimTime = w.Clock.SimTime.Add(time.Hour) // v18
 	w.GameFolder = "2026-10-27-1843"                  // v19
+	hold := spacecraft.BurnPortIn                     // v20: a docked piece's pre-latch hold
+	c.DockedComponents = []spacecraft.DockedComponent{{Name: "Core"}, {Name: "Tug", AttitudeMode: &hold}}
+	c.NewestSeam = 1 // v20: where the block docked last begins
 
 	path := filepath.Join(t.TempDir(), "save.json")
 	if err := Save(w, path); err != nil {
@@ -44,7 +47,8 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 	want := readFileForTest(t, path)
 	if want.Payload.Crafts[0].BatchID != 9 || want.Payload.Crafts[0].LiftoffSimTimeNano == 0 || want.Payload.GameFolder == "" || want.Payload.NameCounters == nil ||
 		want.Payload.Crafts[0].RendezvousPlan == nil || want.Payload.Crafts[0].BoosterThrottle == nil ||
-		want.Payload.Crafts[0].HeadingTrim == 0 || want.Payload.Crafts[0].Target == nil {
+		want.Payload.Crafts[0].HeadingTrim == 0 || want.Payload.Crafts[0].Target == nil ||
+		want.Payload.Crafts[0].DockedComponents[1].AttitudeMode == nil || want.Payload.Crafts[0].NewestSeam == 0 {
 		t.Fatalf("setup: a bump's key is missing: batch=%v counters=%v plan=%v booster=%v trim=%v target=%v", want.Payload.Crafts[0].BatchID, want.Payload.NameCounters, want.Payload.Crafts[0].RendezvousPlan, want.Payload.Crafts[0].BoosterThrottle, want.Payload.Crafts[0].HeadingTrim, want.Payload.Crafts[0].Target)
 	}
 
@@ -57,8 +61,9 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 		17: func(p *Payload) { p.NameCounters, p.Crafts[0].BatchID, p.Crafts[0].BatchLead = nil, 0, false },
 		18: func(p *Payload) { p.Crafts[0].LiftoffSimTimeNano = 0 },
 		19: func(p *Payload) { p.GameFolder = "" },
+		20: func(p *Payload) { p.Crafts[0].DockedComponents[1].AttitudeMode, p.Crafts[0].NewestSeam = nil, 0 },
 	}
-	for _, bump := range []int{10, 11, 14, 16, 17, 18, 19} {
+	for _, bump := range []int{10, 11, 14, 16, 17, 18, 19, 20} {
 		roundTrip(t, want, bump, "keys present")
 		absent := want
 		absent.Payload = Payload{}
@@ -112,4 +117,32 @@ func readFileForTest(t *testing.T, path string) File {
 		t.Fatal(err)
 	}
 	return f
+}
+
+// ADR 0063 §7: a pre-latch hold of Prograde (0) survives the wire as present,
+// distinct from an absent record (nil, read as Inertial), including through the
+// cross-player transfer wire (additive JSON).
+func TestDockedComponentHoldRoundTripsPresenceNotJustValue(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := w.ActiveCraft()
+	prograde := spacecraft.BurnPrograde
+	c.DockedComponents = []spacecraft.DockedComponent{{Name: "Core", AttitudeMode: &prograde}, {Name: "Tug"}, {Name: "Top"}}
+	c.NewestSeam = 2
+	got, err := CraftFromWire(CraftToWireForTransfer(c), w.Systems)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dcs := got.DockedComponents
+	if got.NewestSeam != 2 {
+		t.Errorf("NewestSeam came back %d, want 2", got.NewestSeam)
+	}
+	if dcs[0].AttitudeMode == nil || *dcs[0].AttitudeMode != spacecraft.BurnPrograde {
+		t.Errorf("Prograde record came back %v, want present Prograde", dcs[0].AttitudeMode)
+	}
+	if dcs[1].AttitudeMode != nil {
+		t.Errorf("absent record came back %v, want nil", *dcs[1].AttitudeMode)
+	}
 }

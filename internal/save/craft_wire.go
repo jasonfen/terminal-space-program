@@ -88,6 +88,7 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 	// simStagesToWire with DockedComponent.Stages so a new Stage field
 	// can't be dropped from one path but not the other.
 	wc.Stages = simStagesToWire(c.Stages)
+	wc.NewestSeam = c.NewestSeam
 	for _, dc := range c.DockedComponents {
 		wc.DockedComponents = append(wc.DockedComponents, DockedComponent{
 			Name:             dc.Name,
@@ -107,6 +108,7 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 			Stages:           simStagesToWire(dc.Stages),
 			Owner:            dc.Owner,
 			CraftID:          dc.CraftID,
+			AttitudeMode:     modeToWire(dc.AttitudeMode),
 		})
 	}
 	for _, n := range c.Nodes {
@@ -367,6 +369,7 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 	// whose stages already carry the attribute.
 	spacecraft.EnsureCommandSource(c)
 	c.SyncFields()
+	c.NewestSeam = wc.NewestSeam
 	for _, dc := range wc.DockedComponents {
 		c.DockedComponents = append(c.DockedComponents, spacecraft.DockedComponent{
 			Name:             dc.Name,
@@ -386,6 +389,7 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			Stages:           wireStagesToSim(dc.Stages),
 			Owner:            dc.Owner,
 			CraftID:          dc.CraftID,
+			AttitudeMode:     modeFromWire(dc.AttitudeMode),
 		})
 	}
 	// A save written after a stage was dropped from the bottom (before #707's
@@ -522,4 +526,20 @@ func raiseFromWire(w *RaiseWire) *spacecraft.RaiseOrder {
 		return nil
 	}
 	return &spacecraft.RaiseOrder{TargetAltM: w.TargetAltM, StartAt: timeFromNano(w.StartAtNano), Started: w.Started, BatchID: w.BatchID}
+}
+
+func modeToWire(m *spacecraft.BurnMode) *int {
+	if m == nil {
+		return nil
+	}
+	i := int(*m)
+	return &i
+}
+
+func modeFromWire(i *int) *spacecraft.BurnMode {
+	if i == nil {
+		return nil
+	}
+	m := spacecraft.BurnMode(*i)
+	return &m
 }

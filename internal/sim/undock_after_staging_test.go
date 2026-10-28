@@ -71,9 +71,7 @@ func TestUndockAfterStagingKeepsPayloadAntennas(t *testing.T) {
 			sum, len(c.Stages))
 	}
 
-	if !w.Undock(idx) {
-		t.Fatal("Undock refused")
-	}
+	undockAll(t, w, idx)
 	w.RecomputeCommGraph()
 
 	comsats := 0

@@ -203,14 +203,15 @@ func (w *World) dockedProximityState(c *spacecraft.Spacecraft) (ProximityState, 
 	if !ok {
 		return ProximityState{}, false
 	}
-	off := float64(StackRows(c.Stages[:seams[len(seams)-1]])) * DockStrideM
+	k := c.NewestSeamStart() // seams[k-1] is where component k begins
+	off := float64(StackRows(c.Stages[:seams[k-1]])) * DockStrideM
 	primaryPos := w.BodyPosition(c.Primary)
 	craft := primaryPos.Add(c.State.R)
 	return ProximityState{
 		Frame:       frame,
 		TargetWorld: craft.Add(c.CurrentAttitudeDir.Unit().Scale(off)),
 		CraftWorld:  craft,
-		TargetName:  c.DockedComponents[len(c.DockedComponents)-1].Name,
+		TargetName:  c.DockedComponents[k].Name,
 		Own:         VesselPortGeometry(c),
 		Docked:      true,
 		SeamOffsetM: off,

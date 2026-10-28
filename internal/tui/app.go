@@ -476,7 +476,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.maybeAutosave(time.Time(m))
 		// v0.8.3+: surface docking events as a status flash. Cleared
 		// here so a single fusion only flashes once. #421 / ADR 0048 §2:
-		// same voice Undock already uses ("undocked into N components") —
+		// same voice Undock already uses ("undocked from <name>") —
 		// verb, what, the number that matters — rather than the old bare
 		// "composite: <name>", so an auto-fuse (the "alongside active"
 		// spawn case chief among them) never welds two vessels together
@@ -1938,9 +1938,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				} else if name, n, note, ok := a.world.BatchReleaseCard(idx); ok {
 					a.askReleaseBatch(name, n, note)
 				}
-			} else if before := len(a.world.Crafts); a.world.Undock(a.world.ActiveCraftIdx) {
-				// The stack becomes its pieces: the slate grows by pieces-1 (#709).
-				a.flash(fmt.Sprintf("undocked into %d components", len(a.world.Crafts)-before+1))
+			} else if idx := a.world.ActiveCraftIdx; a.world.Undock(idx) {
+				// ADR 0063 §4: one seam opens; the released vessel follows the flown one.
+				a.flash("undocked from " + a.world.Crafts[idx+1].Name)
 				a.world.RecordAction(missions.ActionUndock) // ADR 0025 §7
 			}
 			return a, nil
