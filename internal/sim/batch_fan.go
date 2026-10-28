@@ -37,8 +37,10 @@ func stackAxis(c *spacecraft.Spacecraft) orbital.Vec3 {
 
 // IsBatch reports whether the vessel at idx is a batch: a same-player
 // composite with two or more components above its lead whose record tiles the
-// live stack. A pair, a CSM with its LM or a single-payload carrier is not,
-// and keeps today's U. Like Undock it repairs a stack that lost bottom stages
+// live stack, every one of them authored (the VAB or spawn form built it, so
+// no component carries the ID of a vessel that flew in; ADR 0063 §4). A pair,
+// a CSM with its LM, a single-payload carrier or a flown dock chain is not,
+// and keeps U's newest-seam release. Like Undock it repairs a stack that lost bottom stages
 // (a spent F9-S1) before looking.
 func (w *World) IsBatch(idx int) bool {
 	if idx < 0 || idx >= len(w.Crafts) || w.Crafts[idx] == nil {
@@ -46,7 +48,15 @@ func (w *World) IsBatch(idx int) bool {
 	}
 	c := w.Crafts[idx]
 	c.ReconcileDockedComponents()
-	return len(c.DockedComponents) >= 3 && DockSeams(c) != nil && !StackHasGuest(c)
+	if len(c.DockedComponents) < 3 || DockSeams(c) == nil || StackHasGuest(c) {
+		return false
+	}
+	for _, comp := range c.DockedComponents[1:] {
+		if comp.CraftID != 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // BatchFanRefusal says why a batch release refuses, or "" when it will go.

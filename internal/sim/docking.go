@@ -105,6 +105,15 @@ func (w *World) undockSplit(idx int, batch bool) bool {
 	// re-dock needs a flown approach anyway (#343's secular-drift worry).
 	axis := stackAxis(c)
 
+	// ADR 0063 §4: U opens the newest seam only. The last component docked
+	// leaves as one vessel; the rest stays a composite (batch and the legacy
+	// flat rebuild below still release every component).
+	// shortcut: a pre-breakdown record (no per-stage tiling) with 3+ components
+	// releases them all, spring i x 0.05, as before; upgrade if such saves matter.
+	if !batch && useBreakdown {
+		return w.releaseNewestSeam(idx, c, axis)
+	}
+
 	restored := make([]*spacecraft.Spacecraft, 0, len(c.DockedComponents))
 	stageOffset := 0 // running index into c.Stages for the breakdown path
 	for i, comp := range c.DockedComponents {
@@ -117,49 +126,7 @@ func (w *World) undockSplit(idx int, batch bool) bool {
 			stages = append([]spacecraft.Stage(nil), c.Stages[stageOffset:stageOffset+cnt]...)
 			stageOffset += cnt
 		} else {
-			// Legacy single-stage path: rebuild a one-element Stages
-			// slice from the flat DockedComponent record, prorating the
-			// composite's pooled fuel/monoprop by pre-dock capacity.
-			var fuelShare, monoShare float64
-			if totalCapFuel > 0 {
-				fuelShare = c.Fuel * (comp.FuelCapacity / totalCapFuel)
-			}
-			if totalCapMono > 0 {
-				monoShare = c.Monoprop * (comp.MonopropCapacity / totalCapMono)
-			}
-			// The rebuild must not strip the component's hardware: carry the
-			// command source, antenna and ports of whatever stages it recorded
-			// (#707), else the catalog ports of its loadout for a pre-breakdown
-			// flat record (#683; the Stage.Ports() name lookup is gone).
-			cmd, antKind, antRange, ports := spacecraft.PartsOfStages(comp.Stages)
-			if len(comp.Stages) == 0 {
-				ports = spacecraft.LookupCatalogPorts(comp.LoadoutID, comp.Name)
-			}
-			stages = []spacecraft.Stage{{
-				CommandSource: cmd,
-				AntennaKind:   antKind,
-				AntennaRangeM: antRange,
-				PartPorts:     ports,
-				LoadoutID:     comp.LoadoutID,
-				Name:          comp.Name,
-				Glyph:         comp.Glyph,
-				Color:         comp.Color,
-				DryMass:       comp.DryMass,
-				FuelMass:      fuelShare,
-				FuelCapacity:  comp.FuelCapacity,
-				Thrust:        comp.Thrust,
-				Isp:           comp.Isp,
-				MonopropMass:  monoShare,
-				MonopropCap:   comp.MonopropCapacity,
-				RCSThrust:     comp.RCSThrust,
-				RCSIsp:        comp.RCSIsp,
-				// v0.12 Slice 3 (ADR 0008): restore the surface-arrival
-				// capabilities so an undocked lander / chute capsule keeps
-				// its soft-land / parachute qualification. SyncFields below
-				// re-derives the flat mirrors from this Stages[0].
-				CanSoftLand:  comp.CanSoftLand,
-				HasParachute: comp.HasParachute,
-			}}
+			stages = w.legacyComponentStages(c, comp, totalCapFuel, totalCapMono)
 		}
 		r, v, att := c.State.R, c.State.V, c.CurrentAttitudeDir
 		if i > 0 {
@@ -194,33 +161,14 @@ func (w *World) undockSplit(idx int, batch bool) bool {
 		w.applyBatchFan(c, restored, axis)
 	}
 
-	// Each restored component is a fresh vessel — stamp new stable IDs
-	// (ADR 0012). The composite's ID is retired with it; a target that
-	// pointed at the composite stops resolving rather than aliasing a
-	// component. Targets aimed at the unaffected tail crafts keep
-	// resolving by ID through the insert shift — no remap needed.
-	for _, s := range restored {
-		w.stampCraftID(s)
+	// ADR 0063 §5: the flown vessel keeps the composite's ID, every other
+	// piece the ID it docked with (a fresh stamp only for a record without one).
+	restored[0].ID = c.ID
+	for i, s := range restored[1:] {
+		s.ID = c.DockedComponents[i+1].CraftID
+		w.claimCraftID(s)
 	}
-
-	// #343: arm a same-World re-arm latch (localReArm) for every pair among
-	// the just-restored components, mirroring the cross-player DockCooldown
-	// latch's shape — checkDocking refuses to re-fuse any of these pairs
-	// until their ports have separated past ReArmDistM or ReArmCeiling of sim-time
-	// has passed, regardless of what the proximity gates alone say. Covers
-	// both the along-track push's own secular drift and two of these
-	// components simply drifting back together for unrelated reasons.
-	var releasedAt time.Time
-	if w.Clock != nil {
-		releasedAt = w.Clock.SimTime
-	}
-	for i := 0; i < len(restored); i++ {
-		for j := i + 1; j < len(restored); j++ {
-			w.localReArms = append(w.localReArms, localReArm{
-				idA: restored[i].ID, idB: restored[j].ID, releasedAt: releasedAt,
-			})
-		}
-	}
+	w.armLocalReArms(restored)
 
 	if batch {
 		// The lead replaces the composite in place so digit slots keep their
@@ -246,8 +194,165 @@ func (w *World) undockSplit(idx int, batch bool) bool {
 	// DockCrafts).
 	w.SetActiveCraftIdx(idx)
 	w.StopManualBurn()
+	if !batch {
+		for i, s := range restored {
+			w.restoreHold(s, c.DockedComponents[i].AttitudeMode, i == 0)
+		}
+	}
 	w.recordSplit(restored, c.Name, batch)
 	return true
+}
+
+// legacyComponentStages rebuilds a one-element Stages slice from the flat
+// DockedComponent record, prorating the composite's pooled fuel/monoprop by
+// pre-dock capacity (a record that predates the per-stage breakdown).
+func (w *World) legacyComponentStages(c *spacecraft.Spacecraft, comp spacecraft.DockedComponent, totalCapFuel, totalCapMono float64) []spacecraft.Stage {
+	var fuelShare, monoShare float64
+	if totalCapFuel > 0 {
+		fuelShare = c.Fuel * (comp.FuelCapacity / totalCapFuel)
+	}
+	if totalCapMono > 0 {
+		monoShare = c.Monoprop * (comp.MonopropCapacity / totalCapMono)
+	}
+	// The rebuild must not strip the component's hardware: carry the
+	// command source, antenna and ports of whatever stages it recorded
+	// (#707), else the catalog ports of its loadout for a pre-breakdown
+	// flat record (#683; the Stage.Ports() name lookup is gone).
+	cmd, antKind, antRange, ports := spacecraft.PartsOfStages(comp.Stages)
+	if len(comp.Stages) == 0 {
+		ports = spacecraft.LookupCatalogPorts(comp.LoadoutID, comp.Name)
+	}
+	return []spacecraft.Stage{{
+		CommandSource: cmd,
+		AntennaKind:   antKind,
+		AntennaRangeM: antRange,
+		PartPorts:     ports,
+		LoadoutID:     comp.LoadoutID,
+		Name:          comp.Name,
+		Glyph:         comp.Glyph,
+		Color:         comp.Color,
+		DryMass:       comp.DryMass,
+		FuelMass:      fuelShare,
+		FuelCapacity:  comp.FuelCapacity,
+		Thrust:        comp.Thrust,
+		Isp:           comp.Isp,
+		MonopropMass:  monoShare,
+		MonopropCap:   comp.MonopropCapacity,
+		RCSThrust:     comp.RCSThrust,
+		RCSIsp:        comp.RCSIsp,
+		// v0.12 Slice 3 (ADR 0008): restore the surface-arrival
+		// capabilities so an undocked lander / chute capsule keeps
+		// its soft-land / parachute qualification. SyncFields below
+		// re-derives the flat mirrors from this Stages[0].
+		CanSoftLand:  comp.CanSoftLand,
+		HasParachute: comp.HasParachute,
+	}}
+}
+
+// releaseNewestSeam is the ADR 0063 §4-§8 release: the last component docked
+// leaves as one vessel, straight back along the stack axis at the shared
+// spring; the flown vessel keeps its ID, its place in the slate, and (when
+// more than one component is left) the composite itself. Needs the per-stage
+// breakdown (undockSplit's useBreakdown).
+func (w *World) releaseNewestSeam(idx int, c *spacecraft.Spacecraft, axis orbital.Vec3) bool {
+	n := len(c.DockedComponents)
+	top := c.DockedComponents[n-1]
+	keep := len(c.Stages) - len(top.Stages)
+	// Where the released hull was drawn: its bottom row sits at the top of
+	// the stack's block (the composite sprite reflects it).
+	r := c.State.R
+	if rows := StackRows(c.Stages); rows > 0 {
+		r = r.Add(axis.Scale(float64(rows-1) * DockStrideM))
+	}
+	released := w.restoreComponentCraft(c, top, append([]spacecraft.Stage(nil), c.Stages[keep:]...), r, c.State.V)
+	released.CurrentAttitudeDir = axis.Scale(-1)
+	released.ID = top.CraftID
+	w.claimCraftID(released)
+
+	var lead *spacecraft.Spacecraft
+	if n == 2 {
+		lead = w.restoreComponentCraft(c, c.DockedComponents[0], append([]spacecraft.Stage(nil), c.Stages[:keep]...), c.State.R, c.State.V)
+		lead.CurrentAttitudeDir = c.CurrentAttitudeDir
+		// The flown vessel's launch bookkeeping rides along so its recording
+		// (same file, same ID) keeps its T+ clock and header facts.
+		lead.LiftoffSimTime, lead.HasLaunchSite = c.LiftoffSimTime, c.HasLaunchSite
+		lead.LaunchLatDeg, lead.LaunchLonDeg = c.LaunchLatDeg, c.LaunchLonDeg
+	} else {
+		// Three or more: the composite shrinks in place (as Deploy does).
+		lead = c
+		lead.Stages = append([]spacecraft.Stage(nil), c.Stages[:keep]...)
+		lead.DockedComponents = append([]spacecraft.DockedComponent(nil), c.DockedComponents[:n-1]...)
+		lead.SyncFields()
+		lead.State.M = lead.TotalMass()
+	}
+	lead.ID = c.ID
+
+	// §8: the spring is shared by mass; the lead side is the kept composite.
+	mLead, mTop := lead.TotalMass(), released.TotalMass()
+	if mTot := mLead + mTop; mTot > 0 {
+		lead.State.V = c.State.V.Add(axis.Scale(-mTop / mTot * UndockSpringMS))
+		released.State.V = c.State.V.Add(axis.Scale(mLead / mTot * UndockSpringMS))
+	}
+	w.armLocalReArms([]*spacecraft.Spacecraft{lead, released})
+
+	if lead == c {
+		w.Crafts = append(w.Crafts[:idx+1], append([]*spacecraft.Spacecraft{released}, w.Crafts[idx+1:]...)...)
+	} else {
+		tail := append([]*spacecraft.Spacecraft{}, w.Crafts[idx+1:]...)
+		w.Crafts = append(append(w.Crafts[:idx], lead, released), tail...)
+	}
+	w.SetActiveCraftIdx(idx)
+	w.StopManualBurn()
+	if lead != c { // a kept composite keeps the hold it is flying
+		w.restoreHold(lead, c.DockedComponents[0].AttitudeMode, true)
+	}
+	w.restoreHold(released, top.AttitudeMode, false)
+	w.recordSplit([]*spacecraft.Spacecraft{lead, released}, c.Name, false)
+	return true
+}
+
+// armLocalReArms is #343's latch for every pair among the just-restored
+// pieces, mirroring the cross-player DockCooldown latch's shape: checkDocking
+// refuses to re-fuse any of these pairs until their ports have separated past
+// ReArmDistM or ReArmCeiling of sim-time has passed, regardless of what the
+// proximity gates alone say.
+func (w *World) armLocalReArms(restored []*spacecraft.Spacecraft) {
+	var releasedAt time.Time
+	if w.Clock != nil {
+		releasedAt = w.Clock.SimTime
+	}
+	for i := 0; i < len(restored); i++ {
+		for j := i + 1; j < len(restored); j++ {
+			w.localReArms = append(w.localReArms, localReArm{
+				idA: restored[i].ID, idB: restored[j].ID, releasedAt: releasedAt,
+			})
+		}
+	}
+}
+
+// restoreHold gives a restored piece the hold it flew the tick before the
+// latch (ADR 0063 §7; nil is a record from an older save and comes back
+// Inertial, at the piece's own nose). The flown vessel (already Active) gets
+// NavPort back with a port hold when its restored target has a port; a port
+// hold with no port to hold, and any port hold on a non-flown piece (it has no
+// target), falls to Inertial so nothing points nowhere.
+func (w *World) restoreHold(s *spacecraft.Spacecraft, rec *spacecraft.BurnMode, flown bool) {
+	mode := spacecraft.BurnInertial
+	if rec != nil {
+		mode = *rec
+	}
+	if spacecraft.IsPortMode(mode) {
+		if !flown || !w.TargetHasPort() {
+			mode = spacecraft.BurnInertial
+		} else {
+			w.setNavMode(NavPort)
+		}
+	}
+	if mode == spacecraft.BurnInertial {
+		s.HoldInertial()
+	} else {
+		s.AttitudeMode = mode
+	}
 }
 
 // UndockRefusal says, in the player's words, why Undock(idx) will refuse — or
@@ -480,10 +585,11 @@ func DockSeams(c *spacecraft.Spacecraft) []int {
 	return seams
 }
 
-// UndockSpringMS is the Spring Release: how fast each component above the
-// seam is pushed along +a_hat, relative to the one below it, on Undock (ADR
-// 0053 "Settled here" item 4).
-const UndockSpringMS = 0.15
+// UndockSpringMS is the Spring Release: the relative speed the two sides of
+// the opened seam part at along +a_hat, shared by mass (momentum conserving,
+// ADR 0063 §8; was 0.15 and all on the piece above, ADR 0053 "Settled here"
+// item 4). Under the 0.10 m/s DockingVMS capture gate.
+const UndockSpringMS = 0.05
 
 // ReArmDistM is the re-arm-by-leaving distance (ADR 0038 §5, amended
 // 2026-10-25 for #794): once a pair undocks, a fresh dock between the SAME

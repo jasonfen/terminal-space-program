@@ -3,6 +3,9 @@ package sim
 import (
 	"fmt"
 	"math"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -74,9 +77,7 @@ func TestUndockSeparationClearsDockingGates(t *testing.T) {
 			w, _ := NewWorld()
 			buildStack(t, w, n)
 
-			if !w.Undock(0) {
-				t.Fatalf("Undock returned false on a %d-component composite", n)
-			}
+			undockAll(t, w, 0) // one seam per U (ADR 0063 §4)
 			if len(w.Crafts) != n {
 				t.Fatalf("expected %d craft after undock, got %d", n, len(w.Crafts))
 			}
@@ -95,5 +96,281 @@ func TestUndockSeparationClearsDockingGates(t *testing.T) {
 				t.Errorf("n=%d: slate count = %d after the post-undock scan, want %d (unchanged)", n, len(w.Crafts), n)
 			}
 		})
+	}
+}
+
+// undockAll presses U on the vessel at idx until it is no longer a composite.
+func undockAll(t *testing.T, w *World, idx int) {
+	t.Helper()
+	for i := 0; len(w.Crafts[idx].DockedComponents) >= 2; i++ {
+		if i > 20 || !w.Undock(idx) {
+			t.Fatalf("Undock stuck on %d components: %q", len(w.Crafts[idx].DockedComponents), w.UndockRefusal(idx))
+		}
+	}
+}
+
+// dockedLoadoutPair docks two catalog loadouts port to port (fixture dock) and
+// returns the world plus the two pre-dock vessels (a leads, b is partner).
+func dockedLoadoutPair(t *testing.T, idA, idB string) (*World, *spacecraft.Spacecraft, *spacecraft.Spacecraft) {
+	t.Helper()
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+	r := orbital.Vec3{X: earth.RadiusMeters() + 500e3}
+	v := orbital.Vec3{Y: math.Sqrt(earth.GravitationalParameter() / r.Norm())}
+	a := spacecraft.NewFromLoadout(idA)
+	b := spacecraft.NewFromLoadout(idB)
+	a.Name, b.Name = "Alpha", "Bravo"
+	for _, s := range []*spacecraft.Spacecraft{a, b} {
+		s.Primary = *earth
+		s.State = physics.StateVector{R: r, V: v, M: s.TotalMass()}
+	}
+	a.CurrentAttitudeDir = v.Unit()
+	w.Crafts = []*spacecraft.Spacecraft{a, b}
+	w.ActiveCraftIdx = 0
+	w.stampCraftID(a)
+	w.stampCraftID(b)
+	placePortToPort(a, b, 0.3)
+	w.DockCrafts(0, 1)
+	if len(w.Crafts) != 1 {
+		t.Fatalf("fixture dock left %d vessels", len(w.Crafts))
+	}
+	return w, a, b
+}
+
+// ADR 0063 §8: the spring is shared by mass at 0.05 m/s relative, momentum
+// conserving. Numbers computed from the loadouts' own masses (full tanks), the
+// ADR table's heavy/light columns, plus the equal-mass case (0.025 each).
+func TestUndockSpringSharedByMass(t *testing.T) {
+	if UndockSpringMS != 0.05 {
+		t.Fatalf("UndockSpringMS = %v, want 0.05", UndockSpringMS)
+	}
+	for _, c := range []struct{ a, b string }{
+		{"RCS-tug", "RCS-tug"},
+		{"Apollo-TLI", "Dragon"},
+		{"Dragon", "Cargo-Dragon"},
+		{"Apollo-TLI", "RCS-tug"},
+	} {
+		c := c
+		t.Run(c.a+"+"+c.b, func(t *testing.T) {
+			w, a, b := dockedLoadoutPair(t, c.a, c.b)
+			mA, mB := a.TotalMass(), b.TotalMass()
+			comp := w.Crafts[0]
+			axis := stackAxis(comp)
+			v0 := comp.State.V
+			if !w.Undock(0) {
+				t.Fatal("Undock refused")
+			}
+			lead, top := w.Crafts[0], w.Crafts[1]
+			dvLead := lead.State.V.Sub(v0).Dot(axis)
+			dvTop := top.State.V.Sub(v0).Dot(axis)
+			wantLead, wantTop := -mB/(mA+mB)*0.05, mA/(mA+mB)*0.05
+			if math.Abs(dvLead-wantLead) > 1e-9 || math.Abs(dvTop-wantTop) > 1e-9 {
+				t.Errorf("lead %+.6f top %+.6f m/s, want %+.6f / %+.6f", dvLead, dvTop, wantLead, wantTop)
+			}
+			if p := mA*dvLead + mB*dvTop; math.Abs(p) > 1e-6 {
+				t.Errorf("momentum change %.3g kg m/s, want 0", p)
+			}
+			if rel := dvTop - dvLead; math.Abs(rel-0.05) > 1e-9 {
+				t.Errorf("relative speed %.6f, want 0.05", rel)
+			}
+			if c.a == "RCS-tug" && c.b == "RCS-tug" && (math.Abs(dvLead+0.025) > 1e-9 || math.Abs(dvTop-0.025) > 1e-9) {
+				t.Errorf("equal masses: %.4f / %.4f, want -0.025 / +0.025", dvLead, dvTop)
+			}
+		})
+	}
+}
+
+// ADR 0063 §4: U opens the newest seam only. A flown three-component chain
+// gives two vessels (the rest stays joined); a second U opens the next seam.
+func TestUndockOpensNewestSeamOnly(t *testing.T) {
+	w, _ := NewWorld()
+	buildStack(t, w, 3)
+	last := w.Crafts[0].DockedComponents[2]
+	if w.IsBatch(0) {
+		t.Fatal("a flown dock chain reads as an authored batch")
+	}
+	if !w.Undock(0) {
+		t.Fatal("Undock refused")
+	}
+	if len(w.Crafts) != 2 {
+		t.Fatalf("slate = %d after one U on 3 components, want 2", len(w.Crafts))
+	}
+	if n := len(w.Crafts[0].DockedComponents); n != 2 {
+		t.Errorf("flown stack has %d components left, want 2", n)
+	}
+	if got := w.Crafts[1]; got.ID != last.CraftID || len(got.DockedComponents) != 0 {
+		t.Errorf("released vessel id %d (want %d), %d components", got.ID, last.CraftID, len(got.DockedComponents))
+	}
+	if !w.Undock(0) || len(w.Crafts) != 3 {
+		t.Fatalf("second U: slate = %d, want 3", len(w.Crafts))
+	}
+}
+
+// An authored payload stack (components carry no vessel IDs) is still a batch
+// at three components; one flown vessel docked on top is not part of it.
+func TestIsBatchIsAuthoredStacksOnly(t *testing.T) {
+	w, idx := batchFixture(t, 90, false)
+	if !w.IsBatch(idx) {
+		t.Fatal("setup: the authored stack is not a batch")
+	}
+	c := w.Crafts[idx]
+	for i := 1; i < len(c.DockedComponents); i++ {
+		c.DockedComponents[i].CraftID = uint64(100 + i) // the same stack, flown into place
+	}
+	if w.IsBatch(idx) {
+		t.Error("a stack of flown vessels reads as a batch")
+	}
+}
+
+// ADR 0063 §5: every piece comes back with the ID it docked with, the flown
+// vessel keeps its ID, and the target slot resolves again with no re-target.
+func TestUndockRestoresDockedIDs(t *testing.T) {
+	p := newPortPair(t, "rcs-tug", "ntr-tug", 0.3, 0, 0)
+	w := p.w
+	idA, idB := p.a.ID, p.b.ID
+	w.SetTargetCraft(1)
+	w.DockCrafts(0, 1)
+	if w.Crafts[0].ID != idA {
+		t.Fatalf("setup: composite id %d, want %d", w.Crafts[0].ID, idA)
+	}
+	w.Undock(0)
+	if w.Crafts[0].ID != idA || w.Crafts[1].ID != idB {
+		t.Errorf("ids after undock = %d,%d want %d,%d", w.Crafts[0].ID, w.Crafts[1].ID, idA, idB)
+	}
+	if c, _, ok := w.targetCraft(); !ok || c != w.Crafts[1] {
+		t.Error("the partner target did not resolve again after U")
+	}
+}
+
+func TestUndockStampsFreshIDWhenRecordHasNoneOrIsLive(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		edit func(w *World)
+	}{
+		{"record without an id", func(w *World) { w.Crafts[0].DockedComponents[1].CraftID = 0 }},
+		{"id already live", func(w *World) {
+			x := spacecraft.NewFromLoadout("RCS-tug")
+			x.ID = w.Crafts[0].DockedComponents[1].CraftID
+			w.Crafts = append(w.Crafts, x)
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			w, _ := NewWorld()
+			buildStack(t, w, 2)
+			w.NextCraftID = 50
+			want := w.Crafts[0].DockedComponents[1].CraftID
+			c.edit(w)
+			w.Undock(0)
+			got := w.Crafts[1].ID
+			if got == 0 || got == want || got < 50 {
+				t.Errorf("released id = %d, want a fresh stamp >= 50 (docked-with %d)", got, want)
+			}
+		})
+	}
+}
+
+// ADR 0063 §7: each piece gets its pre-latch hold back; the flown vessel's
+// nav frame comes back with a port hold; a record without the field is
+// Inertial and the released piece does not swing to prograde.
+func TestUndockRestoresPreLatchHolds(t *testing.T) {
+	t.Run("modes round trip", func(t *testing.T) {
+		w, _, _ := dockedLoadoutPair(t, "RCS-tug", "RCS-tug")
+		w.Crafts[0].DockedComponents[0].AttitudeMode = modePtr(spacecraft.BurnRetrograde)
+		w.Crafts[0].DockedComponents[1].AttitudeMode = modePtr(spacecraft.BurnNormalPlus)
+		w.Undock(0)
+		if got := w.Crafts[0].AttitudeMode; got != spacecraft.BurnRetrograde {
+			t.Errorf("flown vessel hold = %v, want Retrograde", got)
+		}
+		if got := w.Crafts[1].AttitudeMode; got != spacecraft.BurnNormalPlus {
+			t.Errorf("released vessel hold = %v, want Normal+", got)
+		}
+	})
+	t.Run("recorded at the latch", func(t *testing.T) {
+		p := newPortPair(t, "rcs-tug", "ntr-tug", 0.3, 0, 0)
+		p.a.AttitudeMode = spacecraft.BurnRetrograde
+		p.b.AttitudeMode = spacecraft.BurnRadialOut
+		p.w.DockCrafts(0, 1)
+		dcs := p.w.Crafts[0].DockedComponents
+		if dcs[0].AttitudeMode == nil || *dcs[0].AttitudeMode != spacecraft.BurnRetrograde ||
+			dcs[1].AttitudeMode == nil || *dcs[1].AttitudeMode != spacecraft.BurnRadialOut {
+			t.Errorf("recorded modes = %v / %v", dcs[0].AttitudeMode, dcs[1].AttitudeMode)
+		}
+	})
+	t.Run("port hold brings PORT back", func(t *testing.T) {
+		p := newPortPair(t, "rcs-tug", "ntr-tug", 0.3, 0, 0)
+		w := p.w
+		w.SetTargetCraft(1)
+		w.setNavMode(NavPort)
+		p.a.AttitudeMode = spacecraft.BurnPortIn
+		w.DockCrafts(0, 1)
+		w.setNavMode(NavOrbit) // the latch dropped the frame
+		w.Undock(0)
+		if w.Crafts[0].AttitudeMode != spacecraft.BurnPortIn || w.NavMode != NavPort {
+			t.Errorf("hold %v nav %v, want Port+ in PORT", w.Crafts[0].AttitudeMode, w.NavMode)
+		}
+	})
+	t.Run("old record is Inertial and does not slew", func(t *testing.T) {
+		w, _, _ := dockedLoadoutPair(t, "RCS-tug", "RCS-tug")
+		w.Crafts[0].DockedComponents[0].AttitudeMode = nil
+		w.Crafts[0].DockedComponents[1].AttitudeMode = nil
+		w.Undock(0)
+		top := w.Crafts[1]
+		if top.AttitudeMode != spacecraft.BurnInertial || w.Crafts[0].AttitudeMode != spacecraft.BurnInertial {
+			t.Fatalf("holds = %v / %v, want Inertial", w.Crafts[0].AttitudeMode, top.AttitudeMode)
+		}
+		nose := top.CurrentAttitudeDir.Unit()
+		tickFor(w, 10)
+		if dot := top.CurrentAttitudeDir.Unit().Dot(nose); dot < 1-1e-9 {
+			t.Errorf("released piece swung off its nose in 10 s (dot %.9f)", dot)
+		}
+	})
+}
+
+func modePtr(m spacecraft.BurnMode) *spacecraft.BurnMode { return &m }
+
+// ADR 0063 §6: the stack that held Port+ before the latch parts with
+// misalign 0 degrees and zero lateral one tick after U.
+func TestUndockPartsAlongTheLatchedPortAxis(t *testing.T) {
+	p := newPortPair(t, "rcs-tug", "ntr-tug", 0.3, 0, 0)
+	w := p.w
+	w.SetTargetCraft(1)
+	w.setNavMode(NavPort)
+	p.a.AttitudeMode = spacecraft.BurnPortIn
+	p.b.HoldInertial() // a partner that docks nose-on held that nose (a Prograde hold would have turned it away)
+	axis := p.axis
+	w.DockCrafts(0, 1)
+	tickFor(w, 5) // the stack rides docked for a while
+	w.Undock(0)
+	w.Tick()
+	lead, top := w.Crafts[0], w.Crafts[1]
+	if mis := PortAlignmentDeg(lead.CurrentAttitudeDir, top.CurrentAttitudeDir); mis > 1e-6 {
+		t.Errorf("misalign %.6f deg one tick after U, want 0", mis)
+	}
+	d := top.State.R.Sub(lead.State.R)
+	if lat := d.Sub(axis.Scale(d.Dot(axis))).Norm(); lat > 1e-3 {
+		t.Errorf("lateral %.6f m one tick after U, want 0", lat)
+	}
+}
+
+// ADR 0063 §5, recorder: the flown vessel's file continues through dock and
+// undock, the released vessel opens no file and no second session marker.
+func TestRecordingContinuesThroughDockAndUndock(t *testing.T) {
+	p := newPortPair(t, "rcs-tug", "ntr-tug", 0.3, 0, 0)
+	w := p.w
+	w.SetRecordingMarker("session start: test")
+	dir := recAttach(t, w)
+	w.DockCrafts(0, 1)
+	w.Undock(0)
+	w.Tick()
+	files, _ := filepath.Glob(filepath.Join(dir, "*.txt"))
+	if len(files) != 1 {
+		t.Fatalf("recording files after dock+undock = %v, want 1", files)
+	}
+	b, _ := os.ReadFile(files[0])
+	if n := strings.Count(string(b), "session start"); n != 1 {
+		t.Errorf("session start rows = %d, want 1", n)
+	}
+	if !strings.Contains(string(b), "undock: Bravo") {
+		t.Error("the undock row is missing from the flown vessel's file")
 	}
 }

@@ -106,21 +106,21 @@ func TestReArmDockingClearsTargetedLatch(t *testing.T) {
 
 // TestReArmDockingUntargetedClearsAllNamingActive: with no vessel targeted,
 // ReArmDocking clears every latch naming the ACTIVE vessel — but leaves a
-// latch between two OTHER craft untouched. A 3-component undock arms latches
-// for every pair among the three restored components (0,1) (0,2) (1,2); the
-// active vessel (component 0) is a party to the first two but not the third.
+// latch between two OTHER craft untouched. Two U presses on a 3-component
+// stack (ADR 0063 §4: one seam each) arm (lead, released) twice; a third latch
+// between the two released vessels is planted by hand, the one pair the active
+// vessel is not a party to.
 func TestReArmDockingUntargetedClearsAllNamingActive(t *testing.T) {
 	w, _ := NewWorld()
 	buildStack(t, w, 3)
-	if !w.Undock(0) {
-		t.Fatal("Undock returned false on a 3-component composite")
-	}
+	undockAll(t, w, 0)
 	if len(w.Crafts) != 3 {
 		t.Fatalf("expected 3 craft after undock, got %d", len(w.Crafts))
 	}
-	if len(w.localReArms) != 3 {
-		t.Fatalf("expected 3 latches after a 3-way undock, got %d", len(w.localReArms))
+	if len(w.localReArms) != 2 {
+		t.Fatalf("expected 2 latches after two seam releases, got %d", len(w.localReArms))
 	}
+	w.localReArms = append(w.localReArms, localReArm{idA: w.Crafts[1].ID, idB: w.Crafts[2].ID, releasedAt: w.Clock.SimTime})
 	active := w.ActiveCraft()
 	if active != w.Crafts[0] {
 		t.Fatal("precondition: active craft is not slate index 0")
