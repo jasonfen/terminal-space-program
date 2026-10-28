@@ -2,6 +2,17 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.64.0
+
+Docking keeps the picture and undocking releases in place (ADR 0063, PRs `#826`, `#825`, `#827`, closes `#813`, `#815`), plus Flight Recording follow-ups (PR `#824`, closes `#817`; tag `v0.64.0`). **Save schema 19 → 20** (each docked piece remembers its hold, and a joined stack remembers which seam docked last; older saves load and their docked pieces undock to Inertial).
+
+- **New hold: Inertial (`A`).** The nose stays where it points. The arrows turn it (5° a press, 1° with alt) and it holds again.
+- **The joined vessel keeps its heading.** When the ports latch, a Port hold becomes Inertial instead of swinging to Prograde. Losing a port target with `t` does the same.
+- **Proximity View stays on the joined pair.** Same zoom and framing, both hulls port to port; the chip reads `range: docked` and names the partner. The TARGET box keeps the partner, marked `docked`.
+- **Undock releases in place.** `U` opens the seam that docked last, one vessel at a time. Both vessels keep their identity, so targets and Flight Recordings carry on; each goes back to the hold it had before the latch, and the flown vessel to PORT.
+- **A gentler push.** The vessels part at 0.05 m/s (was 0.15), under the 0.10 m/s docking limit, shared by mass so the lighter vessel moves.
+- **Flight Recording:** a vessel that lifted off while you flew another gets its liftoff time in the header; a recording that can't be written says so once; purging a player removes their recordings; a game abandoned by an immediate load leaves no empty folder.
+
 ### v0.63.4
 
 Proximity View centres on the target's docking port (PR `#823`, closes `#822`; tag `v0.63.4`). Save schema unchanged.
