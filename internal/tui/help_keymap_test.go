@@ -52,3 +52,18 @@ func TestControlsMdHasRecordingWindowRow(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0063 §1: docs/controls.md carries the `A` Inertial row and the
+// Port-hold fallback sentence. New function: each controls.md row here is
+// pinned by its own test.
+func TestControlsDocNamesInertialHold(t *testing.T) {
+	doc, err := os.ReadFile("../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"| `A` | Hold the nose where it points now (`hold: Inertial (ORBIT)`)", "a Port hold goes to Inertial with it"} {
+		if !strings.Contains(string(doc), want) {
+			t.Errorf("docs/controls.md lacks %q", want)
+		}
+	}
+}

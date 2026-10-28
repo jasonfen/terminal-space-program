@@ -758,3 +758,29 @@ func TestEditedAdvisoryNudgeKeepsIdentityAndAutoWarpHonorsIt(t *testing.T) {
 	}
 }
 
+
+// ADR 0063 §1: `A` holds the nose where it points, main engine or RCS (in
+// RCS an inertial "pulse" has no direction, so it sets the hold and fires
+// nothing), and the GUIDANCE hold name reads Inertial in the ORBIT frame.
+func TestAttitudeInertialKeySetsHoldInBothEngineModes(t *testing.T) {
+	for _, mode := range []spacecraft.EngineMode{spacecraft.EngineMain, spacecraft.EngineRCS} {
+		a, err := New(nil)
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		c := a.world.ActiveCraft()
+		c.EngineMode = mode
+		c.AttitudeMode = spacecraft.BurnRetrograde
+		dv := c.State.V
+		pressKey(a, 'A')
+		if c.AttitudeMode != spacecraft.BurnInertial {
+			t.Errorf("engine mode %v: hold after A = %v, want Inertial", mode, c.AttitudeMode)
+		}
+		if c.State.V != dv {
+			t.Errorf("engine mode %v: A changed velocity (%+v -> %+v)", mode, dv, c.State.V)
+		}
+		if label, frame := a.world.AttitudeHoldParts(c.AttitudeMode); label != "Inertial" || frame != sim.NavOrbit {
+			t.Errorf("hold parts = (%q, %v), want (Inertial, ORBIT)", label, frame)
+		}
+	}
+}

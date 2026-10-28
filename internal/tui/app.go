@@ -2048,6 +2048,14 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case key.Matches(m, a.keys.AttitudeSurfaceRetrograde):
 			a.handleAttitudeKey(spacecraft.BurnSurfaceRetrograde)
 			return a, nil
+		case key.Matches(m, a.keys.AttitudeInertial):
+			// A set-hold even with RCS armed: an inertial "pulse" has no direction.
+			if a.world.ActiveCraft() == nil {
+				a.refuse("attitude", "no vessel")
+				return a, nil
+			}
+			a.world.SetAttitudeMode(spacecraft.BurnInertial)
+			return a, nil
 		case key.Matches(m, a.keys.PitchTrimEast):
 			// Arrows trim (ADR 0052): only on the flight screen. Body info
 			// and the mission ladder share this switch, and an arrow there

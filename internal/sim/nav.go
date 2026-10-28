@@ -224,8 +224,8 @@ func (w *World) setNavMode(next NavMode) {
 	}
 }
 
-// resetDanglingPortHold sets a BurnPort* hold back to Prograde when PORT
-// drops (ADR 0055 amendment): a port hold resolves to the zero vector once
+// resetDanglingPortHold sets a BurnPort* hold to Inertial when PORT drops
+// (ADR 0063 §1, superseding ADR 0055's Prograde): a port hold resolves to the zero vector once
 // there is no port, so it would go on being named by hold: while pointing
 // nowhere. Any other hold is left alone.
 func (w *World) resetDanglingPortHold() {
@@ -236,7 +236,7 @@ func (w *World) resetDanglingPortHold() {
 	switch c.AttitudeMode {
 	case spacecraft.BurnPortIn, spacecraft.BurnPortOut, spacecraft.BurnPortUp,
 		spacecraft.BurnPortDown, spacecraft.BurnPortLeft, spacecraft.BurnPortRight:
-		c.AttitudeMode = spacecraft.BurnPrograde
+		c.AttitudeMode = spacecraft.BurnInertial
 	}
 }
 

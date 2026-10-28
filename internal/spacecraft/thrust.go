@@ -210,6 +210,14 @@ const (
 	BurnPortDown
 	BurnPortLeft
 	BurnPortRight
+
+	// BurnInertial (ADR 0063 §1): hold the nose where it points now. The
+	// direction is the vessel's own CurrentAttitudeDir, so the slew is a
+	// no-op, and trims do not apply (they would turn the nose every tick).
+	// A live hold only: a planted node has no nose to keep, so it is not in
+	// AllBurnModes (the player reaches it with the A key). Appended last so
+	// persisted mode ints keep their meaning.
+	BurnInertial
 )
 
 // IsPortMode reports whether m is one of the six PORT-frame modes.
@@ -260,6 +268,8 @@ func (m BurnMode) String() string {
 		return "Port left"
 	case BurnPortRight:
 		return "Port right"
+	case BurnInertial:
+		return "Inertial"
 	}
 	return "?"
 }
@@ -766,6 +776,7 @@ func (s *Spacecraft) ThrustAccelFnAtWithTargetAtt(mode BurnMode, mu, throttle fl
 	pitchTrim := s.PitchTrim
 	headingTrim := s.HeadingTrim
 	portPitch, portYaw := s.PortPitchTrim, s.PortYawTrim
+	nose := s.CurrentAttitudeDir.Unit() // BurnInertial's direction
 	return func(r, v orbital.Vec3, _ float64) orbital.Vec3 {
 		gravity := physics.Accel(r, mu)
 		if thrust == 0 || mass == 0 {
@@ -773,6 +784,8 @@ func (s *Spacecraft) ThrustAccelFnAtWithTargetAtt(mode BurnMode, mu, throttle fl
 		}
 		var dir orbital.Vec3
 		switch mode {
+		case BurnInertial:
+			dir = nose
 		case BurnSurfacePrograde, BurnSurfaceRetrograde:
 			vSurf := v.Sub(omega.Cross(r))
 			n := vSurf.Norm()
@@ -789,8 +802,10 @@ func (s *Spacecraft) ThrustAccelFnAtWithTargetAtt(mode BurnMode, mu, throttle fl
 		default:
 			dir = DirectionUnit(mode, r, v)
 		}
-		dir = ApplyTrims(dir, r, spinAxis, pitchTrim, headingTrim)
-		dir = PortLean(dir, rT, vT, aT, portPitch, portYaw) // ADR 0055: after the hold, like BurnDirection
+		if mode != BurnInertial {
+			dir = ApplyTrims(dir, r, spinAxis, pitchTrim, headingTrim)
+			dir = PortLean(dir, rT, vT, aT, portPitch, portYaw) // ADR 0055: after the hold, like BurnDirection
+		}
 		if dir.Norm() == 0 {
 			return gravity
 		}

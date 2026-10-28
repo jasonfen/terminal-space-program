@@ -215,6 +215,8 @@ func TestAttitudeHoldPartsNamesFrame(t *testing.T) {
 		{NavSurface, spacecraft.BurnPortIn, spacecraft.BurnPortIn.String(), NavPort},
 		{NavTarget, spacecraft.BurnPrograde, "Prograde", NavOrbit}, // no relative target: fallback
 		{NavOrbit, spacecraft.BurnPrograde, "Prograde", NavOrbit},
+		{NavOrbit, spacecraft.BurnInertial, "Inertial", NavOrbit}, // ADR 0063: tagged ORBIT
+		{NavPort, spacecraft.BurnInertial, "Inertial", NavOrbit},  // the mode's frame, not the live NavMode
 	}
 	for _, tc := range cases {
 		w.NavMode = tc.nav
