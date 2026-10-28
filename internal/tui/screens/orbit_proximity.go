@@ -73,7 +73,9 @@ const proximityFitFloorM = 25.0
 // owning, and the picture would never hold still enough to read drift
 // against.
 func proximityFitRadius(st sim.ProximityState) float64 {
-	r := st.RangeM * proximityFitMarginFrac
+	// Measured from the view centre (the target's port, #822): a chaser
+	// behind a long stack's tail is farther from it than the anchor range.
+	r := math.Max(st.RangeM, st.CraftWorld.Sub(proximityGateRingCentre(st)).Norm()) * proximityFitMarginFrac
 	if r < proximityFitFloorM {
 		r = proximityFitFloorM
 	}
@@ -136,9 +138,10 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 	if sceneOK {
 		v.canvas.SetBasis(widgets.Basis{X: st.Frame.AlongTrack, Y: st.Frame.RadialOut})
 		v.canvas.SetScale(v.baseScale * v.userZoom)
-		// The target is the centre. Pan displaces the view exactly as it
-		// does on the map — the centre keeps tracking, just offset.
-		v.canvas.Center(st.TargetWorld.Add(v.panOffset))
+		// The target's port is the centre (#822), not a long stack's bottom.
+		// Pan displaces the view exactly as it does on the map — the centre
+		// keeps tracking, just offset.
+		v.canvas.Center(proximityGateRingCentre(st).Add(v.panOffset))
 		v.drawProximityAxes(w, st)
 		v.drawProximityRangeRings(w, st)
 		v.drawProximityDockGate(w, st)
@@ -221,7 +224,7 @@ func (v *OrbitView) drawProximityAxes(w *sim.World, st sim.ProximityState) {
 	// Reach past the canvas diagonal so the bars run edge to edge whatever
 	// the pan offset is.
 	reach := (float64(v.canvas.Cols()*2) + float64(v.canvas.Rows()*4)) / scale
-	c := st.TargetWorld
+	c := proximityGateRingCentre(st)
 	v.canvas.PlotPolylineClass([]orbital.Vec3{
 		c.Sub(st.Frame.AlongTrack.Scale(reach)),
 		c.Add(st.Frame.AlongTrack.Scale(reach)),
@@ -241,7 +244,7 @@ func (v *OrbitView) drawProximityAxes(w *sim.World, st sim.ProximityState) {
 	// border row carries a duplicate legend for the cases where even this
 	// gets covered — see renderProximity.
 	cols, rows := v.canvas.Cols(), v.canvas.Rows()
-	tgtCol, tgtRow, _ := v.canvasCell(st.TargetWorld)
+	tgtCol, tgtRow, _ := v.canvasCell(c)
 	tgtCol = clampInt(tgtCol, 0, cols-1)
 	tgtRow = clampInt(tgtRow, 0, rows-1)
 	dim := v.theme.Dim.GetForeground()
@@ -385,7 +388,7 @@ func proximityRingPoints(center, e1, e2 orbital.Vec3, radiusM float64) []orbital
 }
 
 // proximityRingVisible reports whether a ring of radiusM around
-// st.TargetWorld would show at least a readable arc on the current
+// the target's port (proximityGateRingCentre) would show at least a readable arc on the current
 // canvas: O(1) on the projected radius against the viewport rectangle,
 // so a ring far outside the current zoom never reaches the O(segments)
 // polyline walk at all (the same budget-before-you-draw discipline
@@ -401,7 +404,7 @@ func proximityRingPoints(center, e1, e2 orbital.Vec3, radiusM float64) []orbital
 // rect iff the rect's NEAREST point to the centre is inside-or-on the
 // circle and its FARTHEST point (always a corner) is outside-or-on it.
 func (v *OrbitView) proximityRingVisible(st sim.ProximityState, radiusM float64) bool {
-	return v.proximityRingVisibleAt(st.TargetWorld, radiusM)
+	return v.proximityRingVisibleAt(proximityGateRingCentre(st), radiusM)
 }
 
 // proximityRingVisibleAt is proximityRingVisible for a ring centred on
@@ -445,9 +448,9 @@ func (v *OrbitView) drawProximityRangeRings(w *sim.World, st sim.ProximityState)
 		if !v.proximityRingVisible(st, r) {
 			continue
 		}
-		pts := proximityRingPoints(st.TargetWorld, st.Frame.AlongTrack, st.Frame.RadialOut, r)
+		pts := proximityRingPoints(proximityGateRingCentre(st), st.Frame.AlongTrack, st.Frame.RadialOut, r)
 		v.canvas.PlotPolylineClass(pts, render.ColorDim, widgets.ClassScenery)
-		labelPt := st.TargetWorld.Add(st.Frame.AlongTrack.Scale(r))
+		labelPt := proximityGateRingCentre(st).Add(st.Frame.AlongTrack.Scale(r))
 		if col, row, onCanvas := v.canvasCell(labelPt); onCanvas {
 			v.canvas.SetCellLabelColored(col, row, readout.Distance(r), dim)
 		}

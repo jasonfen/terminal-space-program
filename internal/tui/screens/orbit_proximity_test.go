@@ -73,10 +73,7 @@ func TestProximityEntryFitFromRange(t *testing.T) {
 		if !ok {
 			t.Fatalf("range %.0f m: ProximityState refused", rangeM)
 		}
-		// Target dead centre.
-		if d := v.canvas.CenterWorld().Sub(st.TargetWorld).Norm(); d > 1 {
-			t.Errorf("range %.0f m: centre is %.1f m off the target", rangeM, d)
-		}
+		// The centre is pinned by TestProximityViewIsCentredOnTheTargetPort.
 		// Own vessel in frame.
 		px, py, onCanvas := v.canvas.Project(st.CraftWorld)
 		if !onCanvas {
