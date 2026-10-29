@@ -102,12 +102,16 @@ Packages for amd64 and arm64 come from a repository that
 [Cloudsmith](https://cloudsmith.com) hosts free for open-source projects. After
 the one-time setup below, new releases arrive with your normal system updates.
 
+Debian / Ubuntu:
+
 ```bash
-# Debian / Ubuntu
 curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program-pkgs/setup.deb.sh' | sudo -E bash
 sudo apt install terminal-space-program
+```
 
-# Fedora / RHEL (the sed drops a CA path that Fedora 44 no longer ships)
+Fedora / RHEL (the `sed` drops a CA path that Fedora 44 no longer ships):
+
+```bash
 curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program-pkgs/any-distro.rpm.txt' \
   | sed '/^sslcacert=/d' | sudo tee /etc/yum.repos.d/terminal-space-program.repo
 sudo dnf install terminal-space-program
