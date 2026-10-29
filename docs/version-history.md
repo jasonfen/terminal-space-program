@@ -2,6 +2,12 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.64.4
+
+Linux packages through apt, dnf and apk (PR `#833`; tag `v0.64.4`). Save schema unchanged.
+
+- **apt / dnf / apk repository.** Each release now publishes its `.deb`, `.rpm` and `.apk` to a Cloudsmith repository, so Linux installs upgrade with normal system updates. Setup lines are in the README; Arch still uses the release's `.pkg.tar.zst`.
+
 ### v0.64.3
 
 Docked vessels look joined, and a near-circular warp fix (PRs `#830`, `#831`; tag `v0.64.3`). Save schema unchanged.
