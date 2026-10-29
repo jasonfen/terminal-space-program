@@ -55,7 +55,7 @@ jobs:
           CLOUDSMITH_API_KEY: ${{ secrets.CLOUDSMITH_API_KEY }}
         run: |
           pip install --quiet cloudsmith-cli
-          repo=jasonfen/terminal-space-program
+          repo=jasonfen/terminal-space-program-pkgs
           for f in dist/*.deb; do cloudsmith push deb "$repo/debian/any-version" "$f"; done
           for f in dist/*.rpm; do cloudsmith push rpm "$repo/any-distro/any-version" "$f"; done
           for f in dist/*.apk; do cloudsmith push alpine "$repo/alpine/any-version" "$f"; done
