@@ -104,17 +104,17 @@ open source. Upgrades arrive with your normal system updates.
 ```bash
 # Debian / Ubuntu
 sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl gnupg
-curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/terminal-space-program-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/terminal-space-program.list
+curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program-pkgs/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/terminal-space-program-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program-pkgs/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/terminal-space-program.list
 sudo apt update
 sudo apt install terminal-space-program
 
 # Fedora / RHEL
-sudo dnf config-manager addrepo --from-repofile=https://dl.cloudsmith.io/public/jasonfen/terminal-space-program/any-distro.rpm.txt
+sudo dnf config-manager addrepo --from-repofile=https://dl.cloudsmith.io/public/jasonfen/terminal-space-program-pkgs/any-distro.rpm.txt
 sudo dnf install terminal-space-program
 
 # Alpine
-curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program/setup.alpine.sh' | sudo -E bash
+curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program-pkgs/setup.alpine.sh' | sudo -E bash
 sudo apk add terminal-space-program
 ```
 
