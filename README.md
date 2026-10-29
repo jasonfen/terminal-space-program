@@ -90,38 +90,35 @@ ladder is off until you enable it in Settings.
 
 ## Install
 
-### Homebrew (macOS / Linux)
+### macOS (Homebrew)
 
 ```bash
 brew install --cask jasonfen/tap/terminal-space-program
 ```
 
-### Linux (apt / dnf / apk)
+### Linux (apt, dnf)
 
-Package repository hosted by [Cloudsmith](https://cloudsmith.com), free for
-open source. Upgrades arrive with your normal system updates.
+Packages for amd64 and arm64 come from a repository that
+[Cloudsmith](https://cloudsmith.com) hosts free for open-source projects. After
+the one-time setup below, new releases arrive with your normal system updates.
 
 ```bash
 # Debian / Ubuntu
-sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl gnupg
-curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program-pkgs/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/terminal-space-program-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program-pkgs/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/terminal-space-program.list
-sudo apt update
+curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program-pkgs/setup.deb.sh' | sudo -E bash
 sudo apt install terminal-space-program
 
-# Fedora / RHEL
-sudo dnf config-manager addrepo --from-repofile=https://dl.cloudsmith.io/public/jasonfen/terminal-space-program-pkgs/any-distro.rpm.txt
+# Fedora / RHEL (the sed drops a CA path that Fedora 44 no longer ships)
+curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program-pkgs/any-distro.rpm.txt' \
+  | sed '/^sslcacert=/d' | sudo tee /etc/yum.repos.d/terminal-space-program.repo
 sudo dnf install terminal-space-program
-
-# Alpine
-curl -1sLf 'https://dl.cloudsmith.io/public/jasonfen/terminal-space-program-pkgs/setup.alpine.sh' | sudo -E bash
-sudo apk add terminal-space-program
 ```
 
-Arch users: each [release](https://github.com/jasonfen/terminal-space-program/releases/latest)
-also carries a `.pkg.tar.zst` for `sudo pacman -U`.
+On Alpine or Arch, download the `.apk` or `.pkg.tar.zst` from the
+[latest release](https://github.com/jasonfen/terminal-space-program/releases/latest)
+and install it with `sudo apk add --allow-untrusted` or `sudo pacman -U`. Those
+two don't update on their own.
 
-### Scoop (Windows)
+### Windows (Scoop)
 
 ```powershell
 scoop bucket add jasonfen https://github.com/jasonfen/scoop-bucket
