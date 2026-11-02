@@ -2,6 +2,14 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.64.8
+
+Entries survive high warp, G's heading survives `;`, and Flight Recording fixes (PRs `#838`, `#839`, `#840`; tag `v0.64.8`). Save schema unchanged.
+
+- **High warp can't wreck an entry.** While any vessel flies inside an atmosphere warp stops at 1000×, and every integration step there is at most half a second. A lunar return entering at 1000× used to take one 50-second step into thick air and "crash" at 528 km/s.
+- **The launch heading survives a `;` cycle.** On the pad, stepping the nav frame through PORT no longer erases the heading `G` set. In flight, reaching PORT still clears the surface trims.
+- **Flight Recording.** Docking no longer writes a third vessel's numbers into your file or hands it your target. `touchdown:` and `crash:` speeds are relative to the ground, so a chute landing reads its few m/s instead of the planet's spin (449 m/s at 14.8S). Arming and deploying a chute get `chute: armed` / `chute: deployed` rows.
+
 ### v0.64.7
 
 Heading trim no longer turns you round in flight (PR `#837`; tag `v0.64.7`). Save schema unchanged.
