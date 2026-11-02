@@ -2,6 +2,12 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.64.7
+
+Heading trim no longer turns you round in flight (PR `#837`; tag `v0.64.7`). Save schema unchanged.
+
+- **↑ / ↓ turn from your nose.** In flight, the first heading trim press starts from where the nose points, so it turns 5° off your track. It used to steer the thrust to due east, which on a westward climb is nearly backwards: a lunar ascent lost about 380 kg of propellant that way and never made orbit. On the pad nothing changes (due east, or the heading `G` set). F1 and the controls page now call it left / right, which is north / south only when facing east.
+
 ### v0.64.6
 
 Crash rows say where you hit (PR `#836`; tag `v0.64.6`). Save schema unchanged.
