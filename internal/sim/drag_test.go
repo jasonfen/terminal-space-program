@@ -1,7 +1,9 @@
 package sim
 
 import (
+	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -105,5 +107,65 @@ func TestKeplerWarpLockSkippedInsideAtmosphere(t *testing.T) {
 
 	if w.canKeplerStep(c, time.Second) {
 		t.Error("canKeplerStep allowed analytic propagation while perigee is inside Earth's atmosphere — drag would be skipped")
+	}
+}
+
+// TestHighWarpEntryStaysBounded: a lunar return (apoapsis 615,900 km,
+// perigee 70 km) entering at 94 km with warp at the top. The period-based
+// sub-step (period/100, ~17,500 s here) gave one 50 s step per tick at
+// 1000x, which dove into dense air and crashed the CSM at 528,345 m/s.
+// Inside the atmosphere warp is held at 1000x and each step is short, so
+// the vessel only ever slows; at the cutoff itself neither clamp applies.
+func TestHighWarpEntryStaysBounded(t *testing.T) {
+	w := mustWorld(t)
+	w.Clock.WarpIdx = len(WarpFactors) - 1
+	c := w.ActiveCraft()
+	earth := c.Primary
+	mu := earth.GravitationalParameter()
+	R := earth.RadiusMeters()
+	rp, ra := R+70e3, R+615_900e3
+	a, e := (rp+ra)/2, (ra-rp)/(ra+rp)
+	p := a * (1 - e*e)
+	place := func(alt float64) {
+		r := R + alt
+		nu := -math.Acos((p/r - 1) / e) // inbound
+		h := math.Sqrt(mu * p)
+		c.State.R = orbital.Vec3{X: r * math.Cos(nu), Y: r * math.Sin(nu)}
+		c.State.V = orbital.Vec3{X: -mu / h * math.Sin(nu), Y: mu / h * (e + math.Cos(nu))}
+	}
+
+	place(earth.Atmosphere.CutoffAltitude)
+	if eff := w.EffectiveWarp(); eff <= atmosphereWarpCap {
+		t.Errorf("at the cutoff altitude warp is %.0f, want above the %.0fx atmosphere cap", eff, atmosphereWarpCap)
+	}
+	place(94e3)
+	if eff := w.EffectiveWarp(); eff != atmosphereWarpCap {
+		t.Fatalf("entering at 94 km warp is %.0f, want %.0f", eff, atmosphereWarpCap)
+	}
+	dir := recAttach(t, w)
+	entry := c.State.V.Norm()
+	tick := time.Duration(atmosphereWarpCap * 0.05 * float64(time.Second)) // one 20 Hz tick at the cap
+	for i := 0; i < 2000 && !c.Crashed && !c.Landed; i++ {
+		w.Clock.SimTime = w.Clock.SimTime.Add(tick)
+		w.integrateOneCraft(c, tick)
+		if v := c.State.V.Norm(); v > entry+200 || math.IsNaN(v) {
+			t.Fatalf("tick %d at %.1f km: speed %.0f m/s, entered at %.0f", i, c.Altitude()/1e3, v, entry)
+		}
+	}
+	// The surface clamp zeroes V, so the impact speed is read off the crash row.
+	found := false
+	for _, ev := range allEvents(t, dir) {
+		var lat, lon string
+		var v float64
+		if n, _ := fmt.Sscanf(strings.ReplaceAll(ev, ",", ""), "crash: Earth %s %s %f m/s", &lat, &lon, &v); n == 3 {
+			found = true
+			t.Logf("%s (entered at %.0f m/s)", ev, entry)
+			if v > entry {
+				t.Errorf("hit the ground at %.0f m/s after entering at %.0f (%s)", v, entry, ev)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("no crash row: the entry never reached the ground, so the impact speed went unchecked")
 	}
 }

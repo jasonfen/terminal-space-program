@@ -1716,6 +1716,9 @@ func (w *World) clampedWarp() float64 {
 	if selected > 10 && w.anyCraftChuteLive() {
 		selected = 10
 	}
+	if selected > atmosphereWarpCap && w.anyCraftInAtmosphere() {
+		selected = atmosphereWarpCap
+	}
 	// v0.8.6.x+: upcoming-node approach clamp. At 100000× warp one
 	// tick advances 5000 s of sim time, so a planted node 30 s out
 	// would be skipped entirely before the burn-active cap could
@@ -1881,6 +1884,33 @@ func (w *World) anyCraftChuteLive() bool {
 	return false
 }
 
+// atmosphereWarpCap and atmosphereMaxStepSec keep an entry integrable. The
+// sub-step is period/100, which on a lunar return (period ~20 days) is one
+// huge step per tick: at 1000x a single 50 s step dove from 94 km into dense
+// air and crashed a CSM at 528 km/s. Inside the atmosphere each step is at
+// most 0.5 s (the 10x step entries already flew), and warp stops at 1000x so
+// that stays within the 1024 sub-steps a tick allows.
+const (
+	atmosphereWarpCap    = 1000.0
+	atmosphereMaxStepSec = 0.5
+)
+
+// inAtmosphere: c is flying below its primary's atmosphere cutoff.
+func inAtmosphere(c *spacecraft.Spacecraft) bool {
+	atm := c.Primary.Atmosphere
+	return atm != nil && !c.Landed && !c.Crashed && c.Altitude() < atm.CutoffAltitude
+}
+
+// anyCraftInAtmosphere: some vessel is flying inside an atmosphere.
+func (w *World) anyCraftInAtmosphere() bool {
+	for _, c := range w.Crafts {
+		if c != nil && inAtmosphere(c) {
+			return true
+		}
+	}
+	return false
+}
+
 // EffectiveWarp exposes the clamped warp for HUD display. Returns the same
 // as Clock.Warp() when the user isn't hitting the step-size guard.
 func (w *World) EffectiveWarp() float64 { return w.clampedWarp() }
@@ -1980,6 +2010,9 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	maxStep := period / 100.0
 	if maxStep <= 0 || math.IsNaN(maxStep) || math.IsInf(maxStep, 0) {
 		maxStep = 1.0
+	}
+	if inAtmosphere(c) && maxStep > atmosphereMaxStepSec {
+		maxStep = atmosphereMaxStepSec
 	}
 	nSteps := int(math.Ceil(secs / maxStep))
 	if nSteps < 1 {
