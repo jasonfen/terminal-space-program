@@ -388,3 +388,34 @@ func TestUndockRefusalIsExhaustiveAndSpeaks(t *testing.T) {
 		t.Error("Undock refused a composite it reported no reason to refuse")
 	}
 }
+
+// Docking as the vessel AFTER the partner in the slate: the partner's slot
+// is removed first, so the old active index pointed at whatever slid into
+// it (an S-IVB in playtest). Its numbers landed in the stack's recording as
+// "active vessel → ..." and a hold row, and it took the player's target.
+// The stack keeps the docker's identity, so no switch is recorded at all.
+func TestDockingAfterThePartnerRecordsNoSwitch(t *testing.T) {
+	pp := newPortPair(t, "rcs-tug", "ntr-tug", 0.3, 0, 0)
+	w := pp.w
+	bystander := *pp.a
+	bystander.ID, bystander.Name = 0, "Bystander"
+	bystander.Target = spacecraft.Target{}
+	w.Crafts = append(w.Crafts, &bystander)
+	w.stampCraftID(&bystander)
+	w.SetActiveCraftIdx(1) // fly Bravo, behind Alpha in the slate
+	w.SetTargetCraft(0)
+	dir := recAttach(t, w)
+	before := len(allEvents(t, dir))
+
+	w.DockCrafts(1, 0)
+	if w.ActiveCraft() == nil || w.ActiveCraft().ID != pp.b.ID {
+		t.Fatalf("active after dock is %v, want the stack with Bravo's identity", w.ActiveCraft())
+	}
+	if bystander.Target != (spacecraft.Target{}) {
+		t.Errorf("the bystander took the player's target: %+v", bystander.Target)
+	}
+	got := allEvents(t, dir)[before:]
+	if len(got) != 1 || !strings.HasPrefix(got[0], "dock: with Alpha") {
+		t.Errorf("dock wrote %q, want only the dock row", got)
+	}
+}
