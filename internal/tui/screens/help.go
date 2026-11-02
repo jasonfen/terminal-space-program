@@ -100,7 +100,7 @@ var helpSections = []helpSection{
 		{"y", "join a pending rendezvous warp: you fly copilot, they set the pair's warp"},
 		{". / ,", "as rendezvous copilot: release toward following / brake the pair down"},
 		{"/", "cancel warp: drop to 1× (also cancels auto-warp / rendezvous warp)"},
-		{"warp caps", "10× while an engine burns or within 50 m of another vessel; 1× while the dock magnet pulls; a raise never caps"},
+		{"warp caps", "10× burning or within 50 m of a vessel; 1000× in an atmosphere; 1× while the dock magnet pulls; a raise never caps"},
 		{"0", "pause / resume"},
 	}},
 	{"MANUAL FLIGHT", [][2]string{
