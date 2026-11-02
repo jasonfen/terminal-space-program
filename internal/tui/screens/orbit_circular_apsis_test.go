@@ -48,6 +48,17 @@ func navigationApCell(t *testing.T, out string) string {
 	return strings.TrimSpace(m[1])
 }
 
+// navigationPeCell is navigationApCell's sibling: the Pe: cell, from "Pe:"
+// to the end of its line (Pe: is the row's last cell).
+func navigationPeCell(t *testing.T, out string) string {
+	t.Helper()
+	m := regexp.MustCompile(`Pe:\s*([^\n]+)`).FindStringSubmatch(out)
+	if m == nil {
+		t.Fatalf("no Pe: cell in the render:\n%s", out)
+	}
+	return strings.TrimSpace(strings.TrimRight(m[1], "│ "))
+}
+
 // #286: on a perfectly circular orbit every point is at the same radius,
 // so there is no apoapsis or periapsis to count down to. The readout used
 // to print exactly half a period, frozen — a number that looks live and
@@ -78,6 +89,10 @@ func TestOrbitChipApsisTimesDegenerateOnCircularOrbit(t *testing.T) {
 			t.Errorf("circular orbit at ν=%.2f: Ap cell %q carries a countdown, want none (apsides are undefined at e=0)",
 				nu, cell)
 		}
+		if pe := navigationPeCell(t, out); strings.Contains(pe, "T-") || strings.Contains(pe, "T+") {
+			t.Errorf("circular orbit at ν=%.2f: Pe cell %q carries a countdown, want none (apsides are undefined at e=0)",
+				nu, pe)
+		}
 		seen = append(seen, cell)
 		_ = period
 	}
@@ -104,6 +119,22 @@ func TestOrbitChipApsisTimesLiveOnSlightlyEccentricOrbit(t *testing.T) {
 	atPeri := navigationApCell(t, v.Render(w, 0, 200, 60))
 	placeOnConic(w, rPeri, rApo, math.Pi/2)
 	quarterOn := navigationApCell(t, v.Render(w, 0, 200, 60))
+
+	// ADR 0051: the Pe: cell carries its countdown too. A quarter past
+	// apoapsis the periapsis is a quarter orbit ahead, and half an orbit
+	// on it is a different number.
+	placeOnConic(w, rPeri, rApo, 3*math.Pi/2)
+	peQuarter := navigationPeCell(t, v.Render(w, 0, 200, 60))
+	placeOnConic(w, rPeri, rApo, math.Pi)
+	peHalf := navigationPeCell(t, v.Render(w, 0, 200, 60))
+	for _, pe := range []string{peQuarter, peHalf} {
+		if !strings.Contains(pe, "T-") {
+			t.Fatalf("Pe cell %q has no T- countdown on an eccentric orbit", pe)
+		}
+	}
+	if peQuarter == peHalf {
+		t.Errorf("Pe cell frozen at %q across a quarter orbit", peQuarter)
+	}
 
 	if !strings.Contains(atPeri, "T-") && !strings.Contains(atPeri, "T+") {
 		t.Fatalf("0.4 km of apsis separation read as degenerate (no countdown on the Ap cell): %q", atPeri)

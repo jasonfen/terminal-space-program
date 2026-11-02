@@ -352,14 +352,18 @@ func (v *OrbitView) navigationApPeCells(w *sim.World, c *spacecraft.Spacecraft) 
 	}
 
 	apCell = readout.Distance(apoAltM) + trend
-	if orbital.ApsisDefined(el.E) {
-		if tta := orbital.TimeToApoapsis(orbital.Vec3State{R: c.State.R, V: c.State.V}, mu); tta >= 0 {
-			apCell += " " + readout.Countdown(secondsToDuration(tta))
-		}
-	}
 	peCell = readout.Distance(periAltM)
 	if periAltM < 0 {
 		peCell = v.theme.Warning.Render(peCell)
+	}
+	if orbital.ApsisDefined(el.E) {
+		st := orbital.Vec3State{R: c.State.R, V: c.State.V}
+		if tta := orbital.TimeToApoapsis(st, mu); tta >= 0 {
+			apCell += " " + readout.Countdown(secondsToDuration(tta))
+		}
+		if ttp := orbital.TimeToPeriapsis(st, mu); ttp >= 0 {
+			peCell += " " + readout.Countdown(secondsToDuration(ttp))
+		}
 	}
 	return apCell, peCell
 }
