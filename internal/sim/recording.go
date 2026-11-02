@@ -346,15 +346,15 @@ func (w *World) recordSOI(c *spacecraft.Spacecraft, from string) {
 		recorder.Grouped(c.State.V.Norm()), c.Primary.EnglishName))
 }
 
-// recordSurface writes touchdown or crash, with the pre-clamp impact speed.
-func (w *World) recordSurface(c *spacecraft.Spacecraft, impactMS float64) {
+// recordSurface writes touchdown or crash at the contact site, with the
+// pre-clamp impact speed.
+func (w *World) recordSurface(c *spacecraft.Spacecraft, impactMS, lat, lon float64) {
 	if !w.recFor(c) {
 		return
 	}
-	kind, lat, lon := "touchdown", c.LandedLatDeg, c.LandedLonDeg
+	kind := "touchdown"
 	if c.Crashed {
 		kind = "crash"
-		lat, lon = c.SurfaceLatLon()
 	}
 	w.recordRowFor(c, fmt.Sprintf("%s: %s %s %s, %s m/s", kind, c.Primary.EnglishName, latStr(lat), lonStr(lon), recorder.Grouped(impactMS)))
 }

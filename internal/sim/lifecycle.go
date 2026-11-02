@@ -105,7 +105,7 @@ const (
 //     or the chute route (ChuteDeployed + |v_rel| < V_CRIT, nose
 //     waived — air-relative speed, since a chute nulls velocity
 //     relative to the co-rotating atmosphere, not the inertial frame).
-//   - outcomeCrashed with zero (lat, lon) when it doesn't —
+//   - outcomeCrashed with the impact (lat, lon) when it doesn't —
 //     including the historical case of a vessel with neither
 //     CanSoftLand nor a deployed chute hitting the surface at any speed.
 //
@@ -123,6 +123,7 @@ func classifySurfaceArrival(
 		return outcomeCrashed, 0, 0
 	}
 	localUp := preClampR.Scale(1 / rMag)
+	lat, lon := render.WorldToBodyFixed(c.Primary, render.Vec3{X: localUp.X, Y: localUp.Y, Z: localUp.Z}, simTime)
 
 	// Two routes qualify a contact as a soft Touchdown, each with its
 	// own gates (ADR 0004 engine route + ADR 0008 chute route). They
@@ -154,16 +155,16 @@ func classifySurfaceArrival(
 		// chute route — air-relative velocity ceiling; nose waived.
 		vRel := physics.AirRelativeVelocity(preClampR, preClampV, c.Primary)
 		if vRel.Norm() >= CrashVCritMps {
-			return outcomeCrashed, 0, 0
+			return outcomeCrashed, lat, lon
 		}
 	case c.CanSoftLand:
 		// engine route — inertial velocity ceiling + nose alignment.
 		if preClampV.Norm() >= CrashVCritMps {
-			return outcomeCrashed, 0, 0
+			return outcomeCrashed, lat, lon
 		}
 		nose := c.CurrentAttitudeDir
 		if nose.Norm() == 0 {
-			return outcomeCrashed, 0, 0
+			return outcomeCrashed, lat, lon
 		}
 		nose = nose.Scale(1 / nose.Norm())
 		// Strictly-below rejects; at-or-above NOSE_TOL lands. The route
@@ -171,16 +172,14 @@ func classifySurfaceArrival(
 		// gates use >= (reject at-or-above), so a craft sitting exactly at
 		// the 0.7 minimum is the boundary that should land. (#90)
 		if nose.Dot(localUp) < CrashNoseTol {
-			return outcomeCrashed, 0, 0
+			return outcomeCrashed, lat, lon
 		}
 	default:
 		// neither capability — Crash regardless of how gentle (a non-
 		// CanSoftLand vessel with no deployed chute).
-		return outcomeCrashed, 0, 0
+		return outcomeCrashed, lat, lon
 	}
-	dir := render.Vec3{X: localUp.X, Y: localUp.Y, Z: localUp.Z}
-	latDeg, lonDeg := render.WorldToBodyFixed(c.Primary, dir, simTime)
-	return outcomeLanded, latDeg, lonDeg
+	return outcomeLanded, lat, lon
 }
 
 // applySurfaceArrival mutates c per the classifier outcome. Called

@@ -14,6 +14,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/recorder"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -202,7 +203,7 @@ func TestEventsOnNonActiveVesselWriteNothing(t *testing.T) {
 	dir := recAttach(t, w)
 	before := allEvents(t, dir)
 	w.recordSOI(a, "Earth")
-	w.recordSurface(a, 3)
+	w.recordSurface(a, 3, 0, 0)
 	w.recordRowFor(a, "stage 1 dropped")
 	if after := allEvents(t, dir); len(after) != len(before) {
 		t.Fatalf("non-active vessel wrote rows: %q -> %q", before, after)
@@ -282,6 +283,35 @@ func TestRecordingWriteErrorIsSurfacedOnce(t *testing.T) {
 	if w.RecordingFault != "" {
 		t.Errorf("second failure re-raised the fault: %q", w.RecordingFault)
 	}
+}
+
+// The crash row names where the vessel hit, not its launch site: an orbital
+// spawn has none, so a lunar crash at 3.5N 136.3W used to read 0.0N 0.0E.
+func TestCrashRowNamesImpactSite(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	c.State.R = c.State.R.Unit().Scale(c.Primary.RadiusMeters() - 10)
+	c.State.V = c.State.R.Unit().Scale(-300)
+	dir := recAttach(t, w)
+	w.Tick()
+	if !c.Crashed {
+		t.Fatal("setup: no crash")
+	}
+	u := c.State.R.Unit()
+	lat, lon := render.WorldToBodyFixed(c.Primary, render.Vec3{X: u.X, Y: u.Y, Z: u.Z}, w.Clock.SimTime)
+	want := "crash: " + c.Primary.EnglishName + " " + latStr(lat) + " " + lonStr(lon) + ","
+	if lat0, lon0 := c.SurfaceLatLon(); latStr(lat0) == latStr(lat) && lonStr(lon0) == lonStr(lon) {
+		t.Fatalf("setup: impact site %q is indistinguishable from the launch-site fallback", want)
+	}
+	for _, e := range allEvents(t, dir) {
+		if strings.HasPrefix(e, "crash: ") {
+			if !strings.HasPrefix(e, want) {
+				t.Errorf("crash row %q, want prefix %q", e, want)
+			}
+			return
+		}
+	}
+	t.Fatal("no crash row")
 }
 
 func padID(id uint64) string { return fmt.Sprintf("%04d-", id) }
