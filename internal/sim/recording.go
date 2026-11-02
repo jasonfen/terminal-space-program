@@ -34,6 +34,7 @@ type recState struct {
 	stalled  *ActiveBurn   // the burn whose stall row was already written
 	hold     string        // the hold last on file ("" = not yet seen)
 	warp     int           // Clock.WarpIdx+1 last on file (0 = not yet seen)
+	chute    string        // chute state last on file ("" = not yet seen)
 }
 
 // OpenActiveRecording closes any open recording and opens the Active Vessel's
@@ -73,7 +74,7 @@ func (w *World) OpenActiveRecording() error {
 		}
 	}
 	w.Recording = r
-	w.rec = recState{vesselID: c.ID, t0: r.T0(), hold: w.holdText(c), warp: w.Clock.WarpIdx + 1}
+	w.rec = recState{vesselID: c.ID, t0: r.T0(), hold: w.holdText(c), warp: w.Clock.WarpIdx + 1, chute: strings.ToLower(c.ChuteState.String())}
 	if w.recMarker != "" && !w.recMarked[c.ID] {
 		if w.recMarked == nil {
 			w.recMarked = map[uint64]bool{}
@@ -242,6 +243,7 @@ func (w *World) recordRowFor(c *spacecraft.Spacecraft, event string) {
 // remap, dangling-port reset, undock). Called before every row and each tick.
 func (w *World) recordHoldChange(c *spacecraft.Spacecraft) {
 	w.recordWarpChange(c)
+	w.recordChuteChange(c)
 	h := w.holdText(c)
 	if h == w.rec.hold {
 		return
@@ -265,6 +267,21 @@ func (w *World) recordWarpChange(c *spacecraft.Spacecraft) {
 	w.rec.warp = n
 	if seen {
 		w.noteRecordingError(w.Recording.Write(w.rowFor(c, fmt.Sprintf("warp: %gx", WarpFactors[w.Clock.WarpIdx]))))
+	}
+}
+
+// recordChuteChange writes `chute: armed` / `chute: deployed` when the chute
+// state differs from the last one on file. Arming is a key in the tui and
+// deploying happens mid-integration, so both are caught here, once a tick.
+func (w *World) recordChuteChange(c *spacecraft.Spacecraft) {
+	st := strings.ToLower(c.ChuteState.String())
+	if st == w.rec.chute {
+		return
+	}
+	seen := w.rec.chute != ""
+	w.rec.chute = st
+	if seen && c.ChuteState != spacecraft.ChuteStowed {
+		w.noteRecordingError(w.Recording.Write(w.rowFor(c, "chute: "+st)))
 	}
 }
 

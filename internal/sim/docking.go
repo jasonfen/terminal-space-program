@@ -967,6 +967,14 @@ func (w *World) fuseCompositeAt(lead, drop int, atCentroid bool) (*spacecraft.Sp
 	}
 
 	w.Crafts[lead] = &composite
+	// Player ends up on the composite regardless of which slot they were
+	// flying. Switch while the slate still has the drop in it: after the
+	// removal the old active index can point at whichever vessel slid into
+	// it, which then took the target and wrote rows into the recording.
+	onStack := w.ActiveCraftIdx == lead || w.ActiveCraftIdx == drop
+	if onStack {
+		w.SetActiveCraftIdx(lead)
+	}
 	w.Crafts = append(w.Crafts[:drop], w.Crafts[drop+1:]...)
 
 	// Re-resolve the lead index after the drop removal: if drop
@@ -976,10 +984,9 @@ func (w *World) fuseCompositeAt(lead, drop int, atCentroid bool) (*spacecraft.Sp
 		newLead = lead - 1
 	}
 	switch {
-	case w.ActiveCraftIdx == lead || w.ActiveCraftIdx == drop:
-		// Player ends up on the composite regardless of which slot
-		// they were flying.
-		w.SetActiveCraftIdx(newLead)
+	case onStack:
+		w.ActiveCraftIdx = newLead
+		w.reconcileNavMode()
 	case w.ActiveCraftIdx > drop:
 		// Slate shifts left around the dropped slot — the active
 		// craft pointer follows. Same craft, no target rebind.

@@ -2050,7 +2050,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 		// point inverse projection has access to the live sim clock.
 		if clamped, hit := physics.ClampToSurface(c.State, c.Primary); hit {
 			outcome, lat, lon := classifySurfaceArrival(c, c.State.R, c.State.V, clock)
-			impactMS := c.State.V.Norm()
+			impactMS := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary).Norm() // vs the ground, not the spin
 			applySurfaceArrival(c, clamped, outcome, lat, lon)
 			w.recordSurface(c, impactMS, lat, lon)
 			// The Landed/Crashed early returns above skip the burn

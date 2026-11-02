@@ -13,6 +13,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/recorder"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -314,6 +315,33 @@ func TestCrashRowNamesImpactSite(t *testing.T) {
 	t.Fatal("no crash row")
 }
 
+// The surface row's speed is relative to the ground: a capsule settling at
+// 5 m/s under its chute at 14.8S read "449 m/s", Earth's spin there.
+func TestSurfaceRowSpeedIsGroundRelative(t *testing.T) {
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	up := c.State.R.Unit()
+	c.State.R = up.Scale(c.Primary.RadiusMeters() - 0.1)
+	spin := physics.AtmosphereOmega(c.Primary).Cross(c.State.R)
+	if spin.Norm() < 100 {
+		t.Fatalf("setup: ground speed %.0f m/s here is too small to tell the frames apart", spin.Norm())
+	}
+	c.State.V = spin.Add(up.Scale(-5))
+	dir := recAttach(t, w)
+	w.Tick()
+	for _, e := range allEvents(t, dir) {
+		var name, lat, lon string
+		var v float64
+		if n, _ := fmt.Sscanf(strings.ReplaceAll(e, ",", ""), "%s Earth %s %s %f m/s", &name, &lat, &lon, &v); n == 4 {
+			if math.Abs(v-5) > 1 {
+				t.Errorf("%q: speed %.0f m/s, want 5 (ground-relative)", e, v)
+			}
+			return
+		}
+	}
+	t.Fatal("no touchdown or crash row")
+}
+
 func padID(id uint64) string { return fmt.Sprintf("%04d-", id) }
 
 // allEvents is every event text in every file under dir.
@@ -460,6 +488,22 @@ func lifecycleCases() []lifecycleCase {
 				t.Fatal("undock refused")
 			}
 		}, "undock: "},
+		{"chute armed", func(t *testing.T) *World { w := mustWorld(t); w.ActiveCraft().HasParachute = true; return w },
+			func(t *testing.T, w *World) {
+				if !w.ActiveCraft().ArmParachute() {
+					t.Fatal("arm refused")
+				}
+				w.Tick()
+			}, "chute: armed"},
+		{"chute deployed", func(t *testing.T) *World {
+			w := mustWorld(t)
+			c := w.ActiveCraft()
+			c.HasParachute, c.ChuteState = true, spacecraft.ChuteArmed
+			up := c.State.R.Unit()
+			c.State.R = up.Scale(c.Primary.RadiusMeters() + 10e3)
+			c.State.V = physics.AtmosphereOmega(c.Primary).Cross(c.State.R).Add(up.Scale(-200))
+			return w
+		}, func(t *testing.T, w *World) { w.Tick() }, "chute: deployed"},
 	}
 }
 
