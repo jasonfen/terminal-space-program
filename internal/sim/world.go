@@ -2052,7 +2052,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 			outcome, lat, lon := classifySurfaceArrival(c, c.State.R, c.State.V, clock)
 			impactMS := c.State.V.Norm()
 			applySurfaceArrival(c, clamped, outcome, lat, lon)
-			w.recordSurface(c, impactMS)
+			w.recordSurface(c, impactMS, lat, lon)
 			// The Landed/Crashed early returns above skip the burn
 			// teardown below, so end any burn here or it pins warp at
 			// 10x and blocks the next ignition for good.
