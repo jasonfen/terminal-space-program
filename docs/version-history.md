@@ -2,6 +2,12 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.64.5
+
+Time to periapsis is back (PR `#835`; tag `v0.64.5`). Save schema unchanged.
+
+- **`Pe:` counts down.** NAVIGATION's `Pe:` cell carries a `T-` countdown to periapsis, the same as `Ap:` does to apoapsis. It went missing in v0.44.0 when the instrument boxes replaced the ORBIT chip and its `peri:` row. A circular orbit still shows no countdown.
+
 ### v0.64.4
 
 Linux packages through apt, dnf and apk (PR `#833`; tag `v0.64.4`). Save schema unchanged.
