@@ -363,8 +363,10 @@ slowly and straight, and the last half metre closes by itself.
   across the port face and `←` / `→` 1° left / right (`alt` makes it 0.25°),
   on top of the hold and while the letters keep sliding you; the standoff
   cross moves with them and `|` clears them. Only one trim pair is live at a
-  time: reaching `[PORT]` clears the surface trims, leaving it (or changing
-  target) clears the port-face trims, and the port-face trims are not saved.
+  time: reaching `[PORT]` in flight clears the surface trims (on the pad they
+  stay, so the launch heading `G` set survives a `;` cycle), leaving it (or
+  changing target) clears the port-face trims, and the port-face trims are
+  not saved.
   The speed readout is then relative to the target and tagged `(port)`.
   `p` steps the pulse down to 0.01 or 0.001 m/s for the last metres.
 - **A bad approach bumps.** Hulls that touch outside the gate (too fast, too

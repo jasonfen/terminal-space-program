@@ -205,6 +205,9 @@ func (w *World) reconcileNavMode() {
 // onto PORT zeroes the active vessel's surface pair (a surface lean would go
 // on tilting the hold invisibly under a (port) row), and leaving PORT zeroes
 // the port pair. The port pair is session-only, so nothing else holds it.
+// A landed vessel keeps its surface pair: its nose doesn't steer, and on
+// the pad that pair is the launch heading G set, which one ; cycle past
+// PORT would otherwise erase.
 func (w *World) setNavMode(next NavMode) {
 	prev := w.NavMode
 	w.NavMode = next
@@ -216,7 +219,9 @@ func (w *World) setNavMode(next NavMode) {
 		return
 	}
 	if next == NavPort {
-		c.PitchTrim, c.HeadingTrim = 0, 0
+		if !c.Landed {
+			c.PitchTrim, c.HeadingTrim = 0, 0
+		}
 		c.PortPitchTrim, c.PortYawTrim = 0, 0
 	}
 	if prev == NavPort {

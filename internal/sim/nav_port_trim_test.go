@@ -35,6 +35,24 @@ func TestEnteringPortZeroesSurfacePairLeavingZeroesPortPair(t *testing.T) {
 	}
 }
 
+// On the pad the surface pair is the launch heading G set: one ; cycle with
+// a ported target passed through PORT and erased it, and an LM launched off
+// the CSM's plane (a 292 m/s plane change). A landed vessel's nose doesn't
+// steer, so stepping onto PORT there keeps the pair.
+func TestEnteringPortOnThePadKeepsTheLaunchHeading(t *testing.T) {
+	w := portPairWorld(t)
+	c := w.ActiveCraft()
+	c.Landed = true
+	w.NavMode = NavTarget
+	c.PitchTrim, c.HeadingTrim = 0.1, 190*math.Pi/180
+	if got := w.CycleNavMode(); got != NavPort {
+		t.Fatalf("Target -> %v, want PORT", got)
+	}
+	if c.PitchTrim != 0.1 || c.HeadingTrim != 190*math.Pi/180 {
+		t.Errorf("entering PORT on the pad changed the surface pair to (%v, %v)", c.PitchTrim, c.HeadingTrim)
+	}
+}
+
 func TestReconcileDroppingPortZeroesPortPair(t *testing.T) {
 	w := portPairWorld(t)
 	c := w.ActiveCraft()
