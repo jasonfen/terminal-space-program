@@ -2,6 +2,12 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.64.6
+
+Crash rows say where you hit (PR `#836`; tag `v0.64.6`). Save schema unchanged.
+
+- **Crash location.** A Flight Recording's `crash:` row names the impact site. It used to fall back to the vessel's launch site, which a vessel spawned in orbit doesn't have, so a lunar crash read `0.0N 0.0E`.
+
 ### v0.64.5
 
 Time to periapsis is back (PR `#835`; tag `v0.64.5`). Save schema unchanged.
