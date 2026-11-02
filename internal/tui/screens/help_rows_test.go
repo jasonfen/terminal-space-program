@@ -56,7 +56,7 @@ func helpPhraseRows() []helpPhrase {
 		{name: "q is menu-scoped quit", token: "q", sectionHasFold: "menu", has: []string{"quit"}},
 		// #423 / ADR 0052: left leans back from the heading, right toward it, in key order.
 		{name: "pitch trim both directions", token: "← / →", before: "back from", after: "toward your heading"},
-		{name: "heading trim both directions", section: "MANUAL FLIGHT", token: "↑ / ↓", before: "north", after: "south"},
+		{name: "heading trim both directions", section: "MANUAL FLIGHT", token: "↑ / ↓", before: "left", after: "right"},
 		{name: "nav mode skip rule", token: ";", hasFold: []string{"skip"}},
 		{name: "U releases a batch in a fan, refused near the velocity", section: "VESSEL", token: "U (batch)", has: []string{"fan", "10°", "[q]"}},
 		// ADR 0059 decision 9: a released batch is one stop for [t]; the map stays quick to about 30 vessels per player.

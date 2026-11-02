@@ -153,6 +153,32 @@ func (s *Spacecraft) applyTrims(dir orbital.Vec3) orbital.Vec3 {
 	return ApplyTrims(dir, s.State.R, spinAxis, s.PitchTrim, s.HeadingTrim)
 }
 
+// SeedHeadingTrim gives an airborne vessel with no heading set (a zero
+// HeadingTrim steers nothing) a heading where its nose already points, so
+// the first ↑/↓ turns 5° from the track instead of steering the thrust to
+// due east, which flying west is nearly backwards. A nose leaned back from
+// due east keeps its direction: the heading turns round and the lean flips
+// sign. The pad keeps due east (and whatever G set).
+func (s *Spacecraft) SeedHeadingTrim() {
+	if s.Landed || s.HeadingTrim != 0 {
+		return
+	}
+	axisR := render.BodyRotationAxisWorld(s.Primary)
+	east, _, north, ok := localHorizonFrame(s.State.R, orbital.Vec3{X: axisR.X, Y: axisR.Y, Z: axisR.Z})
+	if !ok {
+		return
+	}
+	e, n := s.CurrentAttitudeDir.Dot(east), s.CurrentAttitudeDir.Dot(north)
+	if math.Hypot(e, n) < headingTrimHorizEpsilon {
+		return
+	}
+	bearing := math.Mod(math.Atan2(e, n)+2*math.Pi, 2*math.Pi)
+	s.HeadingTrim = bearing - HeadingTrimDueEastRad
+	if e < 0 {
+		s.PitchTrim = -s.PitchTrim
+	}
+}
+
 // ApplyTrims is the one place both thrust paths (BurnDirection and the
 // InstantSAS closure in ThrustAccelFnAtWithTarget) fold the two trims
 // into a hold's direction: HeadingTrim first steers dir's horizontal

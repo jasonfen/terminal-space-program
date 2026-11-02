@@ -2113,6 +2113,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			if c := a.world.ActiveCraft(); c != nil {
+				c.SeedHeadingTrim()
 				c.HeadingTrim -= spacecraft.HeadingTrimStepRad
 			}
 			return a, nil
@@ -2130,6 +2131,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			if c := a.world.ActiveCraft(); c != nil {
+				c.SeedHeadingTrim()
 				c.HeadingTrim += spacecraft.HeadingTrimStepRad
 			}
 			return a, nil
@@ -2185,8 +2187,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				case key.Matches(m, a.keys.PitchTrimWestFine):
 					c.PitchTrim -= spacecraft.PitchTrimFineStepRad
 				case key.Matches(m, a.keys.HeadingTrimNorthFine):
+					c.SeedHeadingTrim()
 					c.HeadingTrim -= spacecraft.HeadingTrimFineStepRad
 				case key.Matches(m, a.keys.HeadingTrimSouthFine):
+					c.SeedHeadingTrim()
 					c.HeadingTrim += spacecraft.HeadingTrimFineStepRad
 				}
 			}
