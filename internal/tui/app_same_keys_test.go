@@ -104,6 +104,29 @@ func TestHeadingArrowsReadTheCorrectCompassDirection(t *testing.T) {
 	}
 }
 
+// TestHeadingArrowTurnsFromTheTrackInFlight: climbing west with no heading
+// set, one up press used to steer the thrust to 085° (due east less 5°),
+// nearly straight back along the track; an LM ascent burned ~380 kg against
+// its own velocity that way. In flight the first press starts from the nose,
+// so the thrust stays 5° off prograde.
+func TestHeadingArrowTurnsFromTheTrackInFlight(t *testing.T) {
+	a, _ := padApp(t)
+	c, err := a.world.SpawnCraft(sim.SpawnSpec{ParentBodyID: "moon", AltitudeM: 50e3, Inclination: 169.4})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.AttitudeMode = spacecraft.BurnPrograde
+	c.CurrentAttitudeDir = c.State.V.Unit()
+	a.Update(keyType(tea.KeyUp))
+	if c.HeadingTrim == 0 {
+		t.Fatal("up press did not trim the heading")
+	}
+	cos := c.BurnDirection(spacecraft.BurnPrograde).Unit().Dot(c.State.V.Unit())
+	if got := math.Acos(math.Min(1, cos)) * 180 / math.Pi; got > 5.5 {
+		t.Errorf("after one up in Prograde hold the thrust is %.1f° off the velocity, want ~5", got)
+	}
+}
+
 // TestShiftArrowsPanAndDoNotTrim: pan moved to shift+arrows (decision 3).
 // The observable contract is the render: shift+left moves the map, and the
 // trims stay put.

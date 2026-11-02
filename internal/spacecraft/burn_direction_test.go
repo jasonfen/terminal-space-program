@@ -700,3 +700,37 @@ func TestPitchTrimNoseDownSign(t *testing.T) {
 		}
 	}
 }
+
+// TestSeedHeadingTrim: in flight a zero heading takes the nose's bearing
+// without moving the commanded direction (a westward back-lean turns the
+// heading round and flips the lean); the pad, and a heading already set,
+// are left alone.
+func TestSeedHeadingTrim(t *testing.T) {
+	earth := testEarth()
+	lean := -75 * math.Pi / 180 // ← from due east: leaning west
+	for _, tc := range []struct {
+		name        string
+		landed      bool
+		heading     float64
+		wantHeading float64 // offset from due east after the seed
+		wantPitch   float64
+	}{
+		{"airborne west lean", false, 0, math.Pi, -lean},
+		{"on the pad", true, 0, 0, lean},
+		{"heading already set", false, 0.1, 0.1, lean},
+	} {
+		s := &Spacecraft{Primary: earth, Landed: tc.landed}
+		s.State.R = orbital.Vec3{X: earth.RadiusMeters() + 10e3}
+		s.State.V = orbital.Vec3{Y: -100}
+		s.PitchTrim, s.HeadingTrim = lean, tc.heading
+		before := s.BurnDirection(BurnRadialOut)
+		s.CurrentAttitudeDir = before
+		s.SeedHeadingTrim()
+		if math.Abs(s.HeadingTrim-tc.wantHeading) > 1e-9 || math.Abs(s.PitchTrim-tc.wantPitch) > 1e-9 {
+			t.Errorf("%s: heading %.4f pitch %.4f, want %.4f %.4f", tc.name, s.HeadingTrim, s.PitchTrim, tc.wantHeading, tc.wantPitch)
+		}
+		if d := s.BurnDirection(BurnRadialOut).Sub(before).Norm(); d > 1e-9 {
+			t.Errorf("%s: seeding moved the commanded direction by %.2e", tc.name, d)
+		}
+	}
+}
