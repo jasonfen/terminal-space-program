@@ -3,6 +3,8 @@ package sim
 import (
 	"math"
 	"time"
+
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 )
 
 // Auto-Warp (v0.16 / ADR 0016). One control warps time to a fixed lead
@@ -59,6 +61,13 @@ type AutoWarpTarget struct {
 	// tick and the driver disengages when there is no window to chase
 	// (target cleared, vessel off the pad).
 	LaunchWindow bool
+
+	// Apsis (Jason, 2026-11-03): the [»] button beside NAVIGATION's Ap or
+	// Pe chases that apsis of vessel CraftID less the usual lead. "Ap" or
+	// "Pe"; T re-freezes from the live orbit each tick, so a burn or an
+	// SOI change mid-warp moves it, and an orbit that loses the apsis
+	// disengages.
+	Apsis string
 }
 
 // autoWarpEngaged reports whether the driver is active.
@@ -137,6 +146,77 @@ func (w *World) TrimToLaunchWindowInLead() (headingDeg int, ok bool) {
 	w.trimHeadingToLaunchWindow()
 	h := int(math.Round(lw.HeadingDeg))
 	return ((h % 360) + 360) % 360, true
+}
+
+// apsisWarpTarget is the release point for Auto-Warp to the active
+// vessel's next apoapsis (apo) or periapsis: the same countdown
+// NAVIGATION prints, less autoWarpLeadTime. ok=false when the box shows
+// no countdown for it or the release point is not ahead.
+func (w *World) apsisWarpTarget(apo bool) (time.Time, bool) {
+	t, ok := w.apsisRelease(apo)
+	if !ok || !t.After(w.Clock.SimTime) {
+		return time.Time{}, false
+	}
+	return t, true
+}
+
+// apsisRelease is apsisWarpTarget without the still-ahead check, so the
+// resolver can tell a reached release point from a lost apsis.
+func (w *World) apsisRelease(apo bool) (time.Time, bool) {
+	c := w.ActiveCraft()
+	if c == nil || c.Landed || c.Crashed || c.Primary.GravitationalParameter() <= 0 {
+		return time.Time{}, false
+	}
+	mu := c.Primary.GravitationalParameter()
+	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+	if !orbital.ApsisDefined(el.E) {
+		return time.Time{}, false
+	}
+	st := orbital.Vec3State{R: c.State.R, V: c.State.V}
+	tt := orbital.TimeToPeriapsis(st, mu)
+	if apo {
+		tt = orbital.TimeToApoapsis(st, mu)
+	}
+	if tt < 0 || math.IsNaN(tt) || math.IsInf(tt, 0) {
+		return time.Time{}, false
+	}
+	return w.Clock.SimTime.Add(time.Duration(tt * float64(time.Second))).Add(-autoWarpLeadTime), true
+}
+
+func apsisName(apo bool) string {
+	if apo {
+		return "Ap"
+	}
+	return "Pe"
+}
+
+// ApsisWarpEligible reports whether the [»] beside Ap (apo) or Pe has an
+// apsis far enough ahead to warp to.
+func (w *World) ApsisWarpEligible(apo bool) bool {
+	_, ok := w.apsisWarpTarget(apo)
+	return ok
+}
+
+// ApsisWarpEngaged reports whether Auto-Warp is chasing that apsis.
+func (w *World) ApsisWarpEngaged(apo bool) bool {
+	return w.AutoWarp != nil && w.AutoWarp.Apsis == apsisName(apo)
+}
+
+// ToggleApsisWarp is the [»] beside Ap / Pe: warp to 30 s before that
+// apsis, then 1x, or cancel when it is already the one being chased. It
+// replaces any other Auto-Warp chase. Returns the engaged state after.
+func (w *World) ToggleApsisWarp(apo bool) bool {
+	if w.ApsisWarpEngaged(apo) {
+		w.DisengageAutoWarp()
+		return false
+	}
+	t, ok := w.apsisWarpTarget(apo)
+	if !ok {
+		return false
+	}
+	w.AutoWarp = &AutoWarpTarget{CraftID: w.ActiveCraft().ID, Apsis: apsisName(apo), T: t}
+	w.Clock.Paused = false
+	return true
 }
 
 // AutoWarpSecondsToTarget returns the sim-seconds until the engaged
@@ -1105,6 +1185,25 @@ func (w *World) resolveAutoWarp() {
 			return
 		}
 		w.AutoWarp.T = t
+		return
+	}
+	if aw := w.AutoWarp; aw.Apsis != "" {
+		if !w.Clock.SimTime.Before(aw.T) {
+			w.Clock.WarpIdx = 0 // hand off to 1x ahead of the apsis
+			w.DisengageAutoWarp()
+			return
+		}
+		c := w.ActiveCraft()
+		t, ok := w.apsisRelease(aw.Apsis == "Ap")
+		if c == nil || c.ID != aw.CraftID || !ok {
+			w.DisengageAutoWarp()
+			return
+		}
+		aw.T = t
+		if !w.Clock.SimTime.Before(t) {
+			w.Clock.WarpIdx = 0
+			w.DisengageAutoWarp()
+		}
 		return
 	}
 	n, ok := w.nodeByID(w.AutoWarp.CraftID, w.AutoWarp.NodeID)

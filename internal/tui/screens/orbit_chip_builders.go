@@ -91,6 +91,7 @@ func engineLit(c *spacecraft.Spacecraft) bool {
 //     the two exempt boxes still respect their OWN Settings choice
 //     (blank vs. live) while surviving Declutter.
 func (v *OrbitView) navigationBoxesInOrder(w *sim.World, chips []builtChip) []builtChip {
+	v.apsisBtns = [2]struct{ colStart, colEnd int }{} // a switched-off box keeps no stale button
 	// The Proximity View (ADR 0043) is its own close-range instrument
 	// panel (buildProximityChip), not one of the two views ADR 0051's
 	// "one layout, both views" decision 3 covers (the orbit map and the

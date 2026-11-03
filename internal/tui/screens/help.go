@@ -273,6 +273,7 @@ var helpSections = []helpSection{
 		{"click empty", "open the planner at the projected orbit point"},
 		{"click HUD", "open body info"},
 		{"[»Burn]", "toggle auto-warp to the next burn (same as G, inert during a rendezvous coast); [■Burn] while running, dimmed when none planned"},
+		{"» after Ap / Pe", "NAVIGATION: warp to 30 s before that apsis, then 1× (the countdown clicks too); ■ while running, click to cancel"},
 	}},
 	// ADR 0049 (Readout Contract) decision 6: labels are one short word,
 	// but five codes survive on the HUD (CA:, e:, τ, the AN/DN angle,

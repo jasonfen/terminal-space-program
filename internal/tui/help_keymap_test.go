@@ -86,3 +86,15 @@ func TestControlsDocUndockRowsAreCurrent(t *testing.T) {
 		}
 	}
 }
+
+// TestControlsDocNamesApsisWarpButton: docs/controls.md mirrors F1's
+// MOUSE row for the » after NAVIGATION's Ap / Pe.
+func TestControlsDocNamesApsisWarpButton(t *testing.T) {
+	doc, err := os.ReadFile("../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "| `»` after `Ap` / `Pe` (NAVIGATION) | Warp to 30 s before that apsis"; !strings.Contains(string(doc), want) {
+		t.Errorf("docs/controls.md lacks %q", want)
+	}
+}

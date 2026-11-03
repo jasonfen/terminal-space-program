@@ -3,16 +3,19 @@ package screens
 import (
 	"fmt"
 	"math"
+	"strings"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // orbit_box_navigation.go, the NAVIGATION instrument box (ADR 0051
@@ -39,6 +42,7 @@ import (
 // shortened to one consistent form per the amendment's open item 2:
 // "⚠ TIGHT" or "⚠ NO STOP", never the longer "CAN'T STOP (thrust)").
 func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
+	v.apsisBtns = [2]struct{ colStart, colEnd int }{}
 	c := w.ActiveCraft()
 	title := v.navigationTitle(w, c)
 	if c == nil {
@@ -116,11 +120,13 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 		speedCell = navSpeedCell(w, false)
 	}
 
+	apPeRow := chipRow2(navigationCols, readout.LabelAp, apCell, readout.LabelPe, peCell)
+	v.recordApsisButtons(apPeRow)
 	return []string{
 		title,
 		chipRow2(navigationCols, readout.LabelAltitude, readout.Distance(c.Altitude()), readout.LabelVert, readout.Speed(vVert)),
 		chipRow2(navigationCols, readout.LabelHoriz, horizLabel, "speed:", speedCell),
-		chipRow2(navigationCols, readout.LabelAp, apCell, readout.LabelPe, peCell),
+		apPeRow,
 		chipRow2(navigationCols, readout.LabelIncl, inclCell, readout.LabelPeriod, periodCell),
 		chipRow2(navigationCols, readout.LabelDepart, departV, "e:", eV),
 		chipRow2(navigationCols, readout.LabelImpact, impactCell, "stop:", stopCell),
@@ -359,13 +365,72 @@ func (v *OrbitView) navigationApPeCells(w *sim.World, c *spacecraft.Spacecraft) 
 	if orbital.ApsisDefined(el.E) {
 		st := orbital.Vec3State{R: c.State.R, V: c.State.V}
 		if tta := orbital.TimeToApoapsis(st, mu); tta >= 0 {
-			apCell += " " + readout.Countdown(secondsToDuration(tta))
+			apCell += " " + readout.Countdown(secondsToDuration(tta)) + " " + v.apsisButton(w, true)
 		}
 		if ttp := orbital.TimeToPeriapsis(st, mu); ttp >= 0 {
-			peCell += " " + readout.Countdown(secondsToDuration(ttp))
+			peCell += " " + readout.Countdown(secondsToDuration(ttp)) + " " + v.apsisButton(w, false)
 		}
 	}
 	return apCell, peCell
+}
+
+// apsisButtonNavRow is the Ap/Pe row's line index in the NAVIGATION box
+// (title, altitude, horiz, then Ap/Pe).
+const apsisButtonNavRow = 3
+
+// apsisButton is the » after an apsis countdown: warp to 30 s before it,
+// styled like the title bar's [»Burn] (amber ■ while chasing this apsis,
+// dimmed when it is too close to warp to). Bare glyphs: brackets put the
+// row 2 cells over the right tier's pin.
+func (v *OrbitView) apsisButton(w *sim.World, apo bool) string {
+	switch {
+	case w.ApsisWarpEngaged(apo):
+		return v.theme.Warning.Render("■")
+	case !w.ApsisWarpEligible(apo):
+		return v.theme.Dim.Render("»")
+	}
+	return v.theme.Primary.Render("»")
+}
+
+// recordApsisButtons finds the » / ■ buttons on the built Ap/Pe row and
+// keeps their cell spans for HitApsisButton, widened back over the
+// countdown before each so the click target is more than one cell. One
+// before the Pe: label is Ap's, one after it Pe's.
+func (v *OrbitView) recordApsisButtons(row string) {
+	plain := ansi.Strip(row)
+	peAt := strings.Index(plain, readout.LabelPe)
+	for i, r := range plain {
+		if r != '»' && r != '■' {
+			continue
+		}
+		slot := 0
+		if peAt >= 0 && i > peAt {
+			slot = 1
+		}
+		from := i
+		if t := strings.LastIndex(plain[:i], "T"); t >= 0 && (slot == 0 || t > peAt) {
+			from = t
+		}
+		v.apsisBtns[slot].colStart = lipgloss.Width(plain[:from])
+		v.apsisBtns[slot].colEnd = lipgloss.Width(plain[:i]) + 1
+	}
+}
+
+// HitApsisButton maps a screen click to NAVIGATION's Ap (apo=true) or Pe
+// warp button, via the box's placed rectangle this frame.
+func (v *OrbitView) HitApsisButton(col, row int) (apo, ok bool) {
+	for _, r := range v.chipRects {
+		if r.id != settings.ChipNavigation || row != r.rowStart+1+apsisButtonNavRow {
+			continue
+		}
+		cc := col - r.colStart - 1 // inside the one-cell border
+		for i, b := range v.apsisBtns {
+			if b.colEnd > 0 && cc >= b.colStart && cc < b.colEnd {
+				return i == 0, true
+			}
+		}
+	}
+	return false, false
 }
 
 // navigationInclPeriodCells: incl: reverts to the live orbital element
