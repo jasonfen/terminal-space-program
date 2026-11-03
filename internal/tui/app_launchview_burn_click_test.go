@@ -221,3 +221,21 @@ func TestApsisWarpButtonsClick(t *testing.T) {
 		t.Error("clicking the engaged ■ after Pe did not cancel")
 	}
 }
+
+// TestAltGWarpsToAnApsis: alt+g is the key for NAVIGATION's » buttons
+// (sim.CycleApsisWarp pins the nearer / other / off order).
+func TestAltGWarpsToAnApsis(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	a.active = screenOrbit
+	c := a.world.ActiveCraft()
+	c.Landed = false
+	c.State.V = c.State.V.Scale(1.05).Add(c.State.R.Unit().Scale(200))
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}, Alt: true})
+	if !a.world.ApsisWarpEngaged(true) && !a.world.ApsisWarpEngaged(false) {
+		t.Error("alt+g did not start an apsis warp")
+	}
+}

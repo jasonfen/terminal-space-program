@@ -319,3 +319,26 @@ func TestApsisWarpStopsThirtySecondsShort(t *testing.T) {
 		}
 	}
 }
+
+// TestCycleApsisWarpNearerThenOtherThenOff: alt+g warps to the nearer
+// apsis, a second press switches to the other, a third cancels.
+func TestCycleApsisWarpNearerThenOtherThenOff(t *testing.T) {
+	w := mustWorld(t)
+	if w.CycleApsisWarp() || w.AutoWarp != nil {
+		t.Fatal("engaged on the seed's circular orbit")
+	}
+	c := w.ActiveCraft()
+	c.State.V = c.State.V.Scale(1.05).Add(c.State.R.Unit().Scale(200))
+	ta, _ := w.apsisWarpTarget(true)
+	tp, _ := w.apsisWarpTarget(false)
+	apoFirst := !ta.After(tp)
+	if !w.CycleApsisWarp() || !w.ApsisWarpEngaged(apoFirst) {
+		t.Fatalf("first press: want the nearer apsis (apo=%v)", apoFirst)
+	}
+	if !w.CycleApsisWarp() || !w.ApsisWarpEngaged(!apoFirst) {
+		t.Fatalf("second press: want the other apsis (apo=%v)", !apoFirst)
+	}
+	if w.CycleApsisWarp() || w.AutoWarp != nil {
+		t.Fatal("third press did not cancel")
+	}
+}

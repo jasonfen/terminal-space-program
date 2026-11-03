@@ -219,6 +219,23 @@ func (w *World) ToggleApsisWarp(apo bool) bool {
 	return true
 }
 
+// CycleApsisWarp is alt+g: warp to the nearer apsis, a second press
+// switches to the other, a third cancels. Returns the engaged state after.
+func (w *World) CycleApsisWarp() bool {
+	ta, okA := w.apsisWarpTarget(true)
+	tp, okP := w.apsisWarpTarget(false)
+	apoFirst := okA && (!okP || !ta.After(tp))
+	switch {
+	case w.ApsisWarpEngaged(apoFirst):
+		w.DisengageAutoWarp()
+		return w.ToggleApsisWarp(!apoFirst)
+	case w.ApsisWarpEngaged(!apoFirst):
+		w.DisengageAutoWarp()
+		return false
+	}
+	return w.ToggleApsisWarp(apoFirst)
+}
+
 // AutoWarpSecondsToTarget returns the sim-seconds until the engaged
 // driver's release point T, and ok=false when not engaged — feeds the
 // `AUTO → Nx ⏱ Ms` HUD chip.

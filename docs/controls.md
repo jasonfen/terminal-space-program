@@ -169,7 +169,7 @@ On the Keyboard layout screen `←` / `→`, `Space` or `Enter` cycle the layout
 | `+` / `-` | Zoom in / out. Zoom is remembered per focus |
 | `f` / `F` | Cycle what the camera follows, forward / back (whole system → each body → your vessel). Focusing a body your trajectory passes fits the camera to its sphere of influence so the capture curve fills the canvas. Also the way back from spectating another player |
 | `g` | Snap a pan back onto what you're following; focus and zoom stay as they are |
-| `alt+g` | Reset the camera to the whole system (clears any pan) |
+| `alt+s` | Reset the camera to the whole system (clears any pan) |
 | `v` | Cycle the projection: Tilted (default, a 3D-style perspective) → Top → Right → Bottom → Left → Orbit-flat. Two rows above the `view:` label read which way north points (`N ↑` up the screen, `N ⊙` toward you, `N ⊗` away; in Tilted and Orbit-flat a degree figure, `N ↑ 42°`, is how far north tilts out of the screen toward or away from you, 0° being flat on the screen, and it is not the orbit ring's `plane` angle) and how open your orbit ring looks (`plane ◠ 67° open`: 0° `─` is a flat line, 90° `○` a full circle); the maneuver planner shows the same cue. The camera re-frames once when focus, view, or system changes and otherwise stays where you put it |
 | `>` / `<` | Tilt the 3D view up / down (tilted view only). Camera only: a missed shift can move the view, never the vessel |
 | `{` / `}` | Yaw the 3D view left / right in 5° steps, wrapping (tilted view only) |
@@ -185,6 +185,7 @@ On the Keyboard layout screen `←` / `→`, `Space` or `Enter` cycle the layout
 | `0` | Pause / resume |
 | `.` / `,` | Speed time up / down, to 100,000×. Eases off automatically around a burn, and is held to 10× within 50 m of another vessel (see [Docking](#docking)) |
 | `G` | Auto-warp to the next burn (any vessel's): warps to 30 s before it fires, ramps down, and hands you 1× to watch it arm. On the pad with a target, it warps to 30 s before the launch window on the `plan:` row instead (the best moment, when there is no exact pass) and turns your heading to the one the row names, so you only have to light the engine. Inside the last 30 s there is nothing left to warp, so `G` just turns the heading to the window's and says so (`heading 045° for the launch window`). `|` still clears both trims. `↑` / `↓` afterwards are yours. `.` / `,` or the `[»Burn]` button cancels it. It chases burns, not a commanded raise (`L`) |
+| `alt+g` | Warp to 30 s before the nearer apsis (`Ap` or `Pe`), then drop to 1×, the same as clicking its `»` in NAVIGATION. Press again to switch to the other apsis, a third time to cancel. Inert during a rendezvous coast |
 | `/` | Cancel warp: straight back to 1× from any level, and cancel auto-warp or a rendezvous warp if one is running |
 | warp caps | 10× while an engine burns, or within 50 m of another vessel (so two hulls cannot skip through each other); 1000× while any vessel flies inside an atmosphere (so an entry cannot skip through the air); 1× while the dock magnet pulls; a commanded raise (`L`) never caps warp |
 
@@ -432,7 +433,7 @@ Click only; no dragging, no scroll-to-zoom.
 | Click | Action |
 |---|---|
 | `[»Burn]` (top-right) | Toggle auto-warp to the next burn, or on the pad to the launch window (same as `G`). Shows `[■Burn]` while running, dimmed with nothing to warp to |
-| `»` after `Ap` / `Pe` (NAVIGATION) | Warp to 30 s before that apsis, then drop to 1×, like `[»Burn]`; the countdown beside it takes the click too. Shows `■` while running (click again to cancel), dimmed inside the last 30 s. Only an orbit with a countdown on that apsis has one |
+| `»` after `Ap` / `Pe` (NAVIGATION) | Warp to 30 s before that apsis, then drop to 1×, like `[»Burn]`; the countdown beside it takes the click too. Shows `■` while running (click again to cancel), dimmed inside the last 30 s. Only an orbit with a countdown on that apsis has one. Key: `alt+g` |
 | `[Menu]` (top-right) | Save / load / build / settings / keyboard layout / help / quit menu |
 | Settings → **Empty readings** | What the instrument boxes do with boxes and rows that have nothing to say. **Full**: every box and row always drawn, dashes and all, TARGET included. **Tidy** (default): no TARGET box while nothing is targeted, and NAVIGATION drops its trailing dash rows while TARGET is absent. **Compact**: Tidy, plus every box drops its trailing dash rows. Rows fold from the bottom of a box only; box widths never change |
 | Settings → **Recording window** | How much of a vessel's Flight Recording is kept: sim-days, default 7; older rows are dropped from the file as it is written |

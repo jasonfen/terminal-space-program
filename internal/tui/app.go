@@ -1521,6 +1521,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			a.toggleAutoWarpBurn()
 			return a, nil
+		case key.Matches(m, a.keys.ApsisWarp):
+			if a.world.RendezvousWarpEngaged() {
+				a.toast("rendezvous coast running — [/] to cancel")
+				return a, nil
+			}
+			wasOn := a.world.AutoWarpEngaged()
+			if a.world.CycleApsisWarp() {
+				a.world.RecordAction(missions.ActionAutoWarp)
+			} else if !wasOn {
+				a.refuse("apsis warp", "no apsis to warp to")
+			}
+			return a, nil
 		case key.Matches(m, a.keys.CancelWarp):
 			// Drop straight to 1× from any warp state: cancel Auto-Warp
 			// and reset Selected Warp to the 1× floor (WarpIdx 0). Pause
