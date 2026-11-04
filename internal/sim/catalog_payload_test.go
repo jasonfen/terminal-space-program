@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -95,6 +96,15 @@ func TestSpawnLunarRelayCarrierDeploys(t *testing.T) {
 		if w.Crafts[carrierIdx] != c || w.ActiveCraftIdx != carrierIdx {
 			t.Errorf("deploy %d: carrier is no longer the active craft", i+1)
 		}
+	}
+	deploys := 0
+	for _, a := range w.recentActions {
+		if a == missions.ActionDeploy {
+			deploys++
+		}
+	}
+	if deploys != 3 {
+		t.Errorf("deploy recorded %d times, want 3 (the rung's first objective reads it)", deploys)
 	}
 	const apoluneToDishM = 422_909e3
 	rel := w.Crafts[len(w.Crafts)-1].AntennaRangeM
