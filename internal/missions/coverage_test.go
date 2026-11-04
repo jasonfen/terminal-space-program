@@ -47,3 +47,34 @@ func TestDeployActionInVocabulary(t *testing.T) {
 		t.Errorf("unrelated action: got %v, want InProgress", got)
 	}
 }
+
+// TestLunarCoverageObjective (ADR 0065 guard 10): passes on the callback's
+// fraction reaching pass_frac, including the equal case; nil callback and
+// ok=false stay InProgress; a missing primary_id is inert.
+func TestLunarCoverageObjective(t *testing.T) {
+	cb := func(f float64, ok bool) func(string, float64, float64, float64, float64) (float64, bool) {
+		return func(string, float64, float64, float64, float64) (float64, bool) { return f, ok }
+	}
+	mk := func(pf float64) Objective {
+		return Objective{Kind: KindLunarCoverage, Status: InProgress, Params: Params{PrimaryID: "moon", SiteLatDeg: -90, PassFrac: pf}}
+	}
+	cases := []struct {
+		name string
+		o    Objective
+		cb   func(string, float64, float64, float64, float64) (float64, bool)
+		want Status
+	}{
+		{"1.0 vs 1.0", mk(1.0), cb(1.0, true), Passed},
+		{"0.99 vs 1.0", mk(1.0), cb(0.99, true), InProgress},
+		{"0.99 vs 0.99 equal", mk(0.99), cb(0.99, true), Passed},
+		{"default pass_frac", mk(0), cb(0.99, true), InProgress},
+		{"nil callback", mk(1.0), nil, InProgress},
+		{"ok false", mk(1.0), cb(1.0, false), InProgress},
+		{"no primary_id", Objective{Kind: KindLunarCoverage, Status: InProgress}, cb(1.0, true), InProgress},
+	}
+	for _, c := range cases {
+		if got := c.o.Evaluate(EvalContext{SiteCoverage: c.cb}); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}

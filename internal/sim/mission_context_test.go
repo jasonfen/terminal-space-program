@@ -2,9 +2,13 @@ package sim
 
 import (
 	"fmt"
+	"math"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/missions"
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -271,5 +275,75 @@ func TestMissionEvalContextWiresCraftFields(t *testing.T) {
 				t.Error(msg)
 			}
 		})
+	}
+}
+
+func ellipseRelay(w *World, omegaDeg, mDeg float64) *spacecraft.Spacecraft {
+	moon := siteBody(w, "moon")
+	mu := moon.GravitationalParameter()
+	a, e, inc, om, ar := 11316e3, 0.692, 57*math.Pi/180, omegaDeg*math.Pi/180, 90*math.Pi/180
+	E := orbital.SolveKepler(mDeg*math.Pi/180, e)
+	nu := orbital.TrueAnomaly(E, e)
+	p := a * (1 - e*e)
+	r := p / (1 + e*math.Cos(nu))
+	rp := orbital.Vec3{X: r * math.Cos(nu), Y: r * math.Sin(nu)}
+	vp := orbital.Vec3{X: -math.Sqrt(mu/p) * math.Sin(nu), Y: math.Sqrt(mu/p) * (e + math.Cos(nu))}
+	rot := func(v orbital.Vec3) orbital.Vec3 {
+		// Rz(ar), Rx(inc), Rz(om)
+		x, y, z := v.X*math.Cos(ar)-v.Y*math.Sin(ar), v.X*math.Sin(ar)+v.Y*math.Cos(ar), v.Z
+		y, z = y*math.Cos(inc)-z*math.Sin(inc), y*math.Sin(inc)+z*math.Cos(inc)
+		return orbital.Vec3{X: x*math.Cos(om) - y*math.Sin(om), Y: x*math.Sin(om) + y*math.Cos(om), Z: z}
+	}
+	c := spacecraft.NewFromLoadout("Relay-Tug")
+	c.Primary = moon
+	c.AntennaKind, c.AntennaRangeM, c.Controllable = spacecraft.AntennaRelay, 1e8, true
+	c.State = physics.StateVector{R: rot(rp), V: rot(vp), M: c.State.M}
+	w.Crafts = append(w.Crafts, c)
+	w.EnsureCraftIDs()
+	return c
+}
+
+// TestFarSideRelayThreshold (ADR 0065 guard 13): two relays on the 1,748 x
+// 17,409 km, 57 deg ellipse half a lap apart read the full lap at the south
+// pole through the production solver, at twelve epochs over a sidereal month
+// and four node longitudes; one relay does not. Measured 2026-11-04: two
+// relays min 1.0000 (so the rung's pass_frac stays 1.0), one relay 0.856 to 0.860.
+// The callback missionEvalContext hands the evaluator reads the same sampler.
+func TestFarSideRelayThreshold(t *testing.T) {
+	wall := time.Unix(1000, 0)
+	siteCovWallNow = func() time.Time { wall = wall.Add(time.Hour); return wall }
+	defer func() { siteCovWallNow = time.Now }()
+	rung := func() missions.Objective {
+		cat, err := missions.DefaultCatalog()
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range cat.Missions {
+			if m.ID == "chal-far-side-relay" {
+				return m.Objectives[1]
+			}
+		}
+		t.Fatal("rung missing")
+		return missions.Objective{}
+	}()
+	for _, om := range []float64{0, 90, 180, 270} {
+		for k := 0; k < 12; k++ {
+			for _, ms := range [][]float64{{180}, {180, 0}} {
+				w := mustWorld(t)
+				w.Clock.SimTime = w.Clock.SimTime.Add(time.Duration(float64(k) * 27.3217 * 86400 / 12 * float64(time.Second)))
+				for _, m := range ms {
+					ellipseRelay(w, om, m)
+				}
+				got := rung.Evaluate(w.missionEvalContext())
+				want := missions.InProgress
+				if len(ms) == 2 {
+					want = missions.Passed
+				}
+				if got != want {
+					cov, _ := w.SiteCoverage("moon", -90, 0, 108000, 60)
+					t.Errorf("node %v epoch %d, %d relays: %v want %v (frac %.4f)", om, k, len(ms), got, want, cov.Fraction())
+				}
+			}
+		}
 	}
 }
