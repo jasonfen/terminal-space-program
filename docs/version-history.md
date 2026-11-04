@@ -2,6 +2,19 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.65.0
+
+The Falcon Heavy and the lunar relays (PRs `#850` to `#852`, `#853` to `#857`; tag `v0.65.0`). Save schema unchanged.
+
+- **Falcon Heavy.** A new launch vehicle in the picker: a Falcon 9 core with a pair of Side Boosters, 27 engines, 22,821 kN, TWR 1.63 on the pad. All 27 light at 100%; `c` then `X` throttle the core down while the boosters burn. `space` drops the Side Boosters, two halves to either side, and you fly the core and F9-S2 as a Falcon 9. The VAB cracks the pair open into engines and tanks.
+- **Falcon 9 figures corrected.** F9-S2 is 981 kN and 4.0 t (was 934 kN, 3.9 t); both stages are 3.7 m wide (was 3.66). Falcon 9 vehicles carry 100 kg less to orbit (Δv 15,189, was 15,274), the second stage burns 374 s instead of 393 s, and the Starlink x24 stack reads Δv 9,596 (was 9,610). Saves with the old stages load unchanged.
+- **Lunar Relay.** A 280 kg satellite: argon thruster, probe core, 100,000 km relay antenna. It reaches a DSN dish from lunar apolune.
+- **Lunar Relay Carrier x3.** The NTR Tug with three Lunar Relays, under Satellites & Payloads, Δv 11,891 m/s. `Y` releases `Lunar Relay-1` to `-3`.
+- **Frozen ellipse at the Moon.** On the spawn form `→` past the 42,954 km ceiling reads `frozen ellipse`: 1,748 x 17,409 km, 57°, 30h00m46s, apolune over the south pole. INCLINATION and DIRECTION read `set by the frozen ellipse`. Spawns land a fifth of a lap apart. `--altitude frozen` does the same from the command line.
+- **Far Side Relay.** A challenge rung after Relay Constellation and Luna Capture: release a Lunar Relay in lunar orbit, then cover the south pole for a whole 30 h lap. Two relays half a lap apart pass; one covers 86%.
+- **COVERAGE notice.** While Far Side Relay is your rung: `COVERAGE  Moon south pole  25h of 30h`, then `gap in 12h54m, lasts 4h13m`, `gap now, 4h left` or `no gap this lap`, and the relay count. Below SPREAD; F2 clears it.
+- **`docs/constellation-deploy.md`** gains "On an ellipse": the apolune release and the perilune phasing table.
+
 ### v0.64.12
 
 The Flight Recording carries your target, and TCA stops pretending at the edge of its search (PR `#847`; tag `v0.64.12`). Save schema unchanged.

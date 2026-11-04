@@ -402,6 +402,34 @@ than five. Arrows for the neighbourhood; `Enter` opens the typed box for an
 exact figure.
 _Avoid_: Presets (they are computed per body, not a table), Rungs (the
 ladder metaphor belongs to the deleted `altitudePresets`).
+A body may offer an **Orbit Preset** past its ceiling (ADR 0065); it is
+not a stop and is authored, not derived.
+
+**Orbit Preset** (ADR 0065):
+An authored orbit a body offers on the spawn form past its Orbit Ceiling:
+the full element set (a, e, inclination, argument of periapsis), stepped
+to with `→` from the top **Orbit Stop** and shown by name with its
+perilune x apolune, inclination and period. Authored in
+`internal/sim/data/orbit_presets.json`, never in the bodies file (the
+bodies file feeds `body_catalog_hash`). The one shipped preset is the
+Moon's **Frozen Ellipse**. Spawns onto a preset are **slotted**: the
+first at apolune, each later one a fifth of a lap behind the last vessel
+already on that ellipse, so five spawns make a ring. On the form the
+INCLINATION and DIRECTION rows read `set by the frozen ellipse`;
+`--altitude frozen` is the CLI spelling.
+_Avoid_: preset altitude (it is not an altitude), orbit template, named
+orbit (ambiguous with the Orbit Stops' synchronous stop).
+
+**Frozen Ellipse** (ADR 0065):
+The Moon's **Orbit Preset**: 1,748 x 17,409 km, 57°, apolune over the
+south pole, 30h00m46s, the LCRNS reference orbit. "Frozen" names the real
+orbit's property (Earth's pull holds its eccentricity and argument of
+perilune); in the game no orbit is perturbed, so every ellipse is frozen
+and the name is a fact about the reference, not a mechanism. A relay on
+it spends 27 of every 30 hours over the southern far side with Earth in
+view.
+_Avoid_: ELFO (fine in sources, not in game text), frozen orbit (bare;
+say which), halo (a different orbit family).
 
 **System Filter** / **Show-All Toggle** (v0.24 / ADR 0031):
 The spawn-form mechanism that hides off-**Scale Class** craft by default
@@ -2039,7 +2067,9 @@ Plan** carries one or more **Deployable Payloads**. The Carrier stays
 active after each **Deploy** press, allowing a single launch to deploy a
 full constellation: `Y` one at a time, or `U` all at once on a **Batch**
 (ADR 0059). After a batch release the carrier carries its **Batch Id** as
-the lead, and `L` on it opens the **Spread**. No special
+the lead, and `L` on it opens the **Spread**. `Lunar Relay Carrier x3` is the
+second catalog carrier (ADR 0065): the same NTR Tug with three Lunar
+Relays, dropped one per pass on the **Frozen Ellipse**. No special
 type or flag — "Carrier" is a descriptive role (see **Role**) for any
 Vessel that has a Payload Stack mounted on its nose.
 _Avoid_: Tug (the relay-tug loadout is a Carrier, but not all Carriers
@@ -2189,7 +2219,9 @@ graph as a forwarding node, extending coverage without any player "enable
 relay" action. The relay comsat loadout is the canonical starter unit. The `starlink`
 part is a relay sat with a 5,000 km antenna: it forwards for its siblings
 and for low-orbit vessels outside the home blanket, never for the Moon
-(ADR 0059 decision 1).
+(ADR 0059 decision 1). The `lunar-relay` part is a relay sat for the Moon:
+280 kg, the Starlink's argon thruster, a 100,000 km antenna that reaches a
+DSN dish from lunar apolune and a lander from the whole lap.
 _Avoid_: Relay satellite (verbose; Relay Sat is the canonical short form
 in prose), Relay drone, Comm sat.
 
@@ -2334,8 +2366,8 @@ _Avoid_: Retransmit (correct in RF but not player vocabulary), Relay
 hop (fine in prose for one segment of the chain; relay forwarding
 describes the property).
 
-**Coverage objectives** (`relay_coverage` / `establish_contact`):
-Two mission **Kinds** (ADR 0027 / ADR 0025) that evaluate the **CommNet**
+**Coverage objectives** (`relay_coverage` / `establish_contact` / `lunar_coverage`):
+Three mission **Kinds** (ADR 0027 / ADR 0025 / ADR 0065) that evaluate the **CommNet**
 graph:
 - **`relay_coverage`** — passes when ≥N relay-antenna Vessels in the
   slate all have `HasConnection == true`. Used for constellation
@@ -2343,12 +2375,32 @@ graph:
 - **`establish_contact`** — passes when the active Vessel currently has
   `HasConnection == true`. Instantaneous + pass-and-stick, like
   `reach_altitude`.
+- **`lunar_coverage`** — passes when **Site Coverage** of the named site
+  over the next lap reaches `pass_frac` (1.0 for Far Side Relay).
+  Slate-wide like the other two; forward-sampled, no accumulator.
 
-Both are slate-wide (they read `World.CommGraph`) and require no per-craft
+All three are slate-wide (the first two read `World.CommGraph`, the third
+the **Site Coverage** memo) and require no per-craft
 binding — the relay graph's reachability covers the durable "is the relay
 still connected?" check as long as coverage holds.
 _Avoid_: Connectivity objective (valid description; `relay_coverage` and
 `establish_contact` are the canonical Kind strings), Coverage check.
+
+**Site Coverage** (ADR 0065):
+The forward-sampled lap behind `lunar_coverage` and the COVERAGE
+**Notice**: from the relays at a body as they stand, the sim steps one
+lap ahead (30 h at one-minute samples for the Moon) and asks the
+production **CommNet** solver, at each sample, whether a direct-basic
+probe at a surface site (the south pole) would be connected. The
+fraction of covered samples is the objective's number and the notice's
+hours; the first uncovered sample is the notice's `gap in`, searched
+round the lap (the sample after the last is the first, a lap on). One
+memo, recomputed only when the relays' elements or the sim hour change
+and at most once per two seconds of wall clock; nothing runs unless a
+rung with a `lunar_coverage` objective is current.
+_Avoid_: coverage percentage (say covered hours of the lap in game text),
+dwell (the deferred accumulator kind; Site Coverage has no accumulator),
+footprint.
 
 ### Orbital geometry
 
@@ -3509,6 +3561,7 @@ event-driven overlays stayed contextual). "Chip" as a bare word now
 means Notice.
 _Avoid_: Chip (bare; the word now names the Notice class specifically),
 Alert (bare; say Standing Alert), Popup, Widget, card, badge.
+Examples include a rung's coverage (COVERAGE, ADR 0065), stacked after SPREAD.
 
 **Notice bay**:
 The region at the bottom middle of the map, between the two Instrument
@@ -4122,3 +4175,8 @@ an **Away** Session. That may well be intended (the Terminal Phase is
 hands-on flying by construction, and a partner who has gone silent
 through it is not coming back to brake), but no ADR says so. Do not
 assume either reading in code or prose; ask before relying on it.
+
+"Lap" in game text means one period of the vessel's own orbit (the Frozen
+Ellipse's 30 h for Far Side Relay); the rung authors it as `lap_s`, it is
+not derived from the live orbit. If a later preset has a different period,
+the rung text must say which lap.
