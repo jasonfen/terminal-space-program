@@ -128,3 +128,16 @@ func TestEventRequireTargetCraftGatesOnCraftTarget(t *testing.T) {
 		t.Fatalf("target is a craft: got %v, want Passed", got)
 	}
 }
+
+// TestEventRequirePrimaryID (ADR 0065 guard 10): a deploy credits only when
+// the active vessel's primary matches.
+func TestEventRequirePrimaryID(t *testing.T) {
+	o := Objective{Kind: KindEvent, Params: Params{Action: ActionDeploy, RequirePrimaryID: "moon"}}
+	acts := []Action{ActionDeploy}
+	if got := o.Evaluate(EvalContext{RecentActions: acts, PrimaryID: "earth"}); got != InProgress {
+		t.Errorf("deploy at earth: got %v, want InProgress", got)
+	}
+	if got := o.Evaluate(EvalContext{RecentActions: acts, PrimaryID: "moon"}); got != Passed {
+		t.Errorf("deploy at moon: got %v, want Passed", got)
+	}
+}

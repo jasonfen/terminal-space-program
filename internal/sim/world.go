@@ -573,8 +573,8 @@ type World struct {
 	RecordingFault string
 	recFaulted     bool
 	rec            recState
-	recMarker  string          // row written first time each vessel's file opens
-	recMarked  map[uint64]bool // vessels whose file already got the marker
+	recMarker      string          // row written first time each vessel's file opens
+	recMarked      map[uint64]bool // vessels whose file already got the marker
 }
 
 // trailSample captures the craft's position in its primary's frame at
@@ -1301,6 +1301,10 @@ func (w *World) missionEvalContext() missions.EvalContext {
 		TargetIsCraft:     w.Target.Kind == spacecraft.TargetCraft,
 		HasOverBudgetNode: activeCraftHasOverBudgetNode(c),
 		OnPad:             c.OnPad,
+		SiteCoverage: func(pid string, lat, lon, lapS, stepS float64) (float64, bool) {
+			m, ok := w.SiteCoverage(pid, lat, lon, lapS, stepS)
+			return m.Fraction(), ok
+		},
 	}
 	// v0.23 / ADR 0027: project the CommNet graph down for coverage
 	// objectives (the missions package never imports sim).

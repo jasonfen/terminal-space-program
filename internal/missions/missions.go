@@ -96,6 +96,11 @@ const (
 	// has a network connection — "get this probe in contact".
 	KindRelayCoverage    Kind = "relay_coverage"
 	KindEstablishContact Kind = "establish_contact"
+
+	// KindLunarCoverage (ADR 0065) passes when the sim's forward-sampled
+	// lap of a body-surface site is covered at least Params.PassFrac of the
+	// time. Instantaneous + pass-and-stick, no accumulator.
+	KindLunarCoverage Kind = "lunar_coverage"
 )
 
 // Action is a semantic gameplay verb the player triggers, recorded downward
@@ -229,6 +234,14 @@ type Params struct {
 	// KindRelayCoverage requires (ADR 0027). v0.23+.
 	MinRelays int `json:"min_relays,omitempty"`
 
+	// LapS / SampleS / PassFrac parameterise KindLunarCoverage (ADR 0065):
+	// the forward window, its sample step (defaults 108000 / 60 s) and the
+	// covered fraction that passes (default 1.0). PrimaryID and
+	// SiteLatDeg/SiteLonDeg name the body and the surface site.
+	LapS     float64 `json:"lap_s,omitempty"`
+	SampleS  float64 `json:"sample_s,omitempty"`
+	PassFrac float64 `json:"pass_frac,omitempty"`
+
 	// The following four fields are optional gates on a KindEvent
 	// objective's Action match (#426, Flight School content). All are
 	// checked only in the same tick the Action itself matched — none of
@@ -263,6 +276,11 @@ type Params struct {
 	// requires OnPad false (tut-dock's "spawn a partner in orbit"). Empty
 	// imposes no constraint.
 	RequireSpawnLocation string `json:"require_spawn_location,omitempty"`
+
+	// RequirePrimaryID, when set, requires the Active Vessel's primary to
+	// have this catalog ID at the moment the Action fired (ADR 0065:
+	// "release a Lunar Relay in lunar orbit").
+	RequirePrimaryID string `json:"require_primary_id,omitempty"`
 }
 
 // Objective is the atomic pass/fail predicate (the pre-v0.21 Mission).
@@ -370,6 +388,11 @@ type EvalContext struct {
 	ActiveConnected     bool
 	ConnectedRelayCount int
 
+	// SiteCoverage is injected by the sim (the missions package never
+	// imports sim): the covered fraction of the coming lap for a surface
+	// site. nil or ok == false leaves lunar_coverage InProgress. ADR 0065.
+	SiteCoverage func(primaryID string, latDeg, lonDeg, lapS, sampleS float64) (frac float64, ok bool)
+
 	// The following four fields back the KindEvent Require* gates (#426,
 	// Flight School content). All are snapshotted from World.Target /
 	// ActiveCraft at eval time — the same tick a gated Action fired, since
@@ -446,6 +469,8 @@ func (o Objective) evalKind(ctx EvalContext) Status {
 		return evalRelayCoverage(o.Params, ctx)
 	case KindEstablishContact:
 		return evalEstablishContact(o.Params, ctx)
+	case KindLunarCoverage:
+		return evalLunarCoverage(o.Params, ctx)
 	}
 	return InProgress
 }
@@ -459,6 +484,29 @@ func evalRelayCoverage(p Params, ctx EvalContext) Status {
 		return InProgress
 	}
 	if ctx.ConnectedRelayCount >= p.MinRelays {
+		return Passed
+	}
+	return InProgress
+}
+
+// evalLunarCoverage: pass when the sim's forward-sampled covered fraction
+// reaches PassFrac (ADR 0065). A missing PrimaryID is inert.
+func evalLunarCoverage(p Params, ctx EvalContext) Status {
+	if p.PrimaryID == "" || ctx.SiteCoverage == nil {
+		return InProgress
+	}
+	lap, step, pass := p.LapS, p.SampleS, p.PassFrac
+	if lap <= 0 {
+		lap = 108000
+	}
+	if step <= 0 {
+		step = 60
+	}
+	if pass <= 0 {
+		pass = 1.0
+	}
+	frac, ok := ctx.SiteCoverage(p.PrimaryID, p.SiteLatDeg, p.SiteLonDeg, lap, step)
+	if ok && frac >= pass-1e-9 {
 		return Passed
 	}
 	return InProgress
@@ -496,6 +544,9 @@ func evalEvent(p Params, ctx EvalContext) Status {
 		return InProgress
 	}
 	if p.RequireTargetBodyID != "" && ctx.TargetBodyID != p.RequireTargetBodyID {
+		return InProgress
+	}
+	if p.RequirePrimaryID != "" && ctx.PrimaryID != p.RequirePrimaryID {
 		return InProgress
 	}
 	if p.RequireTargetCraft && !ctx.TargetIsCraft {
