@@ -188,6 +188,7 @@ On the Keyboard layout screen `←` / `→`, `Space` or `Enter` cycle the layout
 | `alt+g` | Warp to 30 s before the nearer apsis (`Ap` or `Pe`), then drop to 1×, the same as clicking its `»` in NAVIGATION. Press again to switch to the other apsis, a third time to cancel. Inert during a rendezvous coast |
 | `/` | Cancel warp: straight back to 1× from any level, and cancel auto-warp or a rendezvous warp if one is running |
 | warp caps | 10× while an engine burns, or within 50 m of another vessel (so two hulls cannot skip through each other); 1000× while any vessel flies inside an atmosphere (so an entry cannot skip through the air); 1× while the dock magnet pulls; a commanded raise (`L`) never caps warp |
+| ground | Coasting into the ground (engine off, periapsis below the surface), warp glides down and is 1× for the last 30 s before impact, so a fall can't be skipped in one step. An apoapsis or periapsis you would hit the ground before reaching is not an `alt+g` target |
 
 During a multiplayer rendezvous warp the manual warp keys and `G` are inert
 and `/` is the only cancel; in the terminal phase `,` and `.` become the

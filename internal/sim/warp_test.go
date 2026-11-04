@@ -179,3 +179,44 @@ func TestWarpCappedAt10xDuringActiveBurn(t *testing.T) {
 		t.Errorf("1× during burn should stay 1×, got %.0f", eff)
 	}
 }
+
+// TestWarpGlidesToOneXBeforeGroundImpact (2026-11-03, the LM that hit the
+// Moon in one 107 s tick at 2145x): on a free-fall path into an airless
+// body, top warp glides down and hands over 1x for the last
+// autoWarpLeadTime, so the impact is flown at 1x. A path clear of the
+// ground keeps top warp.
+func TestWarpGlidesToOneXBeforeGroundImpact(t *testing.T) {
+	top := WarpFactors[len(WarpFactors)-1]
+	for _, c := range []struct {
+		name   string
+		startM float64
+	}{{"LM 800 m up", 800}, {"from 40 km", 40_000}} {
+		w, cr := ascendTestCraft(t, "moon", c.startM, -80)
+		cr.State.V = cr.State.V.Add(orbital.Vec3{Y: 25})
+		w.Clock.WarpIdx = len(WarpFactors) - 1
+		lead := autoWarpLeadTime.Seconds()
+		for i := 0; i < 200_000 && !cr.Crashed; i++ {
+			ew := w.EffectiveWarp()
+			if tImp, ok := w.groundImpactIn(); ok && tImp <= lead && ew != 1 {
+				t.Fatalf("%s: %.1f s from impact at %.0fx, want 1x inside the last %v", c.name, tImp, ew, autoWarpLeadTime)
+			}
+			w.Tick()
+			if cr.Crashed && ew != 1 {
+				t.Fatalf("%s: hit the ground on a %.0fx tick, want 1x", c.name, ew)
+			}
+		}
+		if !cr.Crashed {
+			t.Fatalf("%s: never reached the ground", c.name)
+		}
+	}
+
+	w, cr := ascendTestCraft(t, "moon", 50_000, 0)
+	cr.State.V = cr.State.V.Add(orbital.Vec3{Y: 1650}) // ~round 50 km orbit
+	w.Clock.WarpIdx = len(WarpFactors) - 1
+	if _, ok := w.groundImpactIn(); ok {
+		t.Error("a 50 km lunar orbit reads as a ground impact")
+	}
+	if got := w.EffectiveWarp(); got < top/10 {
+		t.Errorf("a 50 km lunar orbit warps at %.0fx, want near the %.0fx top (not ground-clamped)", got, top)
+	}
+}

@@ -102,6 +102,7 @@ var helpSections = []helpSection{
 		{". / ,", "as rendezvous copilot: release toward following / brake the pair down"},
 		{"/", "cancel warp: drop to 1× (also cancels auto-warp / rendezvous warp)"},
 		{"warp caps", "10× burning or within 50 m of a vessel; 1000× in an atmosphere; 1× while the dock magnet pulls; a raise never caps"},
+		{"ground", "coasting into the ground (periapsis below the surface): warp glides down, 1× for the last 30 s"},
 		{"0", "pause / resume"},
 	}},
 	{"MANUAL FLIGHT", [][2]string{

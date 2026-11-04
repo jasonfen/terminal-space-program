@@ -342,3 +342,24 @@ func TestCycleApsisWarpNearerThenOtherThenOff(t *testing.T) {
 		t.Fatal("third press did not cancel")
 	}
 }
+
+// TestApsisWarpSkipsAnApsisPastTheGround (2026-11-03): descending into the
+// Moon on a 2.8 x -1,737 km path, neither apsis comes before the ground,
+// so neither is a warp target (alt+g chased that periapsis into the
+// surface). Climbing on the same kind of path, apoapsis comes first and
+// still is.
+func TestApsisWarpSkipsAnApsisPastTheGround(t *testing.T) {
+	for _, c := range []struct {
+		climb   float64
+		apo, pe bool
+	}{{-80, false, false}, {80, true, false}} {
+		w, cr := ascendTestCraft(t, "moon", 800, c.climb)
+		cr.State.V = cr.State.V.Add(orbital.Vec3{Y: 25})
+		if got := w.ApsisWarpEligible(true); got != c.apo {
+			t.Errorf("climb %+.0f m/s: Ap eligible = %v, want %v", c.climb, got, c.apo)
+		}
+		if got := w.ApsisWarpEligible(false); got != c.pe {
+			t.Errorf("climb %+.0f m/s: Pe eligible = %v, want %v", c.climb, got, c.pe)
+		}
+	}
+}
