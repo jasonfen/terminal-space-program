@@ -189,11 +189,10 @@ func TestImpactorTrajectoryHitsSurfacePredicate(t *testing.T) {
 	w.ActiveCraftIdx = 0
 	w.Clock.WarpUp() // 10×
 
-	// Tick until the predicate fires (Landed or Crashed true). With
-	// BaseStep=50ms × 10× warp = 0.5 s/tick, a 2 km descent at
-	// terminal velocity ~50 m/s should resolve within ~80 ticks;
-	// cap at 200 so a future regression doesn't loop forever.
-	for i := 0; i < 200; i++ {
+	// Tick until the predicate fires (Landed or Crashed true). The ~39 s
+	// fall flies its last 30 s at 1x (the ground-approach glide), so
+	// ~620 ticks of 50 ms; cap at 2000 so a regression can't loop forever.
+	for i := 0; i < 2000; i++ {
 		w.Tick()
 		if c.Landed || c.Crashed {
 			break
@@ -201,7 +200,7 @@ func TestImpactorTrajectoryHitsSurfacePredicate(t *testing.T) {
 	}
 	if !c.Landed && !c.Crashed {
 		altM := c.State.R.Norm() - moonR
-		t.Errorf("after 200 ticks of impactor descent: Landed=%v Crashed=%v altitude=%.0f m — "+
+		t.Errorf("after 2000 ticks of impactor descent: Landed=%v Crashed=%v altitude=%.0f m — "+
 			"surface-arrival predicate never fired (Kepler-step bypassed surface)",
 			c.Landed, c.Crashed, altM)
 	}

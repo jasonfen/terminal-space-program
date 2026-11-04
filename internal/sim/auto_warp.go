@@ -172,6 +172,11 @@ func (w *World) apsisRelease(apo bool) (time.Time, bool) {
 	if !orbital.ApsisDefined(el.E) {
 		return time.Time{}, false
 	}
+	// On a path into the ground only an apoapsis still being climbed to
+	// comes before the impact.
+	if el.Periapsis() < c.Primary.RadiusMeters() && (!apo || c.State.V.Dot(c.State.R) <= 0) {
+		return time.Time{}, false
+	}
 	st := orbital.Vec3State{R: c.State.R, V: c.State.V}
 	tt := orbital.TimeToPeriapsis(st, mu)
 	if apo {

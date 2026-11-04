@@ -1719,6 +1719,19 @@ func (w *World) clampedWarp() float64 {
 	if selected > atmosphereWarpCap && w.anyCraftInAtmosphere() {
 		selected = atmosphereWarpCap
 	}
+	// Ground approach (2026-11-03): an LM falling into the Moon took one
+	// 107 s tick at 2145x once its throttle cut lifted the burn cap. On a
+	// free-fall path into the ground, warp glides down like the node
+	// approach and hands over 1x autoWarpLeadTime before impact.
+	if tImp, ok := w.groundImpactIn(); ok {
+		maxGroundWarp := (tImp - autoWarpLeadTime.Seconds()) / (approachClampSubsteps * w.Clock.BaseStep.Seconds())
+		if maxGroundWarp < 1 {
+			maxGroundWarp = 1
+		}
+		if selected > maxGroundWarp {
+			selected = maxGroundWarp
+		}
+	}
 	// v0.8.6.x+: upcoming-node approach clamp. At 100000× warp one
 	// tick advances 5000 s of sim time, so a planted node 30 s out
 	// would be skipped entirely before the burn-active cap could
@@ -1894,6 +1907,43 @@ const (
 	atmosphereWarpCap    = 1000.0
 	atmosphereMaxStepSec = 0.5
 )
+
+// groundImpactIn is the sim-seconds until the active vessel's free-fall path
+// meets its primary's surface. ok=false when the path never does (periapsis
+// above the surface, or climbing away on an open path), and while it is
+// landed, crashed or thrusting (the burn cap governs a burn). A closed path
+// is timed on its conic; an open one gets a lower bound, falling straight
+// down at surface gravity.
+func (w *World) groundImpactIn() (float64, bool) {
+	c := w.ActiveCraft()
+	if c == nil || c.Landed || c.Crashed || c.ActiveBurn != nil || c.ManualBurn != nil {
+		return 0, false
+	}
+	mu, R := c.Primary.GravitationalParameter(), c.Primary.RadiusMeters()
+	r := c.State.R.Norm()
+	if mu <= 0 || R <= 0 || r <= R {
+		return 0, false
+	}
+	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)
+	if el.Periapsis() >= R {
+		return 0, false
+	}
+	climb := c.State.V.Dot(c.State.R) / r
+	if el.E >= 1 {
+		if climb >= 0 {
+			return 0, false
+		}
+		g := mu / (R * R)
+		return (climb + math.Sqrt(climb*climb+2*g*(r-R))) / g, true
+	}
+	// The descending crossing of r = R: ν in (π, 2π).
+	p := el.A * (1 - el.E*el.E)
+	cosNu := math.Max(-1, math.Min(1, (p/R-1)/el.E))
+	nuHit := 2*math.Pi - math.Acos(cosNu)
+	nu := orbital.TrueAnomalyFromState(c.State.R, c.State.V, mu, el)
+	t := orbital.TimeToTrueAnomaly(nu, nuHit, el.A, el.E, mu)
+	return t, t >= 0 && !math.IsNaN(t)
+}
 
 // inAtmosphere: c is flying below its primary's atmosphere cutoff.
 func inAtmosphere(c *spacecraft.Spacecraft) bool {
