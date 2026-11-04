@@ -138,7 +138,7 @@ func TestCoverageSecondRow(t *testing.T) {
 		{"gap ahead", lap(432, 240), 0, "  gap in 7h12m, lasts 4h · " + r},
 		{"gap starts this sample", lap(432, 240), 432, "  gap now, 4h left · " + r},
 		{"last gap sample", lap(432, 240), 671, "  gap now, 1m left · " + r},
-		{"gap over", lap(432, 240), 672, "  no gap this lap · " + r},
+		{"gap over, next one a lap on", lap(432, 240), 672, "  gap in 26h, lasts 4h · " + r},
 		{"gap now with minutes", lap(0, 130), 0, "  gap now, 2h10m left · " + r},
 		{"no gap", lap(0, 0), 0, "  no gap this lap · " + r},
 		{"gap at the lap end", lap(1790, 100), 0, "  gap in 29h50m, lasts 10m · " + r},
