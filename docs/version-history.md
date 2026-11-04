@@ -2,6 +2,14 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.64.12
+
+The Flight Recording carries your target, and TCA stops pretending at the edge of its search (PR `#847`; tag `v0.64.12`). Save schema unchanged.
+
+- **Target columns in the Flight Recording.** Every row now names the targeted vessel and reads its range (to the metre under 10 km), relative speed, closest approach and TCA, the plane angle and the lead, the numbers the TARGET box shows; `-` with no target.
+- **Multi-day T+ stays in its column.** Past a day (`1d06:33:20`) the T+ value no longer pushes the rest of the row two cells right.
+- **`TCA: > 4h`.** When you are still closing on the target as the 4 h closest-approach search ends, TCA reads `> 4h` and approach `—` instead of `T-4h00m` and the gap at the edge; the map draws no ✕ there, and the recording writes `>4:00:00`.
+
 ### v0.64.11
 
 Warp eases off before the ground, a landed vessel stays on it, and the Rendezvous Planner works in low lunar orbit (PRs `#844`, `#845`, `#846`; tag `v0.64.11`). Save schema unchanged.
