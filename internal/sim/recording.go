@@ -15,6 +15,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/recorder"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -221,12 +222,55 @@ func (w *World) rowFor(c *spacecraft.Spacecraft, event string) recorder.Row {
 	if c.ActiveBurn != nil || c.ManualBurn != nil {
 		thr = c.Throttle * 100
 	}
-	return recorder.Row{
+	row := recorder.Row{
 		Sim: sim, TPlus: tp, TPlusKnown: known,
 		AltM: c.Altitude(), SpdMS: c.State.V.Norm(), MassKg: c.TotalMass(), ThrottlePct: thr,
 		Stages: len(c.Stages), SOI: c.Primary.EnglishName, Hold: w.holdText(c),
 		PitchTrimDeg: c.PitchTrim * 180 / math.Pi, HeadTrimDeg: c.HeadingTrim * 180 / math.Pi,
 		ApoM: apo, PeriM: peri, ApsidesOK: ok, Event: event,
+	}
+	w.recordTarget(c, &row)
+	return row
+}
+
+// recordCloseHorizonSec is the closest-approach search, the TARGET box's 4 h.
+const recordCloseHorizonSec = 4 * 3600.0
+
+// recordTarget fills the row's target columns from the readings the TARGET
+// box shows, for a vessel target on c's primary (2026-11-03: a lunar
+// rendezvous had to be rebuilt from an autosave because the file said nothing
+// about the CSM). Landed, only range and relative speed are read.
+func (w *World) recordTarget(c *spacecraft.Spacecraft, row *recorder.Row) {
+	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
+	if !ok || c != w.ActiveCraft() {
+		return
+	}
+	row.Target = w.TargetName()
+	row.RangeM = rT.Sub(c.State.R).Norm()
+	row.RelMS = vT.Sub(c.State.V).Norm()
+	row.CloseM, row.DInclDeg, row.LeadDeg = math.NaN(), math.NaN(), math.NaN()
+	if c.Landed {
+		return
+	}
+	// The search flies both on c's primary, so like the TARGET box it runs
+	// only for a target sharing it.
+	if w.TargetSharesActivePrimary() {
+		mu := c.Primary.GravitationalParameter()
+		tca, d, _, err := planner.NextClosestApproach(orbital.Vec3State{R: c.State.R, V: c.State.V},
+			orbital.Vec3State{R: rT, V: vT}, c.Primary, mu, recordCloseHorizonSec)
+		if err == nil {
+			row.CloseM, row.TCA = d, time.Duration(tca*float64(time.Second))
+		}
+	}
+	if n, ok := w.TargetPlaneNormal(); ok {
+		h := c.State.R.Cross(c.State.V)
+		if hn, nn := h.Norm(), n.Norm(); hn > 0 && nn > 0 {
+			a := math.Acos(math.Max(-1, math.Min(1, h.Dot(n)/(hn*nn)))) * 180 / math.Pi
+			row.DInclDeg = math.Min(a, 180-a) // the TARGET box's Δincl
+		}
+	}
+	if lead, ok := w.TargetLeadAngleDeg(); ok {
+		row.LeadDeg = lead
 	}
 }
 

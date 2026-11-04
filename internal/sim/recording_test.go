@@ -807,3 +807,54 @@ func TestNewGameFolderCollisions(t *testing.T) {
 		}
 	}
 }
+
+// TestTargetColumnsReadTheRendezvous (2026-11-03): a lunar rendezvous had to
+// be rebuilt from an autosave because the recording carried nothing about the
+// target. With a vessel targeted 10° ahead on the same orbit, the row names it
+// and reads range, relative speed, a closest approach, a level plane and a
+// +10° lead; landed, the orbit-only columns read NaN; with no target the
+// name is empty.
+func TestTargetColumnsReadTheRendezvous(t *testing.T) {
+	w, _ := recWorld(t)
+	c := w.ActiveCraft()
+	if r := w.rowFor(c, ""); r.Target != "" {
+		t.Fatalf("no target: Target = %q, want empty", r.Target)
+	}
+	k := c.State.R.Cross(c.State.V)
+	k = k.Scale(1 / k.Norm())
+	ang := 10 * math.Pi / 180
+	rot := func(v orbital.Vec3) orbital.Vec3 {
+		return v.Scale(math.Cos(ang)).Add(k.Cross(v).Scale(math.Sin(ang))).Add(k.Scale(k.Dot(v) * (1 - math.Cos(ang))))
+	}
+	b := spacecraft.NewFromLoadout("S-IVB-1")
+	b.Primary, b.SystemIdx, b.ID = c.Primary, c.SystemIdx, c.ID+100
+	b.State = physics.StateVector{R: rot(c.State.R), V: rot(c.State.V), M: b.TotalMass()}
+	w.Crafts = append(w.Crafts, b)
+	w.SetTargetCraft(len(w.Crafts) - 1)
+
+	r := w.rowFor(c, "")
+	if r.Target != w.TargetName() || r.Target == "" {
+		t.Errorf("Target = %q, want %q", r.Target, w.TargetName())
+	}
+	if want := b.State.R.Sub(c.State.R).Norm(); math.Abs(r.RangeM-want) > 1 {
+		t.Errorf("RangeM = %.0f, want %.0f", r.RangeM, want)
+	}
+	if want := b.State.V.Sub(c.State.V).Norm(); math.Abs(r.RelMS-want) > 1e-6 {
+		t.Errorf("RelMS = %.3f, want %.3f", r.RelMS, want)
+	}
+	if math.IsNaN(r.CloseM) || r.CloseM <= 0 || r.TCA < 0 {
+		t.Errorf("closest approach = %.0f m at %v, want a reading", r.CloseM, r.TCA)
+	}
+	if math.IsNaN(r.DInclDeg) || r.DInclDeg > 1e-6 {
+		t.Errorf("DInclDeg = %v, want ~0 for one plane", r.DInclDeg)
+	}
+	if math.Abs(r.LeadDeg-10) > 0.01 {
+		t.Errorf("LeadDeg = %.3f, want +10 (target ahead)", r.LeadDeg)
+	}
+
+	c.Landed = true
+	r = w.rowFor(c, "")
+	if math.IsNaN(r.RangeM) || !math.IsNaN(r.CloseM) || !math.IsNaN(r.DInclDeg) || !math.IsNaN(r.LeadDeg) {
+		t.Errorf("landed: range %v close %v dincl %v lead %v, want range only", r.RangeM, r.CloseM, r.DInclDeg, r.LeadDeg)
+	}
+}
