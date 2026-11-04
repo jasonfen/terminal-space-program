@@ -394,3 +394,14 @@ func TestVesselWinsItsCellOverNodeMarker(t *testing.T) {
 		t.Error("the other node marker vanished too")
 	}
 }
+
+// TestClosestApproachMarkerAbsentWhenStillClosingAt4h: no ✕ at the search's
+// far edge, where the "closest approach" is only the gap at 4 h.
+func TestClosestApproachMarkerAbsentWhenStillClosingAt4h(t *testing.T) {
+	v := NewOrbitView(Theme{HUDBox: lipgloss.NewStyle()})
+	v.Resize(200, 60)
+	out := v.Render(stillClosingAt4hWorld(t), 0, 200, 60)
+	if strings.ContainsRune(out, render.MarkerGlyph(render.MarkerClosestApproach)) {
+		t.Errorf("✕ marker drawn at the 4 h search edge:\n%s", out)
+	}
+}

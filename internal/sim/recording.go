@@ -258,7 +258,11 @@ func (w *World) recordTarget(c *spacecraft.Spacecraft, row *recorder.Row) {
 		mu := c.Primary.GravitationalParameter()
 		tca, d, _, err := planner.NextClosestApproach(orbital.Vec3State{R: c.State.R, V: c.State.V},
 			orbital.Vec3State{R: rT, V: vT}, c.Primary, mu, recordCloseHorizonSec)
-		if err == nil {
+		switch {
+		case err != nil:
+		case planner.ApproachBeyond(tca, recordCloseHorizonSec):
+			row.TCA = time.Duration(recordCloseHorizonSec * float64(time.Second)) // close stays NaN: tca reads >4:00:00
+		default:
 			row.CloseM, row.TCA = d, time.Duration(tca*float64(time.Second))
 		}
 	}

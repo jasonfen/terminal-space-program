@@ -852,6 +852,15 @@ func TestTargetColumnsReadTheRendezvous(t *testing.T) {
 		t.Errorf("LeadDeg = %.3f, want +10 (target ahead)", r.LeadDeg)
 	}
 
+	// 1 km higher and still 10° ahead: still closing when the 4 h search
+	// ends, so no closest approach, just the window it lies beyond.
+	r0 := c.State.R.Norm()
+	b.State.R = rot(c.State.R).Scale((r0 + 1000) / r0)
+	b.State.V = rot(c.State.V).Scale(math.Sqrt(r0 / (r0 + 1000)))
+	if r = w.rowFor(c, ""); !math.IsNaN(r.CloseM) || r.TCA != 4*time.Hour {
+		t.Errorf("still closing at 4 h: close %v at %v, want NaN at 4h0m0s", r.CloseM, r.TCA)
+	}
+
 	c.Landed = true
 	r = w.rowFor(c, "")
 	if math.IsNaN(r.RangeM) || !math.IsNaN(r.CloseM) || !math.IsNaN(r.DInclDeg) || !math.IsNaN(r.LeadDeg) {

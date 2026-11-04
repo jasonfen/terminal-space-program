@@ -1,6 +1,7 @@
 package recorder
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,6 +115,12 @@ func TestFormatRowMatchesGolden(t *testing.T) {
 		DInclDeg: 0.004, LeadDeg: -0.04, Event: "throttle_full"}
 	if g := Format(v); g != rdv {
 		t.Fatalf("rendezvous row\n got %q\nwant %q", g, rdv)
+	}
+	// Still closing when the 4 h search ends: tca ">4:00:00", close "-".
+	far := v
+	far.CloseM, far.TCA, far.Event = math.NaN(), 4*time.Hour, ""
+	if g := Format(far); !strings.Contains(g, "        -  >4:00:00") {
+		t.Errorf("beyond-the-window row = %q, want close - and tca >4:00:00", g)
 	}
 	// T+ holds up to 99d23:59:59 without pushing the columns after it right.
 	for _, d := range []time.Duration{0, 99*24*time.Hour + 23*time.Hour + 59*time.Minute + 59*time.Second} {

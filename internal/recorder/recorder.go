@@ -46,7 +46,9 @@ type Row struct {
 	// then reads "-"). Range, relative speed and closest approach (CloseM at
 	// TCA from now) are in the Active Vessel's primary frame; DInclDeg is the
 	// plane angle, LeadDeg the phase lead (positive: the target is ahead).
-	// NaN reads "-" (landed, or the target off the vessel's primary).
+	// NaN reads "-" (landed, or the target off the vessel's primary); CloseM
+	// NaN with TCA set means still closing when a TCA-long search ended, and
+	// tca reads ">" TCA.
 	Target                string
 	RangeM, RelMS, CloseM float64
 	TCA                   time.Duration
@@ -374,8 +376,11 @@ func targetBlock(r Row) string {
 		return f(v)
 	}
 	tca := "-"
-	if !math.IsNaN(r.CloseM) {
+	switch {
+	case !math.IsNaN(r.CloseM):
 		tca = fmtTPlus(r.TCA)
+	case r.TCA > 0:
+		tca = ">" + fmtTPlus(r.TCA)
 	}
 	return targetColumns(r.Target,
 		num(r.RangeM/1000, fmtKm), num(r.RelMS, fmtRel), num(r.CloseM/1000, fmtKm), tca,

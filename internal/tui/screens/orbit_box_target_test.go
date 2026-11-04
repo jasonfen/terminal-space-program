@@ -6,8 +6,11 @@
 package screens
 
 import (
+	"math"
 	"strings"
 	"testing"
+
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -128,5 +131,44 @@ func TestTargetBoxNamesDockedPartner(t *testing.T) {
 		if !strings.Contains(row, "—") {
 			t.Errorf("row %d = %q, want dash cells", i+1, row)
 		}
+	}
+}
+
+// stillClosingAt4hWorld targets a copy of the active vessel 10° ahead in an
+// orbit 1 km higher: the active vessel gains ~0.08° a lap, so the gap is
+// still closing when the 4 h closest-approach search ends.
+func stillClosingAt4hWorld(t *testing.T) *sim.World {
+	t.Helper()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.Landed, c.Crashed = false, false
+	k := c.State.R.Cross(c.State.V)
+	k = k.Scale(1 / k.Norm())
+	ang := 10 * math.Pi / 180
+	rot := func(v orbital.Vec3) orbital.Vec3 {
+		return v.Scale(math.Cos(ang)).Add(k.Cross(v).Scale(math.Sin(ang))).Add(k.Scale(k.Dot(v) * (1 - math.Cos(ang))))
+	}
+	r := c.State.R.Norm()
+	tc := *c
+	tc.ID, tc.Name = c.ID+1, "target vessel"
+	tc.State.R = rot(c.State.R).Scale((r + 1000) / r)
+	tc.State.V = rot(c.State.V).Scale(math.Sqrt(r / (r + 1000)))
+	w.Crafts = append(w.Crafts, &tc)
+	w.SetTargetCraft(len(w.Crafts) - 1)
+	return w
+}
+
+// TestTargetBoxSaysBeyondWhenStillClosingAt4h (2026-11-03): the search's
+// minimum on its far edge is not an approach; TCA reads "> 4h" and approach
+// a dash instead of 4:00:00 and the gap at the edge.
+func TestTargetBoxSaysBeyondWhenStillClosingAt4h(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w := stillClosingAt4hWorld(t)
+	row := strings.TrimRight(ansi.Strip(v.buildTargetBox(w)[4]), " ")
+	if !strings.Contains(row, "> 4h") || !strings.HasSuffix(row, "—") {
+		t.Errorf("TCA/approach row = %q, want TCA \"> 4h\" and approach —", row)
 	}
 }

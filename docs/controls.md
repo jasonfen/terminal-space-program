@@ -457,7 +457,7 @@ overlay carries, so you can look one up without leaving the game.
 |---|---|
 | `fpa` | Flight path angle: velocity above / below the local horizontal |
 | `Q` | Dynamic pressure: aerodynamic stress on the airframe, in kPa |
-| `TCA` | Time of closest approach, in a rendezvous or flyby |
+| `TCA` | Time of closest approach, in a rendezvous or flyby; `> 4h` when still closing at the end of the 4 h search (approach reads `—`) |
 | `TWR` | Thrust to weight ratio: engines' thrust over vessel weight |
 | `Ap` / `Pe` | Apoapsis / periapsis: height above the surface, like every altitude in the game |
 | `Δv` / `Δincl` | Delta-v / relative inclination to a target's orbital plane |

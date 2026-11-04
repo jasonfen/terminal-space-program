@@ -59,9 +59,9 @@ func (v *OrbitView) drawClosestApproachMarker(w *sim.World) {
 	mu := c.Primary.GravitationalParameter()
 	active := orbital.Vec3State{R: c.State.R, V: c.State.V}
 	target := orbital.Vec3State{R: rT, V: vT}
-	_, _, posA, posB, err := planner.NextClosestApproachPositions(active, target, mu, closestApproachHorizonSec)
-	if err != nil {
-		return
+	tCA, _, posA, posB, err := planner.NextClosestApproachPositions(active, target, mu, closestApproachHorizonSec)
+	if err != nil || planner.ApproachBeyond(tCA, closestApproachHorizonSec) {
+		return // no ✕ for the gap at the search's far edge
 	}
 	primaryPos := w.BodyPosition(c.Primary)
 	ownPos, targetPos := primaryPos.Add(posA), primaryPos.Add(posB)
