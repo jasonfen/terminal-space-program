@@ -143,7 +143,7 @@ func TestStackStatsHandWorkedLitSet(t *testing.T) {
 // together with the retune.
 func TestOnlyBoosterLoadoutsAreMarked(t *testing.T) {
 	for _, id := range LoadoutOrder {
-		want := id == "SLS-Block1" || id == "SLS-Orion" || id == "Raster-LS"
+		want := id == "SLS-Block1" || id == "SLS-Orion" || id == "Raster-LS" || id == "Falcon-Heavy"
 		for i, st := range Loadouts[id].Stages {
 			if got := st.LitWithAbove; got != (want && i == 0) {
 				t.Errorf("%s stage %d (%s) LitWithAbove = %v, want %v", id, i, st.Name, got, want && i == 0)
@@ -221,4 +221,19 @@ func TestRasterCoreOutlastsItsSolids(t *testing.T) {
 	near(t, "core dry kg", st[1].DryMass, 3000, 0)
 	// Kern-orbit budget: hand-worked 2,075.2 + 744.0 + 1,714.0 = 4,533 (4,530 serial before).
 	near(t, "Raster-LS dv", StackStats(st).TotalDV, 4533, 2)
+}
+
+// ADR 0064 guard 5 (decisions 4 and 9): the Falcon Heavy's phases with all 27
+// engines at 100%: pair 5,590, core 0 (it empties with the pair), S2 11,357.
+func TestFalconHeavyStackStats(t *testing.T) {
+	l := Loadouts["Falcon-Heavy"]
+	if len(l.Stages) != 3 || l.Stages[0].Name != "Side Boosters" || l.Stages[1].Name != "F9-S1" || l.Stages[2].Name != "F9-S2" {
+		t.Fatalf("Falcon-Heavy stages = %+v, want [Side Boosters F9-S1 F9-S2]", l.Stages)
+	}
+	vs := StackStats(l.Stages)
+	near(t, "pair Δv", vs.StageDV[0], 5590, 1)
+	near(t, "core Δv", vs.StageDV[1], 0, 1)
+	near(t, "S2 Δv", vs.StageDV[2], 11357, 1)
+	near(t, "Σ Δv", vs.TotalDV, 16946, 2)
+	near(t, "TWR", vs.LiftoffTWR, 1.63, 0.005)
 }

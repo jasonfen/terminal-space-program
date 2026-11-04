@@ -415,6 +415,7 @@ var adrDiameters = map[string]float64{
 	"dragon-trunk":          4.0,
 	"endpoint-station":      4.76,
 	"f9-s1":                 3.7,
+	"fh-boosters":           3.7,
 	"f9-s2":                 3.7,
 	"ground-station-lander": 4.76,
 	"heartbeat-keeper":      2.36,
@@ -465,8 +466,8 @@ func TestEveryPartCarriesItsPublishedDiameter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(adrDiameters) != 57 {
-		t.Fatalf("table has %d rows, want 57", len(adrDiameters))
+	if len(adrDiameters) != 58 {
+		t.Fatalf("table has %d rows, want 58", len(adrDiameters))
 	}
 	for id, want := range adrDiameters {
 		p, ok := parts[id]

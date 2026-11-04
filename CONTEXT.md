@@ -65,13 +65,17 @@ to burnout and cannot be throttled, cut, relit or dropped while lit
 throttle (see **Throttle Target**) and drops any time, shutting down on
 separation. Dry boosters stay attached until `space`. A booster stage
 models a pair: its drop spawns two passive Vessels named
-`<vessel>-booster1` / `-booster2`, each half the stage. On screen:
+`<vessel>-booster1` / `-booster2`, each half the stage; a liquid pair's
+halves keep their remaining fuel and their legs (`CanSoftLand`) for a
+later recovery (ADR 0064, #726). On screen:
 ENGINE's title badge (`· boosters T-1m02s`, `· boosters DRY`,
 `· boosters 100% T-1m47s`) and the throttle row's label (`core:` /
-`boosters:`). Stage names (`SRBs`, `Core`) stay on STAGES and the drop
-flash; the catalog's `booster` *tier* is a palette grouping, not this.
+`boosters:`). Stage names (`SRBs`, `Core`, `Side Boosters`) stay on
+STAGES and the drop flash; the catalog's `booster` *tier* is a palette
+grouping, not this. The Falcon Heavy's pair (`fh-boosters`, "Side
+Boosters", ADR 0064) is two `f9-s1` summed over a plain `f9-s1` core.
 _Avoid_: Strap-on, Side stage, SRB (one kind of booster), Sustainer (the
-tier word).
+tier word), Side cores (SpaceX's own word is "side boosters").
 
 **Lit With the Stage Above** (ADR 0058):
 The mark that makes a Stage a **Booster**: authored on a Loadout's part
