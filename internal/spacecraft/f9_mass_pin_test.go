@@ -49,18 +49,19 @@ func f9Rows() []string {
 	return rows
 }
 
-// f9Golden was taken before the F9 stages gained their flight computer and
+// Re-captured 2026-11-04 for ADR 0064 decision 3 (f9-s2 4,000 kg / 981 kN, both
+// diameters 3.7 m; f9-s1 rows unchanged). Originally taken before the F9 stages gained their flight computer and
 // S-band antenna. SpaceX's published dry masses already include the avionics
 // and telemetry hardware, so giving the stages a probe command source and a
 // basic antenna must add no kilogram: mass, delta-v and liftoff TWR of both
 // parts and of every shipped vehicle that stacks them stay identical.
 var f9Golden = []string{
 	"part:f9-s1|1|25600.000|411000.000|438275.636|7844.063534|1.769886",
-	"part:f9-s2|1|3900.000|107500.000|111655.273|11439.932548|0.852996",
-	"loadout:Falcon-9|2|29500.000|518500.000|549930.909|15273.695362|1.410537|craft 549930.909",
-	"loadout:Falcon-9-Dragon|4|39000.000|521062.000|563414.727|11331.400032|1.376780|craft 563414.727",
-	"loadout:Falcon-9-Cargo-Dragon|4|39000.000|521062.000|565921.727|10704.173493|1.370681|craft 565921.727",
-	"loadout:Falcon-9-Starlink-24|26|47260.000|518980.000|569333.382|11962.151806|1.362467|craft 569333.382",
+	"part:f9-s2|1|4000.000|107500.000|111761.818|11356.592209|0.895066",
+	"loadout:Falcon-9|2|29600.000|518500.000|550037.455|15188.841767|1.410264|craft 550037.455",
+	"loadout:Falcon-9-Dragon|4|39100.000|521062.000|563521.273|11312.494277|1.376520|craft 563521.273",
+	"loadout:Falcon-9-Cargo-Dragon|4|39100.000|521062.000|566028.273|10687.875847|1.370423|craft 566028.273",
+	"loadout:Falcon-9-Starlink-24|26|47360.000|518980.000|569439.927|11948.111209|1.362212|craft 569439.927",
 }
 
 func TestF9ControlAndAntennaAddNoMass(t *testing.T) {
@@ -103,5 +104,19 @@ func TestF9StagesCarryProbeCoreAndBasicAntenna(t *testing.T) {
 	}
 	if !before.Controllable || before.AntennaKind != AntennaDirect {
 		t.Errorf("Falcon-9: controllable=%v antenna=%s, want controllable with a direct antenna", before.Controllable, before.AntennaKind)
+	}
+}
+
+// ADR 0064 decision 3: the F9 stages carry SpaceX's published figures. The
+// f9-s1 rows that did not move are pinned too, so a swapped source (Wikipedia's
+// 22,200 kg core) reads red.
+func TestF9StagesTakePublishedFigures(t *testing.T) {
+	s1, _ := BuildStage("f9-s1")
+	s2, _ := BuildStage("f9-s2")
+	if s1.DiameterM != 3.7 || s1.DryMass != 25600 || s1.FuelMass != 411000 || s1.Thrust != 7607000 || s1.Isp != 282 {
+		t.Errorf("f9-s1 = %gm dry %g fuel %g thrust %g isp %g", s1.DiameterM, s1.DryMass, s1.FuelMass, s1.Thrust, s1.Isp)
+	}
+	if s2.DiameterM != 3.7 || s2.DryMass != 4000 || s2.Thrust != 981000 || s2.Isp != 348 || s2.FuelMass != 107500 {
+		t.Errorf("f9-s2 = %gm dry %g thrust %g isp %g fuel %g", s2.DiameterM, s2.DryMass, s2.Thrust, s2.Isp, s2.FuelMass)
 	}
 }

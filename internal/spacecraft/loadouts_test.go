@@ -65,8 +65,8 @@ func TestNewFromLoadoutResolvedGolden(t *testing.T) {
 	for _, s := range sl.Stages {
 		dry += s.DryMass
 	}
-	if dry != 47260 {
-		t.Errorf("Falcon-9-Starlink-24 dry mass = %g, want 47260", dry)
+	if dry != 47360 {
+		t.Errorf("Falcon-9-Starlink-24 dry mass = %g, want 47360", dry)
 	}
 	mono, monoCap, rcsThr, rcsIsp := DefaultRCSLoadout(740)
 	for i := 2; i < 26; i++ {

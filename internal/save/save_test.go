@@ -1579,3 +1579,29 @@ func TestBatchTagCountersAndRaiseOrderRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0064 decision 3: a Falcon 9 saved before the published-figures change
+// keeps its 3,900 kg / 934 kN second stage on load; the catalog only seeds new
+// vessels.
+func TestOldFalcon9SecondStageSurvivesLoad(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	c.Stages = spacecraft.NewFromLoadout("Falcon-9").Stages
+	c.Stages[1].DryMass, c.Stages[1].Thrust = 3900, 934000
+	c.SyncFields()
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	s2 := got.ActiveCraft().Stages[1]
+	if s2.Name != "F9-S2" || s2.DryMass != 3900 || s2.Thrust != 934000 {
+		t.Errorf("F9-S2 after load = %s dry %g thrust %g, want 3900 / 934000", s2.Name, s2.DryMass, s2.Thrust)
+	}
+}

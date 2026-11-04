@@ -98,6 +98,9 @@ func TestSpawnRowTailIsDim(t *testing.T) {
 			continue // the plain Falcon 9 row; the Dragon stacks carry 4 stages
 		}
 		checked++
+		if !strings.Contains(p, "dry 29.60 t") { // ADR 0064 decision 3
+			t.Errorf("Falcon 9 row dry cell: %q, want dry 29.60 t", p)
+		}
 		r := raw[i]
 		tailAt := strings.Index(r, "2 stages")
 		if tailAt < 0 {
@@ -143,7 +146,7 @@ func TestSpawnFormStarlinkRow(t *testing.T) {
 	if groupOfRow != "Satellites & Payloads" {
 		t.Errorf("row is under %q, want Satellites & Payloads", groupOfRow)
 	}
-	if !regexp.MustCompile(`dry 47\.26 t\s+fuel .*26 stages`).MatchString(row) {
-		t.Errorf("row = %q, want dry 47.26 t and 26 stages", row)
+	if !regexp.MustCompile(`dry 47\.36 t\s+fuel .*26 stages`).MatchString(row) {
+		t.Errorf("row = %q, want dry 47.36 t and 26 stages", row)
 	}
 }

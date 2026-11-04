@@ -31,11 +31,11 @@ func TestUnmarkedVesselBoxesByteIdentical(t *testing.T) {
 			[]string{"STAGES  ◉●●  ▸ S-IC (1/3) [space]"}}},
 		{"Falcon-9", false, golden{
 			[]string{"ENGINE", "  throttle: 40% idle              mode:  main", "  TWR:      0.56 (max 1.41)", "  node:     —"},
-			[]string{"PROPELLANT", "  fuel:     100%                mass:     549.9 t", "  Δv:       3805 / 15274 m/s    Δv→circ:  —", "  monoprop: 1.931 t             rcs:      7.59 m/s", "  cargo:    —                   hold:     —"},
+			[]string{"PROPELLANT", "  fuel:     100%                mass:     550.0 t", "  Δv:       3803 / 15189 m/s    Δv→circ:  —", "  monoprop: 1.937 t             rcs:      7.61 m/s", "  cargo:    —                   hold:     —"},
 			[]string{"STAGES  ◉●  ▸ F9-S1 (1/2) [space]"}}},
 		{"Falcon-9", true, golden{
 			[]string{"ENGINE  ● BURN", "  throttle: 40% ● FIRING T+42s    mode:  main", "  TWR:      0.56 (max 1.41)", "  node:     —"},
-			[]string{"PROPELLANT", "  fuel:     100%                mass:     549.9 t", "  Δv:       3805 / 15274 m/s    Δv→circ:  —", "  monoprop: 1.931 t             rcs:      7.59 m/s", "  cargo:    —                   hold:     —"},
+			[]string{"PROPELLANT", "  fuel:     100%                mass:     550.0 t", "  Δv:       3803 / 15189 m/s    Δv→circ:  —", "  monoprop: 1.937 t             rcs:      7.61 m/s", "  cargo:    —                   hold:     —"},
 			[]string{"STAGES  ◉●  ▸ F9-S1 (1/2) [space]"}}},
 		{"Relay-Tug", false, golden{
 			[]string{"ENGINE", "  throttle: 40% idle              mode:  main", "  TWR:      0.19 (max 0.48)", "  node:     —"},

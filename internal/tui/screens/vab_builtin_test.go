@@ -227,7 +227,7 @@ func TestVABBuiltInTotalDVIsLauncherOnly(t *testing.T) {
 		id   string
 		want float64
 	}{
-		{"Falcon-9-Starlink-24", 9610},
+		{"Falcon-9-Starlink-24", 9596},
 		{"Saturn-V", 18872},
 		{"Comsat-Carrier-3", 10515},
 	} {
