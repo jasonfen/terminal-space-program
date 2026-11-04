@@ -120,3 +120,31 @@ func TestDragonLoadouts(t *testing.T) {
 		t.Errorf("Dragon thrust/isp/fuel = %g/%g/%g, want 1600/300/2562", d.Thrust, d.Isp, d.ActiveStageFuel())
 	}
 }
+
+// ADR 0064 decision 2 (guard 1): fh-boosters is exactly two f9-s1, spelled out
+// here rather than read back so the test can disagree with the data.
+func TestFHBoostersPartDataTable(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	parts, _, err := LoadCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, ok := parts["fh-boosters"]
+	if !ok {
+		t.Fatal("fh-boosters missing from parts.json")
+	}
+	if p.Name != "Side Boosters" || p.Tier != "booster" || p.Glyph != "➤" || p.Color != "#E8E8E8" ||
+		p.FuelType != "kerolox" || p.CommandSource != "probe" || p.Antenna == nil || p.Antenna.Kind != "direct" || p.Antenna.RangeM != 1e7 {
+		t.Errorf("identity fields = %+v", p)
+	}
+	if p.DryMassKg != 51200 || p.FuelMassKg != 822000 || p.FuelCapacityKg != 822000 || p.ThrustN != 15214000 || p.IspS != 282 ||
+		p.BallisticCoefficient != 0.0000074 || p.DiameterM != 3.7 {
+		t.Errorf("figures = dry %g fuel %g cap %g thrust %g isp %g bc %g d %g", p.DryMassKg, p.FuelMassKg, p.FuelCapacityKg, p.ThrustN, p.IspS, p.BallisticCoefficient, p.DiameterM)
+	}
+	if p.LaunchSpriteRowsPx != 20 || p.LaunchSpriteWidthPx != 6 || !p.CanSoftLand || len(p.VabSeed) != 26 {
+		t.Errorf("sprite %dx%d soft-land %v seed %d, want 20x6 true 26", p.LaunchSpriteRowsPx, p.LaunchSpriteWidthPx, p.CanSoftLand, len(p.VabSeed))
+	}
+	if c := parts["f9-s1"]; p.DryMassKg != 2*c.DryMassKg || p.FuelMassKg != 2*c.FuelMassKg || p.ThrustN != 2*c.ThrustN {
+		t.Errorf("fh-boosters is not two f9-s1: %g/%g/%g vs %g/%g/%g", p.DryMassKg, p.FuelMassKg, p.ThrustN, c.DryMassKg, c.FuelMassKg, c.ThrustN)
+	}
+}

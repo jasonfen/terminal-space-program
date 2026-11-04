@@ -84,3 +84,46 @@ func TestFalcon9DragonPadAndStaging(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0064 guard 6: the Falcon Heavy lifts off the pad, `b` lights the pair
+// with the core, and `space` mid-burn (liquid, so no refusal) leaves the core
+// stack plus two passive halves that keep their fuel and legs for #726.
+func TestFalconHeavyPadAndBoosterDrop(t *testing.T) {
+	w := mustWorld(t)
+	w.Crafts = nil
+	w.ActiveCraftIdx = -1
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-Heavy", ParentBodyID: "earth", Launchpad: true,
+		Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if twr := c.Thrust / (c.TotalMass() * 9.80665); twr <= 1 {
+		t.Fatalf("pad TWR = %.3f, want > 1", twr)
+	}
+	c.Throttle = 1
+	c.EngineMode = spacecraft.EngineMain
+	w.StartManualBurn()
+	if c.ManualBurn == nil || !c.HasLiquidBooster() || BoosterSolidsLit(c) {
+		t.Fatalf("after b: burn %v liquid %v solids lit %v, want a liquid pair lit", c.ManualBurn != nil, c.HasLiquidBooster(), BoosterSolidsLit(c))
+	}
+	parent := c.Name // SpawnCraft numbers it ("Falcon Heavy-1"); halves are named for it
+	w.RecomputeCommGraph()
+	if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+		t.Fatalf("space mid-burn: %v", err)
+	}
+	if len(w.Crafts) != 3 {
+		t.Fatalf("slate = %d vessels, want 3", len(w.Crafts))
+	}
+	for i, name := range []string{parent + "-booster1", parent + "-booster2"} {
+		h := w.Crafts[i+1]
+		s := h.Stages[0]
+		if h.Name != name || s.DryMass != 25600 || s.Thrust != 7607000 || !s.CanSoftLand || s.FuelMass <= 0 ||
+			h.Role != spacecraft.RoleJettisonedStage || h.Controllable {
+			t.Errorf("half %d = %q dry %g thrust %g soft-land %v fuel %g role %v controllable %v", i, h.Name,
+				s.DryMass, s.Thrust, s.CanSoftLand, s.FuelMass, h.Role, h.Controllable)
+		}
+	}
+	if c.Name != "F9-S1" || len(c.Stages) != 2 || c.Stages[0].Name != "F9-S1" || c.Stages[1].Name != "F9-S2" || c.BoosterThrottle != nil {
+		t.Errorf("core after drop = %q %+v throttle %v, want F9-S1 [F9-S1 F9-S2] nil", c.Name, c.Stages, c.BoosterThrottle)
+	}
+}

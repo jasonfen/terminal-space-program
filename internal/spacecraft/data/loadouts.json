@@ -140,6 +140,19 @@
       ]
     },
     {
+      "id": "Falcon-Heavy",
+      "name": "Falcon Heavy",
+      "role": "launch-vehicle",
+      "category": "launch-vehicles",
+      "glyph": "➤",
+      "color": "#E8E8E8",
+      "parts": [
+        { "part_id": "fh-boosters", "lit_with_above": true },
+        { "part_id": "f9-s1" },
+        { "part_id": "f9-s2" }
+      ]
+    },
+    {
       "id": "Apollo-Stack",
       "name": "Apollo Stack",
       "role": "mission-stack",
