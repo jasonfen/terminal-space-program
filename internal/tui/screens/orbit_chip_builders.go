@@ -274,6 +274,8 @@ func (v *OrbitView) assembleChips(w *sim.World) []builtChip {
 	// SPREAD (ADR 0059 decision 5): a released batch's raise campaign, counted
 	// off the members' orders; gone when none has one. F2 declutter clears it.
 	add("", v.buildSpreadChip(w))
+	// COVERAGE (ADR 0065 decision 6): the lunar coverage rung's lap and next gap; below SPREAD, gone on pass, F2 clears it.
+	add("", v.buildCoverageChip(w))
 	// NO VESSEL / empty slate (#310, recovered ADR 0051 slice 3 item 3):
 	// with no active craft, every one of the eight boxes reads a bare
 	// dash row (decision 2) with no explanation. Bypasses chipEnabled
