@@ -56,6 +56,11 @@ func NextClosestApproach(
 	return res.t, res.dist, res.vRel, nil
 }
 
+// ApproachBeyond reports whether a closest approach searched over horizon
+// seconds sits on the window's far edge: the pair is still closing there, so
+// the real approach comes later and the edge's gap is not it.
+func ApproachBeyond(t, horizon float64) bool { return t >= horizon*(1-1e-9) }
+
 // NextClosestApproachPositions is NextClosestApproach plus the two
 // craft's positions at the refined closest-approach time — the map's ✕
 // marker (ADR 0020 / #346) plots both ends of the encounter there. The

@@ -23,7 +23,7 @@ const (
 	pruneEvery   = 60 * time.Second
 	pruneSlack   = 24 * time.Hour
 	day          = 24 * time.Hour
-	headerSuffix = " · alt apo peri km above surface · spd m/s vs soi body · trims deg"
+	headerSuffix = " · alt apo peri km above surface · spd m/s vs soi body · trims deg · range close km, rel m/s, tca, dincl lead deg vs target"
 )
 
 // rewrite is the prune's atomic write; a var so a test can kill it between
@@ -42,7 +42,18 @@ type Row struct {
 	PitchTrimDeg, HeadTrimDeg float64
 	ApoM, PeriM               float64
 	ApsidesOK                 bool
-	Event                     string
+	// Target is the targeted vessel's name, "" for none (every target column
+	// then reads "-"). Range, relative speed and closest approach (CloseM at
+	// TCA from now) are in the Active Vessel's primary frame; DInclDeg is the
+	// plane angle, LeadDeg the phase lead (positive: the target is ahead).
+	// NaN reads "-" (landed, or the target off the vessel's primary); CloseM
+	// NaN with TCA set means still closing when a TCA-long search ended, and
+	// tca reads ">" TCA.
+	Target                string
+	RangeM, RelMS, CloseM float64
+	TCA                   time.Duration
+	DInclDeg, LeadDeg     float64
+	Event                 string
 }
 
 // Header describes the vessel; it is written once, when the file is created.
@@ -97,7 +108,8 @@ func Open(path string, h Header, windowDays int, now func() time.Time, anchor ti
 }
 
 func columnLine() string {
-	return columns("sim", "T+", "alt", "spd", "mass", "thr", "stg", "soi", "hold", "ptrim", "htrim", "apo", "peri", "event")
+	return columns("sim", "T+", "alt", "spd", "mass", "thr", "stg", "soi", "hold", "ptrim", "htrim", "apo", "peri",
+		targetColumns("target", "range", "rel", "close", "tca", "dincl", "lead"), "event")
 }
 
 // lastColumnLine is the file's last column line ("sim ..."), "" if none.
@@ -332,13 +344,67 @@ const HoldWidth = 23
 // system (pinned over the catalogs in sim).
 const SOIWidth = 18
 
+// TargetWidth is the target column; a longer vessel name is cut to fit.
+const TargetWidth = 16
+
 // columns lays out one line in the recording's fixed columns.
-func columns(sim, tp, alt, spd, mass, thr, stg, soi, hold, pt, ht, apo, peri, event string) string {
-	s := fmt.Sprintf("%-19s  %-8s %6s  %7s  %9s  %3s %3s  %-18s  %-23s  %5s %5s  %7s  %6s", sim, tp, alt, spd, mass, thr, stg, soi, hold, pt, ht, apo, peri)
+func columns(sim, tp, alt, spd, mass, thr, stg, soi, hold, pt, ht, apo, peri, target, event string) string {
+	s := fmt.Sprintf("%-19s  %-11s %6s  %7s  %9s  %3s %3s  %-18s  %-23s  %5s %5s  %7s  %6s  %s", sim, tp, alt, spd, mass, thr, stg, soi, hold, pt, ht, apo, peri, target)
 	if event != "" {
 		s += "  " + event
 	}
 	return s
+}
+
+// targetColumns lays out the target block of a line.
+func targetColumns(name, rng, rel, close, tca, dincl, lead string) string {
+	if r := []rune(name); len(r) > TargetWidth {
+		name = string(r[:TargetWidth-1]) + "…"
+	}
+	return fmt.Sprintf("%-*s  %9s  %7s  %9s  %8s  %6s  %6s", TargetWidth, name, rng, rel, close, tca, dincl, lead)
+}
+
+// targetBlock is r's target columns, all "-" with no target.
+func targetBlock(r Row) string {
+	if r.Target == "" {
+		return targetColumns("-", "-", "-", "-", "-", "-", "-")
+	}
+	num := func(v float64, f func(float64) string) string {
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return "-"
+		}
+		return f(v)
+	}
+	tca := "-"
+	switch {
+	case !math.IsNaN(r.CloseM):
+		tca = fmtTPlus(r.TCA)
+	case r.TCA > 0:
+		tca = ">" + fmtTPlus(r.TCA)
+	}
+	return targetColumns(r.Target,
+		num(r.RangeM/1000, fmtKm), num(r.RelMS, fmtRel), num(r.CloseM/1000, fmtKm), tca,
+		num(r.DInclDeg, func(v float64) string { return fmt.Sprintf("%.2f", v) }),
+		num(r.LeadDeg, func(v float64) string { return fmt.Sprintf("%.1f", v) }))
+}
+
+// fmtKm: metres resolution under 10 km (docking), 0.1 km under 1,000 km.
+func fmtKm(km float64) string {
+	switch a := math.Abs(km); {
+	case a < 10:
+		return fmt.Sprintf("%.3f", km)
+	case a < 1000:
+		return fmt.Sprintf("%.1f", km)
+	}
+	return grouped(km)
+}
+
+// fmtRel: cm/s resolution under 100 m/s (a docking approach).
+func fmtRel(ms float64) string {
+	if math.Abs(ms) < 100 {
+		return fmt.Sprintf("%.2f", ms)
+	}
+	return grouped(ms)
 }
 
 // Format renders one row, without the newline.
@@ -352,7 +418,7 @@ func Format(r Row) string {
 	}
 	return columns(r.Sim.UTC().Format(dateLayout), tp, fmtAlt(r.AltM/1000), grouped(r.SpdMS), grouped(r.MassKg),
 		grouped(r.ThrottlePct), strconv.Itoa(r.Stages), r.SOI, r.Hold,
-		fmt.Sprintf("%.1f", r.PitchTrimDeg), fmt.Sprintf("%.1f", r.HeadTrimDeg), apo, peri, r.Event)
+		fmt.Sprintf("%.1f", r.PitchTrimDeg), fmt.Sprintf("%.1f", r.HeadTrimDeg), apo, peri, targetBlock(r), r.Event)
 }
 
 func fmtTPlus(d time.Duration) string {

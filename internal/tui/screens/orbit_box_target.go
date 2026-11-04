@@ -344,5 +344,8 @@ func (v *OrbitView) closestApproachCells(w *sim.World, c *spacecraft.Spacecraft)
 	if err != nil {
 		return "—", "—"
 	}
+	if planner.ApproachBeyond(tCA, closestApproachHorizonSec) {
+		return "> 4h", "—" // still closing when the search ends
+	}
 	return readout.Countdown(time.Duration(tCA * float64(time.Second))), readout.Distance(distCA)
 }

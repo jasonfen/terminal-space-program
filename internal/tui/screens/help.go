@@ -302,7 +302,7 @@ var helpSections = []helpSection{
 	{"READOUT GLOSSARY", [][2]string{
 		{"fpa", "flight path angle: velocity above / below the local horizontal"},
 		{"Q", "dynamic pressure: aerodynamic stress on the airframe, in kPa"},
-		{"TCA", "time of closest approach, in a rendezvous or flyby"},
+		{"TCA", "time of closest approach, in a rendezvous or flyby; > 4h: still closing when the 4 h search ends"},
 		{"TWR", "thrust to weight ratio: engines' thrust over vessel weight"},
 		{"Ap / Pe", "apoapsis / periapsis: height above the surface, like every altitude in the game"},
 		{"Δv / Δincl", "delta-v / relative inclination to a target's orbital plane"},

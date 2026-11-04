@@ -3191,7 +3191,9 @@ The Active Vessel's always-on flight log, one file per vessel at
 Every row has the same columns: sim date and `T+` from liftoff, altitude,
 speed, mass, throttle, stages left, SOI body, the attitude hold as the
 GUIDANCE box names it, pitch and heading trim, apoapsis and periapsis,
-then the event. A numbers row lands every 1 sim-second while thrusting
+the target block (a targeted vessel's name, range, relative speed, closest
+approach and its TCA, plane angle and lead, as the TARGET box reads them;
+`-` with no target), then the event. A numbers row lands every 1 sim-second while thrusting
 and every 60 while coasting, never more than one per wall-second at any
 warp; every **Action** verb and every lifecycle moment (liftoff, stage,
 SOI change, burn start / complete / stalled, dock, undock, release, bump,

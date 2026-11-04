@@ -266,3 +266,17 @@ func TestNextClosestApproachMinimumAtTheHorizonEdges(t *testing.T) {
 		}
 	}
 }
+
+// TestApproachBeyond: only a minimum on the far edge of the window is beyond
+// it (equal case: exactly the horizon).
+func TestApproachBeyond(t *testing.T) {
+	const h = 4 * 3600.0
+	for _, c := range []struct {
+		t    float64
+		want bool
+	}{{h, true}, {h - 1, false}, {0, false}, {h * (1 - 1e-12), true}} {
+		if got := ApproachBeyond(c.t, h); got != c.want {
+			t.Errorf("ApproachBeyond(%v, %v) = %v, want %v", c.t, h, got, c.want)
+		}
+	}
+}
