@@ -869,6 +869,39 @@ func TestChaseHAxisLatchesThroughSpeedFloorAtTouchdown(t *testing.T) {
 	}
 }
 
+// TestChaseHAxisLatchStaysLevelAsTheBodyTurns (2026-11-03): an LM landed
+// in the session keeps its touchdown latch while parked, but the Moon turns
+// it with the surface. Warping 2 h turned the latched axis ~0.7° out of
+// level, and the ground circle (which assumes a level axis) drew ~130 m
+// below the LM. The latch must stay perpendicular to the current local up.
+func TestChaseHAxisLatchStaysLevelAsTheBodyTurns(t *testing.T) {
+	c, moon, camFromBody, localUp := touchdownFlareCraft(t, 5.0)
+	v := NewLaunchView(launchThemeForTest(), NewOrbitView(launchThemeForTest()))
+	latched := v.chaseHAxis(c, moon, camFromBody, localUp)
+
+	// Landed, parked, and turned 1° with the surface (about the axis the
+	// latch lies along would leave it level, so turn about local up × it).
+	c.Landed = true
+	turn := localUp.Cross(latched)
+	turn = turn.Scale(1 / turn.Norm())
+	ang := 1.0 * math.Pi / 180
+	r := camFromBody.Scale(math.Cos(ang)).Add(turn.Cross(camFromBody).Scale(math.Sin(ang)))
+	c.State.R = r
+	c.State.V = physics.AtmosphereOmega(moon).Cross(r)
+	up := r.Scale(1 / r.Norm())
+
+	axis := v.chaseHAxis(c, moon, r, up)
+	if d := math.Abs(axis.Dot(up)); d > 1e-9 {
+		t.Errorf("latched axis is %.4f° out of level after a 1° turn, want level", math.Asin(d)*180/math.Pi)
+	}
+	if n := axis.Norm(); math.Abs(n-1) > 1e-9 {
+		t.Errorf("latched axis has length %.6f, want 1", n)
+	}
+	if d := axis.Dot(latched); d < 0.999 {
+		t.Errorf("latched axis swung away from the touchdown heading: dot %.4f", d)
+	}
+}
+
 // TestChaseHAxisDoesNotFlipOnSignReversalOvershoot — issue #380 review
 // finding: a braking overshoot that carries horizontal velocity through
 // zero to the opposite sign, while staying inside the

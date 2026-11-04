@@ -850,7 +850,15 @@ func (v *LaunchView) chaseHAxis(c *spacecraft.Spacecraft, body bodies.CelestialB
 		return axis
 	}
 	if v.hAxisLatched {
-		return v.hAxisValue
+		// The latch is inertial but a parked vessel turns with its body, so
+		// re-level it against today's local up (2026-11-03: 2 h of warp left it
+		// 0.7° tilted and the ground circle, which assumes a level axis, drew
+		// 130 m under a landed LM).
+		level := v.hAxisValue.Sub(localUp.Scale(v.hAxisValue.Dot(localUp)))
+		if n := level.Norm(); n > 1e-6 {
+			v.hAxisValue = level.Scale(1 / n)
+			return v.hAxisValue
+		}
 	}
 	return chaseSurfaceEastAxis(body, camFromBody)
 }
