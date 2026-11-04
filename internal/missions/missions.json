@@ -309,6 +309,27 @@
           "params": { "min_relays": 3 }
         }
       ]
+    },
+    {
+      "id": "chal-far-side-relay",
+      "name": "Far Side Relay",
+      "description": "Put relays over the Moon's far side.",
+      "program": "challenge",
+      "requires": ["chal-relay-constellation", "chal-luna-capture"],
+      "objectives": [
+        {
+          "name": "Release a Lunar Relay in lunar orbit",
+          "description": "Fly a Lunar Relay Carrier ([n]) to the Moon, insert into the frozen ellipse, and press [Y].",
+          "kind": "event",
+          "params": { "action": "deploy", "require_primary_id": "moon" }
+        },
+        {
+          "name": "Cover the south pole for a full lap",
+          "description": "Place relays until the south pole has a linked relay in view for a whole 30 h lap.",
+          "kind": "lunar_coverage",
+          "params": { "primary_id": "moon", "site_lat_deg": -90, "site_lon_deg": 0, "lap_s": 108000, "sample_s": 60, "pass_frac": 1.0 }
+        }
+      ]
     }
   ]
 }

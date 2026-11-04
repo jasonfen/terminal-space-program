@@ -53,3 +53,20 @@ func TestRelayConstellationMissionComposes(t *testing.T) {
 		t.Errorf("deploy + 3 relays connected: mission status %v, want Passed", got)
 	}
 }
+
+// TestFarSideRelayRung (ADR 0065): the rung is in the embedded catalog behind
+// both prerequisites, and its objectives carry the moon gate and the coverage
+// params the sim callback receives.
+func TestFarSideRelayRung(t *testing.T) {
+	m := findMission(t, "chal-far-side-relay")
+	if m.Program != "challenge" || len(m.Requires) != 2 || len(m.Objectives) != 2 {
+		t.Fatalf("rung shape: program=%q requires=%v objectives=%d", m.Program, m.Requires, len(m.Objectives))
+	}
+	if g := m.Objectives[0].Params; g.Action != ActionDeploy || g.RequirePrimaryID != "moon" {
+		t.Errorf("objective 0 params = %+v, want deploy gated on moon", g)
+	}
+	p := m.Objectives[1].Params
+	if m.Objectives[1].Kind != KindLunarCoverage || p.PrimaryID != "moon" || p.SiteLatDeg != -90 || p.LapS != 108000 || p.SampleS != 60 || p.PassFrac != 1.0 {
+		t.Errorf("objective 1 = %v %+v", m.Objectives[1].Kind, p)
+	}
+}

@@ -19,7 +19,7 @@ func TestEmbeddedCatalogIntegrity(t *testing.T) {
 		KindCircularizeFromPad: true, KindReachAltitude: true, KindLandAtBody: true,
 		KindRendezvous: true, KindDock: true, KindReturnToBody: true, KindEvent: true,
 		// Cycle 2 (ADR 0027) comms kinds — authored into the ladder by cycle 3.
-		KindRelayCoverage: true, KindEstablishContact: true,
+		KindRelayCoverage: true, KindEstablishContact: true, KindLunarCoverage: true,
 	}
 	validActions := map[Action]bool{
 		ActionThrottleFull: true, ActionThrottleCut: true, ActionThrottleUp: true,
