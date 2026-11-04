@@ -86,3 +86,21 @@ func TestControlsDocUndockRowsAreCurrent(t *testing.T) {
 		}
 	}
 }
+
+// TestControlsDocNamesApsisWarpButton: docs/controls.md mirrors F1's
+// MOUSE row for the » after NAVIGATION's Ap / Pe.
+func TestControlsDocNamesApsisWarpButton(t *testing.T) {
+	doc, err := os.ReadFile("../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"| `»` after `Ap` / `Pe` (NAVIGATION) | Warp to 30 s before that apsis",
+		"| `alt+g` | Warp to 30 s before the nearer apsis",
+		"| `alt+s` | Reset the camera to the whole system",
+	} {
+		if !strings.Contains(string(doc), want) {
+			t.Errorf("docs/controls.md lacks %q", want)
+		}
+	}
+}

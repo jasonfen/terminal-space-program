@@ -804,6 +804,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.active = screenMissions
 					return a, nil
 				}
+				if apo, ok := a.orbitView.HitApsisButton(m.X, m.Y); ok {
+					a.toggleApsisWarp(apo)
+					return a, nil
+				}
 				if id, ok := a.orbitView.HitChip(m.X, m.Y); ok {
 					if id == settings.ChipNodes {
 						a.world.Clock.Paused = true
@@ -835,6 +839,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// canvas / body hits underneath. v0.9.6-polish.
 			if ctrl, ok := a.orbitView.HitNavballControl(m.X, m.Y); ok {
 				a.dispatchNavballControl(ctrl)
+				return a, nil
+			}
+			// NAVIGATION's [»] beside Ap / Pe: warp to 30 s before that apsis.
+			if apo, ok := a.orbitView.HitApsisButton(m.X, m.Y); ok {
+				a.toggleApsisWarp(apo)
 				return a, nil
 			}
 			// Chips are opaque overlays drawn over the canvas corners
@@ -1511,6 +1520,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return a, nil
 			}
 			a.toggleAutoWarpBurn()
+			return a, nil
+		case key.Matches(m, a.keys.ApsisWarp):
+			if a.world.RendezvousWarpEngaged() {
+				a.toast("rendezvous coast running — [/] to cancel")
+				return a, nil
+			}
+			wasOn := a.world.AutoWarpEngaged()
+			if a.world.CycleApsisWarp() {
+				a.world.RecordAction(missions.ActionAutoWarp)
+			} else if !wasOn {
+				a.refuse("apsis warp", "no apsis to warp to")
+			}
 			return a, nil
 		case key.Matches(m, a.keys.CancelWarp):
 			// Drop straight to 1× from any warp state: cancel Auto-Warp
@@ -3728,6 +3749,19 @@ func (a *App) toggleAutoWarpBurn() bool {
 	a.world.ToggleAutoWarp()
 	a.world.RecordAction(missions.ActionAutoWarp)
 	return true
+}
+
+// toggleApsisWarp is NAVIGATION's [»] beside Ap (apo) or Pe: Auto-Warp to
+// 30 s before that apsis, or cancel it. Refused during a rendezvous coast
+// for the same reason as toggleAutoWarpBurn (#259).
+func (a *App) toggleApsisWarp(apo bool) {
+	if a.world.RendezvousWarpEngaged() {
+		a.toast("rendezvous coast running — [/] to cancel")
+		return
+	}
+	if a.world.ToggleApsisWarp(apo) {
+		a.world.RecordAction(missions.ActionAutoWarp)
+	}
 }
 
 // retrimInLaunchWindowLead is G's and [»Burn]'s answer on the pad once the

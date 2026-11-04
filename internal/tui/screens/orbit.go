@@ -173,6 +173,10 @@ type OrbitView struct {
 	// burnColStart/End track the [»Burn] Auto-Warp button (v0.16 / ADR
 	// 0016), set alongside the others each Render.
 	burnColStart, burnColEnd int
+	// apsisBtns are NAVIGATION's [»] Ap / Pe warp buttons ([0] Ap, [1]
+	// Pe) as cell spans inside the box's Ap/Pe content row, set by the
+	// last buildNavigationBox; colEnd 0 means no button this frame.
+	apsisBtns [2]struct{ colStart, colEnd int }
 
 	// ascentTrend caches last-frame apoapsis for the active craft so
 	// the LAUNCH HUD can show a `(climbing)` / `(falling)` / `(steady)`

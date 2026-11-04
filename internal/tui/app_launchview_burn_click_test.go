@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -161,4 +164,78 @@ func findChipHitCell(a *App, want settings.Chip) (col, row int, ok bool) {
 		}
 	}
 	return 0, 0, false
+}
+
+// TestApsisWarpButtonsClick: at Design Size, a click on the » after
+// NAVIGATION's Ap countdown warps to the apoapsis, one on Pe's (or its
+// countdown) switches the chase to the periapsis, and a second click on
+// the engaged ■ cancels.
+func TestApsisWarpButtonsClick(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	c := a.world.ActiveCraft()
+	c.Landed = false
+	// Faster and climbing: eccentric, and away from both apsides.
+	c.State.V = c.State.V.Scale(1.05).Add(c.State.R.Unit().Scale(200))
+
+	// glyphs returns the screen cells of the Ap/Pe row's » / ■ buttons and
+	// the cell of the "T" that opens Pe's countdown.
+	glyphs := func() (row int, cols []int, peT int) {
+		for y, l := range strings.Split(a.View(), "\n") {
+			plain := ansi.Strip(l)
+			if !strings.Contains(plain, "Ap:") || !strings.Contains(plain, "Pe:") {
+				continue
+			}
+			pe := strings.Index(plain, "Pe:")
+			for i, r := range plain {
+				if r == '»' || r == '■' {
+					cols = append(cols, lipgloss.Width(plain[:i]))
+				}
+			}
+			return y, cols, lipgloss.Width(plain[:pe+strings.Index(plain[pe:], "T")])
+		}
+		t.Fatal("no Ap:/Pe: row on screen")
+		return
+	}
+	click := func(x, y int) {
+		a.Update(tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	}
+	row, cols, peT := glyphs()
+	if len(cols) != 2 {
+		t.Fatalf("want two apsis buttons on the Ap/Pe row, got %d", len(cols))
+	}
+	click(cols[0], row)
+	if !a.world.ApsisWarpEngaged(true) {
+		t.Fatal("clicking the » after Ap did not warp to the apoapsis")
+	}
+	click(peT, row)
+	if !a.world.ApsisWarpEngaged(false) {
+		t.Fatal("clicking Pe's countdown did not switch the chase to the periapsis")
+	}
+	row, cols, _ = glyphs()
+	click(cols[1], row)
+	if a.world.AutoWarpEngaged() {
+		t.Error("clicking the engaged ■ after Pe did not cancel")
+	}
+}
+
+// TestAltGWarpsToAnApsis: alt+g is the key for NAVIGATION's » buttons
+// (sim.CycleApsisWarp pins the nearer / other / off order).
+func TestAltGWarpsToAnApsis(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
+	a.active = screenOrbit
+	c := a.world.ActiveCraft()
+	c.Landed = false
+	c.State.V = c.State.V.Scale(1.05).Add(c.State.R.Unit().Scale(200))
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}, Alt: true})
+	if !a.world.ApsisWarpEngaged(true) && !a.world.ApsisWarpEngaged(false) {
+		t.Error("alt+g did not start an apsis warp")
+	}
 }

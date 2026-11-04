@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -276,5 +277,68 @@ func TestAutoWarpScopedToActiveSystem(t *testing.T) {
 	w.Crafts[0].Nodes = nil
 	if w.EngageAutoWarp() {
 		t.Error("engaged on an off-system-only burn; should be a no-op")
+	}
+}
+
+// TestApsisWarpStopsThirtySecondsShort: the [»] beside Ap / Pe warps an
+// eccentric orbit to 30 s before that apsis, hands off at 1x, and a second
+// press before arrival cancels. A circular orbit (no apsis countdown in
+// NAVIGATION) has nothing to warp to.
+func TestApsisWarpStopsThirtySecondsShort(t *testing.T) {
+	w := mustWorld(t)
+	if w.ToggleApsisWarp(true) {
+		t.Fatal("engaged on the seed's circular orbit, which shows no Ap countdown")
+	}
+	for _, apo := range []bool{true, false} {
+		w := mustWorld(t)
+		c := w.ActiveCraft()
+		// Faster and climbing: eccentric, and away from both apsides.
+		c.State.V = c.State.V.Scale(1.05).Add(c.State.R.Unit().Scale(200))
+		w.Clock.WarpIdx = 2 // the hand-off must bring it back to 1x
+		if !w.ToggleApsisWarp(apo) || !w.ApsisWarpEngaged(apo) || w.ApsisWarpEngaged(!apo) {
+			t.Fatalf("apo=%v: engage failed or flagged the wrong apsis", apo)
+		}
+		if w.ToggleApsisWarp(apo) || w.AutoWarp != nil {
+			t.Fatalf("apo=%v: a second press did not cancel", apo)
+		}
+		w.ToggleApsisWarp(apo)
+		for i := 0; i < 2_000_000 && w.AutoWarp != nil; i++ {
+			w.Tick()
+		}
+		if w.AutoWarp != nil || w.Clock.WarpIdx != 0 {
+			t.Fatalf("apo=%v: still engaged=%v at WarpIdx %d", apo, w.AutoWarp != nil, w.Clock.WarpIdx)
+		}
+		st := orbital.Vec3State{R: c.State.R, V: c.State.V}
+		mu := c.Primary.GravitationalParameter()
+		left := orbital.TimeToPeriapsis(st, mu)
+		if apo {
+			left = orbital.TimeToApoapsis(st, mu)
+		}
+		if left > autoWarpLeadTime.Seconds() || left < autoWarpLeadTime.Seconds()-5 {
+			t.Errorf("apo=%v: stopped %.1f s before the apsis, want just under %v", apo, left, autoWarpLeadTime)
+		}
+	}
+}
+
+// TestCycleApsisWarpNearerThenOtherThenOff: alt+g warps to the nearer
+// apsis, a second press switches to the other, a third cancels.
+func TestCycleApsisWarpNearerThenOtherThenOff(t *testing.T) {
+	w := mustWorld(t)
+	if w.CycleApsisWarp() || w.AutoWarp != nil {
+		t.Fatal("engaged on the seed's circular orbit")
+	}
+	c := w.ActiveCraft()
+	c.State.V = c.State.V.Scale(1.05).Add(c.State.R.Unit().Scale(200))
+	ta, _ := w.apsisWarpTarget(true)
+	tp, _ := w.apsisWarpTarget(false)
+	apoFirst := !ta.After(tp)
+	if !w.CycleApsisWarp() || !w.ApsisWarpEngaged(apoFirst) {
+		t.Fatalf("first press: want the nearer apsis (apo=%v)", apoFirst)
+	}
+	if !w.CycleApsisWarp() || !w.ApsisWarpEngaged(!apoFirst) {
+		t.Fatalf("second press: want the other apsis (apo=%v)", !apoFirst)
+	}
+	if w.CycleApsisWarp() || w.AutoWarp != nil {
+		t.Fatal("third press did not cancel")
 	}
 }

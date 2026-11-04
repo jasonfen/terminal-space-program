@@ -230,6 +230,8 @@ func TestOrbitChipSubSurfacePeriapsisIsWarningColoured(t *testing.T) {
 	if !strings.Contains(pePortion, wantWarningPrefix) {
 		t.Errorf("sub-surface Pe cell not wrapped in Warning (%q): %q", wantWarningPrefix, pePortion)
 	}
+	// The Ap warp button is styled on purpose; the Ap reading itself is not.
+	apPortion = strings.Replace(apPortion, v.apsisButton(w, true), "", 1)
 	if apPortion != stripANSI(apPortion) {
 		t.Errorf("Ap cell (not sub-surface) unexpectedly carries colour codes, colouring is not targeted: %q", apPortion)
 	}

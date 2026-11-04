@@ -38,8 +38,9 @@ func TestGSnapsThePanBackAndKeepsFocus(t *testing.T) {
 	}
 }
 
-// alt+g is the old g: the camera on the whole system.
-func TestAltGFocusesTheWholeSystem(t *testing.T) {
+// alt+s (was alt+g until alt+g became the apsis warp, 2026-11-03): the
+// camera on the whole system.
+func TestAltSFocusesTheWholeSystem(t *testing.T) {
 	a, err := New(nil)
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -47,8 +48,8 @@ func TestAltGFocusesTheWholeSystem(t *testing.T) {
 	a.Update(tea.WindowSizeMsg{Width: 140, Height: 40})
 	a.active = screenOrbit
 	a.world.Focus = sim.Focus{Kind: sim.FocusCraft}
-	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}, Alt: true})
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}, Alt: true})
 	if a.world.Focus.Kind != sim.FocusSystem {
-		t.Errorf("alt+g left Focus at %+v, want the whole system", a.world.Focus)
+		t.Errorf("alt+s left Focus at %+v, want the whole system", a.world.Focus)
 	}
 }

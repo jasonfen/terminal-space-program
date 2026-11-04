@@ -76,10 +76,10 @@ func TestScaleBarAppFollowsZoomAndFocusKeys(t *testing.T) {
 			t.Errorf("%dx%d: the bar is gone after [g]", sz[0], sz[1])
 		}
 		before := appBar(a)
-		a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}, Alt: true})
+		a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'s'}, Alt: true})
 		after := appBar(a)
 		if after == "" || after == before {
-			t.Errorf("%dx%d: [alt+g] (focus: system) left the bar at %q (was %q)", sz[0], sz[1], after, before)
+			t.Errorf("%dx%d: [alt+s] (focus: system) left the bar at %q (was %q)", sz[0], sz[1], after, before)
 		}
 	}
 }

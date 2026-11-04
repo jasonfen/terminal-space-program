@@ -68,6 +68,9 @@ type Keymap struct {
 	// the next burn, then drop to 1×. Selected Warp (WarpUp/WarpDown) is
 	// untouched; a manual warp keypress cancels Auto-Warp first.
 	AutoWarp key.Binding
+	// ApsisWarp (alt+g, 2026-11-03) is the key for NAVIGATION's » beside
+	// Ap / Pe: the nearer apsis, then the other, then off.
+	ApsisWarp key.Binding
 	// CancelWarp drops straight to 1× from any warp state — sets Selected
 	// Warp to 1× and disengages Auto-Warp if engaged.
 	CancelWarp key.Binding
@@ -81,7 +84,8 @@ type Keymap struct {
 	// PanReset (`g`, 2026-10-10) drops the Pan and keeps Focus and zoom;
 	// FocusReset moved from `g` to alt+g to make room (Jason: "there should
 	// be a reset key for the pan camera function ... make it g, move the
-	// reset to system view alt+g").
+	// reset to system view alt+g"), then to alt+s when alt+g became the
+	// apsis warp (Jason, 2026-11-03).
 	PanReset   key.Binding
 	SpawnCraft key.Binding // v0.8.1+: spawn a new craft. Replaced the v0.7.x PlanNode quick-plant default-node debug aid (m/Enter is the proper plant path).
 	// ClearNodes used to live on `N` (the case-collision partner of
@@ -418,6 +422,7 @@ func DefaultKeymap() Keymap {
 		NextSystem: key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next system")),
 		WarpUp:     key.NewBinding(key.WithKeys("."), key.WithHelp(".", "warp up")),
 		WarpDown:   key.NewBinding(key.WithKeys(","), key.WithHelp(",", "warp down")),
+		ApsisWarp:  key.NewBinding(key.WithKeys("alt+g"), key.WithHelp("alt+g", "warp to 30 s before the nearer apsis, then the other, then off")),
 		AutoWarp:   key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "auto-warp to next burn or launch window (30s lead; sets the window heading)")),
 		CancelWarp: key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "cancel warp — drop to 1× (cancels auto-warp)")),
 		// v0.9.1: dropped `space` from Pause; space is now Stage. `0`
@@ -428,7 +433,7 @@ func DefaultKeymap() Keymap {
 		Back:            key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 		FocusNext:       key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "next focus")),
 		FocusPrev:       key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "prev focus")),
-		FocusReset:      key.NewBinding(key.WithKeys("alt+g"), key.WithHelp("alt+g", "focus: system")),
+		FocusReset:      key.NewBinding(key.WithKeys("alt+s"), key.WithHelp("alt+s", "focus: system")),
 		PanReset:        key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "pan: back onto your focus")),
 		SpawnCraft:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "spawn vessel (sister copy of active)")),
 		ClearNodes:      key.NewBinding(), // v0.8.6: dropped — see ClearNodes field comment.
