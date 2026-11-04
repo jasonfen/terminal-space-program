@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -289,6 +290,26 @@ func TestSpawnPresetSlotting(t *testing.T) {
 		}
 		if got := presetMeanAnomalyDeg(c); math.Abs(got-want) > 0.01 {
 			t.Errorf("spawn %d: mean anomaly %.3f, want %v", i+1, got, want)
+		}
+	}
+	// F2: a spawn made later lands a fifth of a lap behind the last vessel's
+	// anomaly now, not at an absolute slot. 24 h of flight, then 0 h again
+	// (the back-to-back equal case, already covered above, repeated after).
+	mu := w.Crafts[len(w.Crafts)-1].Primary.GravitationalParameter()
+	for i, dt := range []float64{24 * 3600, 0} {
+		last := w.Crafts[len(w.Crafts)-1]
+		st, ok := physics.KeplerStep(last.State, mu, dt)
+		if !ok {
+			t.Fatal("KeplerStep failed")
+		}
+		last.State = st
+		wantM := math.Mod(presetMeanAnomalyDeg(last)-72+360, 360)
+		c, err := w.SpawnCraft(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := presetMeanAnomalyDeg(c); math.Abs(got-wantM) > 0.01 {
+			t.Errorf("timed spawn %d (dt %v s): mean anomaly %.3f, want %.3f", i+1, dt, got, wantM)
 		}
 	}
 }

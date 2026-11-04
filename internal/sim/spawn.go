@@ -371,7 +371,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 
 	if spec.Preset != nil {
 		// ADR 0065: no Orbit Band clamp; a catalog test keeps presets in band.
-		r0, v0 := presetState(primary, *spec.Preset, w.presetSlot(primary, *spec.Preset))
+		r0, v0 := presetState(primary, *spec.Preset, w.presetLast(primary, *spec.Preset))
 		c.Primary = primary
 		c.SystemIdx = w.SystemIdx
 		c.State = physics.StateVector{R: r0, V: v0, M: c.TotalMass()}
