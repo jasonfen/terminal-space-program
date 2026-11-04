@@ -141,7 +141,8 @@ func TestCoverageSecondRow(t *testing.T) {
 		{"gap over", lap(432, 240), 672, "  no gap this lap · " + r},
 		{"gap now with minutes", lap(0, 130), 0, "  gap now, 2h10m left · " + r},
 		{"no gap", lap(0, 0), 0, "  no gap this lap · " + r},
-		{"gap through the lap end", lap(1790, 100), 0, "  gap in 29h50m, lasts 11m · " + r},
+		{"gap at the lap end", lap(1790, 100), 0, "  gap in 29h50m, lasts 10m · " + r},
+		{"gap behind now wraps round", lap(100, 60), 200, "  gap in 28h20m, lasts 1h · " + r},
 	} {
 		if got := coverageSecondRow(tc.cov, tc.now, 60, r); got != tc.want {
 			t.Errorf("%s: got %q want %q", tc.name, got, tc.want)

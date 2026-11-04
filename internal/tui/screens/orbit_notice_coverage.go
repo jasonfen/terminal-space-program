@@ -68,9 +68,16 @@ func (v *OrbitView) buildCoverageChip(w *sim.World) []string {
 // the sample at now is the current state, the first uncovered sample at or
 // after it the next gap, the run of uncovered samples after that its length.
 func coverageSecondRow(covered []bool, now int, stepS float64, relays string) string {
+	// The lap repeats (sample n-1 is sample 0 a lap on), so look around the
+	// ring of n-1 samples: a gap ahead may lie past the array's end.
+	m := len(covered) - 1
+	if m < 1 {
+		m = 1
+	}
+	at := func(i int) bool { return covered[i%m] }
 	run := func(i int) int {
 		n := 0
-		for ; i+n < len(covered) && !covered[i+n]; n++ {
+		for ; n < m && !at(i+n); n++ {
 		}
 		return n
 	}
@@ -86,12 +93,12 @@ func coverageSecondRow(covered []bool, now int, stepS float64, relays string) st
 		}
 		return fmt.Sprintf("%dh%02dm", m/60, m%60)
 	}
-	if !covered[now] {
+	if !at(now) {
 		return fmt.Sprintf("  gap now, %s left · %s", dur(run(now)), relays)
 	}
-	for i := now; i < len(covered); i++ {
-		if !covered[i] {
-			return fmt.Sprintf("  gap in %s, lasts %s · %s", dur(i-now), dur(run(i)), relays)
+	for k := 1; k < m; k++ {
+		if !at(now + k) {
+			return fmt.Sprintf("  gap in %s, lasts %s · %s", dur(k), dur(run(now+k)), relays)
 		}
 	}
 	return "  no gap this lap · " + relays
