@@ -62,10 +62,11 @@ func unmarkedLoadoutIDs() []string {
 // loadouts.json with Raster-LS skipped by name, so the new golden predates S9's data edits.
 // Orion (ADR 0060) joined the set later (#770): re-captured with it, so goldenAllSerial covers the 39
 // loadouts again; the 38 without Orion still hashed to the old value, so only Orion moved the digest.
+// Lunar-Relay-Carrier-3 (ADR 0065 S1) joined the same way (2026-11-04): re-captured at 41 loadouts.
 // Falcon-9-Starlink-24 (ADR 0059 S1) joined the same way: without it the set still hashes to 88d7faf4012794fa.
 const (
 	goldenSaturnV   = "e3388b974dc8bb1c"
-	goldenAllSerial = "a81df9a77d83c5b8"
+	goldenAllSerial = "57950846505cb07e"
 )
 
 func TestSerialSpritesByteIdentical(t *testing.T) {

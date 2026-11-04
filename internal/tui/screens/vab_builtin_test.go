@@ -231,6 +231,7 @@ func TestVABBuiltInTotalDVIsLauncherOnly(t *testing.T) {
 		{"Falcon-9-Starlink-24", 9596},
 		{"Saturn-V", 18872},
 		{"Comsat-Carrier-3", 10515},
+		{"Lunar-Relay-Carrier-3", 11891},
 	} {
 		v := subVAB(t)
 		v.HandleKey("o")

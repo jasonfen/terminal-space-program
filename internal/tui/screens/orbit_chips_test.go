@@ -1584,6 +1584,7 @@ func TestVesselDeltaVCountsLauncherOnly(t *testing.T) {
 		{"Falcon-9-Starlink-24", "/ 9596 m/s"},
 		{spacecraft.LoadoutSaturnVID, "/ 18872 m/s"},
 		{"Comsat-Carrier-3", "/ 10515 m/s"},
+		{"Lunar-Relay-Carrier-3", "/ 11891 m/s"},
 	} {
 		w, err := sim.NewWorld()
 		if err != nil {

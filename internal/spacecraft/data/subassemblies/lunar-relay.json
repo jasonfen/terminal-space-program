@@ -1,0 +1,11 @@
+{
+  "loadouts": [
+    {
+      "id": "lunar-relay",
+      "name": "Lunar Relay",
+      "role": "custom",
+      "parts": [{"part_id": "lunar-relay"}],
+      "subassembly_role": "payload"
+    }
+  ]
+}

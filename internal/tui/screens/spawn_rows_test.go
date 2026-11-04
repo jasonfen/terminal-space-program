@@ -119,6 +119,36 @@ func TestSpawnRowTailIsDim(t *testing.T) {
 	}
 }
 
+// ADR 0065 S1 / decision 2: Lunar Relay Carrier x3 sits under Satellites &
+// Payloads beside the Comsat Carrier, 3.840 t dry on four stages.
+func TestSpawnFormLunarRelayCarrierRow(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	s.Reset(nil, "", nil, "", "", nil)
+	s.showAll = true
+	group, row, groupOfRow := "", "", ""
+	for _, ln := range strings.Split(stripANSI(s.Render(140, 0)), "\n") {
+		if r := []rune(ln); len(r) > 98 {
+			ln = string(r[:98])
+		}
+		txt := strings.TrimSpace(strings.Trim(ln, "│ "))
+		if txt == "Satellites & Payloads" || txt == "Mission Stacks" || txt == "Landers & Capsules" || txt == "Launch Vehicles" {
+			group = txt
+		}
+		if strings.HasPrefix(strings.TrimLeft(txt, "▸ "), "Lunar Relay Carrier x3 ") {
+			row, groupOfRow = txt, group
+		}
+	}
+	if row == "" {
+		t.Fatal("spawn form has no Lunar Relay Carrier x3 row")
+	}
+	if groupOfRow != "Satellites & Payloads" {
+		t.Errorf("row is under %q, want Satellites & Payloads", groupOfRow)
+	}
+	if !regexp.MustCompile(`dry 3\.840 t\s+fuel .*4 stages`).MatchString(row) {
+		t.Errorf("row = %q, want dry 3.840 t and 4 stages", row)
+	}
+}
+
 // ADR 0059 S1 / decision 2: Falcon 9 + Starlink x24 sits under Satellites &
 // Payloads with the stack's dry mass and the lit engine's figures. The ADR's
 // mock row is prose; the form's own column format is what is pinned here.
