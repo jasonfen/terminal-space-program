@@ -2,6 +2,12 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.64.10
+
+Launch offers to resume your last flight (PR `#843`; tag `v0.64.10`). Save schema unchanged.
+
+- **`Resume your last flight?`** When an autosave exists (quitting with save writes one), a card at launch names the vessel and when it was saved. `y` resumes the newest autosave, `n` or `Esc` starts a new game. A `--serve` host still resumes without asking; a start with flags such as `--orbit` never asks.
+
 ### v0.64.9
 
 Warp to an apsis from NAVIGATION or `alt+g` (PR `#841`; tag `v0.64.9`). Save schema unchanged.
