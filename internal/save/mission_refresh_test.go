@@ -2,6 +2,7 @@ package save_test
 
 import (
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/missions"
@@ -165,5 +166,49 @@ func TestLoadRefreshNewObjectiveStaysOpenWhenNothingLaterPassed(t *testing.T) {
 	d := mission(t, ms, "tut-dock")
 	if d.Objectives[2].Status == P || d.Objectives[3].Status == P {
 		t.Errorf("unearned Passed: %+v", d.Objectives)
+	}
+}
+
+// An old-shaped save (no Far Side Relay rung) gains it on load, as a fresh
+// catalog copy ordered after both of its requires; a save that already has
+// every catalog mission comes back unchanged.
+func TestLoadAppendsCatalogMissionsTheSaveLacks(t *testing.T) {
+	const id = "chal-far-side-relay"
+	pos := func(ms []missions.Mission, id string) int {
+		for i := range ms {
+			if ms[i].ID == id {
+				return i
+			}
+		}
+		return -1
+	}
+	var before []missions.Mission
+	ms := roundTrip(t, func(ms []missions.Mission) []missions.Mission {
+		before = missions.Clone(ms)
+		out := ms[:0:0]
+		for _, m := range ms {
+			if m.ID != id {
+				out = append(out, m)
+			}
+		}
+		return out
+	})
+	cat := catalogMission(t, id)
+	got := mission(t, ms, id)
+	if !reflect.DeepEqual(*got, cat) {
+		t.Errorf("appended rung is not the catalog copy: %+v", got)
+	}
+	for _, req := range cat.Requires {
+		if pos(ms, req) >= pos(ms, id) {
+			t.Errorf("%s at %d not before %s at %d", req, pos(ms, req), id, pos(ms, id))
+		}
+	}
+	if !reflect.DeepEqual(ms, before) {
+		t.Errorf("gaining the rung should reproduce catalog order and content")
+	}
+	// Equal case: nothing missing, slice unchanged.
+	same := roundTrip(t, func(ms []missions.Mission) []missions.Mission { return ms })
+	if !reflect.DeepEqual(same, before) {
+		t.Errorf("a complete save changed on load")
 	}
 }

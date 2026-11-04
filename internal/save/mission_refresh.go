@@ -11,7 +11,8 @@ var renamedObjectives = map[string]string{
 
 // refreshMissions rebuilds every saved mission whose ID is in the catalog
 // from the catalog, so text, params, gates and fail_on edits reach old
-// saves. Missions the catalog does not know load verbatim. Progress rule:
+// saves, and appends catalog missions the save lacks (a new rung reaches old
+// saves). Missions the catalog does not know load verbatim. Progress rule:
 //   - mission status carries over unchanged (a completed mission stays
 //     completed, a failed one stays failed);
 //   - each objective keeps its saved status by name (through
@@ -61,6 +62,35 @@ func refreshMissions(saved, catalog []missions.Mission) []missions.Mission {
 			}
 		}
 		out[i] = m
+	}
+	return withNewCatalogMissions(out, catalog)
+}
+
+// withNewCatalogMissions inserts each catalog mission the save lacks as a
+// fresh catalog copy (default statuses), right after its nearest preceding
+// catalog neighbour already in the list, so the ladder keeps catalog order.
+func withNewCatalogMissions(out, catalog []missions.Mission) []missions.Mission {
+	idx := func(id string) int {
+		for i := range out {
+			if out[i].ID == id {
+				return i
+			}
+		}
+		return -1
+	}
+	for ci, c := range catalog {
+		if idx(c.ID) >= 0 {
+			continue
+		}
+		at := 0
+		for pi := ci - 1; pi >= 0; pi-- {
+			if i := idx(catalog[pi].ID); i >= 0 {
+				at = i + 1
+				break
+			}
+		}
+		fresh := missions.Clone([]missions.Mission{c})
+		out = append(out[:at], append(fresh, out[at:]...)...)
 	}
 	return out
 }
