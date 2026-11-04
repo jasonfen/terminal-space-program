@@ -281,3 +281,27 @@ func TestLaunchViewPaintsBoosterFlamesFromTheirOwnGroup(t *testing.T) {
 		t.Errorf("burned-out boosters still paint %d flame cells", got)
 	}
 }
+
+// ADR 0064 decision 6 guard 8: the Falcon Heavy pair draws as two 3-px side
+// columns, 20 rows, bases level with the center core's first stage.
+func TestLaunchStackLayoutFalconHeavyPair(t *testing.T) {
+	st := spacecraft.Loadouts["Falcon-Heavy"].Stages
+	if !boosterPairAt(st, 0) {
+		t.Fatal("boosterPairAt(Falcon-Heavy, 0) = false")
+	}
+	if w := boosterColumnWidthPx(st[0]); w != 3 {
+		t.Errorf("boosterColumnWidthPx = %d, want 3 (the core's own width)", w)
+	}
+	rs := launchStackLayout(st)
+	sides := bodyRects(rs, rectSide)
+	if len(sides) != 2 {
+		t.Fatalf("side rects = %d, want 2: %+v", len(sides), rs)
+	}
+	core := bodyRects(rs, rectBody)[0]
+	wantOff := float64(stageSpriteWidthPx(st[1]))/2 + 1.5 + 1
+	for _, r := range sides {
+		if r.width != 3 || r.rows != 20 || r.rowBase != core.rowBase || r.rows != core.rows || math.Abs(math.Abs(r.xOffset)-wantOff) > 1e-9 {
+			t.Errorf("side rect %+v, want width 3, 20 rows level with core %+v, |xOffset| %v", r, core, wantOff)
+		}
+	}
+}
