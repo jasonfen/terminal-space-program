@@ -68,6 +68,7 @@ func helpPhraseRows() []helpPhrase {
 		{name: "a raise never caps warp", section: "TIME & WARP", token: "warp caps", has: []string{"a raise never caps"}},
 		{name: "G chases burns, not a raise", token: "G", section: "TIME & WARP", has: []string{"not a raise"}},
 		{name: "glossary names raise / lower", section: "READOUT GLOSSARY", token: "raise / lower", has: []string{"node row", "T-", "RAISE"}},
+		{name: "glossary names COVERAGE", section: "READOUT GLOSSARY", token: "COVERAGE", has: []string{"gap in", "gap now", "no gap this lap", "relays at the Moon"}},
 		{name: "glossary boosters / core names the PROPELLANT row", section: "READOUT GLOSSARY", token: "boosters / core", has: []string{"PROPELLANT's fuel row"}},
 		{name: "E ends a crashed flight", token: "E", anyFold: []string{"end flight", "crashed"}},
 		// ADR 0051: F2 hides all eight boxes and the navball.
@@ -264,7 +265,7 @@ func TestHelpSectionOrder(t *testing.T) {
 // retired `dir` in favour of `pro / retro` (same row, new token) and
 // added two: the frame-spelling entry and the `rcs` line ADR 0049's own
 // decision-6 comment always meant to include, for 19. G8 Q3 (#507) added
-// `heading: / hdg` (commanded vs measured), for 20, and #592 added the navball's `[MAN] / [AUT]` and `RCS` tags, for 22, and #600 the STAGES pips, for 23, and the amber hold frame word, for 24, and ADR 0057 S4 the `cargo / hold` row, for 25, and ADR 0058 S5 the `boosters / core` row, for 26, and ADR 0059 S5 the `raise / lower` row, for 27. Tightened from
+// `heading: / hdg` (commanded vs measured), for 20, and #592 added the navball's `[MAN] / [AUT]` and `RCS` tags, for 22, and #600 the STAGES pips, for 23, and the amber hold frame word, for 24, and ADR 0057 S4 the `cargo / hold` row, for 25, and ADR 0058 S5 the `boosters / core` row, for 26, and ADR 0059 S5 the `raise / lower` row, for 27, and ADR 0065 S5 the `COVERAGE` row, for 28. Tightened from
 // the original loose "at least 7" bound to an exact count so a stray
 // addition or removal is caught rather than silently absorbed.
 func TestHelpGlossarySection(t *testing.T) {
@@ -272,7 +273,7 @@ func TestHelpGlossarySection(t *testing.T) {
 		if s.header != "READOUT GLOSSARY" {
 			continue
 		}
-		const want = 27
+		const want = 28
 		if len(s.rows) != want {
 			t.Errorf("READOUT GLOSSARY has %d rows, want exactly %d", len(s.rows), want)
 		}

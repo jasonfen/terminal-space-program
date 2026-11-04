@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -93,5 +94,118 @@ func TestSpreadNotice(t *testing.T) {
 	}
 	if f := spreadFrame(v, w); strings.Contains(f, "SPREAD") {
 		t.Errorf("the notice outlived every order:\n%s", f)
+	}
+}
+
+// coverageRung makes the lunar coverage rung current: every other mission
+// passed, the far-side rung in progress at its deploy step.
+func coverageRung(t *testing.T, w *sim.World) *missions.Mission {
+	t.Helper()
+	var rung *missions.Mission
+	for i := range w.Missions {
+		m := &w.Missions[i]
+		if m.ID == "chal-far-side-relay" {
+			rung = m
+			continue
+		}
+		m.Status = missions.Passed
+	}
+	if rung == nil {
+		t.Fatal("no chal-far-side-relay in the catalog")
+	}
+	rung.Status = missions.InProgress
+	return rung
+}
+
+// The COVERAGE rows (ADR 0065 decision 6, guard 12): the three second-row
+// forms from a synthetic lap, equal cases included. 432 x 60 s = 7h12m, 240
+// samples = 4h.
+func TestCoverageSecondRow(t *testing.T) {
+	lap := func(from, n int) []bool {
+		c := make([]bool, 1801)
+		for i := range c {
+			c[i] = i < from || i >= from+n
+		}
+		return c
+	}
+	const r = "2 relays at the Moon"
+	for _, tc := range []struct {
+		name string
+		cov  []bool
+		now  int
+		want string
+	}{
+		{"gap ahead", lap(432, 240), 0, "  gap in 7h12m, lasts 4h · " + r},
+		{"gap starts this sample", lap(432, 240), 432, "  gap now, 4h left · " + r},
+		{"last gap sample", lap(432, 240), 671, "  gap now, 1m left · " + r},
+		{"gap over, next one a lap on", lap(432, 240), 672, "  gap in 26h, lasts 4h · " + r},
+		{"gap now with minutes", lap(0, 130), 0, "  gap now, 2h10m left · " + r},
+		{"no gap", lap(0, 0), 0, "  no gap this lap · " + r},
+		{"gap at the lap end", lap(1790, 100), 0, "  gap in 29h50m, lasts 10m · " + r},
+		{"gap behind now wraps round", lap(100, 60), 200, "  gap in 28h20m, lasts 1h · " + r},
+	} {
+		if got := coverageSecondRow(tc.cov, tc.now, 60, r); got != tc.want {
+			t.Errorf("%s: got %q want %q", tc.name, got, tc.want)
+		}
+	}
+	// The index wraps a memo older than its lap (high warp) and never goes negative.
+	for _, tc := range []struct {
+		elapsed float64
+		want    int
+	}{{-5, 0}, {0, 0}, {119, 1}, {1799 * 60, 1799}, {1800 * 60, 0}, {1801 * 60, 1}} {
+		if got := coverageNow(tc.elapsed, 60, 1801); got != tc.want {
+			t.Errorf("coverageNow(%v) = %d, want %d", tc.elapsed, got, tc.want)
+		}
+	}
+	// The widest form must fit the bay's 56 cells at 140x40.
+	if got := coverageSecondRow(lap(1799, 1), 0, 60, "5 relays at the Moon"); len([]rune(got)) > 56 {
+		t.Errorf("widest row is %d cells, bay holds 56: %q", len([]rune(got)), got)
+	}
+}
+
+// The COVERAGE notice at 140x40: shown only while the rung's coverage
+// objective is current, below SPREAD when both show, gone on pass and
+// under F2 declutter.
+func TestCoverageNotice(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(140, 40)
+	w, id, _ := spreadNoticeWorld(t)
+
+	if f := spreadFrame(v, w); strings.Contains(f, "COVERAGE") {
+		t.Fatalf("a notice before the rung is current:\n%s", f)
+	}
+	rung := coverageRung(t, w)
+	if f := spreadFrame(v, w); strings.Contains(f, "COVERAGE") {
+		t.Fatalf("a notice while the deploy step is current:\n%s", f)
+	}
+	rung.Objectives[0].Status = missions.Passed
+	f := spreadFrame(v, w)
+	if !strings.Contains(f, "COVERAGE  Moon south pole  0h of 30h") || !strings.Contains(f, "0 relays at the Moon") {
+		t.Fatalf("rung current, no notice:\n%s", f)
+	}
+	if err := w.SpreadBatch(id, 550e3); err != nil {
+		t.Fatal(err)
+	}
+	f = spreadFrame(v, w)
+	rowOf := func(s string) int {
+		for i, l := range strings.Split(f, "\n") {
+			if strings.Contains(l, s) {
+				return i
+			}
+		}
+		return -1
+	}
+	if sp, cv := rowOf("SPREAD"), rowOf("COVERAGE"); sp < 0 || cv < 0 || cv < sp {
+		t.Errorf("COVERAGE row %d must sit below SPREAD row %d:\n%s", cv, sp, f)
+	}
+	v.SetDeclutter(true)
+	if f := spreadFrame(v, w); strings.Contains(f, "COVERAGE") {
+		t.Errorf("declutter left the notice up:\n%s", f)
+	}
+	v.SetDeclutter(false)
+	rung.Objectives[1].Status = missions.Passed
+	rung.Status = missions.Passed
+	if f := spreadFrame(v, w); strings.Contains(f, "COVERAGE") {
+		t.Errorf("the notice outlived the pass:\n%s", f)
 	}
 }
