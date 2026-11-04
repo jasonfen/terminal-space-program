@@ -439,6 +439,33 @@
       ]
     },
     {
+      "id": "Lunar-Relay-Carrier-3",
+      "name": "Lunar Relay Carrier x3",
+      "role": "carrier",
+      "category": "satellites-payloads",
+      "glyph": "➤",
+      "color": "#C8D8FF",
+      "parts": [
+        {
+          "part_id": "ntr-tug"
+        },
+        {
+          "part_id": "lunar-relay"
+        },
+        {
+          "part_id": "lunar-relay"
+        },
+        {
+          "part_id": "lunar-relay"
+        }
+      ],
+      "nose_payload_plan": [
+        1,
+        1,
+        1
+      ]
+    },
+    {
       "id": "Falcon-9-Starlink-24",
       "name": "Falcon 9 + Starlink x24",
       "role": "carrier",

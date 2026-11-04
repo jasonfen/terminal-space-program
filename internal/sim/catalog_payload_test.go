@@ -71,6 +71,38 @@ func TestSpawnComsatCarrierComposite(t *testing.T) {
 	}
 }
 
+// ADR 0065 S1: three Y presses off a Lunar Relay Carrier x3 name the relays
+// Lunar Relay-1..3, the carrier stays active, and the relay antenna reaches a
+// dish from apolune at lunar apogee (422,909 km), which the 5,000 km Starlink
+// antenna cannot.
+func TestSpawnLunarRelayCarrierDeploys(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Lunar-Relay-Carrier-3", ParentBodyID: "earth", AltitudeM: 500e3})
+	if err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	carrierIdx := w.ActiveCraftIdx
+	for i, want := range []string{"Lunar Relay-1", "Lunar Relay-2", "Lunar Relay-3"} {
+		if !w.Deploy(w.ActiveCraftIdx) {
+			t.Fatalf("Deploy %d returned false", i+1)
+		}
+		if got := w.Crafts[len(w.Crafts)-1].Name; got != want {
+			t.Errorf("deploy %d name = %q, want %q", i+1, got, want)
+		}
+		if w.Crafts[carrierIdx] != c || w.ActiveCraftIdx != carrierIdx {
+			t.Errorf("deploy %d: carrier is no longer the active craft", i+1)
+		}
+	}
+	const apoluneToDishM = 422_909e3
+	rel := w.Crafts[len(w.Crafts)-1].AntennaRangeM
+	if r := commLinkRangeM(rel, 5e9); r <= apoluneToDishM {
+		t.Errorf("relay antenna %g m links a dish at %.4g m, want > %.4g", rel, r, apoluneToDishM)
+	}
+}
+
 // TestPayloadLoadoutAttributes — v0.23 / ADR 0028 C3-3. The three starter
 // deployable-payload loadouts resolve with the parts that give them their
 // emergent roles: relay vs direct antenna, soft-land capability.

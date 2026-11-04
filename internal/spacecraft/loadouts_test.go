@@ -81,6 +81,27 @@ func TestNewFromLoadoutResolvedGolden(t *testing.T) {
 	if math.Abs(mono-48.4) > 0.05 {
 		t.Errorf("Starlink monoprop = %g, want 48.4", mono)
 	}
+
+	// ADR 0065 S1: Lunar Relay Carrier x3 is the NTR tug under three Lunar
+	// Relays (280 kg dry, 8 kg argon, 0.17 N @ 2400 s, a 100,000 km relay).
+	lr := NewFromLoadout("Lunar-Relay-Carrier-3")
+	if len(lr.Stages) != 4 || lr.Stages[0].Name != "NTR Tug" {
+		t.Fatalf("Lunar-Relay-Carrier-3 stages = %d, want NTR Tug + 3", len(lr.Stages))
+	}
+	lmono, lcap, lthr, lisp := DefaultRCSLoadout(280)
+	for i := 1; i < 4; i++ {
+		s := lr.Stages[i]
+		if s.Name != "Lunar Relay" || s.DryMass != 280 || s.FuelMass != 8 || s.FuelCapacity != 8 ||
+			s.Thrust != 0.17 || s.Isp != 2400 || s.FuelType != FuelTypeArgon ||
+			s.MonopropMass != lmono || s.MonopropCap != lcap || s.RCSThrust != lthr || s.RCSIsp != lisp ||
+			s.CommandSource != CommandProbe || s.AntennaKind != AntennaRelay || s.AntennaRangeM != 1e8 ||
+			s.LaunchSpriteRowsPx != 1 || s.LaunchSpriteWidthPx != 1 {
+			t.Errorf("stage %d = %+v, want the Lunar Relay part", i, s)
+		}
+	}
+	if !reflect.DeepEqual(Loadouts["Lunar-Relay-Carrier-3"].NosePayloadPlan, []int{1, 1, 1}) {
+		t.Errorf("nose plan = %v, want [1 1 1]", Loadouts["Lunar-Relay-Carrier-3"].NosePayloadPlan)
+	}
 }
 
 // TestCatalogShape: the catalog invariants every consumer relies on, one

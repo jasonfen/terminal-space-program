@@ -9,10 +9,11 @@ import "testing"
 // display tags together).
 func TestLoadoutCategoryRoundTrips(t *testing.T) {
 	cases := map[string]string{
-		"Saturn-V":         "launch-vehicles",
-		"Relay-Comsat":     "satellites-payloads",
-		"Kern-Stack":       "mission-stacks",
-		"Comsat-Carrier-3": "satellites-payloads",
+		"Saturn-V":              "launch-vehicles",
+		"Relay-Comsat":          "satellites-payloads",
+		"Kern-Stack":            "mission-stacks",
+		"Comsat-Carrier-3":      "satellites-payloads",
+		"Lunar-Relay-Carrier-3": "satellites-payloads",
 	}
 	for id, want := range cases {
 		if got := Loadouts[id].Category; got != want {
@@ -28,7 +29,7 @@ func TestLoadoutCategoryRoundTrips(t *testing.T) {
 func TestLoadoutCrewed(t *testing.T) {
 	crewed := []string{"Apollo-Stack", "Kern-Stack", "Capsule"}
 	uncrewed := []string{"Saturn-V", "Falcon-9", "Relay-Comsat", "Science-Probe",
-		"Comsat-Carrier-3", "Lander"}
+		"Comsat-Carrier-3", "Lunar-Relay-Carrier-3", "Lander"}
 	for _, id := range crewed {
 		if !Loadouts[id].Crewed() {
 			t.Errorf("loadout %q should be crewed", id)
