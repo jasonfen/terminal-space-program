@@ -120,15 +120,23 @@ func TestSiteCoverageMemo(t *testing.T) {
 	if n := w.siteCov.computes; n != 1 {
 		t.Fatalf("two calls with nothing moving: %d computes, want 1", n)
 	}
-	relay.State.R = relay.State.R.Scale((4.7e6 + 1e4) / 4.7e6)
+	move := func(dr float64) {
+		relay.State.R = relay.State.R.Scale((relay.State.R.Norm() + dr) / relay.State.R.Norm())
+	}
+	move(1e4)
+	call()
+	if n := w.siteCov.computes; n != 2 {
+		t.Fatalf("relay moved 10 km: %d computes, want 2", n)
+	}
+	move(1e4)
 	wall = wall.Add(siteCovMinWall - time.Nanosecond)
 	call()
-	if n := w.siteCov.computes; n != 1 {
-		t.Errorf("changed key inside the wall cap: %d computes, want 1", n)
+	if n := w.siteCov.computes; n != 2 {
+		t.Errorf("changed key inside the wall cap: %d computes, want 2", n)
 	}
 	wall = wall.Add(time.Nanosecond)
 	call()
-	if n := w.siteCov.computes; n != 2 {
-		t.Errorf("changed key at exactly the wall cap: %d computes, want 2", n)
+	if n := w.siteCov.computes; n != 3 {
+		t.Errorf("changed key at exactly the wall cap: %d computes, want 3", n)
 	}
 }
