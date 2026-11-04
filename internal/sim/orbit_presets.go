@@ -7,6 +7,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // Orbit presets (ADR 0065 decision 3): authored named ellipses the spawn
@@ -94,13 +95,15 @@ func OrbitPresetByKey(sys bodies.System, b bodies.CelestialBody, key string) (Or
 	return OrbitPreset{}, false
 }
 
-// presetSlot counts the vessels already on p's ellipse about primary: same
-// body, a within 1 %, e within 0.02, plane normal within 2 degrees.
-func (w *World) presetSlot(primary bodies.CelestialBody, p OrbitPreset) int {
+// presetLast returns the vessel most recently spawned onto p's ellipse about
+// primary (greatest craft ID; IDs are stable across undock, rename and save),
+// or nil when none: same body, a within 1 %, e within 0.02, plane normal
+// within 2 degrees.
+func (w *World) presetLast(primary bodies.CelestialBody, p OrbitPreset) *spacecraft.Spacecraft {
 	frame := orbital.ReferenceFrameForPrimary(primary)
 	mu := primary.GravitationalParameter()
 	want := p.normalWorld(frame)
-	k := 0
+	var last *spacecraft.Spacecraft
 	for _, c := range w.Crafts {
 		if c.Primary.ID != primary.ID || c.SystemIdx != w.SystemIdx {
 			continue
@@ -113,18 +116,29 @@ func (w *World) presetSlot(primary bodies.CelestialBody, p OrbitPreset) int {
 		if math.Acos(math.Max(-1, math.Min(1, h.Dot(want)))) > 2*math.Pi/180 {
 			continue
 		}
-		k++
+		if last == nil || c.ID > last.ID {
+			last = c
+		}
 	}
-	return k
+	return last
 }
 
-// presetState places a vessel on p at slot k: apolune for slot 0, then one
-// fifth of a lap (72 degrees of mean anomaly) behind per slot, wrapping at 5.
-func presetState(primary bodies.CelestialBody, p OrbitPreset, k int) (orbital.Vec3, orbital.Vec3) {
+// presetState places a vessel on p: apolune when last is nil, else one fifth
+// of a lap (72 degrees of mean anomaly) behind last's anomaly now.
+func presetState(primary bodies.CelestialBody, p OrbitPreset, last *spacecraft.Spacecraft) (orbital.Vec3, orbital.Vec3) {
 	frame := orbital.ReferenceFrameForPrimary(primary)
-	m := math.Mod(180-72*float64(k%5)+360, 360) * math.Pi / 180
-	nu := orbital.TrueAnomaly(orbital.SolveKepler(m, p.E), p.E)
 	el := p.elements()
+	mDeg := 180.0
+	if last != nil {
+		r := frame.FromWorld(last.State.R)
+		le := orbital.ElementsFromState(r, frame.FromWorld(last.State.V), primary.GravitationalParameter())
+		px, py := orbital.PerifocalBasis(le)
+		nu := math.Atan2(r.Dot(py), r.Dot(px))
+		ea := 2 * math.Atan2(math.Sqrt(1-le.E)*math.Sin(nu/2), math.Sqrt(1+le.E)*math.Cos(nu/2))
+		mDeg = (ea-le.E*math.Sin(ea))*180/math.Pi - 72
+	}
+	m := math.Mod(mDeg+720, 360) * math.Pi / 180
+	nu := orbital.TrueAnomaly(orbital.SolveKepler(m, p.E), p.E)
 	r := orbital.PositionAtTrueAnomaly(el, nu)
 	v := orbital.VelocityAtTrueAnomaly(el, nu, primary.GravitationalParameter())
 	return frame.ToWorld(r), frame.ToWorld(v)
