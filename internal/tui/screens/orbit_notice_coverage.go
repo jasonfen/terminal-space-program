@@ -39,13 +39,7 @@ func (v *OrbitView) buildCoverageChip(w *sim.World) []string {
 			covered++
 		}
 	}
-	now := int(w.Clock.SimTime.Sub(cov.Epoch).Seconds() / cov.StepS)
-	if now < 0 {
-		now = 0
-	}
-	if now >= len(cov.Covered) {
-		now = len(cov.Covered) - 1
-	}
+	now := coverageNow(w.Clock.SimTime.Sub(cov.Epoch).Seconds(), cov.StepS, len(cov.Covered))
 	body := p.PrimaryID
 	sys := w.System()
 	if b := sys.FindBody(p.PrimaryID); b != nil {
@@ -101,4 +95,16 @@ func coverageSecondRow(covered []bool, now int, stepS float64, relays string) st
 		}
 	}
 	return "  no gap this lap · " + relays
+}
+
+// coverageNow is the sample index for the time elapsed since the memo's
+// epoch. At high warp the memo is older than its lap between recomputes; the
+// lap repeats (it is the relays' period), so the index wraps rather than
+// clamping to the last sample, which would read "no gap" off a stale tail.
+func coverageNow(elapsedS, stepS float64, n int) int {
+	i := int(elapsedS / stepS)
+	if i < 0 || n < 2 {
+		return 0
+	}
+	return i % (n - 1)
 }

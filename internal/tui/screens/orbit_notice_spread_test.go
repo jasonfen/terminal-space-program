@@ -147,6 +147,15 @@ func TestCoverageSecondRow(t *testing.T) {
 			t.Errorf("%s: got %q want %q", tc.name, got, tc.want)
 		}
 	}
+	// The index wraps a memo older than its lap (high warp) and never goes negative.
+	for _, tc := range []struct {
+		elapsed float64
+		want    int
+	}{{-5, 0}, {0, 0}, {119, 1}, {1799 * 60, 1799}, {1800 * 60, 0}, {1801 * 60, 1}} {
+		if got := coverageNow(tc.elapsed, 60, 1801); got != tc.want {
+			t.Errorf("coverageNow(%v) = %d, want %d", tc.elapsed, got, tc.want)
+		}
+	}
 	// The widest form must fit the bay's 56 cells at 140x40.
 	if got := coverageSecondRow(lap(1799, 1), 0, 60, "5 relays at the Moon"); len([]rune(got)) > 56 {
 		t.Errorf("widest row is %d cells, bay holds 56: %q", len([]rune(got)), got)
