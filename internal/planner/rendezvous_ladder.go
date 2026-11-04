@@ -656,10 +656,33 @@ func solveTangentialSpeedForPeriod(targetPeriod, r0mag, mu float64) (vPrime floa
 	return (lo + hi) / 2, true
 }
 
+// periapsisClear is the surface half of the rendezvous periapsis gates: the
+// post-burn periapsis must clear the floor, 50 km over a world with an
+// atmosphere (lower dips into the air) or airlessPeriapsisMarginM over an
+// airless one, whose working orbits sit under 50 km (Apollo's CSM at 47 x 50
+// km, an LM ascent at 10 x 50 km; the flat 50 km refused every lunar row,
+// 2026-11-03). Over an airless body a burn that does not lower periapsis
+// passes anywhere above the surface; in air, drag would spoil the plan, so
+// the floor holds.
+func periapsisClear(prePeri, postPeri float64, primary bodies.CelestialBody) bool {
+	R := primary.RadiusMeters()
+	if R <= 0 {
+		return true
+	}
+	if primary.Atmosphere != nil {
+		return postPeri >= R+50_000.0
+	}
+	return postPeri >= R+airlessPeriapsisMarginM || (postPeri >= prePeri && postPeri > R)
+}
+
+// airlessPeriapsisMarginM is how far over an airless surface a rendezvous
+// burn may leave periapsis.
+const airlessPeriapsisMarginM = 5_000.0
+
 // orbitSafetyGate reuses RecommendRendezvousNudge's v0.10.3+ step-6
 // periapsis check VERBATIM (ADR 0045 §2 explicitly calls for this):
 // reject a burn whose post-burn periapsis either falls below the
-// primary's surface+50 km floor, or drops more than 100 km from the
+// primary's floor (periapsisClear), or drops more than 100 km from the
 // pre-burn periapsis. Same physical failure mode either caller can hit
 // — a phasing burn that deorbits the chaser — so the gate is shared
 // rather than re-derived. preR/preV is the state BEFORE the burn (for
@@ -669,9 +692,8 @@ func solveTangentialSpeedForPeriod(targetPeriod, r0mag, mu float64) (vPrime floa
 func orbitSafetyGate(preR, preV, postR, postV orbital.Vec3, primary bodies.CelestialBody, mu float64) bool {
 	prePeri := orbital.ElementsFromState(preR, preV, mu).Periapsis()
 	postPeri := orbital.ElementsFromState(postR, postV, mu).Periapsis()
-	periSurfaceFloor := primary.RadiusMeters() + 50_000.0
 	periDropLimit := prePeri - 100_000.0
-	if primary.RadiusMeters() > 0 && postPeri < periSurfaceFloor {
+	if !periapsisClear(prePeri, postPeri, primary) {
 		return false
 	}
 	if postPeri < periDropLimit {

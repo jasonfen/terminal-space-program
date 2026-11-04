@@ -270,14 +270,14 @@ func rendezvousLadderResize(moverState, holderState orbital.Vec3State, hEl orbit
 }
 
 // rendezvousResizeSafe is the periapsis gate for a different-size burn: the
-// post-burn periapsis must clear the primary's surface by 50 km, and may not
+// post-burn periapsis must clear the primary's floor (periapsisClear), and may not
 // fall more than 100 km below the lower of the mover's own periapsis and the
 // holder's altitude (lowering to meet a lower partner is the point of the
 // burn, so the pre-burn periapsis alone would refuse every lowering).
 func rendezvousResizeSafe(r0, v0, newV orbital.Vec3, holderState orbital.Vec3State, primary bodies.CelestialBody, mu float64) bool {
 	prePeri := orbital.ElementsFromState(r0, v0, mu).Periapsis()
 	postPeri := orbital.ElementsFromState(r0, newV, mu).Periapsis()
-	if primary.RadiusMeters() > 0 && postPeri < primary.RadiusMeters()+50_000.0 {
+	if !periapsisClear(prePeri, postPeri, primary) {
 		return false
 	}
 	floor := math.Min(prePeri, holderState.R.Norm()) - 100_000.0
