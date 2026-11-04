@@ -2,6 +2,14 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.64.9
+
+Warp to an apsis from NAVIGATION or `alt+g` (PR `#841`; tag `v0.64.9`). Save schema unchanged.
+
+- **» beside Ap and Pe.** Clicking the `»` after either countdown in NAVIGATION (or the countdown itself) warps to 30 s before that apsis and hands you 1×. It shows `■` while running; click again to cancel. `G`, `/` and `[■Burn]` cancel it too.
+- **`alt+g` is the key for it.** The first press goes to the nearer apsis, the second to the other, the third cancels.
+- **The whole-system camera moves to `alt+s`** (it was `alt+g`).
+
 ### v0.64.8
 
 Entries survive high warp, G's heading survives `;`, and Flight Recording fixes (PRs `#838`, `#839`, `#840`; tag `v0.64.8`). Save schema unchanged.
