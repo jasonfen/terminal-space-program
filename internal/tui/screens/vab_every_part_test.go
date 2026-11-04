@@ -57,6 +57,21 @@ func TestVABPaletteHoldsEveryCatalogPart(t *testing.T) {
 	}
 }
 
+// ADR 0064 guard 9: the pair part is in the palette under booster, with no VAB change.
+func TestVABPaletteHoldsSideBoosters(t *testing.T) {
+	v := realVAB(t)
+	if !paletteHas(v, "fh-boosters") {
+		t.Fatal("palette lacks fh-boosters")
+	}
+	for _, it := range v.palette {
+		if !it.isComponent && it.id == "fh-boosters" {
+			if k, _ := v.paletteItemLabel(it); k != "booster" {
+				t.Errorf("fh-boosters sits under %q, want booster", k)
+			}
+		}
+	}
+}
+
 func TestVABPaletteSectionOrder(t *testing.T) {
 	v := realVAB(t)
 	kinds := paletteKinds(v)

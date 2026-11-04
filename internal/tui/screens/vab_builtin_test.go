@@ -3,6 +3,7 @@ package screens
 import (
 	"fmt"
 	"math"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -241,6 +242,27 @@ func TestVABBuiltInTotalDVIsLauncherOnly(t *testing.T) {
 		out := v.Render(140, 40)
 		if want := fmt.Sprintf("Σ Δv: %.0f m/s", tc.want); !strings.Contains(out, want) && !strings.Contains(out, fmt.Sprintf("%.0f m/s", tc.want)) {
 			t.Errorf("%s: render lacks %q:\n%s", tc.id, want, out)
+		}
+	}
+}
+
+// ADR 0064 decision 7 guard 9: Falcon Heavy opens from the built-ins with the
+// three header lines of the ADR (Σ Δv 16946, the pair marked, core Δv 0).
+func TestVABFalconHeavyBuiltInHeaders(t *testing.T) {
+	v := subVAB(t)
+	v.HandleKey("o")
+	moveLoadTo(t, v, "Falcon-Heavy")
+	v.HandleKey("enter")
+	if s := v.Stats(); math.Abs(s.TotalDV-16946) > 2 {
+		t.Errorf("Σ Δv = %.0f, want 16946 ±2", s.TotalDV)
+	}
+	for i, want := range []string{
+		`^\s*S1  Side Boosters · 15214kN@282s · Δv 5590 · lights with S2`,
+		`^\s*S2  F9-S1 · 7607kN@282s · Δv 0$`,
+		`^\s*S3  F9-S2 · 981kN@348s · Δv 11357$`,
+	} {
+		if h := header(v, i); !regexp.MustCompile(want).MatchString(h) {
+			t.Errorf("S%d header = %q, want match %s", i+1, h, want)
 		}
 	}
 }

@@ -109,3 +109,19 @@ func TestVABCrackViaEnterKey(t *testing.T) {
 		t.Error("enter did not crack the catalog stage")
 	}
 }
+
+// ADR 0064 decision 7 guard 9: cracking Side Boosters yields 26 components
+// (18 Merlin 1D + 8 FT-100k) and keeps the b mark.
+func TestVABCrackSideBoostersKeepsTheMark(t *testing.T) {
+	v := NewVAB(Theme{})
+	v.Reset(spacecraft.Components)
+	v.stages = []vabStage{{catalogPartID: "fh-boosters", litWithAbove: true}, {catalogPartID: "f9-s1"}}
+	v.stackCursor = v.headerRowIndex(0)
+	v.crackOpen()
+	if v.stages[0].isCatalog() || len(v.stages[0].components) != 26 {
+		t.Fatalf("cracked = %+v, want 26 components", v.stages[0])
+	}
+	if !v.stages[0].litWithAbove {
+		t.Error("the b mark was lost on crack")
+	}
+}

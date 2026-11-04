@@ -283,7 +283,7 @@ func TestLaunchViewPaintsBoosterFlamesFromTheirOwnGroup(t *testing.T) {
 }
 
 // ADR 0064 decision 6 guard 8: the Falcon Heavy pair draws as two 3-px side
-// columns, 20 rows, bases level with the center core's first stage.
+// columns (the core's authored 3; it renders 4 after the width floor), 20 rows, bases level with the core.
 func TestLaunchStackLayoutFalconHeavyPair(t *testing.T) {
 	st := spacecraft.Loadouts["Falcon-Heavy"].Stages
 	if !boosterPairAt(st, 0) {
