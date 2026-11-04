@@ -77,13 +77,13 @@ func TestFormatRowMatchesGolden(t *testing.T) {
 	const (
 		h1  = `# Flight Recording  vessel 7 "Falcon 9 + Dragon"  Sol / Earth  pad Cape Canaveral 28.6N 80.6W`
 		h2  = `# T+0 = 2000-01-05 14:02:11 (liftoff) · alt apo peri km above surface · spd m/s vs soi body · trims deg · range close km, rel m/s, tca, dincl lead deg vs target`
-		h3  = `sim                  T+          alt      spd       mass  thr stg  soi                 hold                     ptrim htrim      apo    peri  target                range      rel      close       tca   dincl    lead  event`
-		lof = `2000-01-05 14:02:11  0:00:00     0.0        0    560,062  100   2  Earth               Prograde (SURF)            0.0   0.0        -       -  -                         -        -          -         -       -       -  liftoff`
+		h3  = `sim                  T+             alt      spd       mass  thr stg  soi                 hold                     ptrim htrim      apo    peri  target                range      rel      close       tca   dincl    lead  event`
+		lof = `2000-01-05 14:02:11  0:00:00        0.0        0    560,062  100   2  Earth               Prograde (SURF)            0.0   0.0        -       -  -                         -        -          -         -       -       -  liftoff`
 		// Other rows of the ADR mock that agree with the header columns.
-		stg = `2000-01-05 14:04:49  0:02:38    66.5    2,250    123,462  100   1  Earth               Prograde (SURF)           12.0   0.0       94     -45  -                         -        -          -         -       -       -  stage: F9-S1 jettisoned, F9-S2 lit`
-		orb = `2000-01-05 14:11:23  0:09:12   250.0    7,759     45,960    0   1  Earth               Prograde                  12.0   0.0      250     250  -                         -        -          -         -       -       -  throttle_cut: orbit 250 x 250 km, incl 28.6`
+		stg = `2000-01-05 14:04:49  0:02:38       66.5    2,250    123,462  100   1  Earth               Prograde (SURF)           12.0   0.0       94     -45  -                         -        -          -         -       -       -  stage: F9-S1 jettisoned, F9-S2 lit`
+		orb = `2000-01-05 14:11:23  0:09:12      250.0    7,759     45,960    0   1  Earth               Prograde                  12.0   0.0      250     250  -                         -        -          -         -       -       -  throttle_cut: orbit 250 x 250 km, incl 28.6`
 		// A rendezvous row: every target column filled, a long name cut.
-		rdv = `2000-02-14 22:40:00  0:00:00    49.9    1,646      2,400    0   1  Moon                Target Retrograde (TGT)    0.0   0.0       50      10  Apollo CSM Colu…      1.234     9.31      0.212   0:02:11    0.00    -0.0  throttle_full`
+		rdv = `2000-02-14 22:40:00  0:00:00       49.9    1,646      2,400    0   1  Moon                Target Retrograde (TGT)    0.0   0.0       50      10  Apollo CSM Colu…      1.234     9.31      0.212   0:02:11    0.00    -0.0  throttle_full`
 	)
 	w := &wall{t: epoch}
 	r, path := openRec(t, w, 7)
@@ -114,6 +114,14 @@ func TestFormatRowMatchesGolden(t *testing.T) {
 		DInclDeg: 0.004, LeadDeg: -0.04, Event: "throttle_full"}
 	if g := Format(v); g != rdv {
 		t.Fatalf("rendezvous row\n got %q\nwant %q", g, rdv)
+	}
+	// T+ holds up to 99d23:59:59 without pushing the columns after it right.
+	for _, d := range []time.Duration{0, 99*24*time.Hour + 23*time.Hour + 59*time.Minute + 59*time.Second} {
+		long := v
+		long.TPlus = d
+		if g := Format(long); len(g) != len(rdv) {
+			t.Errorf("T+ %v: row is %d bytes, want %d (columns shifted)", d, len(g), len(rdv))
+		}
 	}
 	_ = r
 }

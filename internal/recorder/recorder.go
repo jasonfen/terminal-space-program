@@ -347,7 +347,7 @@ const TargetWidth = 16
 
 // columns lays out one line in the recording's fixed columns.
 func columns(sim, tp, alt, spd, mass, thr, stg, soi, hold, pt, ht, apo, peri, target, event string) string {
-	s := fmt.Sprintf("%-19s  %-8s %6s  %7s  %9s  %3s %3s  %-18s  %-23s  %5s %5s  %7s  %6s  %s", sim, tp, alt, spd, mass, thr, stg, soi, hold, pt, ht, apo, peri, target)
+	s := fmt.Sprintf("%-19s  %-11s %6s  %7s  %9s  %3s %3s  %-18s  %-23s  %5s %5s  %7s  %6s  %s", sim, tp, alt, spd, mass, thr, stg, soi, hold, pt, ht, apo, peri, target)
 	if event != "" {
 		s += "  " + event
 	}
