@@ -158,6 +158,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	// A solo launch with no custom start asks to resume the newest autosave.
+	if !serveMode && scenario == nil {
+		app.OfferResume()
+	}
+
 	// v0.27 S1 (ADR 0034): --serve starts the embedded SSH listener next
 	// to the host's own in-process game. Guests get fresh ephemeral
 	// Worlds; the session ends for everyone when the host quits.

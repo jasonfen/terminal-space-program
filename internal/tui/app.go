@@ -416,6 +416,36 @@ func (a *App) ResumeNewestAutosave() (string, error) {
 	return "", errors.New("no readable autosave to resume")
 }
 
+// OfferResume is the solo launch's card (Jason, 2026-11-03): with a readable
+// autosave on disk, ask to resume it before flying the fresh default World.
+// y loads the newest one that loads (ResumeNewestAutosave); n keeps the new game.
+func (a *App) OfferResume() {
+	infos, err := save.List() // newest first
+	if err != nil {
+		return
+	}
+	for _, in := range infos {
+		if in.Lane != save.LaneAutosave || in.Unreadable {
+			continue
+		}
+		note := "saved " + in.Meta.SavedAt.Local().Format("Jan 2 15:04")
+		if v := in.Meta.ActiveVesselName; v != "" {
+			note = v + ", " + note
+		}
+		a.raiseCard(cardResume, screens.NewCard(a.screensTheme(), "Resume your last flight?", note,
+			[]screens.CardRow{yesRow("resume"), outRow("new game")}, 0),
+			func(a *App, id string) (tea.Model, tea.Cmd) {
+				if id == rowYes {
+					if _, err := a.ResumeNewestAutosave(); err != nil {
+						a.flashStatus("load", err)
+					}
+				}
+				return a, nil
+			})
+		return
+	}
+}
+
 // ResumedFromSave reports whether the World came from durable storage. A New
 // App's default World did not, so the ledger cannot match its Vessel IDs.
 func (a *App) ResumedFromSave() bool { return a.resumed }
@@ -2458,6 +2488,7 @@ const (
 	cardSpread
 	cardStopSpread
 	cardQuickload
+	cardResume
 )
 
 // card row IDs for the flight asks.

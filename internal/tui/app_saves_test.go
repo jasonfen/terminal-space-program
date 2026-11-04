@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -260,5 +261,52 @@ func TestQuicksaveFlashIsBasename(t *testing.T) {
 	}
 	if !strings.HasPrefix(a.statusMsg, "save ok") || !strings.Contains(a.statusMsg, save.QuicksaveID) {
 		t.Errorf("statusMsg = %q, want `save ok` naming %s", a.statusMsg, save.QuicksaveID)
+	}
+}
+
+// TestOfferResumeAtLaunch: a solo launch with an autosave on disk asks
+// "Resume your last flight?"; y, y loads the newest autosave, n keeps the
+// new game. No autosave, no card.
+func TestOfferResumeAtLaunch(t *testing.T) {
+	testStateDirs(t)
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.OfferResume()
+	if a.card != nil {
+		t.Fatal("card raised with no autosave on disk")
+	}
+
+	saved, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved.Clock.SimTime = saved.Clock.SimTime.Add(5 * time.Hour)
+	if err := save.WriteAutosave(saved); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct {
+		keys   string
+		resume bool
+	}{{"yy", true}, {"n", false}} {
+		a, err := New(nil)
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+		fresh := a.world
+		a.OfferResume()
+		if !cardKindUp(a, cardResume) {
+			t.Fatalf("%s: no resume card with an autosave on disk", c.keys)
+		}
+		for _, r := range c.keys {
+			a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		}
+		if a.card != nil {
+			t.Errorf("%s: card still up", c.keys)
+		}
+		if got := a.world != fresh && a.world.Clock.SimTime.Equal(saved.Clock.SimTime); got != c.resume {
+			t.Errorf("%s: resumed = %v, want %v", c.keys, got, c.resume)
+		}
 	}
 }
