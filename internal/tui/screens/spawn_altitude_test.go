@@ -566,3 +566,58 @@ func TestAltitudeFieldRendersAt80Columns(t *testing.T) {
 		t.Errorf("default 500km value not rendered at 80 columns:\n%s", out)
 	}
 }
+
+// ADR 0065 guard 6: at the Moon one step past the ceiling is the frozen
+// ellipse; its box, the INCLINATION/DIRECTION rows, the way back, and the
+// typed-number exit.
+func TestFrozenEllipseStop(t *testing.T) {
+	s := NewSpawnCraft(Theme{})
+	sys := findRealBody(t, loadRealSystems(t), "Sol", "moon")
+	s.Reset(sys.Bodies, "moon", nil, "", "", nil)
+	s.fieldIdx = 3
+	for i := 0; i < 12; i++ {
+		s.HandleKey("right")
+	}
+	if s.SelectedPreset() == nil {
+		t.Fatal("stepping past the Moon's ceiling did not select the frozen ellipse")
+	}
+	out := s.Render(140, 40)
+	for _, want := range []string{
+		"‹ frozen ellipse ›",
+		"1,748 x 17,409 km · 57° · 30 h",
+		"apolune over the south pole",
+		"57.0°  set by the frozen ellipse",
+		"prograde  set by the frozen ellipse",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("render lacks %q:\n%s", want, out)
+		}
+	}
+	s.fieldIdx = inclFieldIdx
+	s.HandleKey("right")
+	s.HandleKey("enter")
+	if s.inclDeg == 57 || s.inclEditing {
+		t.Errorf("INCLINATION stepped or opened its box on the preset: incl=%v editing=%v", s.inclDeg, s.inclEditing)
+	}
+	s.fieldIdx = 4
+	s.HandleKey("right")
+	if s.retrograde {
+		t.Error("DIRECTION toggled on the preset")
+	}
+	s.fieldIdx = 3
+	s.HandleKey("right")
+	if s.SelectedPreset() == nil {
+		t.Error("another right left the preset (it is the last stop: hold)")
+	}
+	s.HandleKey("left")
+	if s.SelectedPreset() != nil || !strings.Contains(s.Render(140, 40), "42,954 km") {
+		t.Errorf("left did not return to the 42,954 km ceiling:\n%s", s.Render(140, 40))
+	}
+	s.HandleKey("right")
+	enterAltEdit(t, s)
+	typeDigits(s, 500)
+	s.HandleKey("enter")
+	if s.SelectedPreset() != nil {
+		t.Error("typing 500 km did not clear the preset")
+	}
+}

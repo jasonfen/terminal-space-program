@@ -514,6 +514,7 @@ inclination, and direction. `F1` here opens the SPAWN FORM help page and `F1` / 
 |---|---|
 | `Tab` / `Shift+Tab` | Next / previous field |
 | `←` / `→` | Change the field; on ALTITUDE and INCLINATION step to the next stop |
+| `←` / `→` at the Moon | One step past the ceiling is the frozen ellipse (1,748 x 17,409 km, 57°, 30 h); spawns slot a fifth of a lap apart |
 | `Enter` | Spawn the vessel; on ALTITUDE or INCLINATION the first `Enter` opens a box to type the number |
 | `Enter` (box open) | Keep the typed number; the next `Enter` spawns (the form says so beside the number) |
 | `Esc` (box open) | Put the old number back; `Esc` again leaves the form |

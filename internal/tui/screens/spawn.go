@@ -51,6 +51,12 @@ type SpawnCraft struct {
 	altLeftBox   bool
 	altNote      string // sim.ClampToOrbitBand's note, verbatim (raised/lowered/no-orbit)
 	altBandEmpty bool   // true when the current parent has NO legal orbit altitude (Phobos/Deimos)
+	// preset (ADR 0065): the authored ellipse stop past the ceiling. While
+	// set, altM holds its apolune altitude (so the band sampler reads a
+	// number) and INCLINATION/DIRECTION are set by the ellipse. setAltitude
+	// clears it, so a typed number, a ceiling step back, or a parent change
+	// all leave it.
+	preset *sim.OrbitPreset
 
 	// INCLINATION (#566): degrees off the parent's equator, 0..180 (above
 	// 90 is retrograde), default the seed's so a default partner shares
@@ -465,6 +471,15 @@ func (s *SpawnCraft) SelectedAltitudeM() float64 {
 	return s.altM
 }
 
+// SelectedPreset is the frozen-ellipse stop when ALTITUDE sits on it in
+// orbit mode, else nil (ADR 0065).
+func (s *SpawnCraft) SelectedPreset() *sim.OrbitPreset {
+	if s.posMode != posOrbit {
+		return nil
+	}
+	return s.preset
+}
+
 // SelectedRetrograde reports whether the player picked retrograde.
 func (s *SpawnCraft) SelectedRetrograde() bool { return s.retrograde }
 
@@ -592,7 +607,7 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 			return SpawnActionNone
 		}
 		// #566: same gesture on INCLINATION.
-		if s.fieldIdx == inclFieldIdx && s.posMode == posOrbit && !s.inclLeftBox {
+		if s.fieldIdx == inclFieldIdx && s.posMode == posOrbit && !s.inclLeftBox && s.preset == nil {
 			s.inclEditing = true
 			s.inclInput = ""
 			return SpawnActionNone
@@ -736,9 +751,13 @@ func (s *SpawnCraft) cycleField(step int) {
 			s.stepAltitude(step)
 		}
 	case 4:
-		s.retrograde = !s.retrograde
+		if s.preset == nil {
+			s.retrograde = !s.retrograde
+		}
 	case inclFieldIdx:
-		s.setInclination(s.inclDeg + float64(step)*inclStepDeg)
+		if s.preset == nil {
+			s.setInclination(s.inclDeg + float64(step)*inclStepDeg)
+		}
 	}
 	// ADR 0031 / S9: a launchpad selection the new craft/parent can't support
 	// (after cycling CRAFT TYPE or PARENT) snaps back to orbit, so the form
@@ -777,6 +796,7 @@ func (s *SpawnCraft) currentSystem() bodies.System {
 // nil current parent (bare test fixtures with no body list) is a
 // pass-through: no clamp is possible without body data.
 func (s *SpawnCraft) setAltitude(altM float64) {
+	s.preset = nil
 	body := s.currentParent()
 	if body == nil {
 		s.altM = altM
@@ -852,11 +872,18 @@ func (s *SpawnCraft) inclinationLines() []string {
 		line = s.theme.Warning.Render(fmt.Sprintf("incl: [%s_]°", s.inclInput))
 	default:
 		line = "incl: " + s.fieldValue(inclFieldIdx, inclLabel(s.inclDeg))
+		if s.preset != nil {
+			// No "incl: " prefix: it would not fit the 38-cell POSITION box (ADR 0065 guard 6 text).
+			line = s.theme.Dim.Render(strconv.FormatFloat(s.preset.InclDeg, 'f', 1, 64) + "°  set by the " + s.preset.Label)
+		}
 		if s.fieldIdx == inclFieldIdx && s.inclLeftBox {
 			line += "  " + s.theme.Footer.Render("Enter now launches")
 		}
 	}
 	out := []string{"  " + line}
+	if s.preset != nil {
+		return out
+	}
 	if s.inclNote != "" && !s.inclEditing {
 		out = append(out, "    "+s.theme.Warning.Render("↳ "+s.inclNote))
 	}
@@ -909,13 +936,33 @@ func (s *SpawnCraft) stepAltitude(dir int) {
 	if len(stops) == 0 {
 		return
 	}
+	if s.preset != nil && dir > 0 {
+		return // the last stop: hold
+	}
+	if s.preset != nil {
+		s.setAltitude(stops[len(stops)-1]) // back to the ceiling
+		return
+	}
 	idx := 0
 	if dir > 0 {
 		idx = len(stops) - 1 // already at/above the top stop: hold
+		beyond := false
 		for i, v := range stops {
 			if v > s.altM+altitudeEpsilonM {
 				idx = i
+				beyond = true
 				break
+			}
+		}
+		if !beyond {
+			// ADR 0065: one more step past the ceiling is the body's frozen
+			// ellipse, when it has one.
+			if ps := sim.OrbitPresetsFor(s.currentSystem(), *body); len(ps) > 0 {
+				if s.preset == nil {
+					s.setAltitude(ps[0].ApoAltM(*body))
+					s.preset = &ps[0]
+				}
+				return
 			}
 		}
 	} else {
@@ -1527,7 +1574,11 @@ func (s *SpawnCraft) positionBoxes(rw int) []string {
 	if s.retrograde {
 		dirLabel = "retrograde"
 	}
-	box(4, "DIRECTION", []string{"  " + s.fieldValueDimmed(4, dirLabel, dimDir)})
+	dirLine := s.fieldValueDimmed(4, dirLabel, dimDir)
+	if s.preset != nil && !dimDir {
+		dirLine = s.theme.Dim.Render("prograde  set by the " + s.preset.Label)
+	}
+	box(4, "DIRECTION", []string{"  " + dirLine})
 	return out
 }
 
@@ -1604,6 +1655,9 @@ func (s *SpawnCraft) altitudeValueLine(dimmed bool) string {
 	if s.altBandEmpty {
 		return s.theme.Dim.Render("——  no orbit here")
 	}
+	if s.preset != nil {
+		label = s.preset.Label
+	}
 	val := s.fieldValue(3, label)
 	if s.fieldIdx == 3 && s.altLeftBox {
 		val += "  " + s.theme.Footer.Render("Enter now launches")
@@ -1649,6 +1703,14 @@ func (s *SpawnCraft) altitudeNoteLines(width int) []string {
 		return out
 	}
 	var out []string
+	if s.preset != nil {
+		if body := s.currentParent(); body != nil {
+			p := s.preset
+			out = append(out,
+				"    "+fmt.Sprintf("%s x %s km · %s° · %d h", sim.CommaKm(p.PeriAltM(*body)), sim.CommaKm(p.ApoAltM(*body)), strconv.FormatFloat(p.InclDeg, 'f', -1, 64), int(p.PeriodS(*body)/3600+0.5)),
+				"    "+s.theme.Dim.Render(p.Note))
+		}
+	}
 	if s.altNote != "" {
 		for i, ln := range wrapText("↳ "+s.altNote, width-6) {
 			if i > 0 {

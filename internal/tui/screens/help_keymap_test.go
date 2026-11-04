@@ -9,6 +9,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/key"
 
+	"github.com/jasonfen/terminal-space-program/internal/keylayout"
 	"github.com/jasonfen/terminal-space-program/internal/tui"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
@@ -212,5 +213,26 @@ func TestHelpGlossaryNamesBoosterReadouts(t *testing.T) {
 		if !strings.Contains(string(doc), want) {
 			t.Errorf("docs/controls.md glossary lacks %q", want)
 		}
+	}
+}
+
+// TestSpawnFormArrowsRowNamesFrozenEllipse (ADR 0065 decision 8): the SPAWN
+// FORM `← / →` row names the frozen-ellipse stop in F1 and in controls.md.
+func TestSpawnFormArrowsRowNamesFrozenEllipse(t *testing.T) {
+	h := screens.NewHelp(screens.Theme{})
+	h.OpenFor("SPAWN FORM")
+	f1 := strings.Join(strings.Fields(h.Render(140, 40, keylayout.QWERTY)), " ")
+	doc, err := os.ReadFile("../../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Its own row, not a tail on the first: F1 truncates a row to the width,
+	// and at the 140x40 Design Size the tail would be cut off.
+	const want = "frozen ellipse (1,748 x 17,409 km, 57°, 30 h); spawns slot a fifth of a lap apart"
+	if !strings.Contains(f1, "← / → at the Moon one step past the ceiling is the "+want) {
+		t.Error("F1 SPAWN FORM page lacks the Moon row")
+	}
+	if !strings.Contains(string(doc), "| `←` / `→` at the Moon | One step past the ceiling is the "+want+" |") {
+		t.Errorf("docs/controls.md lacks the Moon row")
 	}
 }

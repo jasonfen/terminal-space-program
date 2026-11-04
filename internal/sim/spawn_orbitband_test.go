@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -192,5 +193,102 @@ func TestSpawnAlongsideIgnoresOrbitBand(t *testing.T) {
 	gotR := c.State.R.Norm()
 	if math.Abs(gotR-wantR) > 100 { // docking offset is 25 m; any clamp would move it by km
 		t.Errorf("alongside spawn radius = %.1f, want ~%.1f (the active craft's own, unclamped)", gotR, wantR)
+	}
+}
+
+// presetMeanAnomalyDeg is c's mean anomaly about its primary, degrees,
+// read in the primary's equatorial frame.
+func presetMeanAnomalyDeg(c *spacecraft.Spacecraft) float64 {
+	frame := orbital.ReferenceFrameForPrimary(c.Primary)
+	r, v := frame.FromWorld(c.State.R), frame.FromWorld(c.State.V)
+	el := orbital.ElementsFromState(r, v, c.Primary.GravitationalParameter())
+	px, py := orbital.PerifocalBasis(el)
+	nu := math.Atan2(r.Dot(py), r.Dot(px))
+	ea := 2 * math.Atan2(math.Sqrt(1-el.E)*math.Sin(nu/2), math.Sqrt(1+el.E)*math.Cos(nu/2))
+	return math.Mod(ea-el.E*math.Sin(ea)+4*math.Pi, 2*math.Pi) * 180 / math.Pi
+}
+
+func frozenPreset(t *testing.T, w *World) OrbitPreset {
+	t.Helper()
+	sys := w.System()
+	p, ok := OrbitPresetByKey(sys, *sys.FindBody("moon"), "frozen")
+	if !ok {
+		t.Fatal("no frozen preset at the Moon")
+	}
+	return p
+}
+
+// ADR 0065 guard 4: the Moon's frozen spawn reads Ap 17,409 / Pe 1,748 /
+// 57.00 deg / 30 h in the Moon's equatorial frame, in RingState's plane.
+func TestSpawnPresetElements(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := frozenPreset(t, w)
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: spacecraft.LoadoutSaturnVID, ParentBodyID: "moon", Preset: &p})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frame := orbital.ReferenceFrameForPrimary(c.Primary)
+	mu := c.Primary.GravitationalParameter()
+	el := orbital.ElementsFromStateInFrame(c.State.R, c.State.V, mu, frame)
+	rad := c.Primary.RadiusMeters()
+	if got := (el.Apoapsis() - rad) / 1e3; math.Abs(got-17409) > 1 {
+		t.Errorf("Ap = %.1f km, want 17409", got)
+	}
+	if got := (el.Periapsis() - rad) / 1e3; math.Abs(got-1748) > 1 {
+		t.Errorf("Pe = %.1f km, want 1748", got)
+	}
+	if got := el.I * 180 / math.Pi; math.Abs(got-57) > 0.005 {
+		t.Errorf("incl = %.3f, want 57.00", got)
+	}
+	if got := orbital.PeriodFromA(el.A, mu); math.Abs(got-30*3600) > 100 {
+		t.Errorf("period = %.0f s, want 30 h (108000) within the ADR's 108,046", got)
+	}
+	h := c.State.R.Cross(c.State.V).Unit()
+	rs, vs := spacecraft.RingState(frame, rad+1e6, 1, 90, 57)
+	if d := h.Dot(rs.Cross(vs).Unit()); d < math.Cos(0.01*math.Pi/180) {
+		t.Errorf("plane normal off RingState's 57 deg plane: dot = %v", d)
+	}
+}
+
+// ADR 0065 guard 5: five spawns slot 180/108/36/324/252, a sixth wraps to
+// 180; a 100 km circle and a 10 deg tilted copy of the ellipse do not count.
+func TestSpawnPresetSlotting(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := frozenPreset(t, w)
+	spec := SpawnSpec{LoadoutID: spacecraft.LoadoutSaturnVID, ParentBodyID: "moon", Preset: &p}
+	// Neighbours that must not shift the slot.
+	if _, err := w.SpawnCraft(SpawnSpec{LoadoutID: spacecraft.LoadoutSaturnVID, ParentBodyID: "moon", AltitudeM: 100e3}); err != nil {
+		t.Fatal(err)
+	}
+	// Same a but round (only the e test excludes it), same e but 10 % wider
+	// (only the a test), and the ellipse tilted 10 deg (only the plane test).
+	sys := w.System()
+	moon := sys.FindBody("moon")
+	if _, err := w.SpawnCraft(SpawnSpec{LoadoutID: spacecraft.LoadoutSaturnVID, ParentBodyID: "moon", AltitudeM: p.AM - moon.RadiusMeters(), Inclination: p.InclDeg}); err != nil {
+		t.Fatal(err)
+	}
+	wider, tilted := p, p
+	wider.AM *= 1.1
+	tilted.InclDeg = 67
+	for _, nb := range []OrbitPreset{wider, tilted} {
+		nb := nb
+		if _, err := w.SpawnCraft(SpawnSpec{LoadoutID: spacecraft.LoadoutSaturnVID, ParentBodyID: "moon", Preset: &nb}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, want := range []float64{180, 108, 36, 324, 252, 180} {
+		c, err := w.SpawnCraft(spec)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := presetMeanAnomalyDeg(c); math.Abs(got-want) > 0.01 {
+			t.Errorf("spawn %d: mean anomaly %.3f, want %v", i+1, got, want)
+		}
 	}
 }

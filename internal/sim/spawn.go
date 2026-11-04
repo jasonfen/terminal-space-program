@@ -94,6 +94,11 @@ type SpawnSpec struct {
 	Inclination float64
 	Alongside   bool
 
+	// Preset (ADR 0065) places the vessel on an authored ellipse instead of
+	// a circle: AltitudeM, Inclination and Retrograde are ignored, and the
+	// vessel is slotted a fifth of a lap behind those already on it.
+	Preset *OrbitPreset
+
 	// DesignID (v0.24 / ADR 0029) names a saved VAB design to spawn. When
 	// set it takes precedence over LoadoutID / CustomStages: SpawnCraft loads
 	// the design from the app-managed store, resolves it against the live
@@ -359,6 +364,21 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		if w.NavMode == NavOrbit {
 			w.NavMode = NavSurface
 		}
+		w.focusNewCraft()
+		w.initCraftAttitude(c)
+		return c, nil
+	}
+
+	if spec.Preset != nil {
+		// ADR 0065: no Orbit Band clamp; a catalog test keeps presets in band.
+		r0, v0 := presetState(primary, *spec.Preset, w.presetSlot(primary, *spec.Preset))
+		c.Primary = primary
+		c.SystemIdx = w.SystemIdx
+		c.State = physics.StateVector{R: r0, V: v0, M: c.TotalMass()}
+		w.stampCraftID(c)
+		w.Crafts = append(w.Crafts, c)
+		w.SetActiveCraftIdx(len(w.Crafts) - 1)
+		w.StopManualBurn()
 		w.focusNewCraft()
 		w.initCraftAttitude(c)
 		return c, nil

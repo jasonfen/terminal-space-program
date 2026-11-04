@@ -140,3 +140,21 @@ func TestLaunchSiteByName(t *testing.T) {
 		t.Error("unknown site should return ok=false")
 	}
 }
+
+// ADR 0065: PresetKey spawns on the Moon's frozen ellipse; an unknown preset
+// is an error naming the body.
+func TestApplyStartScenarioPreset(t *testing.T) {
+	w := applyOrFatal(t, StartScenario{BodyID: "moon", PresetKey: "frozen"})
+	c := w.ActiveCraft()
+	el := orbital.ElementsFromState(c.State.R, c.State.V, c.Primary.GravitationalParameter())
+	if math.Abs(el.E-0.692) > 1e-6 {
+		t.Errorf("e = %v, want the frozen ellipse's 0.692", el.E)
+	}
+	w2, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := w2.ApplyStartScenario(StartScenario{BodyID: "earth", PresetKey: "frozen"}); err == nil || err.Error() != `no preset "frozen" at Earth` {
+		t.Errorf("err = %v, want no preset \"frozen\" at Earth", err)
+	}
+}

@@ -203,6 +203,7 @@ var helpSections = []helpSection{
 	{"SPAWN FORM (n)", [][2]string{
 		{"tab / shift+tab", "next / previous field"},
 		{"← / →", "change the field; on ALTITUDE and INCLINATION step to the next stop"},
+		{"← / → at the Moon", "one step past the ceiling is the frozen ellipse (1,748 x 17,409 km, 57°, 30 h); spawns slot a fifth of a lap apart"},
 		{"enter", "spawn the vessel; on ALTITUDE or INCLINATION the first enter opens a box to type the number"},
 		{"enter (box open)", "keep the typed number; the next enter spawns (the form says so beside the number)"},
 		{"esc (box open)", "put the old number back; esc again leaves the form"},

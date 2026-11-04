@@ -47,7 +47,7 @@ func main() {
 	flag.StringVar(&raw.body, "orbit", "", "body to orbit / launch from (ID or name)")
 	flag.StringVar(&raw.body, "parent", "", "alias for --orbit")
 	flag.StringVar(&raw.body, "body", "", "alias for --orbit")
-	flag.StringVar(&raw.altitude, "altitude", "", "circular-orbit altitude, e.g. 400km or 400000m (default 500km)")
+	flag.StringVar(&raw.altitude, "altitude", "", "circular-orbit altitude, e.g. 400km or 400000m (default 500km), or frozen for the Moon frozen ellipse")
 	flag.Float64Var(&raw.inclination, "inclination", 0, "orbit inclination in degrees")
 	flag.BoolVar(&raw.retrograde, "retrograde", false, "spawn into a retrograde orbit")
 	flag.BoolVar(&raw.launchpad, "launchpad", false, "spawn on the surface (launchpad) instead of in orbit")
@@ -119,6 +119,10 @@ func main() {
 
 	scenario, err := buildScenario(raw)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", err)
+		os.Exit(2)
+	}
+	if err := checkStartPreset(systems, scenario); err != nil {
 		fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", err)
 		os.Exit(2)
 	}
