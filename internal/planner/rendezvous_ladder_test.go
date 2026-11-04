@@ -280,7 +280,7 @@ func TestRecommendRendezvousLadder_Unaffordable_ReturnedNotDropped(t *testing.T)
 // raise or drop — to fail: there is no altitude "fall back" to when
 // the starting point itself is already unsafe.
 func TestRecommendRendezvousLadder_UnsafePeriapsis_Rejected(t *testing.T) {
-	primary := bodies.CelestialBody{MeanRadius: 6378} // km — Earth-radius primary, RadiusMeters() > 0
+	primary := bodies.CelestialBody{MeanRadius: 6378, Atmosphere: &bodies.Atmosphere{CutoffAltitude: 100_000}} // km — Earth-like primary with air, RadiusMeters() > 0
 	mu := muEarth
 	r := 6.378e6 + 30e3 // 30 km altitude — under the surface+50km floor
 	target := circularStateAtRadius(r, 0, mu)
@@ -318,6 +318,38 @@ func TestOrbitSafetyGate_DirectRejection(t *testing.T) {
 	// The unperturbed state must pass (post == pre).
 	if !orbitSafetyGate(pre.R, pre.V, pre.R, pre.V, primary, mu) {
 		t.Fatalf("expected orbitSafetyGate to accept a no-op burn")
+	}
+}
+
+// TestPeriapsisClearFloorByBody (2026-11-03): the 50 km floor refused every
+// rendezvous row at Apollo altitudes (CSM 46.7 x 50 km, LM 9.7 x 49.9 km).
+// An airless body keeps 5 km over the surface; a world with an atmosphere
+// keeps 50 km; over an airless body a burn that does not lower periapsis
+// passes if it clears the surface.
+func TestPeriapsisClearFloorByBody(t *testing.T) {
+	moon := bodies.CelestialBody{MeanRadius: 1737.4}
+	earth := bodies.CelestialBody{MeanRadius: 6378, Atmosphere: &bodies.Atmosphere{CutoffAltitude: 100_000}}
+	for _, c := range []struct {
+		name          string
+		body          bodies.CelestialBody
+		preKm, postKm float64
+		want          bool
+	}{
+		{"moon: small trim from 9.7 km", moon, 9.7, 9.0, true},
+		{"moon: lowered to exactly 5 km", moon, 9.7, 5.0, true},
+		{"moon: lowered under 5 km", moon, 9.7, 4.0, false},
+		{"moon: raised but still under 5 km", moon, 3, 4, true},
+		{"moon: raised but still in the ground", moon, -5, -1, false},
+		{"moon: held exactly at the surface", moon, 0, 0, false},
+		{"earth: lowered to 60 km", earth, 200, 60, true},
+		{"earth: lowered to exactly 50 km", earth, 200, 50, true},
+		{"earth: lowered to 40 km", earth, 200, 40, false},
+		{"earth: raised but still in the air", earth, 30, 35, false},
+	} {
+		R := c.body.RadiusMeters()
+		if got := periapsisClear(R+c.preKm*1e3, R+c.postKm*1e3, c.body); got != c.want {
+			t.Errorf("%s: clear = %v, want %v", c.name, got, c.want)
+		}
 	}
 }
 
