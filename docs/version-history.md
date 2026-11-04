@@ -2,6 +2,15 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.64.11
+
+Warp eases off before the ground, a landed vessel stays on it, and the Rendezvous Planner works in low lunar orbit (PRs `#844`, `#845`, `#846`; tag `v0.64.11`). Save schema unchanged.
+
+- **Warp can't carry you into the ground.** Coasting into the ground with the engine off, warp glides down and is 1× for the last 30 s before impact. An LM falling onto the Moon used to cross its last 800 m in one 107 s step at 2145×.
+- **`alt+g` skips an apsis past the ground.** On a path into the surface only an apoapsis you are still climbing to is a target; a periapsis inside the Moon used to be one.
+- **The ground stays under a landed vessel.** In the surface view, a vessel landed in this session no longer floats above the ground through warp (after 2 h a landed LM drew ~130 m up).
+- **Rendezvous Planner at Apollo altitudes.** Airless bodies keep a 5 km periapsis floor instead of Earth's 50 km, so `K` plants rows from a 10 × 50 km lunar orbit; a burn that doesn't lower periapsis passes anywhere above the surface.
+
 ### v0.64.10
 
 Launch offers to resume your last flight (PR `#843`; tag `v0.64.10`). Save schema unchanged.
