@@ -30,7 +30,10 @@ type StartScenario struct {
 	Surface bool
 
 	// Orbital placement.
-	AltitudeM  float64
+	AltitudeM float64
+	// PresetKey (ADR 0065, "--altitude frozen") spawns on the body's named
+	// orbit preset instead of a circle.
+	PresetKey  string
 	InclDeg    float64
 	Retrograde bool
 
@@ -77,6 +80,13 @@ func (w *World) ApplyStartScenario(s StartScenario) error {
 		spec.LongitudeOffset = s.LonDeg
 	} else {
 		spec.AltitudeM = s.AltitudeM
+		if s.PresetKey != "" {
+			p, ok := OrbitPresetByKey(w.Systems[sysIdx], b, s.PresetKey)
+			if !ok {
+				return fmt.Errorf("no preset %q at %s", s.PresetKey, b.EnglishName)
+			}
+			spec.Preset = &p
+		}
 		spec.Inclination = s.InclDeg
 		spec.Retrograde = s.Retrograde
 	}

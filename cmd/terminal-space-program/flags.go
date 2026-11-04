@@ -80,7 +80,9 @@ func buildScenario(r rawFlags) (*sim.StartScenario, error) {
 
 	// Orbital placement (also the path when only --system/--body/--loadout
 	// are given — a plain orbital spawn at the default altitude).
-	if r.altitude != "" {
+	if r.altitude == sim.FrozenPresetKey {
+		s.PresetKey = r.altitude
+	} else if r.altitude != "" {
 		m, err := parseDistanceM(r.altitude)
 		if err != nil {
 			return nil, fmt.Errorf("--altitude: %w", err)
@@ -110,7 +112,7 @@ func buildScenario(r rawFlags) (*sim.StartScenario, error) {
 // sim.DefaultOrbitAltitudeM) so the reported note matches what actually
 // gets spawned, even when --altitude was never passed.
 func startAltitudeClampNote(systems []bodies.System, s *sim.StartScenario) string {
-	if s == nil || s.Surface {
+	if s == nil || s.Surface || s.PresetKey != "" {
 		return ""
 	}
 	sysIdx, body, err := sim.ResolveStartTarget(systems, *s)
@@ -126,6 +128,22 @@ func startAltitudeClampNote(systems []bodies.System, s *sim.StartScenario) strin
 		return ""
 	}
 	return note
+}
+
+// checkStartPreset refuses "--altitude frozen" at a body with no such preset
+// (ADR 0065), naming the body, before the TUI takes the screen.
+func checkStartPreset(systems []bodies.System, s *sim.StartScenario) error {
+	if s == nil || s.PresetKey == "" {
+		return nil
+	}
+	sysIdx, body, err := sim.ResolveStartTarget(systems, *s)
+	if err != nil {
+		return nil // ApplyStartScenario surfaces the same error itself
+	}
+	if _, ok := sim.OrbitPresetByKey(systems[sysIdx], body, s.PresetKey); !ok {
+		return fmt.Errorf("no preset %q at %s", s.PresetKey, body.EnglishName)
+	}
+	return nil
 }
 
 // parseDistanceM parses an altitude with an optional unit suffix: "400km",

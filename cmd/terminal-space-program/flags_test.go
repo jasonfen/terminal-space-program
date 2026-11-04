@@ -236,3 +236,28 @@ func TestBareLaunchpadOnLumenIsEquatorial(t *testing.T) {
 		t.Errorf("bare --launchpad --system Lumen: Surface=%v lat=%v, want equator", s.Surface, s.LatDeg)
 	}
 }
+
+// ADR 0065 guard 6: "--altitude frozen" at the Moon spawns the preset; at
+// Earth it is refused with a message naming the body (main exits 2).
+func TestAltitudeFrozenFlag(t *testing.T) {
+	systems := loadFlagsTestCatalog(t)
+	raw := rawFlags{body: "moon", altitude: "frozen", set: map[string]bool{"altitude": true}}
+	s, err := buildScenario(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.PresetKey != "frozen" || s.AltitudeM != 0 {
+		t.Errorf("scenario = %+v, want PresetKey frozen and no circle altitude", s)
+	}
+	if err := checkStartPreset(systems, s); err != nil {
+		t.Errorf("Moon: %v", err)
+	}
+	if note := startAltitudeClampNote(systems, s); note != "" {
+		t.Errorf("preset scenario got an Orbit Band clamp note %q", note)
+	}
+	s.BodyID = "earth"
+	err = checkStartPreset(systems, s)
+	if err == nil || err.Error() != `no preset "frozen" at Earth` {
+		t.Errorf("Earth: err = %v, want no preset \"frozen\" at Earth", err)
+	}
+}

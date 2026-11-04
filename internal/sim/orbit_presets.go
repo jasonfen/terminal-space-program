@@ -17,6 +17,9 @@ import (
 //go:embed data/orbit_presets.json
 var orbitPresetsFS embed.FS
 
+// FrozenPresetKey is the key of the frozen-ellipse preset ("--altitude frozen").
+const FrozenPresetKey = "frozen"
+
 // OrbitPreset is one authored ellipse, elements in the body's equatorial
 // frame with the ascending node on body-frame +X (RingState's node line).
 type OrbitPreset struct {
