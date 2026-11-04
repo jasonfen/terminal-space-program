@@ -215,3 +215,34 @@ what a comsat's own trim budget cares about.
   rarely need it now that the period shows seconds.
 - There is currently **no automated constellation/phasing helper**; the whole
   flow above is manual.
+
+## On an ellipse
+
+The Moon has a Lunar Relay Carrier x3 (an NTR Tug with three Lunar Relays,
+Δv 11,891 m/s) and one more stop on the spawn form: past the 42,954 km
+ceiling, `→` on ALTITUDE reads `frozen ellipse` (1,748 x 17,409 km, 57°,
+apolune over the south pole, period 30h00m46s). The recipe above works there
+too, with perilune doing the phasing instead of a circular orbit's one point.
+
+1. **Get onto the ellipse.** Spawn on the stop (`--altitude frozen` from the
+   command line), or fly there: TLI from Earth orbit, then a lunar-orbit
+   insertion at perilune into those elements.
+2. **`Y` at apolune.** The relay comes out 75 m away at 0.15 m/s on your exact
+   orbit, named `Lunar Relay-1`; the carrier stays active. `L` refuses on the
+   ellipse (`raise: orbit not round`); a relay's own RCS does small trims.
+3. **Phase at perilune.** A prograde burn there lengthens the carrier's orbit;
+   after one lap the first relay has moved on a slot. Burn back, `Y` again.
+   Read the period on the ORBIT and PROJECTED ORBIT chips as above.
+4. **The rung.** Far Side Relay wants the south pole covered for a whole 30 h
+   lap (`pass_frac` 1.0). One relay covers 86% of the lap, two half a lap
+   apart cover all of it; the COVERAGE notice shows the covered hours, the
+   next gap and the relay count.
+
+| relays | slot | carrier orbit | burn at perilune, each way | per slot | all slots | time |
+|---|---|---|---|---|---|---|
+| 5 | 72° | 36 h | 16.0 m/s | 32 m/s | 128 m/s | 6.0 d |
+| 3 | 120° | 40 h | 24.3 m/s | 49 m/s | 97 m/s | 3.3 d |
+
+A spawn onto the preset is slotted for you instead: the first at apolune, each
+next one a fifth of a lap (72°, 6.0 h) behind the last vessel already on that
+ellipse, so five spawns read mean anomalies 180°, 108°, 36°, 324° and 252°.
