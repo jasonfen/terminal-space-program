@@ -484,6 +484,9 @@ type World struct {
 	// CanCommandCraft + coverage objectives + the comms HUD. Transient.
 	CommGraph *CommGraph
 
+	// siteCov is the SiteCoverage memo (ADR 0065 decision 4). Transient.
+	siteCov siteCovMemo
+
 	// stagedThisSession latches once the player decouples a stage; it
 	// feeds the mission evaluator's outcome context (ADR 0025). Session
 	// scoped (not persisted) — outcome objectives that need it land in a

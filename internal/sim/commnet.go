@@ -438,9 +438,16 @@ func (w *World) groundStationWorldPos(st GroundStationPreset, body bodies.Celest
 // the band sampler (#221) sweeps station rotation phase through it while
 // the body's orbital position stays frozen at SimTime.
 func (w *World) groundStationWorldPosAt(st GroundStationPreset, body bodies.CelestialBody, t time.Time) orbital.Vec3 {
+	return stationPosFrom(w.BodyPosition(body), st, body, t)
+}
+
+// stationPosFrom places a station on a body whose centre is already known;
+// the site-coverage sampler passes the body's position at t so Earth's
+// motion and rotation are both at the sampled instant.
+func stationPosFrom(bodyPos orbital.Vec3, st GroundStationPreset, body bodies.CelestialBody, t time.Time) orbital.Vec3 {
 	r := body.RadiusMeters()
 	dir := render.BodyFixedToWorld(body, st.LatDeg, st.LonEastDeg, t)
-	return w.BodyPosition(body).Add(orbital.Vec3{X: r * dir.X, Y: r * dir.Y, Z: r * dir.Z})
+	return bodyPos.Add(orbital.Vec3{X: r * dir.X, Y: r * dir.Y, Z: r * dir.Z})
 }
 
 // CanCommandCraft reports whether the player may issue NEW commands to a
