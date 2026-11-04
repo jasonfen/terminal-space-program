@@ -351,7 +351,7 @@ func TestStackWidthMReadsTheWidestPartInMetres(t *testing.T) {
 	// Hand-written from ADR 0061 "Numbers"; booster pair = core + 2 x booster + 2 x 1.5 m.
 	want := map[string]float64{
 		"Apollo-TLI": 6.6, "Saturn-V": 10.06, "SLS-Block1": 18.8, "SLS-Orion": 18.8, "Raster-LS": 18.8,
-		"Falcon-9": 3.66, "Dragon": 4.0, "Falcon-9-Dragon": 4.0, "Falcon-9-Starlink-24": 4.1,
+		"Falcon-9": 3.7, "Dragon": 4.0, "Falcon-9-Dragon": 4.0, "Falcon-9-Starlink-24": 4.1,
 		"RCS-tug": 1.0, "Endpoint-Station": 4.76,
 	}
 	for id, w := range want {

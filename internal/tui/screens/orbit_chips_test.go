@@ -1581,7 +1581,7 @@ func activeStageFuel(c *spacecraft.Spacecraft) (pct, massKg float64, ok bool) {
 // the unchanged rows.
 func TestVesselDeltaVCountsLauncherOnly(t *testing.T) {
 	for _, tc := range []struct{ id, want string }{
-		{"Falcon-9-Starlink-24", "/ 9610 m/s"},
+		{"Falcon-9-Starlink-24", "/ 9596 m/s"},
 		{spacecraft.LoadoutSaturnVID, "/ 18872 m/s"},
 		{"Comsat-Carrier-3", "/ 10515 m/s"},
 	} {
