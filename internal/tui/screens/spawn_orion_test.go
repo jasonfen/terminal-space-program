@@ -27,8 +27,8 @@ func TestSpawnFormOrionRows(t *testing.T) {
 			group = txt
 			continue
 		}
-		for _, name := range []string{"SLS Block 1", "SLS + Orion", "Orion"} {
-			if strings.HasPrefix(strings.TrimLeft(txt, "▸ "), name+" ") && strings.Contains(txt, "dry ") {
+		for _, name := range []string{"SLS Block 1", "SLS + Orion", "Orion", "Falcon 9", "Falcon Heavy"} {
+			if strings.HasPrefix(strings.TrimLeft(txt, "▸ "), name+" ") && strings.Contains(txt, "dry ") && rows[name] == "" { // first row wins: "Falcon 9 + Dragon" shares the prefix
 				rows[name] = txt
 				groupOf[name] = group
 			}
@@ -37,7 +37,10 @@ func TestSpawnFormOrionRows(t *testing.T) {
 	want := map[string]struct{ group, re string }{
 		"SLS + Orion": {"Mission Stacks", `^▸?\s*SLS \+ Orion\s+crewed\s.*41290kN @ Isp 295s\s+5 stages`},
 		"Orion":       {"Landers & Capsules", `^▸?\s*Orion\s+crewed\s.*27kN @ Isp 316s\s+2 stages`},
-		"SLS Block 1": {"Launch Vehicles", `^▸?\s*SLS Block 1\s+uncrewed\s.*41290kN @ Isp 295s\s+3 stages`},
+		// ADR 0064 guard 7: FH sits under Launch Vehicles; the F9 dry cell carries decision 3's 4,000 kg S2.
+		"Falcon Heavy": {"Launch Vehicles", `^▸?\s*Falcon Heavy\s+uncrewed\s.*22821kN @ Isp 282s\s+3 stages`},
+		"Falcon 9":     {"Launch Vehicles", `^▸?\s*Falcon 9\s+uncrewed\s+dry 29\.60 t\s.*7607kN @ Isp 282s\s+2 stages`},
+		"SLS Block 1":  {"Launch Vehicles", `^▸?\s*SLS Block 1\s+uncrewed\s.*41290kN @ Isp 295s\s+3 stages`},
 	}
 	for name, w := range want {
 		row, ok := rows[name]
