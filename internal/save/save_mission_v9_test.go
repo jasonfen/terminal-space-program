@@ -112,10 +112,13 @@ func TestRoundtripV9MissionShape(t *testing.T) {
 		t.Fatalf("Load: %v", err)
 	}
 
-	if len(got.Missions) != 1 {
-		t.Fatalf("got %d missions, want 1", len(got.Missions))
+	// Catalog missions the save lacks are appended on load; find ours by ID.
+	var m missions.Mission
+	for _, c := range got.Missions {
+		if c.ID == "rt-multi" {
+			m = c
+		}
 	}
-	m := got.Missions[0]
 	if m.ID != "rt-multi" || m.Program != "test-prog" {
 		t.Errorf("metadata lost: id=%q program=%q", m.ID, m.Program)
 	}
