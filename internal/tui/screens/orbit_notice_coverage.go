@@ -2,12 +2,9 @@ package screens
 
 import (
 	"fmt"
-	"strings"
-	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
-	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // buildCoverageChip is the COVERAGE notice (ADR 0065 decision 6): while the
@@ -84,7 +81,16 @@ func coverageSecondRow(covered []bool, now int, stepS float64, relays string) st
 		return n
 	}
 	dur := func(samples int) string {
-		return strings.TrimSuffix(readout.Duration(time.Duration(float64(samples)*stepS)*time.Second), "00m")
+		// Hours and minutes only: the lap is authored in hours, so 30 h reads
+		// 30h, never 1d06h.
+		m := int(float64(samples) * stepS / 60)
+		if m%60 == 0 {
+			return fmt.Sprintf("%dh", m/60)
+		}
+		if m < 60 {
+			return fmt.Sprintf("%dm", m)
+		}
+		return fmt.Sprintf("%dh%02dm", m/60, m%60)
 	}
 	if !covered[now] {
 		return fmt.Sprintf("  gap now, %s left · %s", dur(run(now)), relays)
