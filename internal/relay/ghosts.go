@@ -2,7 +2,9 @@ package relay
 
 import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -11,8 +13,9 @@ import (
 // relative state is propagated analytically (KeplerStep, forward OR
 // backward) across the subspace gap to the viewer's sim-time, then
 // rebased onto the primary's position at that time. Gating per ADR
-// 0015: only craft in the viewer's active system appear. Landed craft
-// carry no orbit and are skipped (roster surfaces still count them).
+// 0015: only craft in the viewer's active system appear. A landed craft is
+// placed by body rotation at the viewer's clock (ADR 0066 decision 4), not
+// coasted: a report without its lat/lon (an older build) is skipped.
 // handles joins owner fingerprints to display names.
 //
 // Honest staleness: KeplerStep neither detects SOI exits nor knows
@@ -31,11 +34,15 @@ func GhostsFor(w *sim.World, reports []CraftReport, handles map[string]string) [
 			handle = rep.Handle
 		}
 		for _, cs := range rep.Crafts {
-			if cs.Landed || cs.System != sysName {
+			if cs.System != sysName || (cs.Landed && cs.LatDeg == 0 && cs.LonDeg == 0) {
 				continue
 			}
 			primary, ok := bodyByID(w.System(), cs.Primary)
 			if !ok {
+				continue
+			}
+			if cs.Landed {
+				out = append(out, landedGhost(w, primary, rep.Owner, handle, cs))
 				continue
 			}
 			st, ok := physics.KeplerStep(
@@ -67,6 +74,25 @@ func GhostsFor(w *sim.World, reports []CraftReport, handles map[string]string) [
 		}
 	}
 	return out
+}
+
+// landedGhost places a parked craft exactly as integrateLanded pins a local
+// one: R = radius x the body-fixed direction at the viewer's clock, V = omega
+// x R. Subspace skew costs nothing here (a surface point is a rotation
+// question, a reported R would be hundreds of km off after a day).
+func landedGhost(w *sim.World, primary bodies.CelestialBody, owner, handle string, cs CraftState) sim.Ghost {
+	d := render.BodyFixedToWorld(primary, cs.LatDeg, cs.LonDeg, w.Clock.SimTime)
+	r := primary.RadiusMeters()
+	rel := orbital.Vec3{X: r * d.X, Y: r * d.Y, Z: r * d.Z}
+	om := render.BodySpinOmegaWorld(primary)
+	vel := orbital.Vec3{X: om.X, Y: om.Y, Z: om.Z}.Cross(rel)
+	return sim.Ghost{
+		Owner: owner, CraftID: cs.ID, Handle: handle,
+		Name: sim.PrintableOnly(cs.Name), Glyph: cs.Glyph, PrimaryID: cs.Primary,
+		Pos: w.BodyPosition(primary).Add(rel), RelPos: rel, Vel: vel,
+		Landed: true, LatDeg: cs.LatDeg, LonDeg: cs.LonDeg,
+		AntennaKind: cs.AntennaKind, AntennaRangeM: cs.AntennaRangeM, Controllable: cs.Controllable,
+	}
 }
 
 func bodyByID(sys bodies.System, id string) (bodies.CelestialBody, bool) {

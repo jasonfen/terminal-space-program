@@ -2685,9 +2685,10 @@ func (v *OrbitView) ComposeNavballOverlay(w *sim.World, canvasStr string, cCols,
 // batched-review follow-up: NextClosestApproach(Positions) Kepler-
 // propagates the same pseudo-orbit if fed a landed target's state) —
 // gates on this instead of re-deriving "is this real" from Landed each
-// time. Ghosts (internal/relay/ghosts.go) never carry Landed=true
-// (skipped at the source), so this predicate only ever fires false for
-// local and target craft, never for a relayed ghost.
+// time. A relayed ghost can be landed too (ADR 0066): it carries
+// Ghost.Landed rather than a Spacecraft, so the ghost readers (TARGET's
+// targetGhostCells, the Proximity and K guards) test that field instead of
+// calling this.
 func craftHasOrbit(c *spacecraft.Spacecraft) bool {
 	return c != nil && !c.Landed
 }

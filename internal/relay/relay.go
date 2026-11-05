@@ -33,6 +33,17 @@ type CraftState struct {
 	V       orbital.Vec3 `json:"v"`
 	Landed  bool         `json:"landed,omitempty"`
 
+	// ADR 0066 decision 4: a landed craft's body-fixed spot (degrees, north
+	// and east positive) so a viewer places it by body rotation at its own
+	// clock. Absent from an older build's report: a landed craft without
+	// them is skipped as before. The antenna and Controllable ride along so
+	// a partner's relay can be read later (S8); all omitempty.
+	LatDeg        float64 `json:"lat_deg,omitempty"`
+	LonDeg        float64 `json:"lon_deg,omitempty"`
+	AntennaKind   string  `json:"antenna_kind,omitempty"`
+	AntennaRangeM float64 `json:"antenna_range_m,omitempty"`
+	Controllable  bool    `json:"controllable,omitempty"`
+
 	// The hull, for docking against a ghost (ADR 0053 decision 9, slice E).
 	// All additive and optional: a report from a build that predates them,
 	// or a landed craft, decodes to the zero value, which every reader takes

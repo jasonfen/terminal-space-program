@@ -28,6 +28,17 @@ type Ghost struct {
 	NoseM    float64
 	WidthM   float64
 	Ports    []GhostPort
+
+	// Landed ghosts (ADR 0066 decision 4): parked on the surface at
+	// LatDeg/LonDeg, placed by body rotation at the viewer's clock, so Pos
+	// and Vel (omega x R) are a surface point, not an orbit. The antenna
+	// fields are the owner's report, kept for the relay work in S8.
+	Landed        bool
+	LatDeg        float64
+	LonDeg        float64
+	AntennaKind   string
+	AntennaRangeM float64
+	Controllable  bool
 }
 
 // GhostPort is one reported docking port: its offset from the ghost's

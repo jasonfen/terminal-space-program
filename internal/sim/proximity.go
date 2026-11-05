@@ -149,6 +149,11 @@ func (w *World) ProximityState() (ProximityState, bool) {
 	if !ok {
 		return w.dockedProximityState(c)
 	}
+	// ADR 0066 decision 4: a parked ghost is ground, not a vessel to fly
+	// beside; its V = omega x R has no LVLH frame worth drawing.
+	if g, _, isGhost := w.ResolveTargetGhost(); isGhost && g.Landed {
+		return ProximityState{}, false
+	}
 	frame, ok := orbital.LVLHBasis(rT, vT)
 	if !ok {
 		return ProximityState{}, false
@@ -331,6 +336,9 @@ func (w *World) ProximityRefusal() string {
 	case TargetBody, TargetSite:
 		return "needs a VESSEL target, not a body — [t] cycles to nearby vessels"
 	}
+	if g, _, ok := w.ResolveTargetGhost(); ok && g.Landed {
+		return "target is parked on the ground"
+	}
 	// A craft/ghost target that didn't resolve: a stale ref (they left,
 	// the vessel is gone) or a degenerate orbit with no defined local
 	// horizontal. Both read the same from the seat — the aim slot points
@@ -465,6 +473,9 @@ func (w *World) ProximityDockGateReady(st ProximityState) bool {
 		if w.isLocalReArmed(c.ID, w.Target.CraftID) {
 			return false
 		}
+	}
+	if g, _, ok := w.ResolveTargetGhost(); ok && g.Landed {
+		return false
 	}
 	// The cross-player mirror: a ghost the ledger would refuse a Claim on
 	// (its re-arm latch, an end already engaged) is never ready (#372).

@@ -219,6 +219,13 @@ func snapshotWorld(w *sim.World) ([]craftKey, []CraftState) {
 			R:       c.State.R,
 			V:       c.State.V,
 			Landed:  c.Landed,
+
+			AntennaKind:   c.AntennaKind,
+			AntennaRangeM: c.AntennaRangeM,
+			Controllable:  c.Controllable,
+		}
+		if c.Landed {
+			cs.LatDeg, cs.LonDeg = c.SurfaceLatLon()
 		}
 		// The hull, as the vessel derives it for itself (sim.PortGeometry),
 		// so a ghost's port is the one its owner would measure. A landed
