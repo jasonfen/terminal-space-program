@@ -88,3 +88,33 @@ func TestCraftFromWireFoldsParkedLegacyNodeKeys(t *testing.T) {
 		t.Errorf("legacy node keys not folded: %+v", got)
 	}
 }
+
+// TestCraftStateLandedFieldsDecodeBothWays - the two-build contract (ADR
+// 0066): a new build's landed report decodes on an old build (unknown keys
+// ignored, modelled by a struct without them) and an old build's report
+// decodes on the new one with the new fields zero.
+func TestCraftStateLandedFieldsDecodeBothWays(t *testing.T) {
+	b, err := json.Marshal(CraftState{ID: 1, Landed: true, LatDeg: 28.5, LonDeg: -80.6,
+		AntennaKind: "relay", AntennaRangeM: 1e9, Controllable: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var old struct {
+		ID     uint64 `json:"id"`
+		Landed bool   `json:"landed"`
+	}
+	if err := json.Unmarshal(b, &old); err != nil || old.ID != 1 || !old.Landed {
+		t.Fatalf("old build cannot read a new report: %v %+v", err, old)
+	}
+	var nw CraftState
+	if err := json.Unmarshal([]byte(`{"id":2,"landed":true,"system":"s","primary":"p"}`), &nw); err != nil {
+		t.Fatal(err)
+	}
+	if !nw.Landed || nw.LatDeg != 0 || nw.LonDeg != 0 || nw.AntennaKind != "" || nw.Controllable {
+		t.Errorf("old report decoded wrong on the new build: %+v", nw)
+	}
+	var nb []byte
+	if nb, err = json.Marshal(CraftState{ID: 3}); err != nil || strings.Contains(string(nb), "lat_deg") || strings.Contains(string(nb), "antenna") {
+		t.Errorf("orbiting craft writes the landed keys: %s", nb)
+	}
+}

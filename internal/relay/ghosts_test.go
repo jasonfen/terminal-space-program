@@ -82,7 +82,51 @@ func TestGhostOtherSystemInvisible(t *testing.T) {
 	}
 }
 
-// Landed craft carry no orbit and don't ghost.
+// ADR 0066 decision 4 (guard 7): a parked craft is placed by body rotation
+// at the viewer's clock, not coasted. The owner reports at t0; the viewer is
+// 26 h on; a viewer-side vessel parked at the same spot, pinned by the real
+// landed integrator, is the truth the ghost must match to under a metre.
+func TestGhostLandedPlacedByRotation(t *testing.T) {
+	owner, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	oc := owner.ActiveCraft()
+	oc.Landed = true
+	oc.LandedLatDeg, oc.LandedLonDeg = 28.5, -80.6
+	oc.AntennaKind, oc.AntennaRangeM, oc.Controllable = "relay", 1e9, true
+	rep := reportFor(t, owner, "SHA256:owner")
+	cs := rep.Crafts[0]
+	if !cs.Landed || cs.LatDeg != 28.5 || cs.LonDeg != -80.6 || cs.AntennaKind != "relay" || !cs.Controllable {
+		t.Fatalf("report lost the landed fields: %+v", cs)
+	}
+
+	viewer, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld viewer: %v", err)
+	}
+	viewer.Clock.SimTime = rep.SubspaceTime.Add(26 * time.Hour)
+	vc := viewer.ActiveCraft()
+	vc.Landed = true
+	vc.LandedLatDeg, vc.LandedLonDeg = 28.5, -80.6
+	viewer.Tick() // integrateLanded pins vc at the viewer's clock
+	ghosts := GhostsFor(viewer, []CraftReport{rep}, nil)
+	if len(ghosts) != 1 || !ghosts[0].Landed {
+		t.Fatalf("want one landed ghost, got %+v", ghosts)
+	}
+	g := ghosts[0]
+	if d := g.RelPos.Sub(vc.State.R).Norm(); d > 1.0 {
+		t.Errorf("landed ghost off by %.1f m after 26 h of skew", d)
+	}
+	if d := g.Vel.Sub(vc.State.V).Norm(); d > 0.01 {
+		t.Errorf("landed ghost velocity off by %.3f m/s from omega x R", d)
+	}
+	if g.LatDeg != 28.5 || g.LonDeg != -80.6 || g.AntennaRangeM != 1e9 || !g.Controllable {
+		t.Errorf("landed fields not carried: %+v", g)
+	}
+}
+
+// A landed report with no lat/lon (an older build) yields no ghost.
 func TestGhostLandedSkipped(t *testing.T) {
 	viewer, err := sim.NewWorld()
 	if err != nil {
@@ -97,7 +141,7 @@ func TestGhostLandedSkipped(t *testing.T) {
 		}},
 	}
 	if ghosts := GhostsFor(viewer, []CraftReport{rep}, nil); len(ghosts) != 0 {
-		t.Errorf("landed craft ghosted: %+v", ghosts)
+		t.Errorf("landed craft without lat/lon ghosted: %+v", ghosts)
 	}
 }
 
