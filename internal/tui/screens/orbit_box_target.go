@@ -280,7 +280,9 @@ func (v *OrbitView) targetGhostCells(w *sim.World, c *spacecraft.Spacecraft) (st
 	gMu := gPrimary.GravitationalParameter()
 	gFrame := orbital.ReferenceFrameForPrimary(gPrimary)
 	gEl := orbital.ElementsFromStateInFrame(gRel, g.Vel, gMu, gFrame)
-	if gEl.A > 0 && !math.IsNaN(gEl.A) && !math.IsInf(gEl.A, 0) {
+	// A parked ghost's V = omega x R only looks like an ellipse (the
+	// craftHasOrbit trap, #375): Ap/Pe/incl stay dashed (ADR 0066).
+	if !g.Landed && gEl.A > 0 && !math.IsNaN(gEl.A) && !math.IsInf(gEl.A, 0) {
 		gPrimaryR := gPrimary.RadiusMeters()
 		gPeriAlt := gEl.Periapsis() - gPrimaryR
 		peLabel := readout.Distance(gPeriAlt)
@@ -293,7 +295,7 @@ func (v *OrbitView) targetGhostCells(w *sim.World, c *spacecraft.Spacecraft) (st
 	}
 	if nTarget, ok := w.TargetPlaneNormal(); ok {
 		if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
-			if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, false); ok {
+			if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, g.Landed); ok {
 				cells.deltaInclV = diLabel
 			}
 		}
@@ -315,7 +317,7 @@ func (v *OrbitView) targetGhostCells(w *sim.World, c *spacecraft.Spacecraft) (st
 	cells.relV = readout.Speed(vRel)
 	cells.closingV = readout.SignedSpeed(closing)
 	cells.leadV = targetLeadLabel(leadDeg, leadOK)
-	if gPrimary.ID == c.Primary.ID {
+	if gPrimary.ID == c.Primary.ID && !g.Landed {
 		if planT, planSep, planOK := v.planCells(w); planOK {
 			cells.tcaV, cells.approachV, cells.planned = planT, planSep, true
 		} else {

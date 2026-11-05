@@ -1002,3 +1002,18 @@ func TestSessionScreenSelfRowHasNoTargetableCount(t *testing.T) {
 		t.Errorf("self row lost its vessel count:\n%s", out)
 	}
 }
+
+// ADR 0066 decision 4: a parked lander is targetable now, so it counts in
+// the roster's "(N here)" (two of three reported vessels are on the ground).
+func TestSessionScreenTargetableCountIncludesLandedGhost(t *testing.T) {
+	s := NewSessionScreen(sessionTheme())
+	w := sessionWorld(t, true)
+	w.Session.Players[1].CraftCount = 3
+	w.Ghosts = []sim.Ghost{
+		{Owner: "SHA256:guest", CraftID: 1, Handle: "gern", Name: "Scout"},
+		{Owner: "SHA256:guest", CraftID: 2, Handle: "gern", Name: "Lander", Landed: true},
+	}
+	if out := s.Render(w, 140, 0); !strings.Contains(out, "3 vessels (2 here)") {
+		t.Errorf("landed ghost not counted in (N here):\n%s", out)
+	}
+}

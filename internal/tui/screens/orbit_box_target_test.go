@@ -172,3 +172,28 @@ func TestTargetBoxSaysBeyondWhenStillClosingAt4h(t *testing.T) {
 		t.Errorf("TCA/approach row = %q, want TCA \"> 4h\" and approach —", row)
 	}
 }
+
+// ADR 0066 decision 4: a landed ghost's co-rotation state looks like an
+// ellipse; TARGET dashes Ap/Pe/incl for it as for a landed local vessel, and
+// reads them for the same ghost in orbit (the equal case).
+func TestTargetBoxDashesApPeInclForLandedGhost(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	relR := orbital.Vec3{X: 7.1e6}
+	relV := orbital.Vec3{Y: 7400}
+	w.Ghosts = []sim.Ghost{{Owner: "SHA256:gern", CraftID: 7, Name: "Aloft",
+		PrimaryID: c.Primary.ID, Pos: w.BodyPosition(c.Primary).Add(relR), RelPos: relR, Vel: relV}}
+	w.SetTargetGhost("SHA256:gern", 7)
+	shape := func() string { return v.buildTargetBox(w)[2] }
+	if got := shape(); strings.Contains(got, "—") {
+		t.Fatalf("control: orbiting ghost shape row has dashes: %q", got)
+	}
+	w.Ghosts[0].Landed = true
+	if got := shape(); strings.Count(got, "—") != 3 {
+		t.Errorf("landed ghost Ap/Pe/incl row = %q, want three dashes", got)
+	}
+}
