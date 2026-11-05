@@ -134,6 +134,7 @@ func (s *Store) ResetFleet(epoch time.Time) ([]FleetResetEntry, error) {
 		}
 	}
 
+	s.RemoveAllReports()
 	backupStamp := time.Now().UTC().Format(backupStampLayout)
 	entries := make([]FleetResetEntry, 0, n)
 	for i, p := range ordered {

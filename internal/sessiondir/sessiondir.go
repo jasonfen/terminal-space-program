@@ -13,6 +13,7 @@
 package sessiondir
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base32"
@@ -942,6 +943,52 @@ func (s *Store) FindPlayer(fingerprint string) (Player, error) {
 func (s *Store) payloadPath(fingerprint string) string {
 	sum := sha256.Sum256([]byte(fingerprint))
 	return filepath.Join(s.dir, "players", hex.EncodeToString(sum[:])+".json")
+}
+
+// reportPath maps a fingerprint to its persisted craft report (ADR 0066
+// decision 14): <dir>/reports/<sha256(fp)>.json.
+func (s *Store) reportPath(fingerprint string) string {
+	sum := sha256.Sum256([]byte(fingerprint))
+	return filepath.Join(s.dir, "reports", hex.EncodeToString(sum[:])+".json")
+}
+
+// WriteReport stores one owner's last report atomically, last writer wins,
+// and skips the write when the file already holds exactly these bytes. It
+// takes no session lock: reports/ is its own directory and each owner has
+// one file. Reports whether it wrote.
+func (s *Store) WriteReport(fingerprint string, data []byte) (bool, error) {
+	path := s.reportPath(fingerprint)
+	if old, err := os.ReadFile(path); err == nil && bytes.Equal(old, data) {
+		return false, nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+	return true, atomicfile.Write(path, data, 0o644)
+}
+
+// ReadReports returns every persisted report's bytes (unreadable files are
+// skipped; the next report rewrites them).
+func (s *Store) ReadReports() [][]byte {
+	files, _ := filepath.Glob(filepath.Join(s.dir, "reports", "*.json"))
+	var out [][]byte
+	for _, f := range files {
+		if b, err := os.ReadFile(f); err == nil {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// RemoveReport deletes one owner's persisted report (kick and delete
+// vessels).
+func (s *Store) RemoveReport(fingerprint string) {
+	_ = os.Remove(s.reportPath(fingerprint))
+}
+
+// RemoveAllReports deletes every persisted report (--reset-fleet).
+func (s *Store) RemoveAllReports() {
+	_ = os.RemoveAll(filepath.Join(s.dir, "reports"))
 }
 
 // RecordingsDir is where one player's Flight Recordings live (ADR 0062):

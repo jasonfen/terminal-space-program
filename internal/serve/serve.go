@@ -235,6 +235,10 @@ func New(cfg Config) (*Server, error) {
 		}
 		srv.dock.SeedFull(dockLinksToSnapshots(m.Docks), systems)
 	}
+	// ADR 0066 decision 14: every player's last report comes back from
+	// reports/ with its owner offline (nobody has connected yet). The host is
+	// skipped: its world is fresh every start and reports itself.
+	srv.seedReports()
 	// The host plays in-process and is online for the session's whole
 	// life — no join chip for them (serve start isn't a "moment").
 	srv.presence.markOnline(sessiondir.HostFingerprint)
@@ -307,6 +311,7 @@ func (s *Server) Serve() error {
 	// release tag, on the production host — announces itself to every session
 	// before the listener drains, instead of arriving as a silent yank.
 	go s.watchRestartSignals(stop)
+	go s.persistReports(stop)
 	defer close(stop)
 	err := s.ssh.Serve(s.ln)
 	if err != nil && !errors.Is(err, ssh.ErrServerClosed) {
