@@ -281,3 +281,21 @@ func TestReportsSurviveARestart(t *testing.T) {
 		t.Error("seeded owner reads online")
 	}
 }
+
+// A write queued before a purge must not recreate the purged owner's file
+// (kick and delete vessels promises they stay gone across a restart).
+func TestQueuedReportWriteDoesNotSurviveAPurge(t *testing.T) {
+	srv := newOfflineServer(t)
+	ch, cancel := srv.relay.Subscribe()
+	defer cancel()
+	r := relay.CraftReport{Owner: "SHA256:gone", SubspaceTime: time.Date(2040, 1, 1, 0, 0, 0, 0, time.UTC)}
+	srv.relay.Report(r) // queued on the subscriber, not yet written
+	srv.forgetReport("SHA256:gone")
+	if _, err := srv.store.PurgePlayer("SHA256:gone"); err != nil {
+		t.Fatalf("PurgePlayer: %v", err)
+	}
+	srv.writeReport(<-ch) // the drain
+	if n := len(srv.store.ReadReports()); n != 0 {
+		t.Errorf("%d report files after purge, want 0", n)
+	}
+}

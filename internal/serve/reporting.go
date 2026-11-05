@@ -1122,11 +1122,32 @@ func (s *Server) persistReports(stop <-chan struct{}) {
 		case <-stop:
 			return
 		case r := <-ch:
+			s.writeReport(r)
+		}
+	}
+}
+
+// writeReport persists r unless its owner has been forgotten since the
+// report was queued.
+func (s *Server) writeReport(r relay.CraftReport) {
+	s.reportMu.Lock()
+	defer s.reportMu.Unlock()
+	for _, h := range s.relay.Snapshot("") {
+		if h.Owner == r.Owner {
 			if b, err := json.Marshal(r); err == nil {
 				if _, err := s.store.WriteReport(r.Owner, b); err != nil {
 					log.Printf("serve: persist report: %v", err)
 				}
 			}
+			return
 		}
 	}
+}
+
+// forgetReport drops the owner's live report; once it returns no queued
+// write can land, so the purge's file removal that follows is final.
+func (s *Server) forgetReport(fp string) {
+	s.reportMu.Lock()
+	defer s.reportMu.Unlock()
+	s.relay.Forget(fp)
 }

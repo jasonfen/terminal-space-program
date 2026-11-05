@@ -293,7 +293,7 @@ func (s *Server) finishPurge(fp, handle string, ls *liveSession) purgeDoneMsg {
 		s.dock.ReleaseGuestsOf(offline, fp, s.presence.isOnline)
 	}
 	s.dock.DropRecordsNaming(fp)
-	s.relay.Forget(fp)
+	s.forgetReport(fp)
 	flushErr := s.persistDocks()
 	if flushErr != nil {
 		s.markDockFlushFailed(flushErr)

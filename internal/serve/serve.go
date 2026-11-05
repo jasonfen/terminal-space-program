@@ -80,6 +80,9 @@ type Config struct {
 // run their own game. The listener is bound in New so port conflicts
 // surface before the host's own TUI takes the screen.
 type Server struct {
+	// reportMu orders report-file writes against forgetReport (ADR 0066
+	// decision 14): a queued write must not recreate a purged owner's file.
+	reportMu sync.Mutex
 	// restarting is set when SIGTERM starts a restart, so the host's own tick
 	// (the only goroutine that may read its World) saves it before exit.
 	restarting atomic.Bool
