@@ -245,3 +245,57 @@ func TestHostModelReports(t *testing.T) {
 		t.Errorf("wrapped host model broke rendering:\n%s", firstLines(out, 3))
 	}
 }
+
+// ADR 0066 decision 14, the far end: an accepted report reaches reports/,
+// a restart on the same directory seeds the store from it (owner offline),
+// and the host's own report is not resurrected.
+func TestReportsSurviveARestart(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	dir := t.TempDir()
+	srv, err := New(Config{Addr: "127.0.0.1:0", HostKeyPath: filepath.Join(t.TempDir(), "hostkey"), SessionDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer srv.ln.Close()
+	stop := make(chan struct{})
+	defer close(stop)
+	go srv.persistReports(stop)
+	time.Sleep(50 * time.Millisecond) // let the subscriber attach
+	at := time.Date(2040, 1, 1, 0, 0, 0, 0, time.UTC)
+	srv.relay.Report(relay.CraftReport{Owner: "SHA256:alice", SubspaceTime: at, Crafts: []relay.CraftState{{ID: 1}}})
+	srv.relay.Report(relay.CraftReport{Owner: sessiondir.HostFingerprint, SubspaceTime: at})
+	deadline := time.Now().Add(2 * time.Second)
+	for len(srv.store.ReadReports()) < 2 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	again, err := New(Config{Addr: "127.0.0.1:0", HostKeyPath: filepath.Join(t.TempDir(), "hostkey"), SessionDir: dir})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	defer again.ln.Close()
+	got := again.relay.Snapshot("")
+	if len(got) != 1 || got[0].Owner != "SHA256:alice" || len(got[0].Crafts) != 1 {
+		t.Errorf("seeded reports = %+v, want alice's one-craft report only", got)
+	}
+	if again.presence.isOnline("SHA256:alice") {
+		t.Error("seeded owner reads online")
+	}
+}
+
+// A write queued before a purge must not recreate the purged owner's file
+// (kick and delete vessels promises they stay gone across a restart).
+func TestQueuedReportWriteDoesNotSurviveAPurge(t *testing.T) {
+	srv := newOfflineServer(t)
+	ch, cancel := srv.relay.Subscribe()
+	defer cancel()
+	r := relay.CraftReport{Owner: "SHA256:gone", SubspaceTime: time.Date(2040, 1, 1, 0, 0, 0, 0, time.UTC)}
+	srv.relay.Report(r) // queued on the subscriber, not yet written
+	srv.forgetReport("SHA256:gone")
+	if _, err := srv.store.PurgePlayer("SHA256:gone"); err != nil {
+		t.Fatalf("PurgePlayer: %v", err)
+	}
+	srv.writeReport(<-ch) // the drain
+	if n := len(srv.store.ReadReports()); n != 0 {
+		t.Errorf("%d report files after purge, want 0", n)
+	}
+}

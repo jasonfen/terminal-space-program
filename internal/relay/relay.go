@@ -211,6 +211,18 @@ func (s *Store) Report(r CraftReport) {
 	}
 }
 
+// Seed loads reports without notifying subscribers (server start, from the
+// persisted reports/ directory). A report already held wins.
+func (s *Store) Seed(rs []CraftReport) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, r := range rs {
+		if _, ok := s.reports[r.Owner]; !ok {
+			s.reports[r.Owner] = r
+		}
+	}
+}
+
 // Forget removes an owner's report, so no ghost of theirs is built from it
 // again (ADR 0054 slice E, kick and delete vessels). Report never evicts on
 // disconnect on purpose (a kicked friend's ghost keeps its name); a purge is

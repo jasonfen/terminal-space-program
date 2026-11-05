@@ -135,3 +135,17 @@ func TestPurgePlayerRemovesRecordings(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0066 decision 14: kick and delete vessels removes the player's
+// persisted report, with or without a payload, and leaves other owners'.
+func TestPurgePlayerRemovesTheReportFile(t *testing.T) {
+	s := openStore(t)
+	_, _ = s.WriteReport("SHA256:gone", []byte("x"))
+	_, _ = s.WriteReport("SHA256:stays", []byte("y"))
+	if _, err := s.PurgePlayer("SHA256:gone"); err != nil {
+		t.Fatalf("PurgePlayer: %v", err)
+	}
+	if got := s.ReadReports(); len(got) != 1 || string(got[0]) != "y" {
+		t.Errorf("reports after purge = %q, want only the other owner's", got)
+	}
+}

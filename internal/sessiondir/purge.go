@@ -51,6 +51,7 @@ func (s *Store) PurgePlayer(fingerprint string) (PurgeResult, error) {
 		handle = p.Handle
 	}
 	defer s.lock()()
+	s.RemoveReport(fingerprint)
 	src := s.payloadPath(fingerprint)
 	data, err := os.ReadFile(src)
 	if errors.Is(err, os.ErrNotExist) {

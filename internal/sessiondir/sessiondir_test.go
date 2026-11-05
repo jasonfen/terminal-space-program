@@ -1012,3 +1012,21 @@ func TestEnrollAcceptsOwnPreboundHandle(t *testing.T) {
 		t.Fatalf("Enroll with own pre-bound handle refused: %v", err)
 	}
 }
+
+// ADR 0066 decision 14: a byte-equal report is not rewritten (the equal
+// case), different bytes replace the file, and the file is named by sha256.
+func TestWriteReportSkipsByteEqual(t *testing.T) {
+	s := openStore(t)
+	if wrote, err := s.WriteReport("SHA256:a", []byte("one")); err != nil || !wrote {
+		t.Fatalf("first write: wrote=%v err=%v", wrote, err)
+	}
+	if wrote, _ := s.WriteReport("SHA256:a", []byte("one")); wrote {
+		t.Error("byte-equal report was rewritten")
+	}
+	if wrote, _ := s.WriteReport("SHA256:a", []byte("two")); !wrote {
+		t.Error("changed report was not written")
+	}
+	if got := s.ReadReports(); len(got) != 1 || string(got[0]) != "two" {
+		t.Errorf("ReadReports = %q, want [two]", got)
+	}
+}

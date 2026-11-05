@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -1097,3 +1098,56 @@ type hostStoppedMsg struct{}
 
 // Relay exposes the session store (tests and later slices read it).
 func (s *Server) Relay() *relay.Store { return s.relay }
+
+// seedReports loads reports/*.json into the relay store (ADR 0066 decision
+// 14). Corrupt files are skipped; the owner's next report rewrites them.
+func (s *Server) seedReports() {
+	var rs []relay.CraftReport
+	for _, b := range s.store.ReadReports() {
+		var r relay.CraftReport
+		if json.Unmarshal(b, &r) == nil && r.Owner != "" && r.Owner != sessiondir.HostFingerprint {
+			rs = append(rs, r)
+		}
+	}
+	s.relay.Seed(rs)
+}
+
+// persistReports writes each accepted report to reports/ until stop closes.
+// A subscriber that lags drops reports; the 5 s heartbeat resends.
+func (s *Server) persistReports(stop <-chan struct{}) {
+	ch, cancel := s.relay.Subscribe()
+	defer cancel()
+	for {
+		select {
+		case <-stop:
+			return
+		case r := <-ch:
+			s.writeReport(r)
+		}
+	}
+}
+
+// writeReport persists r unless its owner has been forgotten since the
+// report was queued.
+func (s *Server) writeReport(r relay.CraftReport) {
+	s.reportMu.Lock()
+	defer s.reportMu.Unlock()
+	for _, h := range s.relay.Snapshot("") {
+		if h.Owner == r.Owner {
+			if b, err := json.Marshal(r); err == nil {
+				if _, err := s.store.WriteReport(r.Owner, b); err != nil {
+					log.Printf("serve: persist report: %v", err)
+				}
+			}
+			return
+		}
+	}
+}
+
+// forgetReport drops the owner's live report; once it returns no queued
+// write can land, so the purge's file removal that follows is final.
+func (s *Server) forgetReport(fp string) {
+	s.reportMu.Lock()
+	defer s.reportMu.Unlock()
+	s.relay.Forget(fp)
+}

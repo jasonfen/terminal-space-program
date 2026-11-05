@@ -360,3 +360,16 @@ func TestResetFleetMidRunFailureStillClearsDocks(t *testing.T) {
 		t.Errorf("dock records outlived a half-failed reset: %+v", after.Docks)
 	}
 }
+
+// ADR 0066 decision 14: --reset-fleet drops every persisted report, or the
+// old fleet would come back as ghosts on the next start.
+func TestResetFleetRemovesReports(t *testing.T) {
+	s, _ := resetStore(t)
+	_, _ = s.WriteReport("SHA256:alice", []byte("x"))
+	if _, err := s.ResetFleet(time.Date(2040, 1, 1, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("ResetFleet: %v", err)
+	}
+	if got := s.ReadReports(); len(got) != 0 {
+		t.Errorf("%d reports survive a fleet reset", len(got))
+	}
+}
