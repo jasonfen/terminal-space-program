@@ -107,6 +107,9 @@ func (w *World) launchWindowTargetNormal() (orbital.Vec3, bool) {
 			return orbital.Vec3{}, false
 		}
 		return n.Unit(), true
+	case TargetSite:
+		// ADR 0066: refused as a landed vessel is (a co-rotation pseudo-orbit).
+		return orbital.Vec3{}, false
 	case TargetCraft:
 		if t, _, ok := w.craftByID(w.Target.CraftID); ok && (t.Landed || t.Crashed) {
 			return orbital.Vec3{}, false

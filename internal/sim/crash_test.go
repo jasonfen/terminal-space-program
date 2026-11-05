@@ -9,8 +9,10 @@ package sim
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -87,6 +89,48 @@ func TestFalcon9SoftLandsBelowVCrit(t *testing.T) {
 	}
 	if c.Crashed {
 		t.Errorf("Falcon-9 soft touchdown: Crashed=true, want false")
+	}
+}
+
+// ADR 0066 guard 4: every soft touchdown plants one flag at the touchdown
+// lat/lon, named for the vessel; a second touchdown numbers " site 2"; a pad
+// spawn plants none.
+func TestSoftTouchdownPlantsFlagAndRepeatNumbersIt(t *testing.T) {
+	w, c := crashTestPrimaryFor(t)
+	if len(w.Sites) != 0 {
+		t.Fatalf("setup: a fresh world has %d sites, want 0", len(w.Sites))
+	}
+	c.CanSoftLand = true
+	setImpactState(c, 2, orbital.Vec3{X: 1})
+	w.integrateOneCraft(c, w.Clock.BaseStep)
+	if !c.Landed {
+		t.Fatal("setup: no soft touchdown")
+	}
+	if len(w.Sites) != 1 {
+		t.Fatalf("want one flag, got %+v", w.Sites)
+	}
+	s := w.Sites[0]
+	if s.Kind != SiteFlag || s.Name != c.Name+" site" || s.LatDeg != c.LandedLatDeg || s.LonDeg != c.LandedLonDeg || s.CraftID != c.ID {
+		t.Errorf("flag = %+v, want Kind flag, name %q at the touchdown lat/lon", s, c.Name+" site")
+	}
+	w.leavePad(c)
+	setImpactState(c, 2, orbital.Vec3{X: 1})
+	w.integrateOneCraft(c, w.Clock.BaseStep)
+	if len(w.Sites) != 2 || w.Sites[1].Name != c.Name+" site 2" || w.Sites[1].ID == w.Sites[0].ID {
+		t.Errorf("second touchdown: want %q with a fresh id, got %+v", c.Name+" site 2", w.Sites)
+	}
+	if w.NameCounters[c.Name+" site"] != 2 {
+		t.Errorf("never-reuse counter = %d, want 2", w.NameCounters[c.Name+" site"])
+	}
+}
+
+func TestPadSpawnPlantsNoFlag(t *testing.T) {
+	w, _ := crashTestPrimaryFor(t)
+	if _, err := w.SpawnCraft(SpawnSpec{LoadoutID: spacecraft.LoadoutSaturnVID, ParentBodyID: "earth", Launchpad: true, Latitude: 28.6}); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.Sites) != 0 {
+		t.Errorf("a launchpad spawn planted %+v, want no sites", w.Sites)
 	}
 }
 
@@ -186,11 +230,10 @@ func exactNoseTolDir(t *testing.T, localUp orbital.Vec3) orbital.Vec3 {
 	return orbital.Vec3{}
 }
 
-// TestCrashedVesselSkipsIntegration — once a vessel is Crashed,
-// subsequent integrateOneCraft ticks are a no-op (no gravity, no
-// drag, no thrust, no slew). The wreckage sits at its clamped
-// position until end-flight removal. Regression guard for the
-// "Crashed integrator bypass" branch in integrateOneCraft.
+// TestCrashedVesselSkipsIntegration - once Crashed, integrateOneCraft does no
+// gravity, drag, thrust or slew: velocity stays zero and the wreck stays on
+// its crater (ADR 0066 decision 8 pins position to the stored impact point,
+// where it used to freeze in the inertial frame and drift off the crater).
 func TestCrashedVesselSkipsIntegration(t *testing.T) {
 	w, c := crashTestPrimaryFor(t)
 	c.CanSoftLand = false
@@ -200,16 +243,47 @@ func TestCrashedVesselSkipsIntegration(t *testing.T) {
 	if !c.Crashed {
 		t.Fatal("setup: expected Crashed after 50 m/s impact on non-CanSoftLand vessel")
 	}
-	snapshotR := c.State.R
 	snapshotV := c.State.V
-	// Tick again — Crashed branch should leave state untouched.
+	// Tick again - Crashed branch pins the position, nothing else.
 	w.integrateOneCraft(c, w.Clock.BaseStep)
-	if c.State.R != snapshotR {
-		t.Errorf("Crashed vessel position drifted: snapshot=%+v, post-tick=%+v",
-			snapshotR, c.State.R)
+	wantR, _ := surfacePointState(c.Primary, c.LandedLatDeg, c.LandedLonDeg, w.Clock.SimTime)
+	if c.State.R != wantR {
+		t.Errorf("Crashed vessel not on its crater: got %+v, want %+v", c.State.R, wantR)
 	}
 	if c.State.V != snapshotV {
 		t.Errorf("Crashed vessel velocity drifted: snapshot=%+v, post-tick=%+v",
 			snapshotV, c.State.V)
+	}
+}
+
+// ADR 0066 guard 5: a crash stores its lat/lon, plants one wreck site there,
+// and the wreck stays on the crater while the ground turns (an hour of 1 s
+// ticks moved it 1,668 km at Earth's equator before the body-fixed pin).
+func TestCrashStoresImpactPlantsWreckAndPinsToCrater(t *testing.T) {
+	w, c := crashTestPrimaryFor(t)
+	c.CanSoftLand = false
+	setImpactState(c, 50, orbital.Vec3{X: 1})
+	w.integrateOneCraft(c, w.Clock.BaseStep)
+	if !c.Crashed {
+		t.Fatal("setup: no crash")
+	}
+	if c.LandedLatDeg == 0 && c.LandedLonDeg == 0 {
+		t.Fatal("crash did not store the impact lat/lon")
+	}
+	if len(w.Sites) != 1 || w.Sites[0].Kind != SiteWreck || w.Sites[0].LatDeg != c.LandedLatDeg ||
+		w.Sites[0].LonDeg != c.LandedLonDeg || w.Sites[0].Name != c.Name+" wreck" {
+		t.Fatalf("want one wreck site at the impact point named %q, got %+v", c.Name+" wreck", w.Sites)
+	}
+	craterLat, craterLon := c.LandedLatDeg, c.LandedLonDeg
+	for i := 0; i < 3600; i++ {
+		w.Clock.SimTime = w.Clock.SimTime.Add(time.Second)
+		w.integrateOneCraft(c, time.Second)
+	}
+	u := c.State.R.Unit()
+	lat, lon := render.WorldToBodyFixed(c.Primary, render.Vec3{X: u.X, Y: u.Y, Z: u.Z}, w.Clock.SimTime)
+	dLat := (lat - craterLat) * math.Pi / 180
+	dLon := (lon - craterLon) * math.Pi / 180 * math.Cos(craterLat*math.Pi/180)
+	if off := c.Primary.RadiusMeters() * math.Hypot(dLat, dLon); off > 1 {
+		t.Errorf("wreck is %.1f m from its crater after an hour, want within 1 m", off)
 	}
 }

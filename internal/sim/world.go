@@ -48,6 +48,12 @@ type World struct {
 	// vessel leaves the slate. Persisted; nil primes from the slate on first use.
 	NameCounters map[string]uint64
 
+	// Sites are your own surface sites (ADR 0066): flags planted on a soft
+	// touchdown, wrecks on a crash. Persisted (schema v21). NextSiteID is the
+	// monotonic id source, never reused.
+	Sites      []Site
+	NextSiteID uint64
+
 	// NextNodeID is the monotonic source of stable ManeuverNode.IDs
 	// (v0.16 / ADR 0016). Stamped onto each node as it is planted; never
 	// decremented or reused, so a feature that follows one specific node
@@ -2021,6 +2027,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 	// Cleared only by end-flight removal (`[E]`), which deletes the
 	// vessel from the world rather than reviving it.
 	if c.Crashed {
+		w.pinCrashed(c)
 		return
 	}
 	mu := c.Primary.GravitationalParameter()
@@ -2141,7 +2148,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 		if clamped, hit := physics.ClampToSurface(c.State, c.Primary); hit {
 			outcome, lat, lon := classifySurfaceArrival(c, c.State.R, c.State.V, clock)
 			impactMS := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary).Norm() // vs the ground, not the spin
-			applySurfaceArrival(c, clamped, outcome, lat, lon)
+			w.applySurfaceArrival(c, clamped, outcome, lat, lon)
 			w.recordSurface(c, impactMS, lat, lon)
 			// The Landed/Crashed early returns above skip the burn
 			// teardown below, so end any burn here or it pins warp at

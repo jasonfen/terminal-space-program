@@ -5,6 +5,7 @@ package sim
 import (
 	"testing"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -121,3 +122,21 @@ func TestEndFlightNoOpOnLiveVessel(t *testing.T) {
 // Reference imports so the test file compiles even when the
 // non-test path doesn't pull in spacecraft directly.
 var _ = spacecraft.LoadoutSaturnVID
+
+// ADR 0066 guard 6 (the E half): clearing the dead vessel leaves its wreck
+// site, which stays targetable.
+func TestEndFlightKeepsTheWreckSite(t *testing.T) {
+	w, c := crashTestPrimaryFor(t)
+	c.CanSoftLand = false
+	setImpactState(c, 50, orbital.Vec3{X: 1})
+	w.integrateOneCraft(c, w.Clock.BaseStep)
+	if !c.Crashed || len(w.Sites) != 1 {
+		t.Fatalf("setup: crashed=%v sites=%+v", c.Crashed, w.Sites)
+	}
+	if !w.EndFlightActive() {
+		t.Fatal("EndFlightActive refused a Crashed vessel")
+	}
+	if len(w.Sites) != 1 || w.Sites[0].Kind != SiteWreck {
+		t.Errorf("sites after E = %+v, want the wreck kept", w.Sites)
+	}
+}

@@ -614,6 +614,10 @@ func (w *World) rendezvousTargetPrimary() (bodies.CelestialBody, bool) {
 		// A parked ghost has no orbit to rendezvous with (ADR 0066 decision
 		// 4): K, the ladder and the coast all read "no target".
 		return primary, ok && !g.Landed
+	case TargetSite:
+		// ADR 0066: the Rendezvous Planner refuses a site as it refuses a
+		// landed vessel (a surface point has no orbit to meet).
+		return bodies.CelestialBody{}, false
 	}
 	return bodies.CelestialBody{}, false
 }

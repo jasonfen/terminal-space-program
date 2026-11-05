@@ -39,6 +39,8 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 	hold := spacecraft.BurnPortIn                     // v20: a docked piece's pre-latch hold
 	c.DockedComponents = []spacecraft.DockedComponent{{Name: "Core"}, {Name: "Tug", AttitudeMode: &hold}}
 	c.NewestSeam = 1 // v20: where the block docked last begins
+	w.Sites = []sim.Site{{ID: 3, Body: "Moon", System: "Sol", LatDeg: 1.5, LonDeg: -2.5, Kind: sim.SiteWreck, Name: "Probe-1 wreck", CraftID: 1}} // v21
+	w.NextSiteID = 3
 
 	path := filepath.Join(t.TempDir(), "save.json")
 	if err := Save(w, path); err != nil {
@@ -48,7 +50,7 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 	if want.Payload.Crafts[0].BatchID != 9 || want.Payload.Crafts[0].LiftoffSimTimeNano == 0 || want.Payload.GameFolder == "" || want.Payload.NameCounters == nil ||
 		want.Payload.Crafts[0].RendezvousPlan == nil || want.Payload.Crafts[0].BoosterThrottle == nil ||
 		want.Payload.Crafts[0].HeadingTrim == 0 || want.Payload.Crafts[0].Target == nil ||
-		want.Payload.Crafts[0].DockedComponents[1].AttitudeMode == nil || want.Payload.Crafts[0].NewestSeam == 0 {
+		want.Payload.Crafts[0].DockedComponents[1].AttitudeMode == nil || want.Payload.Crafts[0].NewestSeam == 0 || len(want.Payload.Sites) != 1 {
 		t.Fatalf("setup: a bump's key is missing: batch=%v counters=%v plan=%v booster=%v trim=%v target=%v", want.Payload.Crafts[0].BatchID, want.Payload.NameCounters, want.Payload.Crafts[0].RendezvousPlan, want.Payload.Crafts[0].BoosterThrottle, want.Payload.Crafts[0].HeadingTrim, want.Payload.Crafts[0].Target)
 	}
 
@@ -62,8 +64,9 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 		18: func(p *Payload) { p.Crafts[0].LiftoffSimTimeNano = 0 },
 		19: func(p *Payload) { p.GameFolder = "" },
 		20: func(p *Payload) { p.Crafts[0].DockedComponents[1].AttitudeMode, p.Crafts[0].NewestSeam = nil, 0 },
+		21: func(p *Payload) { p.Sites, p.NextSiteID = nil, 0 },
 	}
-	for _, bump := range []int{10, 11, 14, 16, 17, 18, 19, 20} {
+	for _, bump := range []int{10, 11, 14, 16, 17, 18, 19, 20, 21} {
 		roundTrip(t, want, bump, "keys present")
 		absent := want
 		absent.Payload = Payload{}
@@ -144,5 +147,52 @@ func TestDockedComponentHoldRoundTripsPresenceNotJustValue(t *testing.T) {
 	}
 	if dcs[1].AttitudeMode != nil {
 		t.Errorf("absent record came back %v, want nil", *dcs[1].AttitudeMode)
+	}
+}
+
+// ADR 0066 guard 16: a v21 save with sites round-trips them and a target aimed
+// at one; a v20 save (no sites keys) loads with none.
+func TestSitesAndSiteTargetRoundTrip(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := w.ActiveCraft()
+	c.Landed = true
+	for _, k := range []sim.SiteKind{sim.SiteFlag, sim.SiteWreck} {
+		w.Sites = append(w.Sites, sim.Site{ID: uint64(len(w.Sites) + 1), Body: "Earth", System: "Sol", LatDeg: 28.5 + float64(k),
+			LonDeg: -80.6, Kind: k, Name: c.Name + " site", CraftID: c.ID, PlantedAtNano: 111, UpdatedAtNano: 222})
+	}
+	w.NextSiteID = 2
+	w.SetTargetSite(2)
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := Save(w, path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got.Sites, w.Sites) || got.NextSiteID != 2 {
+		t.Errorf("sites came back %+v next %d, want %+v next 2", got.Sites, got.NextSiteID, w.Sites)
+	}
+	if got.Target.Kind != sim.TargetSite || got.Target.SiteID != 2 || got.ActiveCraft().Target.SiteID != 2 {
+		t.Errorf("site target came back %+v, want site 2", got.Target)
+	}
+
+	f := readFileForTest(t, path)
+	f.Version, f.Payload.Sites, f.Payload.NextSiteID = 20, nil, 0
+	f.Payload.Crafts[0].Target = nil
+	out, _ := json.Marshal(f)
+	old := filepath.Join(t.TempDir(), "v20.json")
+	if err := os.WriteFile(old, out, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(old)
+	if err != nil {
+		t.Fatalf("v20 load: %v", err)
+	}
+	if len(loaded.Sites) != 0 || loaded.Target.Kind != sim.TargetNone {
+		t.Errorf("v20 save loaded with sites %+v target %+v, want none", loaded.Sites, loaded.Target)
 	}
 }

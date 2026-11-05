@@ -26,6 +26,7 @@ package sim
 import (
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -43,7 +44,6 @@ import (
 // simTime comes from c.Primary's rotation phase as accessed via
 // render.BodyFixedToWorld.
 func integrateLanded(w *World, c *spacecraft.Spacecraft, simDelta time.Duration) {
-	radius := c.Primary.RadiusMeters()
 	// v0.11.4 shipped LandedLatDeg/LonDeg (soft-touchdown coords) but
 	// never wired them in here — a soft-landed craft was re-pinned to
 	// its launch site projected onto the arrival body (or (0,0) for an
@@ -51,15 +51,7 @@ func integrateLanded(w *World, c *spacecraft.Spacecraft, simDelta time.Duration)
 	// when set, else the launchpad-spawn coords (v0.21: shared with the
 	// mission evaluator so both pin to the same point).
 	lat, lon := c.SurfaceLatLon()
-	dirRender := render.BodyFixedToWorld(c.Primary, lat, lon, w.Clock.SimTime)
-	c.State.R = orbital.Vec3{
-		X: radius * dirRender.X,
-		Y: radius * dirRender.Y,
-		Z: radius * dirRender.Z,
-	}
-	omegaRender := render.BodySpinOmegaWorld(c.Primary)
-	omega := orbital.Vec3{X: omegaRender.X, Y: omegaRender.Y, Z: omegaRender.Z}
-	c.State.V = omega.Cross(c.State.R)
+	c.State.R, c.State.V = surfacePointState(c.Primary, lat, lon, w.Clock.SimTime)
 	c.State.M = c.TotalMass()
 
 	// v0.10.0: a landed craft is rigidly bolted to the pad pointing
@@ -75,6 +67,27 @@ func integrateLanded(w *World, c *spacecraft.Spacecraft, simDelta time.Duration)
 	if cmd := w.commandedDirFor(c); cmd.Norm() != 0 {
 		c.CurrentAttitudeDir = cmd
 	}
+}
+
+// surfacePointState is a body-fixed point's co-rotating state in the body's
+// frame: R = R_body x BodyFixedToWorld, V = omega x R. The one formula the
+// landed integrator and a surface site (ADR 0066) both use.
+func surfacePointState(b bodies.CelestialBody, latDeg, lonDeg float64, t time.Time) (r, v orbital.Vec3) {
+	radius := b.RadiusMeters()
+	dir := render.BodyFixedToWorld(b, latDeg, lonDeg, t)
+	r = orbital.Vec3{X: radius * dir.X, Y: radius * dir.Y, Z: radius * dir.Z}
+	om := render.BodySpinOmegaWorld(b)
+	return r, orbital.Vec3{X: om.X, Y: om.Y, Z: om.Z}.Cross(r)
+}
+
+// pinCrashed holds a wreck at its crater: position only, no velocity, no
+// attitude (ADR 0066 decision 8). A wreck from before the impact coordinates
+// were stored (both zero) stays where it froze.
+func (w *World) pinCrashed(c *spacecraft.Spacecraft) {
+	if c.LandedLatDeg == 0 && c.LandedLonDeg == 0 {
+		return
+	}
+	c.State.R, _ = surfacePointState(c.Primary, c.LandedLatDeg, c.LandedLonDeg, w.Clock.SimTime)
 }
 
 // seatedThrottle is the core throttle the craft's running burn fires at, and a

@@ -301,7 +301,7 @@ func TestCrashRowNamesImpactSite(t *testing.T) {
 	u := c.State.R.Unit()
 	lat, lon := render.WorldToBodyFixed(c.Primary, render.Vec3{X: u.X, Y: u.Y, Z: u.Z}, w.Clock.SimTime)
 	want := "crash: " + c.Primary.EnglishName + " " + latStr(lat) + " " + lonStr(lon) + ","
-	if lat0, lon0 := c.SurfaceLatLon(); latStr(lat0) == latStr(lat) && lonStr(lon0) == lonStr(lon) {
+	if lat0, lon0 := c.LaunchLatDeg, c.LaunchLonDeg; latStr(lat0) == latStr(lat) && lonStr(lon0) == lonStr(lon) {
 		t.Fatalf("setup: impact site %q is indistinguishable from the launch-site fallback", want)
 	}
 	for _, e := range allEvents(t, dir) {
