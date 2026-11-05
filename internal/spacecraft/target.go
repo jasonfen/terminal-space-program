@@ -20,8 +20,8 @@ const (
 	// TargetCraft references a non-active craft by its stable
 	// Spacecraft.ID (v0.14.x / ADR 0012; was a World.Crafts index).
 	TargetCraft
-	// TargetSite is reserved; not populated until landing-site
-	// targeting ships post-v0.9.
+	// TargetSite references a World.Sites entry by Target.SiteID (ADR
+	// 0066): a flag, wreck or named point on a body's surface.
 	TargetSite
 	// TargetGhost references another player's craft by owner
 	// fingerprint + craft ID (v0.27 S6, ADR 0034). Resolves against
@@ -55,4 +55,8 @@ type Target struct {
 	// never came back) just carries a lock that stays pending — see
 	// World.HasRelativeTarget / World.TargetName.
 	GhostOwner string `json:"ghost_owner,omitempty"`
+
+	// SiteID is the World.Sites entry when Kind==TargetSite (ADR 0066
+	// decision 1). A partner's site would reuse GhostOwner (S6).
+	SiteID uint64 `json:"site_id,omitempty"`
 }

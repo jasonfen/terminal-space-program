@@ -146,7 +146,8 @@ func (w *World) ProximityState() (ProximityState, bool) {
 	// the same state the ghost's own drawing and the rendezvous-warp
 	// coast read, so the picture can't disagree with them.
 	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
-	if !ok {
+	// A site resolves a state but is not a vessel to fly beside (ADR 0066).
+	if !ok || w.Target.Kind == TargetSite {
 		return w.dockedProximityState(c)
 	}
 	// ADR 0066 decision 4: a parked ghost is ground, not a vessel to fly

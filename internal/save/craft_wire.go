@@ -197,6 +197,7 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 			BodyIdx:    c.Target.BodyIdx,
 			CraftID:    c.Target.CraftID,
 			GhostOwner: c.Target.GhostOwner,
+			SiteID:     c.Target.SiteID,
 		}
 	}
 	// ADR 0059 (schema v17): batch tag and raise order.
@@ -481,6 +482,7 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			BodyIdx:    wc.Target.BodyIdx,
 			CraftID:    wc.Target.CraftID,
 			GhostOwner: wc.Target.GhostOwner,
+			SiteID:     wc.Target.SiteID,
 		}
 	}
 	c.BatchID, c.BatchLead, c.Raise = wc.BatchID, wc.BatchLead, raiseFromWire(wc.Raise)

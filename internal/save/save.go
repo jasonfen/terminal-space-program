@@ -125,7 +125,13 @@ import (
 // the truth for every earlier save, so no migration function is needed; the
 // bump exists so a v19 binary refuses a v20 envelope instead of dropping the
 // holds and swinging every released piece to prograde.
-const SchemaVersion = 20
+//
+// ADR 0066 bumps to v21 - Payload.sites / next_site_id and Target.site_id:
+// your flags and wrecks and a target aimed at one. Absent decodes to no sites,
+// the truth for every earlier save; migrateV20PayloadToV21 only primes the id
+// counter. The bump makes a v20 binary refuse a v21 envelope instead of
+// dropping the sites and a site target.
+const SchemaVersion = 21
 
 // RaiseWire is spacecraft.RaiseOrder on the wire (StartAt as UnixNano).
 type RaiseWire struct {
@@ -187,6 +193,8 @@ type Payload struct {
 	NextCraftID    uint64             `json:"next_craft_id,omitempty"` // v0.14.x / schema v7: monotonic craft-ID counter (ADR 0012).
 	NameCounters   map[string]uint64  `json:"name_counters,omitempty"` // schema v17 (ADR 0059 decision 7): highest number handed out per name prefix.
 	GameFolder     string             `json:"game_folder,omitempty"`   // schema v19: Flight Recording folder of this game.
+	Sites          []Site             `json:"sites,omitempty"`         // schema v21 (ADR 0066): your own flags and wrecks.
+	NextSiteID     uint64             `json:"next_site_id,omitempty"`  // schema v21: monotonic site-id counter.
 	NextNodeID     uint64             `json:"next_node_id,omitempty"`  // v0.16: monotonic node-ID counter (ADR 0016). Additive omitempty, no schema bump; EnsureNodeIDs reprimes on load.
 	Nodes          []Node             `json:"nodes,omitempty"`
 	ActiveBurn     *ActiveBurn        `json:"active_burn,omitempty"`
@@ -223,6 +231,22 @@ type Target struct {
 	CraftIdx   int    `json:"craft_idx,omitempty"` // pre-v7 (read-only for migration)
 	CraftID    uint64 `json:"craft_id,omitempty"`  // v7+ stable ID
 	GhostOwner string `json:"ghost_owner,omitempty"`
+	SiteID     uint64 `json:"site_id,omitempty"` // schema v21 (ADR 0066)
+}
+
+// Site is sim.Site on the wire (schema v21).
+type Site struct {
+	ID            uint64  `json:"id"`
+	Body          string  `json:"body"`
+	System        string  `json:"system"`
+	LatDeg        float64 `json:"lat_deg"`
+	LonDeg        float64 `json:"lon_deg"`
+	Kind          int     `json:"kind,omitempty"`
+	Name          string  `json:"name"`
+	CraftID       uint64  `json:"craft_id,omitempty"`
+	Owner         string  `json:"owner,omitempty"`
+	PlantedAtNano int64   `json:"planted_at_nano,omitempty"`
+	UpdatedAtNano int64   `json:"updated_at_nano,omitempty"`
 }
 
 // Vec3 is the wire form of orbital.Vec3.
@@ -781,6 +805,11 @@ func Load(path string) (*sim.World, error) {
 	if f.Version < 15 {
 		migrateV14PayloadToV15(&f.Payload)
 	}
+	// schema v21 (ADR 0066): sites and Target.SiteID are additive; the
+	// migration primes the id counter past any site already present.
+	if f.Version < 21 {
+		migrateV20PayloadToV21(&f.Payload)
+	}
 	// Identity bumps (v10, v11, v14, v16, v17) have no transform: absent keys
 	// decode to the truth, and TestIdentityBumpsLoadUnchanged pins that.
 	return worldFromPayload(f.Payload, systems)
@@ -824,6 +853,12 @@ func payloadFromWorld(w *sim.World) Payload {
 	p.NextCraftID = w.NextCraftID
 	p.NameCounters = maps.Clone(w.NameCounters)
 	p.GameFolder = w.GameFolder
+	for _, st := range w.Sites {
+		p.Sites = append(p.Sites, Site{ID: st.ID, Body: st.Body, System: st.System, LatDeg: st.LatDeg, LonDeg: st.LonDeg,
+			Kind: int(st.Kind), Name: st.Name, CraftID: st.CraftID, Owner: st.Owner,
+			PlantedAtNano: st.PlantedAtNano, UpdatedAtNano: st.UpdatedAtNano})
+	}
+	p.NextSiteID = w.NextSiteID
 	p.NextNodeID = w.NextNodeID
 	p.Missions = missions.Clone(w.Missions)
 	return p
@@ -905,6 +940,12 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 	w.NextCraftID = p.NextCraftID
 	w.NameCounters = maps.Clone(p.NameCounters)
 	w.GameFolder = p.GameFolder
+	for _, st := range p.Sites {
+		w.Sites = append(w.Sites, sim.Site{ID: st.ID, Body: st.Body, System: st.System, LatDeg: st.LatDeg, LonDeg: st.LonDeg,
+			Kind: sim.SiteKind(st.Kind), Name: st.Name, CraftID: st.CraftID, Owner: st.Owner,
+			PlantedAtNano: st.PlantedAtNano, UpdatedAtNano: st.UpdatedAtNano})
+	}
+	w.NextSiteID = p.NextSiteID
 	w.NextNodeID = p.NextNodeID
 	if p.ActiveCraftIdx >= 0 && p.ActiveCraftIdx < len(w.Crafts) {
 		w.ActiveCraftIdx = p.ActiveCraftIdx

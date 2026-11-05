@@ -348,6 +348,16 @@ func (w *World) TargetState() (orbital.Vec3State, bool) {
 			R: primaryPos.Add(c.State.R),
 			V: primaryV.Add(c.State.V),
 		}, true
+	case TargetSite:
+		// ADR 0066 decision 1: the landed integrator's own co-rotating state.
+		r, v, primary, ok := w.targetSiteState()
+		if !ok {
+			return orbital.Vec3State{}, false
+		}
+		return orbital.Vec3State{
+			R: w.BodyPosition(primary).Add(r),
+			V: w.bodyInertialVelocity(primary).Add(v),
+		}, true
 	case TargetGhost:
 		// v0.27 S6 (ADR 0034): a remote player's craft, resolved from
 		// the transient ghost slate — already evaluated at this world's
@@ -524,12 +534,23 @@ func (w *World) CraftInertialVelocity(c *spacecraft.Spacecraft) orbital.Vec3 {
 // in the active's frame. Cross-primary case: convert via inertial,
 // subtract the active primary's pose. v0.9.3+.
 func (w *World) TargetStateRelativeToActivePrimary() (rT, vT orbital.Vec3, ok bool) {
-	if w.Target.Kind != TargetCraft && w.Target.Kind != TargetGhost {
+	if w.Target.Kind != TargetCraft && w.Target.Kind != TargetGhost && w.Target.Kind != TargetSite {
 		return orbital.Vec3{}, orbital.Vec3{}, false
 	}
 	active := w.ActiveCraft()
 	if active == nil {
 		return orbital.Vec3{}, orbital.Vec3{}, false
+	}
+	if w.Target.Kind == TargetSite {
+		r, v, primary, ok := w.targetSiteState()
+		if !ok {
+			return orbital.Vec3{}, orbital.Vec3{}, false
+		}
+		if primary.ID == active.Primary.ID {
+			return r, v, true
+		}
+		return w.BodyPosition(primary).Add(r).Sub(w.BodyPosition(active.Primary)),
+			w.bodyInertialVelocity(primary).Add(v).Sub(w.bodyInertialVelocity(active.Primary)), true
 	}
 	// Ghost targets (v0.27 S6): the slate already holds the ghost's
 	// world-frame position at this world's sim-time, so rendezvous
@@ -694,6 +715,9 @@ func (w *World) TargetSharesActivePrimary() bool {
 	case TargetGhost:
 		_, primary, ok := w.ResolveTargetGhost()
 		return ok && primary.ID == c.Primary.ID
+	case TargetSite:
+		_, _, primary, ok := w.targetSiteState()
+		return ok && primary.ID == c.Primary.ID
 	default:
 		return false
 	}
@@ -842,6 +866,10 @@ func (w *World) TargetName() string {
 		// the aim slot still holds its ID; the composite remembers the name.
 		if n, ok := w.DockedPartnerName(w.Target.CraftID); ok {
 			return n
+		}
+	case TargetSite:
+		if s, ok := w.siteByID(w.Target.SiteID); ok {
+			return s.Name
 		}
 	case TargetGhost:
 		if g, ok := w.ghostByRef(w.Target.GhostOwner, w.Target.CraftID); ok {

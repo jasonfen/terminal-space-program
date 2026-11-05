@@ -186,13 +186,14 @@ func classifySurfaceArrival(
 // from integrateOneCraft once the sub-step loop detects a hit.
 // Caller is responsible for stopping the sub-step loop after
 // invocation (the clamped state is already on c.State).
-func applySurfaceArrival(c *spacecraft.Spacecraft, clamped physics.StateVector, outcome surfaceArrivalOutcome, lat, lon float64) {
+func (w *World) applySurfaceArrival(c *spacecraft.Spacecraft, clamped physics.StateVector, outcome surfaceArrivalOutcome, lat, lon float64) {
 	c.State = clamped
 	switch outcome {
 	case outcomeLanded:
 		c.Landed = true
 		c.LandedLatDeg = lat
 		c.LandedLonDeg = lon
+		w.plantSite(c, SiteFlag, "site", lat, lon) // ADR 0066 decision 3
 		// Soft-landed vessels do NOT route to ViewLaunch (OnPad is
 		// cleared on liftoff and stays cleared after touchdown).
 		// Reset CurrentAttitudeDir to local-up so the next tick's
@@ -203,5 +204,10 @@ func applySurfaceArrival(c *spacecraft.Spacecraft, clamped physics.StateVector, 
 		}
 	case outcomeCrashed:
 		c.Crashed = true
+		// ADR 0066 decision 8: remember the crater; the wreck is pinned to it
+		// and a wreck site outlives the vessel.
+		c.LandedLatDeg = lat
+		c.LandedLonDeg = lon
+		w.plantSite(c, SiteWreck, "wreck", lat, lon)
 	}
 }
