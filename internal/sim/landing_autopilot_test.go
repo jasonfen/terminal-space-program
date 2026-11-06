@@ -199,3 +199,119 @@ func TestLandingAutopilotOutOfReach(t *testing.T) {
 		t.Errorf("events %+v, want one out-of-reach landing", w.PendingLandingEvents)
 	}
 }
+
+// ADR 0067 decision 5: engaged and coasting, the autopilot does nothing until
+// the brake's cue, glides warp down so no tick steps past it, and lights within
+// a tick of it.
+func TestLandingAutopilotLightsAtTheCueUnderWarp(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2*3600*4 && (len(c.Nodes) > 0 || c.ActiveBurn != nil); i++ {
+		w.Tick()
+	}
+	c.Crewed, c.Controllable = true, true
+	if err := w.EngageLandingAutopilot(); err != nil {
+		t.Fatal(err)
+	}
+	w.Clock.WarpIdx = len(WarpFactors) - 1
+	var lit bool
+	for i := 0; i < 100000 && !lit; i++ {
+		w.Tick()
+		if c.ManualBurn != nil {
+			lit = true
+		} else if c.Landing.Phase != spacecraft.PhaseCoast {
+			t.Fatal("left Coast without a burn")
+		}
+	}
+	if !lit {
+		t.Fatal("never lit")
+	}
+	// the brake is lit at the latest instant that still stops above the
+	// ground: the reserve-throttle stop from the lit state keeps a margin of at
+	// least 0 (not late) and under ~2.5 s of sink (not early; the stop margin
+	// moves ~0.5 km a second here)
+	pred, ok := predictPoweredStopFromAt(c.State, c, apStopHorizon, DeorbitBrakeThrottle)
+	if !ok || pred.Outcome != StopStopped || pred.MarginM < 0 || pred.MarginM > 1500 {
+		t.Errorf("lit with stop outcome=%v margin=%.0f m, want stopped with margin in [0, 1500] m", pred.Outcome, pred.MarginM)
+	}
+}
+
+// ADR 0067 decision 5: a hold key takes the nose (autopilot off); z/x give the
+// raw throttle back with the steering kept; q re-engages from where it stands.
+func TestLandingAutopilotHandover(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	flyLanding(t, w, c, 2*3600*4, func(int) {
+		if c.Landing.Phase == spacecraft.PhaseCoast || c.Landed || c.Crashed || c.Landing.ThrottleHeld {
+			return
+		}
+		if !w.LandingHandOverThrottle() {
+			t.Fatal("LandingHandOverThrottle refused an engaged autopilot")
+		}
+		c.Throttle = 0.75 // the pilot's raw throttle
+	})
+	if c.Landing.Engaged {
+		t.Fatal("setup: the autopilot did not stand down at contact")
+	}
+	// throttle held: the autopilot never wrote it again
+	w2, c2 := deorbitWorld(t, 150, 0)
+	var seen []float64
+	flyLanding(t, w2, c2, 2*3600*4, func(int) {
+		if c2.Landing.Phase == spacecraft.PhaseCoast || c2.Landed || c2.Crashed {
+			return
+		}
+		if !c2.Landing.ThrottleHeld {
+			w2.LandingHandOverThrottle()
+			c2.Throttle = 0.75
+		}
+		if len(seen) < 200 {
+			seen = append(seen, c2.Throttle)
+		}
+	})
+	for _, th := range seen {
+		if th != 0.75 {
+			t.Fatalf("throttle moved to %v under ThrottleHeld, want the pilot's 0.75", th)
+		}
+	}
+	if len(seen) < 100 {
+		t.Fatalf("setup: only %d held ticks", len(seen))
+	}
+	// a hold key: autopilot off, and q engages again
+	w3, c3 := deorbitWorld(t, 150, 0)
+	if _, err := w3.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	if err := w3.EngageLandingAutopilot(); err != nil {
+		t.Fatal(err)
+	}
+	w3.DisengageLandingAutopilot(c3)
+	if c3.Landing.Engaged {
+		t.Error("DisengageLandingAutopilot left it engaged")
+	}
+	if err := w3.EngageLandingAutopilot(); err != nil || !c3.Landing.Engaged {
+		t.Errorf("re-engage: err=%v engaged=%v", err, c3.Landing.Engaged)
+	}
+}
+
+// ADR 0067 decision 5: RCS pulses are blocked while the autopilot owns the
+// engine, and Site+ is no pulse direction in this slice.
+func TestLandingAutopilotBlocksRCS(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	c.Crewed, c.Controllable = true, true
+	c.EngineMode = spacecraft.EngineRCS
+	c.Monoprop = 100
+	if !w.FireRCSPulse(spacecraft.BurnPrograde) {
+		t.Fatal("setup: an RCS pulse does not fire on the unengaged Lander")
+	}
+	c.Crewed, c.Controllable = true, true // the pulse re-derives the crew flag from the stages
+	if err := w.EngageLandingAutopilot(); err != nil {
+		t.Fatal(err)
+	}
+	if w.FireRCSPulse(spacecraft.BurnPrograde) {
+		t.Error("an RCS pulse fired while the autopilot owns the engine")
+	}
+	if w.FireRCSPulse(spacecraft.BurnSite) {
+		t.Error("BurnSite fired as an RCS pulse")
+	}
+}
