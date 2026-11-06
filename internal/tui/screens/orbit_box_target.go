@@ -436,15 +436,23 @@ func landMissLabel(lb sim.LandBeside) string {
 	return readout.Distance(0)
 }
 
+// planTag marks miss:/cross: that read a planted burn's stop point, not yet flown.
+func planTag(lb sim.LandBeside) string {
+	if lb.Planned {
+		return " (plan)"
+	}
+	return ""
+}
+
 func landCrossLabel(lb sim.LandBeside) string {
 	if !lb.MissOK {
 		return "—"
 	}
 	switch {
 	case lb.CrossM > 0:
-		return readout.Distance(lb.CrossM) + " R"
+		return readout.Distance(lb.CrossM) + " R" + planTag(lb)
 	case lb.CrossM < 0:
-		return readout.Distance(-lb.CrossM) + " L"
+		return readout.Distance(-lb.CrossM) + " L" + planTag(lb)
 	}
-	return readout.Distance(0)
+	return readout.Distance(0) + planTag(lb)
 }

@@ -426,7 +426,6 @@ func TestNewWorldDefaults(t *testing.T) {
 	}
 }
 
-
 // ADR 0062 decision 2: the tick a pad vessel lifts off is stamped. Equal case
 // (#716): thrust exactly equal to weight stays seated and unstamped; the very
 // next representable thrust lifts and stamps.

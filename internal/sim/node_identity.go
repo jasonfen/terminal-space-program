@@ -66,6 +66,8 @@ const (
 	// Rendezvous Planner Lap Ladder row plants (PlanRendezvousBurn) — same
 	// "replace, don't stack" treatment as K's own advisory node.
 	AdvisoryKeyRendezvousBurn = "rendezvous-burn"
+	// AdvisoryKeyDeorbit (ADR 0066 decision 21) tags the node N plants.
+	AdvisoryKeyDeorbit = "deorbit"
 )
 
 // replaceAdvisoryNode removes every node on c whose AdvisoryKey matches

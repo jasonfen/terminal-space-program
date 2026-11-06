@@ -166,6 +166,9 @@ type World struct {
 	// lwCache is the pad Launch Window solver's cache (launch_window.go).
 	// Transient: rebuilt lazily, never persisted.
 	lwCache launchWindowCache
+	// deorbitCache memoises the stop-point forecasts TARGET's miss:/cross: read
+	// (deorbit.go).
+	deorbitCache deorbitCache
 
 	// planChain memoises the HUD's chained node walk (plan_chain.go).
 	planChain planChainCache

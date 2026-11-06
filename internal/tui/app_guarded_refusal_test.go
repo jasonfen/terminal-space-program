@@ -1,12 +1,17 @@
 package tui
 
 import (
+	"math"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 func pressKey(a *App, r rune) (tea.Model, tea.Cmd) {
@@ -205,6 +210,7 @@ func TestPlanningKeysRefuseWhenCraftNotVisible(t *testing.T) {
 		{"PlanIncl", 'I', "inclination: vessel not in this system"},
 		{"PlanCircularize", 'C', "circularize: vessel not in this system"},
 		{"PlanRendezvous", 'K', "rendezvous: vessel not in this system"},
+		{"PlanDeorbit", 'N', "deorbit: vessel not in this system"},
 		{"RefinePlan", 'R', "refine: vessel not in this system"},
 		{"Maneuver", 'm', "maneuver: vessel not in this system"},
 	}
@@ -436,5 +442,72 @@ func TestAttitudeKeysRefuseNoVessel(t *testing.T) {
 			}()
 			pressKey(a, r)
 		}()
+	}
+}
+
+// ADR 0066 decision 21: N plants the deorbit burn and flashes it; the footer
+// lines are facts only; a second burn blocks it but its own node does not.
+func TestDeorbitKeyFlashAndRefusals(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.active = screenOrbit
+	w := a.world
+	c := w.ActiveCraft()
+	for _, b := range w.System().Bodies {
+		if b.ID == "moon" {
+			c.Primary = b
+		}
+	}
+	st, _ := spacecraft.BuildModule(spacecraft.StageModuleLanderID)
+	c.Stages = st
+	c.SyncFields()
+	c.Nodes, c.Landed, c.Crewed, c.Controllable = nil, false, true, true
+	r := c.Primary.RadiusMeters() + 100000
+	c.State.R = orbital.Vec3{X: r}
+	c.State.V = orbital.Vec3{Y: math.Sqrt(c.Primary.GravitationalParameter() / r)}
+	c.State.M = c.TotalMass()
+	lat, lon := render.WorldToBodyFixed(c.Primary, render.Vec3{X: 0.5, Y: math.Sqrt(3) / 2}, w.Clock.SimTime)
+	w.Sites = append(w.Sites, sim.Site{ID: 1, Body: c.Primary.EnglishName, System: w.System().Name, LatDeg: lat, LonDeg: lon, Name: "Lander-1 site"})
+	w.NextSiteID = 1
+
+	pressKey(a, 'N')
+	if a.statusMsg != "deorbit: no site targeted, press t" {
+		t.Errorf("no target: %q", a.statusMsg)
+	}
+	w.SetTargetSite(1)
+	pressKey(a, 'N')
+	if !strings.HasPrefix(a.statusMsg, "deorbit onto Lander-1 site → ") || !strings.Contains(a.statusMsg, " m/s retro in ") || !strings.Contains(a.statusMsg, ", stop ") {
+		t.Errorf("flash = %q, want deorbit onto <site> → N m/s retro in T, stop D long|short", a.statusMsg)
+	}
+	if len(c.Nodes) != 1 {
+		t.Fatalf("%d nodes, want 1", len(c.Nodes))
+	}
+	pressKey(a, 'N') // its own node does not block it
+	if len(c.Nodes) != 1 || strings.Contains(a.statusMsg, "already planted") {
+		t.Errorf("second N: %d nodes, %q, want it to replace its own node", len(c.Nodes), a.statusMsg)
+	}
+	w.PlanNode(sim.ManeuverNode{Mode: spacecraft.BurnPrograde, DV: 10, Event: spacecraft.TriggerNextApo})
+	pressKey(a, 'N')
+	if !strings.HasPrefix(a.statusMsg, "deorbit: a burn is already planted (") || !strings.HasSuffix(a.statusMsg, "); clear it in [m] first") {
+		t.Errorf("with another burn: %q", a.statusMsg)
+	}
+}
+
+// The off-track refusal words: the angle and when the ground brings the site
+// under the track, or the latitude the orbit never leaves.
+func TestDeorbitRefusalWords(t *testing.T) {
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{&sim.DeorbitOffTrackError{OffDeg: 4.2, Reaches: true, UnderIn: 7*time.Hour + 40*time.Minute}, "site 4.2° off your track, under it in 7h40m"},
+		{&sim.DeorbitOffTrackError{OffDeg: 80, LatDeg: -78, ReachDeg: 51.6}, "site at 78°S, your orbit reaches 51.6°"},
+		{sim.ErrDeorbitFalling, "already falling, fly miss:"},
+	} {
+		if got := deorbitRefusal(tc.err); got != tc.want {
+			t.Errorf("deorbitRefusal = %q, want %q", got, tc.want)
+		}
 	}
 }

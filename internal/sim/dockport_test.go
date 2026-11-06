@@ -31,9 +31,9 @@ func TestDockPortStackRowsHandCounted(t *testing.T) {
 		parts []string
 		rows  int
 	}{
-		{"S-IVB", []string{"s-ivb-1"}, 12},             // 12
-		{"RCS Tug", []string{"rcs-tug"}, 4},            // 4
-		{"NTR tug", []string{"ntr-tug"}, 8},            // 8
+		{"S-IVB", []string{"s-ivb-1"}, 12},  // 12
+		{"RCS Tug", []string{"rcs-tug"}, 4}, // 4
+		{"NTR tug", []string{"ntr-tug"}, 8}, // 8
 		{"Endpoint Station", []string{"endpoint-station"}, 5},
 		// Descent 5 + sep 1 + Ascent 3 (no taper: both under 6).
 		{"Lander", []string{"lander-descent", "lander-ascent"}, 9},

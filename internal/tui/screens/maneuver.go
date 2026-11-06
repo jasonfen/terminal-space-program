@@ -1262,7 +1262,7 @@ type quickPlanRow struct {
 // guard.
 func quickPlanRows(w *sim.World, selectedBody int) []quickPlanRow {
 	visible := w.CraftVisibleHere()
-	rows := make([]quickPlanRow, 0, 6)
+	rows := make([]quickPlanRow, 0, 7)
 
 	h := quickPlanRow{key: "H", label: "transfer to target body"}
 	switch {
@@ -1304,6 +1304,19 @@ func quickPlanRows(w *sim.World, selectedBody int) []quickPlanRow {
 		k.ok = true
 	}
 	rows = append(rows, k)
+
+	n := quickPlanRow{key: "N", label: "deorbit onto target site"}
+	switch {
+	case !visible:
+		n.reason = "vessel not in this system"
+	default:
+		if err := w.DeorbitPreflight(); err != nil {
+			n.reason = err.Error()
+		} else {
+			n.ok = true
+		}
+	}
+	rows = append(rows, n)
 
 	p := quickPlanRow{key: "P", label: "porkchop plot"}
 	switch {
