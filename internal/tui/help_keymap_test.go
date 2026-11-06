@@ -38,6 +38,9 @@ func TestControlsDocNamesBatchRow(t *testing.T) {
 		"| `F3` | **Surface marks** card: show or hide landed vessels (`v`), flags (`f`), wrecks (`w`), partners' marks (`p`) and coverage now (`c`)",
 		"| `⚑` | a flag: where a vessel touched down",
 		"| `☠` | a wreck: where a vessel crashed",
+		// ADR 0066 S9: the COVERAGE notice follows the target; the overlay row.
+		"| `COVERAGE` | The notice for the site or landed vessel you aimed at, or for the lunar coverage rung",
+		"tinted green where the ground is linked this instant (`F3` `c` switches it off)",
 		"Press `t` twice to target the Moon",
 	} {
 		if !strings.Contains(string(doc), want) {
