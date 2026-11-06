@@ -63,6 +63,10 @@ func (w *World) targetSite() (Site, bool) {
 	return Site{}, false
 }
 
+// TargetSiteResolves reports whether the aimed site still exists (a partner's
+// may vanish, or a solo save may hold a partner aim).
+func (w *World) TargetSiteResolves() bool { _, ok := w.targetSite(); return ok }
+
 // SetTargetPartnerSite aims at a partner's site (a PARTNERS row). An unknown
 // pair clears the target.
 func (w *World) SetTargetPartnerSite(owner string, id uint64) {
