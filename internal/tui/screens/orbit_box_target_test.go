@@ -193,7 +193,85 @@ func TestTargetBoxDashesApPeInclForLandedGhost(t *testing.T) {
 		t.Fatalf("control: orbiting ghost shape row has dashes: %q", got)
 	}
 	w.Ghosts[0].Landed = true
-	if got := shape(); strings.Count(got, "—") != 3 {
-		t.Errorf("landed ghost Ap/Pe/incl row = %q, want three dashes", got)
+	// ADR 0066 decision 9: the dead Ap/Pe/incl row now carries ground:/bearing:
+	// for a landed ghost on the active primary; no orbit shape is invented.
+	if got := ansi.Strip(shape()); !strings.Contains(got, "ground:") || strings.Contains(got, "Ap:") {
+		t.Errorf("landed ghost shape row = %q, want ground:/bearing:, no Ap:", got)
+	}
+}
+
+// moonSiteDescentWorld: the active vessel flying over the Moon with a site
+// aimed; fall=false is a level circular orbit (never meets the ground), true
+// is a near-stop that falls onto it.
+func moonSiteDescentWorld(t *testing.T, fall bool) *sim.World {
+	t.Helper()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	for _, b := range w.System().Bodies {
+		if b.ID == "moon" {
+			c.Primary = b
+		}
+	}
+	r := c.Primary.RadiusMeters() + 100000
+	vc := math.Sqrt(c.Primary.GravitationalParameter() / r)
+	c.State.R = orbital.Vec3{X: r}
+	c.State.V = orbital.Vec3{Y: vc}
+	if fall {
+		c.State.V = orbital.Vec3{Y: 0.2 * vc}
+	}
+	c.CurrentAttitudeDir = orbital.Vec3{X: 1}
+	w.Sites = append(w.Sites, sim.Site{ID: 1, Body: c.Primary.EnglishName, System: w.System().Name, LatDeg: 1, LonDeg: 2, Name: "Test site"})
+	w.NextSiteID = 1
+	w.SetTargetSite(1)
+	return w
+}
+
+// ADR 0066 decisions 9 and 10: a site target on the active primary while
+// flying reads ground/bearing from orbit, dashes miss/cross and keeps lead:
+// until the path meets the ground, then lpd:, miss: and cross: read numbers.
+func TestTargetBoxLandBesideRows(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	cases := []struct {
+		name         string
+		fall         bool
+		wantLead     string
+		wantNoLpd    bool
+		missCrossNum bool
+	}{
+		{"orbit: ground and bearing, miss/cross dash, lead kept", false, "lead:", true, false},
+		{"falling: lpd, miss and cross read numbers", true, "lpd:", false, true},
+	}
+	for _, tc := range cases {
+		w := moonSiteDescentWorld(t, tc.fall)
+		lines := v.buildTargetBox(w)
+		if len(lines) != 5 {
+			t.Fatalf("%s: %d lines, want 5 (the box never moves)", tc.name, len(lines))
+		}
+		if g := ansi.Strip(lines[2]); !strings.Contains(g, "ground:") || !strings.Contains(g, "bearing:") || strings.Contains(g, "—") {
+			t.Errorf("%s: ground row = %q, want two numbers", tc.name, g)
+		}
+		if l := ansi.Strip(lines[3]); !strings.Contains(l, tc.wantLead) || (tc.wantNoLpd && strings.Contains(l, "lpd:")) {
+			t.Errorf("%s: lead row = %q, want %q", tc.name, l, tc.wantLead)
+		}
+		m := ansi.Strip(lines[4])
+		hasNum := !strings.Contains(m, "—")
+		if !strings.Contains(m, "miss:") || !strings.Contains(m, "cross:") || hasNum != tc.missCrossNum {
+			t.Errorf("%s: miss row = %q, numbers wanted=%v", tc.name, m, tc.missCrossNum)
+		}
+	}
+}
+
+// Landed (not flying) the rows keep the box's plain Ap/TCA labels.
+func TestTargetBoxLandBesideAbsentWhileLanded(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w := moonSiteDescentWorld(t, false)
+	w.ActiveCraft().Landed = true
+	for _, row := range v.buildTargetBox(w) {
+		if strings.Contains(row, "ground:") || strings.Contains(row, "miss:") {
+			t.Errorf("landed vessel shows a land-beside row: %q", ansi.Strip(row))
+		}
 	}
 }
