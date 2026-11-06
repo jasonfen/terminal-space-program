@@ -2,17 +2,17 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
-### Unreleased
+### v0.66.0
 
-Surface sites (ADR 0066; PRs `#865` to `#873`, `#884`, `#885`; fix `#870`). Save schema 21, session meta version 6; no tag yet.
+Surface sites (ADR 0066; PRs `#865` to `#873`, `#884`, `#885`, `#887`; fixes `#870`, `#888` to `#890`, `#892`, `#893`; tag `v0.66.0`). Save schema 21, session meta version 6.
 
 - **Flags and wrecks.** Every soft touchdown plants a flag, `Lander-1 site`; a crash leaves a wreck, `Lander-2 wreck`, that stays where it hit instead of drifting with the ground and outlives `E`. Both draw on the body disk (`⚑`, `☠`) and `j` names them.
 - **Target menu.** `t` opens a card: VESSELS, SITES ON THE MOON, PARTNERS, BODIES, nearest first. `t t` takes the first row as one `t` did. On your own site `r` renames and `d` deletes.
 - **Surface marks.** `F3` shows or hides landed vessels, flags, wrecks, partners' marks and the coverage tint. It is remembered in Settings.
-- **Landing beside a site.** Aim at a site or a landed vessel and TARGET reads `ground:`, `bearing:`, `miss:`, `cross:` and `lpd:` while you fly.
+- **Landing beside a site.** Aim at a site or a landed vessel and TARGET reads `ground:`, `bearing:`, `miss:`, `cross:` and `lpd:` while you fly; `miss:` is signed, `+` long of the site and `−` short.
 - **Deorbit onto a site.** `N` plants one retro node that stops the vessel on the targeted site; the TARGET rows read the stop point.
 - **Coverage follows the target.** The COVERAGE notice reads for the site you aimed at, and the body is tinted green where the ground is linked right now.
-- **Multiplayer.** A friend's parked lander appears as a ghost at its spot; partners' relays carry your traffic; the session keeps every player's flags and wrecks; a server restart brings every absent player's vessels back from the first frame.
+- **Multiplayer.** A friend's parked lander appears as a ghost at its spot; partners' relays carry your traffic; the session keeps every player's flags and wrecks and draws them on your map; a friend's crashed vessel sits on its crater; a server restart brings every absent player's vessels back from the first frame.
 
 ### v0.65.0
 
