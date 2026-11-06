@@ -4,8 +4,10 @@ import (
 	"math"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -130,6 +132,19 @@ type ProximityState struct {
 	// seam; TargetWorld is the seam point. Every gap field stays zero.
 	Docked      bool
 	SeamOffsetM float64
+
+	// Surface is the ADR 0067 decision 8 scene: the target is ground (a site,
+	// a landed vessel, a landed ghost) on the active vessel's primary. Frame is
+	// then the horizon at the site: RadialOut is up there, AlongTrack the
+	// vessel's ground-track direction (so it falls in from the left), CrossTrack
+	// up x along (to the left of the track). RelPos / RelVel / RangeM read the
+	// vessel against the ground point; every port field stays zero.
+	Surface bool
+	// AltM is the height above the mean radius, AltRateMS its rate (+ up).
+	// FwdVelMS / LatVelMS are the speed over the ground along the track and
+	// across it (+ to the right of the track): the LM cross-pointer's pair.
+	AltM, AltRateMS    float64
+	FwdVelMS, LatVelMS float64
 }
 
 // ProximityState resolves the close-range scene against the current
@@ -145,13 +160,19 @@ func (w *World) ProximityState() (ProximityState, bool) {
 	// gate. Ghosts come back Kepler-propagated to this world's sim-time —
 	// the same state the ghost's own drawing and the rendezvous-warp
 	// coast read, so the picture can't disagree with them.
+	// ADR 0067 decision 8: ground on this primary (a site, a landed vessel, a
+	// landed ghost) is the landing view, not a vessel to fly beside.
+	if _, _, ground := w.surfaceTargetLatLon(c); ground {
+		return w.surfaceProximityState(c)
+	}
 	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
-	// A site resolves a state but is not a vessel to fly beside (ADR 0066).
+	// A site on another body resolves a state but is not a vessel to fly
+	// beside (ADR 0066).
 	if !ok || w.Target.Kind == TargetSite {
 		return w.dockedProximityState(c)
 	}
-	// ADR 0066 decision 4: a parked ghost is ground, not a vessel to fly
-	// beside; its V = omega x R has no LVLH frame worth drawing.
+	// ADR 0066 decision 4: a ghost parked on another body is ground, not a
+	// vessel to fly beside; its V = omega x R has no LVLH frame worth drawing.
 	if g, _, isGhost := w.ResolveTargetGhost(); isGhost && g.Landed {
 		return ProximityState{}, false
 	}
@@ -193,6 +214,97 @@ func (w *World) ProximityState() (ProximityState, bool) {
 			st.HullsAlongside = parallel && overlap
 			st.HullDepthM = math.Abs(n.Dot(frame.CrossTrack))
 		}
+	}
+	return st, true
+}
+
+// groundTrackMinMps is the surface speed under which the landing view cannot
+// read a track off the vessel and points its right-hand axis at the site.
+const groundTrackMinMps = 1.0
+
+// horizontalUnit is v with its component along up removed, as a unit vector;
+// ok=false when what is left is shorter than min.
+func horizontalUnit(v, up orbital.Vec3, min float64) (orbital.Vec3, bool) {
+	h := v.Sub(up.Scale(v.Dot(up)))
+	if h.Norm() < min {
+		return orbital.Vec3{}, false
+	}
+	return h.Unit(), true
+}
+
+// landTrack latches the landing view's right-hand axis as a bearing from the
+// site's north, so the picture holds still (Camera Contract) and fwd vel / lat
+// vel are measured against a fixed line instead of the velocity they would
+// otherwise be zero against. Cleared on every enter and leave of the view.
+type landTrack struct {
+	target Target
+	set    bool
+	azRad  float64
+}
+
+// siteHorizon is the site's up, north and east (east = north x up: facing
+// north with up above, east is on the right).
+func siteHorizon(primary bodies.CelestialBody, up orbital.Vec3) (north, east orbital.Vec3) {
+	ax := render.BodyRotationAxisWorld(primary)
+	north, ok := horizontalUnit(orbital.Vec3{X: ax.X, Y: ax.Y, Z: ax.Z}, up, 1e-9)
+	if !ok { // standing on a pole
+		north = orbital.Vec3{X: 1}.Sub(up.Scale(up.X)).Unit()
+	}
+	return north, north.Cross(up)
+}
+
+// surfaceTrackDir is the direction the landing view first points right: the
+// vessel's orbital plane's track at the site (so it falls in from the left),
+// else toward the site, else east.
+func surfaceTrackDir(c *spacecraft.Spacecraft, rT, up orbital.Vec3, east orbital.Vec3) orbital.Vec3 {
+	if vGround := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary); vGround.Norm() >= groundTrackMinMps {
+		if d, ok := horizontalUnit(c.State.R.Cross(vGround).Cross(up), up, 1e-9); ok {
+			return d
+		}
+	}
+	if d, ok := horizontalUnit(rT.Sub(c.State.R), up, 0.5); ok {
+		return d
+	}
+	return east
+}
+
+// surfaceProximityState is the landing view's scene (ADR 0067 decision 8):
+// the horizon at the ground point, up its radial, right the vessel's ground
+// track there. Same resolver as the TARGET chip for the ground point's state.
+func (w *World) surfaceProximityState(c *spacecraft.Spacecraft) (ProximityState, bool) {
+	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
+	if !ok || rT.Norm() == 0 {
+		return ProximityState{}, false
+	}
+	up := rT.Unit()
+	vGround := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary)
+	north, east := siteHorizon(c.Primary, up)
+	if lt := &w.landTrack; !lt.set || lt.target != w.Target {
+		d := surfaceTrackDir(c, rT, up, east)
+		*lt = landTrack{target: w.Target, set: true, azRad: math.Atan2(d.Dot(east), d.Dot(north))}
+	}
+	fwd := north.Scale(math.Cos(w.landTrack.azRad)).Add(east.Scale(math.Sin(w.landTrack.azRad)))
+	left := up.Cross(fwd)
+	primaryPos := w.BodyPosition(c.Primary)
+	rel, relV := c.State.R.Sub(rT), c.State.V.Sub(vT)
+	st := ProximityState{
+		Frame:       orbital.LVLHFrame{AlongTrack: fwd, RadialOut: up, CrossTrack: left},
+		TargetWorld: primaryPos.Add(rT),
+		CraftWorld:  primaryPos.Add(c.State.R),
+		RelPos:      rel,
+		RelVel:      relV,
+		RangeM:      rel.Norm(),
+		VRelMS:      relV.Norm(),
+		TargetName:  w.TargetName(),
+		Surface:     true,
+		AltM:        c.State.R.Norm() - c.Primary.RadiusMeters(),
+		AltRateMS:   c.State.V.Dot(c.State.R.Unit()),
+		FwdVelMS:    vGround.Dot(fwd),
+		LatVelMS:    -vGround.Dot(left),
+	}
+	st.HullGapM = st.RangeM
+	if st.RangeM > 0 {
+		st.ClosingMS = -rel.Dot(relV) / st.RangeM
 	}
 	return st, true
 }
@@ -334,15 +446,16 @@ func (w *World) ProximityRefusal() string {
 	switch w.Target.Kind {
 	case TargetNone:
 		return "no target — [t] target menu to pick a vessel"
-	case TargetBody, TargetSite:
-		what := "a body"
-		if w.Target.Kind == TargetSite {
-			what = "a site"
+	case TargetBody:
+		return "needs a VESSEL target, not a body — [t] target menu to pick a vessel"
+	case TargetSite:
+		if s, ok := w.targetSite(); ok {
+			return "that site is on " + s.Body + ", not your primary"
 		}
-		return "needs a VESSEL target, not " + what + " — [t] target menu to pick a vessel"
+		return "that site no longer exists — [t] target menu"
 	}
-	if g, _, ok := w.ResolveTargetGhost(); ok && g.Landed {
-		return "target is parked on the ground"
+	if g, p, ok := w.ResolveTargetGhost(); ok && g.Landed {
+		return "target is parked on " + p.EnglishName + ", not your primary"
 	}
 	// A craft/ghost target that didn't resolve: a stale ref (they left,
 	// the vessel is gone) or a degenerate orbit with no defined local
@@ -377,6 +490,7 @@ func (w *World) ToggleProximityView() (entered bool, refusal string) {
 			back = w.baseProjection(ViewLaunch)
 		}
 		w.ViewMode = back
+		w.landTrack = landTrack{}
 		w.recordRow("proximity: off")
 		return false, ""
 	}
@@ -391,6 +505,7 @@ func (w *World) ToggleProximityView() (entered bool, refusal string) {
 	// comment), so this chain is always at most one hop deep and always
 	// bottoms out on the map.
 	w.ProxReturnView = w.ViewMode
+	w.landTrack = landTrack{} // a fresh entry latches a fresh track
 	w.ViewMode = ViewProximity
 	// Entering answers the hint, so it stops asking until the pair
 	// separates and closes again.
@@ -433,7 +548,7 @@ const (
 // Tick, after integration, so it reads final positions.
 func (w *World) updateProximityHint() {
 	st, ok := w.ProximityState()
-	if !ok {
+	if !ok || st.Surface { // the landing view is not a docking approach
 		w.proxHint = proximityHint{}
 		return
 	}
@@ -639,4 +754,59 @@ func (w *World) ProximityDriftPath(horizon time.Duration) ([]ProximityDriftPoint
 		return nil, false
 	}
 	return points, true
+}
+
+// LandingArc is the powered-stop path the landing view draws (ADR 0067
+// decision 8): world positions, held in the ground frame of NOW so the body's
+// turn during the brake does not smear the stop off the site.
+type LandingArc struct {
+	Points []orbital.Vec3
+	// Stopped says the brake ends at rest above the ground (the ⊙); false is a
+	// brake that meets the ground or runs dry first.
+	Stopped bool
+	// PitchUpRad is the lean the arc was integrated at: the autopilot's own
+	// while it is braking, else 0 (the plan's straight retrograde stop).
+	PitchUpRad float64
+	// FromCue: the arc starts at the brake's light on the coast, not at the
+	// vessel (it has not lit yet).
+	FromCue bool
+}
+
+// LandingStopArc integrates the stop at the reserve throttle (DeorbitBrakeThrottle,
+// S1), from the vessel while it brakes (the autopilot's pitch-up lean read from
+// its state, so the drawn arc is the one it flies) or from the plan's light on
+// the coast before that. ok=false off the surface scene or with no ground met.
+func (w *World) LandingStopArc() (LandingArc, bool) {
+	c := w.ActiveCraft()
+	if c == nil || c.Landed || c.Crashed {
+		return LandingArc{}, false
+	}
+	if _, _, ground := w.surfaceTargetLatLon(c); !ground {
+		return LandingArc{}, false
+	}
+	start, lead, pitch, fromCue := c.State, 0.0, 0.0, false
+	if ap := c.Landing; ap != nil && ap.Engaged && ap.Phase != spacecraft.PhaseCoast {
+		pitch = ap.PitchUpRad
+	} else if cue, ground, has := burnAtCue(c, deorbitHorizon, DeorbitBrakeThrottle, burnAtRefineIters); ground && has {
+		start, lead, fromCue = cue.State, cue.InSec, true
+	}
+	var trace []stopSample
+	pred, ok := predictPoweredStopTraced(start, c, deorbitHorizon-time.Duration(lead*float64(time.Second)), DeorbitBrakeThrottle, pitch, &trace)
+	if !ok || len(trace) < 2 {
+		return LandingArc{}, false
+	}
+	now, primaryPos := w.Clock.SimTime, w.BodyPosition(c.Primary)
+	pts := make([]orbital.Vec3, len(trace))
+	for i, s := range trace {
+		at := now.Add(time.Duration((lead + s.T) * float64(time.Second)))
+		lat, lon := render.WorldToBodyFixed(c.Primary, unitV(s.R), at)
+		d := render.BodyFixedToWorld(c.Primary, lat, lon, now)
+		pts[i] = primaryPos.Add(orbital.Vec3{X: d.X, Y: d.Y, Z: d.Z}.Scale(s.R.Norm()))
+	}
+	if pred.Outcome == StopStopped { // the integrator ran one step past the floor: end on the bisected stop
+		lat, lon := render.WorldToBodyFixed(c.Primary, unitV(pred.StopR), now.Add(time.Duration((lead+pred.ElapsedSec)*float64(time.Second))))
+		d := render.BodyFixedToWorld(c.Primary, lat, lon, now)
+		pts[len(pts)-1] = primaryPos.Add(orbital.Vec3{X: d.X, Y: d.Y, Z: d.Z}.Scale(pred.StopR.Norm()))
+	}
+	return LandingArc{Points: pts, Stopped: pred.Outcome == StopStopped, PitchUpRad: pitch, FromCue: fromCue}, true
 }

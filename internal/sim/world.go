@@ -214,6 +214,8 @@ type World struct {
 	// hint chip (ADR 0043) — see proximity.go. Session state; never
 	// persisted, and its zero value is the correct cold start.
 	proxHint proximityHint
+	// landTrack is the landing view's latched right-hand axis (ADR 0067 S3).
+	landTrack landTrack
 
 	// navAuto is the edge memory behind the automatic navball-frame
 	// switches (#601, nav_auto.go). Transient: never saved.

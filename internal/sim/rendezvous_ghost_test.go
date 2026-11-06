@@ -221,8 +221,9 @@ func TestNodeTargetRelState_GhostAndCraftAndStale(t *testing.T) {
 }
 
 // ADR 0066 decision 4 (guard 7, refusal half): a landed ghost is targetable
-// but K and Proximity View refuse it; the same ghost in orbit
-// (the equal case) is not refused.
+// but K and the dock gate refuse it; the same ghost in orbit (the equal case)
+// is not refused. Proximity View opens it as the landing view (ADR 0067 S3),
+// never as a docking scene.
 func TestLandedGhostRefusedByKProximityAndDockGate(t *testing.T) {
 	relR := orbital.Vec3{X: 7.1e6}
 	relV := orbital.Vec3{Y: 7400}
@@ -234,11 +235,8 @@ func TestLandedGhostRefusedByKProximityAndDockGate(t *testing.T) {
 		t.Fatalf("control: orbiting ghost refused by K: %v", err)
 	}
 	w.Ghosts[0].Landed = true
-	if w.ProximityAvailable() {
-		t.Error("Proximity View opened on a landed ghost")
-	}
-	if w.ProximityRefusal() == "" {
-		t.Error("no refusal sentence for a landed ghost")
+	if st, ok := w.ProximityState(); !ok || !st.Surface || w.ProximityDockGateReady(st) {
+		t.Errorf("landed ghost: ok=%v Surface=%v, want the landing scene (never a dock gate)", ok, st.Surface)
 	}
 	if _, err := w.PlanRendezvousOrOpenPicker(); !errors.Is(err, ErrRendezvousNoTarget) {
 		t.Errorf("K on a landed ghost = %v, want ErrRendezvousNoTarget", err)
