@@ -55,7 +55,7 @@ func TestBurnVectorImpulsiveFiresAlongCapturedDir(t *testing.T) {
 		BurnDirUnit: dir,
 	})
 	c.Thrust = thrust // Audit 18: firing needs an engine
-	w.Tick() // advances sim-time past TriggerTime → node fires
+	w.Tick()          // advances sim-time past TriggerTime → node fires
 
 	dV := c.State.V.Sub(vBefore)
 	// The applied Δv should be dir·dv plus a small one-tick gravity/coast

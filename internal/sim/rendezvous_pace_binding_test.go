@@ -119,7 +119,7 @@ func TestHoldRendezvousLeader_DeadbandIsConstantAtHighWarp(t *testing.T) {
 	w.RendezvousHold, w.RendezvousPaced, w.RendezvousPaceWarp = false, false, 0
 	w.holdRendezvousLeader(partner)
 	if !w.RendezvousPaced {
-		t.Errorf("RendezvousPaced = false one second past the constant deadband at EffWarp 100: "+
+		t.Errorf("RendezvousPaced = false one second past the constant deadband at EffWarp 100: " +
 			"the deadband must not scale with the partner's rate now that its clock is current")
 	}
 }

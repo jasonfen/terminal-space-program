@@ -3,8 +3,10 @@ package sim
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 )
 
 const moonR = 1737400.0
@@ -111,5 +113,89 @@ func TestLandBesideEqualPointHasNoBearing(t *testing.T) {
 	lb, ok := w.LandBesideReading()
 	if !ok || lb.GroundM > 1e-3 || lb.BearingOK {
 		t.Errorf("above the site: ground=%v bearingOK=%v, want 0 and a dash", lb.GroundM, lb.BearingOK)
+	}
+}
+
+// ADR 0066 decision 21 / guard 19: a vessel that can stop reads the stop point,
+// tagged as a plan before the burn and live after it, never the free fall; a
+// vessel that cannot stop reads the free-fall impact as before.
+func TestLandBesideReadsTheStopPointForAVesselThatCanStop(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	lb, ok := w.LandBesideReading()
+	if !ok || !lb.Planned || !lb.MissOK || lb.ImpactOK || math.Abs(lb.MissM) > 500 || math.Abs(lb.CrossM) > 500 {
+		t.Fatalf("before the burn: %+v, want the plan's stop within 500 m, tagged Planned, no impact yet", lb)
+	}
+	for i := 0; (len(c.Nodes) > 0 || c.ActiveBurn != nil || i == 0) && i < 80000; i++ {
+		w.Tick()
+	}
+	lb, _ = w.LandBesideReading()
+	if lb.Planned || !lb.Stop || !lb.ImpactOK || math.Abs(lb.MissM) > 1000 || math.Abs(lb.CrossM) > 1000 {
+		t.Errorf("after the burn: %+v, want the live stop within 1 km of the site", lb)
+	}
+	// the free fall lands hundreds of km beyond the stop: the rows must not read it
+	imp, found := PredictImpact(c, DescentPredictHorizon)
+	if !found {
+		t.Fatal("no free-fall impact")
+	}
+	s := w.Sites[0]
+	subLat, subLon := render.WorldToBodyFixed(c.Primary, unitV(c.State.R), w.Clock.SimTime)
+	iLat, iLon := render.WorldToBodyFixed(c.Primary, unitV(imp.Point), w.Clock.SimTime.Add(imp.TimeToImpact))
+	ffMiss, _, _ := ImpactOffsetM(subLat, subLon, iLat, iLon, s.LatDeg, s.LonDeg, c.Primary.RadiusMeters())
+	if ffMiss < 100e3 {
+		t.Errorf("free fall is %.0f m long, want hundreds of km (the stop is not the crash)", ffMiss)
+	}
+	// a capsule (no engine to brake with) reads the free fall
+	for i := range c.Stages {
+		c.Stages[i].Thrust = 0
+	}
+	c.SyncFields()
+	lb, _ = w.LandBesideReading()
+	if lb.Stop || math.Abs(lb.MissM-ffMiss) > 1 {
+		t.Errorf("capsule: %+v, want the free fall (%.0f m long)", lb, ffMiss)
+	}
+}
+
+// Guard 20: braking with a heading trim held, cross: reads where you would stop
+// if you straightened now, so it closes toward 0 monotonically and does not flip
+// sign until it is under 1 km; with no trim it stays put (the equal case).
+func TestLandBesideCrossClosesUnderAHeldTrim(t *testing.T) {
+	series := func(trimDeg float64) []float64 {
+		w, c := deorbitWorld(t, 150, 0)
+		if _, err := w.PlanDeorbitOntoSite(); err != nil {
+			t.Fatal(err)
+		}
+		w.Sites[0].LatDeg += 0.5 // crossrange for the trim to take out
+		w.Clock.BaseStep = time.Second
+		var xs []float64
+		n := 0
+		flyDeorbitTrim(t, w, c, 0, 0.9, trimDeg*rad, func() bool {
+			if n++; n%10 == 1 { // every 10 s of braking
+				lb, _ := w.LandBesideReading()
+				xs = append(xs, lb.CrossM)
+			}
+			return len(xs) >= 8
+		})
+		return xs
+	}
+	trimmed := series(1)
+	if len(trimmed) < 8 || math.Abs(trimmed[0]) < 2000 {
+		t.Fatalf("setup: %v, want 8 samples starting over 2 km across", trimmed)
+	}
+	for i := 1; i < len(trimmed); i++ {
+		if math.Abs(trimmed[i]) >= math.Abs(trimmed[i-1])-1 {
+			t.Errorf("sample %d: cross %.0f from %.0f, want it to fall by more than 1 m", i, trimmed[i], trimmed[i-1])
+		}
+		if math.Abs(trimmed[i-1]) >= 1000 && trimmed[i]*trimmed[i-1] < 0 {
+			t.Errorf("sample %d: cross flipped sign at %.0f m, before it was under 1 km", i, trimmed[i-1])
+		}
+	}
+	flat := series(0)
+	for i := 1; i < len(flat); i++ {
+		if math.Abs(flat[i]-flat[i-1]) > 1 {
+			t.Errorf("no trim, sample %d: cross moved %.0f -> %.0f, want unchanged within 1 m", i, flat[i-1], flat[i])
+		}
 	}
 }

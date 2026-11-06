@@ -257,7 +257,7 @@ func TestActiveLandedVesselAtPoleRefusesPlaneMatchAndDrawsNoMarkers(t *testing.T
 			t.Fatalf("SpawnCraft (pole): %v", err)
 		}
 		w.ActiveCraftIdx = 2 // the pole-landed craft.
-		w.SetTargetCraft(1) // the orbiting craft.
+		w.SetTargetCraft(1)  // the orbiting craft.
 		if w.Target.Kind != TargetCraft {
 			t.Fatalf("setup: expected TargetCraft, got %v", w.Target.Kind)
 		}

@@ -1,12 +1,14 @@
 package sim
 
 import (
+	"errors"
 	"math"
 	"testing"
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -38,6 +40,7 @@ func deorbitWorld(t *testing.T, aheadDeg, offDeg float64) (*World, *spacecraft.S
 	c.State.M = c.TotalMass()
 	c.CurrentAttitudeDir = c.State.V.Unit()
 	w.SetTargetSite(s.ID)
+	w.Clock.BaseStep = 250 * time.Millisecond
 	return w, c
 }
 
@@ -45,9 +48,14 @@ func deorbitWorld(t *testing.T, aheadDeg, offDeg float64) (*World, *spacecraft.S
 // burn, then lights a 90 % surface-retrograde brake at the cue and returns the
 // stop point's offset from the site.
 func flyDeorbit(t *testing.T, w *World, c *spacecraft.Spacecraft, lightDelaySec, brakeThrottle float64) (long, cross, stopAlt float64) {
+	return flyDeorbitTrim(t, w, c, lightDelaySec, brakeThrottle, 0, nil)
+}
+
+// flyDeorbitTrim is flyDeorbit holding a heading trim (radians) through the
+// brake and calling each after every braking tick.
+func flyDeorbitTrim(t *testing.T, w *World, c *spacecraft.Spacecraft, lightDelaySec, brakeThrottle, trim float64, each func() bool) (long, cross, stopAlt float64) {
 	t.Helper()
 	w.Clock.WarpIdx = 0
-	w.Clock.BaseStep = 250 * time.Millisecond
 	site := w.Sites[0]
 	var lit bool
 	minSpeed := math.Inf(1)
@@ -73,11 +81,18 @@ func flyDeorbit(t *testing.T, w *World, c *spacecraft.Spacecraft, lightDelaySec,
 				c.CurrentAttitudeDir = physicsRel(c).Scale(-1).Unit()
 				c.AttitudeMode = spacecraft.BurnSurfaceRetrograde
 				c.Throttle = brakeThrottle
+				if trim != 0 {
+					c.SeedHeadingTrim()
+					c.HeadingTrim += trim
+				}
 				c.ManualBurn = &spacecraft.ManualBurn{}
 				lit = true
 			}
 		}
 		if lit {
+			if each != nil && each() {
+				break
+			}
 			sp := physicsRel(c).Norm()
 			if sp < minSpeed {
 				minSpeed, stopR, stopT = sp, c.State.R, w.Clock.SimTime
@@ -177,9 +192,99 @@ func TestDeorbitCannotStopAimsTheFreeFall(t *testing.T) {
 	for i := 0; (len(c.Nodes) > 0 || c.ActiveBurn != nil || i == 0) && i < 80000; i++ {
 		w.Tick()
 	}
-	t.Logf("nodes=%d burn=%v v=%.1f t=%v", len(c.Nodes), c.ActiveBurn != nil, c.State.V.Norm(), w.Clock.SimTime)
 	lb, ok := w.LandBesideReading()
 	if !ok || !lb.ImpactOK || lb.Stop || math.Abs(lb.MissM) > 1000 || math.Abs(lb.CrossM) > 1000 {
 		t.Errorf("after the burn: %+v, want the free-fall within 1 km of the site", lb)
+	}
+}
+
+// Guard 18: each refusal returns its line verbatim.
+func TestDeorbitRefusalsVerbatim(t *testing.T) {
+	cases := []struct {
+		name string
+		want error
+		mod  func(w *World, c *spacecraft.Spacecraft)
+	}{
+		{"no site", ErrDeorbitNoSite, func(w *World, c *spacecraft.Spacecraft) { w.ClearTarget() }},
+		{"other body", ErrDeorbitOtherBody, func(w *World, c *spacecraft.Spacecraft) { w.Sites[0].Body = "Earth" }},
+		{"on the ground", ErrDeorbitLanded, func(w *World, c *spacecraft.Spacecraft) { c.Landed = true }},
+		{"no signal", ErrDeorbitNoSignal, func(w *World, c *spacecraft.Spacecraft) { c.Crewed = false }},
+		{"no orbit", ErrDeorbitNoOrbit, func(w *World, c *spacecraft.Spacecraft) { c.State.V = c.State.V.Scale(1.6) }},
+		{"already falling", ErrDeorbitFalling, func(w *World, c *spacecraft.Spacecraft) { c.State.V = c.State.V.Scale(0.8) }},
+		{"no solution", ErrDeorbitNoSolution, func(w *World, c *spacecraft.Spacecraft) {
+			c.Stages[0].FuelMass = 5 // a stop that never finishes: dry before it stops
+			c.SyncFields()
+			c.Crewed, c.Controllable = true, true
+		}},
+	}
+	lines := map[error]string{
+		ErrDeorbitNoSite: "no site targeted, press t", ErrDeorbitOtherBody: "site not on this body",
+		ErrDeorbitLanded: "on the ground", ErrDeorbitNoSignal: "NO SIGNAL", ErrDeorbitNoOrbit: "no orbit to leave",
+		ErrDeorbitFalling: "already falling, fly miss:", ErrDeorbitNoSolution: "no solution from this orbit",
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			w, c := deorbitWorld(t, 150, 0)
+			tc.mod(w, c)
+			_, err := w.PlanDeorbitOntoSite()
+			if err != tc.want || err.Error() != lines[tc.want] {
+				t.Errorf("err = %v, want %q", err, lines[tc.want])
+			}
+			if len(c.Nodes) != 0 {
+				t.Errorf("a refusal planted %d nodes", len(c.Nodes))
+			}
+		})
+	}
+}
+
+// Guard 18: a site 1.0 degree off the track plants (the equal case at the cap)
+// and 1.1 refuses with the angle and when the ground brings it under the track.
+func TestDeorbitOffTrackCap(t *testing.T) {
+	w, c := deorbitWorld(t, 60, DeorbitMaxOffTrackDeg)
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatalf("1.0 deg off the track: %v, want a plant", err)
+	}
+	w, c = deorbitWorld(t, 60, 1.1)
+	_, err := w.PlanDeorbitOntoSite()
+	var e *DeorbitOffTrackError
+	if !errors.As(err, &e) {
+		t.Fatalf("1.1 deg off the track: %v, want an off-track refusal", err)
+	}
+	if math.Abs(e.OffDeg-1.1) > 1e-6 || !e.Reaches || e.UnderIn <= 0 {
+		t.Errorf("refusal = %+v, want 1.1 deg, reachable, under it in > 0", e)
+	}
+	if len(c.Nodes) != 0 {
+		t.Error("a refusal planted a node")
+	}
+	// the stated time is when the site is on the plane (the instrument, checked)
+	s := w.Sites[0]
+	h := c.State.R.Cross(c.State.V).Unit()
+	if off := math.Abs(siteVec(c, s.LatDeg, s.LonDeg, w.Clock.SimTime.Add(e.UnderIn)).Dot(h)); off > 1e-4 {
+		t.Errorf("site is %.2g (sin of the angle) off the plane at the stated time, want ~0", off)
+	}
+}
+
+// Guard 18: an equatorial orbit never reaches a site at 12.5 N; a site at the
+// inclination's own latitude counts as reachable.
+func TestDeorbitOffTrackReachability(t *testing.T) {
+	w, c := deorbitWorld(t, 60, 0)
+	mu := c.Primary.GravitationalParameter()
+	r := c.State.R.Norm()
+	spin := vec3(render.BodyRotationAxisWorld(c.Primary))
+	x := spin.Cross(orbital.Vec3{X: 1}).Unit().Cross(spin).Unit() // in the equator
+	c.State.R = x.Scale(r)
+	c.State.V = spin.Cross(x).Unit().Scale(math.Sqrt(mu / r))
+	_, err := w.PlanDeorbitOntoSite()
+	var e *DeorbitOffTrackError
+	if !errors.As(err, &e) || e.Reaches || math.Abs(e.ReachDeg) > 1e-6 {
+		t.Fatalf("equatorial orbit: %v (%+v), want unreachable, reaches 0", err, e)
+	}
+	// tilt the orbit to exactly the site's latitude
+	lat := w.Sites[0].LatDeg
+	h := rotAbout(spin, x, lat)
+	c.State.V = h.Cross(x).Unit().Scale(math.Sqrt(mu / r))
+	_, err = w.PlanDeorbitOntoSite()
+	if !errors.As(err, &e) || !e.Reaches {
+		t.Errorf("orbit inclined to the site's latitude: %v (%+v), want reachable", err, e)
 	}
 }

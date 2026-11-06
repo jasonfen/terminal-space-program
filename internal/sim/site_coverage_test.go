@@ -150,7 +150,10 @@ func TestSiteCoverageSharedAndLandedRelays(t *testing.T) {
 	wall := time.Unix(1000, 0)
 	siteCovWallNow = func() time.Time { wall = wall.Add(time.Hour); return wall }
 	defer func() { siteCovWallNow = time.Now }()
-	cov := func(lat, lon float64) siteCoverage { c, _ := w.SiteCoverage("moon", lat, lon, siteTestLap, siteTestStep); return c }
+	cov := func(lat, lon float64) siteCoverage {
+		c, _ := w.SiteCoverage("moon", lat, lon, siteTestLap, siteTestStep)
+		return c
+	}
 	surf := func(lat, lon float64) (r, v orbital.Vec3) { return surfacePointState(moon, lat, lon, w.Clock.SimTime) }
 
 	// A partner's flying relay over the near site.
@@ -206,7 +209,7 @@ func TestSiteCoverageKeyHasGhosts(t *testing.T) {
 	rM := moon.RadiusMeters() + 3e6
 	g := func(owner string, dr float64) Ghost {
 		return Ghost{Owner: owner, CraftID: 1, PrimaryID: "moon", RelPos: dirE.Scale(rM + dr),
-			Vel: orbital.Vec3{X: -dirE.Y, Y: dirE.X}.Scale(sqrtMuOverR(moon.GravitationalParameter(), rM)),
+			Vel:         orbital.Vec3{X: -dirE.Y, Y: dirE.X}.Scale(sqrtMuOverR(moon.GravitationalParameter(), rM)),
 			AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar, Controllable: true}
 	}
 	addMoonCraft(w, spacecraft.AntennaRelay, spacecraft.AntennaRangeRelayCislunar, dirE, rM).ID = 1

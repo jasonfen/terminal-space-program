@@ -129,7 +129,7 @@ func meanStdev(xs []float64) (mean, stdev float64) {
 		d := x - mean
 		sq += d * d
 	}
-	return mean, math.Sqrt(sq/float64(len(xs)))
+	return mean, math.Sqrt(sq / float64(len(xs)))
 }
 
 // TestRendezvousLeaderSettlesInsteadOfBangBanging is the harness Part 1
