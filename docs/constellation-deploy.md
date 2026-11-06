@@ -35,8 +35,8 @@ only drift apart by the difference in their orbital rates, so the closer the
 target the longer the wait) and `spread: not on one orbit`. From 500 km to 550
 km the last satellite starts about 5 days 19 hours in.
 
-The released batch is one stop on the `t` target cycle: `t` lands on the
-nearest member, and the carrier is its own stop. To aim at one particular
+The released batch is one row in the `t` target menu: `t t` takes the
+nearest member, and the carrier is its own row. To aim at one particular
 member, `j` to it and press `enter`, or fly it with `]` and target from there.
 
 The rest of this page is the manual way, one `Y` per comsat.
