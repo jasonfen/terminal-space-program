@@ -597,6 +597,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			burnMsgs = append(burnMsgs, e.Text)
 		}
 		a.world.PendingRaiseEvents = nil
+		for _, e := range a.world.PendingLandingEvents {
+			burnMsgs = append(burnMsgs, landingFlash(e))
+		}
+		a.world.PendingLandingEvents = nil
 		for c := range boostersLit {
 			if !sim.BoosterSolidsLit(c) && len(c.Stages) > 0 && c.Stages[0].LitWithAbove && c.Stages[0].FuelMass <= 0 {
 				burnMsgs = append(burnMsgs, "boosters burned out")
@@ -1874,10 +1878,12 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Pre-fix the attitude keys auto-started the burn, which
 		// was easy to trigger by accident.
 		case key.Matches(m, a.keys.ThrottleFull):
+			a.world.LandingHandOverThrottle() // ADR 0067: z/x give the raw throttle back, steering kept
 			a.world.SetThrottle(1.0)
 			a.world.RecordAction(missions.ActionThrottleFull) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleCut):
+			a.world.LandingHandOverThrottle()
 			a.world.SetThrottle(0)
 			a.world.RecordAction(missions.ActionThrottleCut) // ADR 0025 §7
 			return a, nil
@@ -1889,18 +1895,30 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleUp):
+			if a.world.LandingROD(+sim.RODStepMps) { // ADR 0067: under Site+, Z/X step a descent rate
+				return a, nil
+			}
 			a.world.AdjustThrottle(0.1)
 			a.world.RecordAction(missions.ActionThrottleUp) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleDown):
+			if a.world.LandingROD(-sim.RODStepMps) {
+				return a, nil
+			}
 			a.world.AdjustThrottle(-0.1)
 			a.world.RecordAction(missions.ActionThrottleDown) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleUpFine):
+			if a.world.LandingROD(+sim.RODFineStepMps) {
+				return a, nil
+			}
 			a.world.AdjustThrottle(0.01)
 			a.world.RecordAction(missions.ActionThrottleUp) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleDownFine):
+			if a.world.LandingROD(-sim.RODFineStepMps) {
+				return a, nil
+			}
 			a.world.AdjustThrottle(-0.01)
 			a.world.RecordAction(missions.ActionThrottleDown) // ADR 0025 §7
 			return a, nil
@@ -3052,7 +3070,53 @@ func (a *App) handleAttitudeKey(mode spacecraft.BurnMode) {
 		a.world.FireRCSPulse(mode)
 		return
 	}
+	if mode == spacecraft.BurnSite { // ADR 0067 decision 5: q in SITE engages the landing autopilot
+		if err := a.world.EngageLandingAutopilot(); err != nil {
+			a.refuse("site hold", siteHoldRefusal(err))
+		}
+		return
+	}
 	a.world.SetAttitudeMode(mode)
+}
+
+// siteHoldRefusal is one factual footer line for a refused q in SITE (ADR 0067
+// decision 10): N's own lines, thrust under weight, or the signed shortfall of
+// the reserve-throttle stop (+ long, U+2212 short; across with R / L).
+func siteHoldRefusal(err error) string {
+	var reach *sim.SiteHoldReachError
+	if !errors.As(err, &reach) {
+		return err.Error()
+	}
+	if math.Abs(reach.AlongM) >= math.Abs(reach.CrossM) {
+		return "stop " + signedDistance(reach.AlongM) + " at reserve throttle"
+	}
+	side := "R"
+	if reach.CrossM < 0 {
+		side = "L"
+	}
+	return "stop " + readout.Distance(math.Abs(reach.CrossM)) + " " + side + " at reserve throttle"
+}
+
+// signedDistance is a distance with the `+` long / U+2212 short sign of miss:.
+func signedDistance(m float64) string {
+	if m < 0 {
+		return "\u2212" + readout.Distance(-m)
+	}
+	return "+" + readout.Distance(m)
+}
+
+// landingFlash is the Event Flash for the landing autopilot's contact (ADR
+// 0067 decision 5): the true distance from the real site.
+func landingFlash(e sim.LandingEvent) string {
+	verb := "landed"
+	if e.Crashed {
+		verb = "crashed"
+	}
+	s := fmt.Sprintf("%s %s %s from %s", e.CraftName, verb, readout.Distance(e.DistanceM), e.SiteName)
+	if e.OutOfReach && !e.Crashed {
+		s += " (out of reach)"
+	}
+	return s
 }
 
 // handleAttitudeIntent translates the player's SAS-axis input through

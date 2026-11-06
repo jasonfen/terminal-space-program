@@ -1,6 +1,7 @@
 package sim
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -323,5 +324,32 @@ func (w *World) AttitudeHoldParts(mode spacecraft.BurnMode) (string, NavMode) {
 	// Retrograde (SURF)" -> "Retrograde (SURF)"). The frame was being
 	// named three times on the row otherwise: here, the tag, and (before
 	// NavMode.String()'s own A2 fix) the nav: cell beside it.
+	if mode == spacecraft.BurnSite {
+		return w.siteHoldLabel(), frame
+	}
 	return strings.TrimPrefix(mode.String(), "Surface "), frame
+}
+
+// siteHoldLabel is the Site+ hold's name with the autopilot's phase (ADR 0067
+// decision 5): `Site+ brake`, `Site+ approach`, `Site+ final`, and under ROD
+// `Site+ ROD −1.0 m/s`. Armed and still coasting it is plain `Site+`.
+func (w *World) siteHoldLabel() string {
+	label := spacecraft.BurnSite.String()
+	c := w.ActiveCraft()
+	if c == nil || c.Landing == nil || !c.Landing.Engaged {
+		return label
+	}
+	ap := c.Landing
+	switch {
+	case ap.ROD:
+		sign := "\u2212"
+		rate := -ap.RODRateMps
+		if ap.RODRateMps > 0 {
+			sign, rate = "+", ap.RODRateMps
+		}
+		return fmt.Sprintf("%s ROD %s%.1f m/s", label, sign, rate)
+	case ap.Phase != spacecraft.PhaseCoast:
+		return label + " " + ap.Phase.Word()
+	}
+	return label
 }

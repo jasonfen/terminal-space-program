@@ -45,11 +45,11 @@ const (
 	apThrottleEpsilon = 0.005
 )
 
-// Refusals for q in [SITE] (decision 10). N's own lines (ErrDeorbit*) are reused
-// verbatim; these are the autopilot's.
+// Refusals for q in [SITE] (decision 10), shown as `site hold: <reason>`. N's own
+// lines (ErrDeorbit*) are reused verbatim; these are the autopilot's.
 var (
-	ErrSiteHoldUnderWeight = errors.New("site hold: thrust under weight")
-	ErrSiteHoldCannotStop  = errors.New("site hold: cannot stop at reserve throttle")
+	ErrSiteHoldUnderWeight = errors.New("thrust under weight")
+	ErrSiteHoldCannotStop  = errors.New("cannot stop at reserve throttle")
 )
 
 // SiteHoldReachError is the "site out of reach" refusal: the reserve-throttle
@@ -57,7 +57,7 @@ var (
 // signed (+ long, - short), CrossM signed (+ right).
 type SiteHoldReachError struct{ AlongM, CrossM float64 }
 
-func (e *SiteHoldReachError) Error() string { return "site hold: out of reach" }
+func (e *SiteHoldReachError) Error() string { return "out of reach" }
 
 // LandingEvent is the Event Flash for a landing the pilot may not have watched
 // (decision 5): touchdown, out-of-reach landing, crash, with the true distance.
