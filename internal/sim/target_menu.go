@@ -4,7 +4,11 @@
 
 package sim
 
-import "sort"
+import (
+	"sort"
+
+	"github.com/jasonfen/terminal-space-program/internal/missions"
+)
 
 // TargetGroup is a menu section, in display order.
 type TargetGroup int
@@ -98,3 +102,7 @@ func (w *World) TargetMenu() (rows []TargetRow, open int) {
 	}
 	return rows, open
 }
+
+// RecentActions is the event-objective sink as of now (ADR 0025 section 6),
+// read by the tui tests that pin a menu commit records cycle_target.
+func (w *World) RecentActions() []missions.Action { return w.recentActions }

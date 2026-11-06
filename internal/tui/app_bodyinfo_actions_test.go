@@ -4,6 +4,9 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -72,16 +75,48 @@ func TestBodyInfoPorkchopRefusesWithoutTarget(t *testing.T) {
 	}
 }
 
-// `t` on the map is still the nearest-first cycle (settled, unchanged).
+// ADR 0066 guards 1 and 2: `t` on the map opens the target menu without
+// aiming; `t` again takes the row one press used to aim at (nearest-first),
+// and only that commit records cycle_target.
 func TestOrbitScreenTargetStillCycles(t *testing.T) {
 	a, mars := bodyInfoApp(t, "mars")
 	a.active = screenOrbit
 	pressKey(a, 't')
+	if !a.targetMenuOpen || a.world.Target.Kind != sim.TargetNone || len(a.world.RecentActions()) != 0 {
+		t.Fatalf("first t: open=%v target=%v actions=%v, want menu open, no target, no action", a.targetMenuOpen, a.world.Target, a.world.RecentActions())
+	}
+	pressKey(a, 't')
+	if a.targetMenuOpen {
+		t.Fatalf("second t left the menu open")
+	}
 	if a.world.Target.Kind == sim.TargetBody && a.world.Target.BodyIdx == mars {
-		t.Fatalf("orbit-screen t jumped to the cursor body Mars; must cycle nearest-first")
+		t.Fatalf("orbit-screen t t jumped to the cursor body Mars; must take the nearest-first step")
 	}
 	if a.world.Target.Kind == sim.TargetNone {
-		t.Fatalf("orbit-screen t did not advance the cycle")
+		t.Fatalf("orbit-screen t t did not target anything")
+	}
+	if got := a.world.RecentActions(); len(got) != 1 || got[0] != missions.ActionCycleTarget {
+		t.Fatalf("recent actions = %v, want [cycle_target]", got)
+	}
+}
+
+// esc closes the menu with the target untouched; warp keys still reach the clock.
+func TestTargetMenuEscClosesAndWarpKeysPass(t *testing.T) {
+	a, _ := bodyInfoApp(t, "mars")
+	a.active = screenOrbit
+	pressKey(a, 't')
+	before := a.world.Clock.WarpIdx
+	pressKey(a, '.')
+	if a.world.Clock.WarpIdx == before {
+		t.Errorf("warp-up key swallowed by the open menu")
+	}
+	pressKey(a, 'x') // any other flight key is swallowed
+	if !a.targetMenuOpen {
+		t.Fatalf("menu closed on a stray key")
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if a.targetMenuOpen || a.world.Target.Kind != sim.TargetNone {
+		t.Errorf("esc: open=%v target=%v, want closed and untouched", a.targetMenuOpen, a.world.Target)
 	}
 }
 
@@ -138,5 +173,82 @@ func TestBodyInfoTargetWithVesselInAnotherSystem(t *testing.T) {
 	pressKey(a, 't')
 	if a.world.Target.Kind != sim.TargetBody || a.world.Target.BodyIdx != earth {
 		t.Fatalf("target = %+v, want Earth %d (statusMsg %q)", a.world.Target, earth, a.statusMsg)
+	}
+}
+
+// moonSiteApp has the active vessel at the Moon with one flag of its own.
+func moonSiteApp(t *testing.T) *App {
+	t.Helper()
+	a, _ := bodyInfoApp(t, "moon")
+	a.active = screenOrbit
+	c := a.world.ActiveCraft()
+	c.Primary = a.world.System().Bodies[bodyIdx(t, a, "moon")]
+	a.world.Sites = []sim.Site{{ID: 7, Body: c.Primary.EnglishName, System: a.world.System().Name,
+		LatDeg: 1, LonDeg: 2, Kind: sim.SiteFlag, Name: "Lander-1 site"}}
+	a.world.NextSiteID = 7
+	return a
+}
+
+func tapKey(a *App, k tea.KeyType) { a.Update(tea.KeyMsg{Type: k}) }
+
+// pickSiteRow walks the cursor to the site row (down is bounded by the list).
+func pickSiteRow(t *testing.T, a *App) {
+	t.Helper()
+	pressKey(a, 't')
+	for i := 0; i < 40; i++ {
+		if r, ok := a.targetMenu.Row(); ok && r.Group == sim.GroupSites {
+			return
+		}
+		tapKey(a, tea.KeyDown)
+	}
+	t.Fatalf("no site row in the menu")
+}
+
+// ADR 0066 guard 6 (the d half): d on your own site asks delete / keep it;
+// yes removes it and clears a target on it, keep it leaves both.
+func TestTargetMenuDeleteCardRemovesSiteAndClearsTarget(t *testing.T) {
+	a := moonSiteApp(t)
+	a.world.SetTargetSite(7)
+	pickSiteRow(t, a)
+	pressKey(a, 'd')
+	if a.card == nil || a.card.kind != cardDeleteSite {
+		t.Fatalf("d raised no delete card")
+	}
+	pressKey(a, 'n') // keep it
+	if len(a.world.Sites) != 1 || a.world.Target.Kind != sim.TargetSite {
+		t.Fatalf("keep it removed the site or the target")
+	}
+	pressKey(a, 'd')
+	pressKey(a, 'y')
+	pressKey(a, 'y') // the second step
+	if len(a.world.Sites) != 0 || a.world.Target.Kind != sim.TargetNone {
+		t.Errorf("sites=%d target=%v, want none and cleared", len(a.world.Sites), a.world.Target)
+	}
+}
+
+// r renames: the field swallows letters (a flight key like d is text), enter
+// stores the name, esc drops the edit.
+func TestTargetMenuRenameTypesText(t *testing.T) {
+	a := moonSiteApp(t)
+	pickSiteRow(t, a)
+	pressKey(a, 'r')
+	if !a.capturingText() {
+		t.Fatalf("rename field not capturing text")
+	}
+	for i := 0; i < len("Lander-1 site"); i++ {
+		tapKey(a, tea.KeyBackspace)
+	}
+	for _, r := range "Tranquil d" {
+		pressKey(a, r)
+	}
+	tapKey(a, tea.KeyEnter)
+	if got := a.world.Sites[0].Name; got != "Tranquil d" || a.capturingText() {
+		t.Errorf("name = %q capturing=%v, want %q and done", got, a.capturingText(), "Tranquil d")
+	}
+	pressKey(a, 'r')
+	pressKey(a, 'z')
+	tapKey(a, tea.KeyEsc)
+	if a.world.Sites[0].Name != "Tranquil d" || !a.targetMenuOpen {
+		t.Errorf("esc in the field changed the name or closed the menu")
 	}
 }

@@ -149,6 +149,9 @@ type App struct {
 	maneuver   *screens.Maneuver
 	porkchop   *screens.Porkchop
 	menu       *screens.Menu
+	// targetMenu is the `t` card (ADR 0066 decision 2); targetMenuOpen says it is up.
+	targetMenu     *screens.TargetMenu
+	targetMenuOpen bool
 	// card is the one question on screen (ADR 0054, #633): the quit prompt
 	// or a flight ask (end flight, transpose, deploy, quickload), drawn
 	// over the dimmed screen. nil = no question is up.
@@ -328,6 +331,7 @@ func New(scenario *sim.StartScenario) (*App, error) {
 		altBox:     screens.NewAltitudeBox(sth),
 		porkchop:   screens.NewPorkchop(sth),
 		menu:       screens.NewMenu(sth),
+		targetMenu: screens.NewTargetMenu(sth),
 		missions:   screens.NewMissions(sth),
 		spawn:      screens.NewSpawnCraft(sth),
 
@@ -1094,6 +1098,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// arm underneath an open input.
 		if a.chatOpen {
 			return a.handleChatKey(m)
+		}
+		// The target menu (ADR 0066) swallows every key but the warp keys.
+		if a.targetMenuOpen && !key.Matches(m, a.keys.WarpUp, a.keys.WarpDown, a.keys.CancelWarp) {
+			return a.handleTargetMenuKey(m)
 		}
 		// ~ opens chat from the flight view (ADR 0035 §4; U+007E, a
 		// different rune from the U+0060 boss key, and absent from every
@@ -2082,6 +2090,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.doTargetShownBody()
 				return a, nil
 			}
+			if a.active == screenOrbit {
+				a.targetMenu.Open(a.world)
+				a.targetMenuOpen = true
+				return a, nil
+			}
 			a.world.CycleTarget(true)
 			a.world.RecordAction(missions.ActionCycleTarget) // ADR 0025 §7
 			return a, nil
@@ -2490,6 +2503,7 @@ const (
 	cardStopSpread
 	cardQuickload
 	cardResume
+	cardDeleteSite
 )
 
 // card row IDs for the flight asks.
@@ -3338,6 +3352,9 @@ func (a *App) capturingText() bool {
 		return true
 	}
 	if a.altBox.CapturingText() {
+		return true
+	}
+	if a.targetMenuOpen && a.targetMenu.CapturingText() {
 		return true
 	}
 	switch a.active {
@@ -4318,6 +4335,9 @@ func (a *App) View() string {
 	// point of asking is defeated if a stale toast or an open chat draft
 	// could hide the question. The map is dimmed under it and the clock is
 	// not held (Jason 2026-10-12, conflict 1).
+	if a.targetMenuOpen && a.card == nil {
+		base = a.cardOver(base, a.targetMenu.Render(), screens.CardW)
+	}
 	if a.card != nil {
 		// Raised from the pause menu, the quit card replaces the pause card
 		// rather than stacking on it (its edges would show above and below).
@@ -4772,4 +4792,59 @@ func (a *App) doRefinePlan() {
 // orbitalSemiMajor is craft c's semi-major axis about its primary, metres.
 func orbitalSemiMajor(c *spacecraft.Spacecraft) float64 {
 	return orbital.ElementsFromState(c.State.R, c.State.V, c.Primary.GravitationalParameter()).A
+}
+
+// handleTargetMenuKey routes a key while the `t` card is up. esc closes it,
+// `t` or enter aim at the highlighted row (what one `t` press aimed at before
+// the menu), `r` renames and `d` deletes a site you own.
+func (a *App) handleTargetMenuKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch a.targetMenu.HandleKey(m.String()) {
+	case screens.TargetMenuClose:
+		a.targetMenuOpen = false
+	case screens.TargetMenuCommit:
+		if r, ok := a.targetMenu.Row(); ok {
+			a.targetMenuOpen = false
+			a.commitTargetRow(r)
+		}
+	case screens.TargetMenuRename:
+		if r, ok := a.targetMenu.Row(); ok && a.world.RenameSite(r.SiteID, a.targetMenu.RenameText()) {
+			a.targetMenu.Refresh(a.world)
+		}
+	case screens.TargetMenuDelete:
+		if r, ok := a.targetMenu.Row(); ok {
+			a.askDeleteSite(r)
+		}
+	}
+	return a, nil
+}
+
+// commitTargetRow aims at a menu row through the same setters the cycle used
+// and records the cycle_target action, so every event gate works unchanged.
+func (a *App) commitTargetRow(r sim.TargetRow) {
+	switch r.Kind {
+	case sim.TargetBody:
+		a.world.SetTargetBody(r.BodyIdx)
+	case sim.TargetCraft:
+		if _, idx, ok := a.world.CraftByID(r.CraftID); ok {
+			a.world.SetTargetCraft(idx)
+		}
+	case sim.TargetGhost:
+		a.world.SetTargetGhost(r.GhostOwner, r.CraftID)
+	case sim.TargetSite:
+		a.world.SetTargetSite(r.SiteID)
+	}
+	a.world.RecordAction(missions.ActionCycleTarget) // ADR 0025 §7
+}
+
+// askDeleteSite raises the delete card for a site you own (ADR 0066 decision 7).
+func (a *App) askDeleteSite(r sim.TargetRow) {
+	a.raiseCard(cardDeleteSite, screens.NewCard(a.screensTheme(), "Delete "+r.Name+"?", "",
+		[]screens.CardRow{yesRow("delete it"), outRow("keep it")}, 1),
+		func(a *App, id string) (tea.Model, tea.Cmd) {
+			if id == rowYes && a.world.RemoveSite(r.SiteID) {
+				a.targetMenu.Refresh(a.world)
+				a.flash("deleted " + r.Name)
+			}
+			return a, nil
+		})
 }
