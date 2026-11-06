@@ -3,6 +3,7 @@ package sim
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -167,5 +168,89 @@ func setCircularAltitude(c *spacecraft.Spacecraft, altitudeM float64) {
 		R: orbital.Vec3{X: r},
 		V: orbital.Vec3{Y: math.Sqrt(mu / r)},
 		M: c.TotalMass(),
+	}
+}
+
+// partnerRelays turns the slate's relay-antenna craft into a partner's ghosts,
+// so the world holds relays that are not its own.
+func partnerRelays(w *World) {
+	var keep []*spacecraft.Spacecraft
+	for _, c := range w.Crafts {
+		if c.AntennaKind != spacecraft.AntennaRelay {
+			keep = append(keep, c)
+			continue
+		}
+		w.Ghosts = append(w.Ghosts, Ghost{Owner: "fp-partner", CraftID: c.ID, PrimaryID: "moon",
+			RelPos: c.State.R, Vel: c.State.V, Pos: w.BodyPosition(c.Primary).Add(c.State.R),
+			AntennaKind: c.AntennaKind, AntennaRangeM: c.AntennaRangeM, Controllable: c.Controllable})
+	}
+	w.Crafts = keep
+}
+
+func catalogObjective(t *testing.T, mission string, kind missions.Kind) missions.Objective {
+	t.Helper()
+	cat, err := missions.DefaultCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range cat.Missions {
+		if m.ID == mission {
+			for _, o := range m.Objectives {
+				if o.Kind == kind {
+					return o
+				}
+			}
+		}
+	}
+	t.Fatalf("%s has no %s objective", mission, kind)
+	return missions.Objective{}
+}
+
+// ADR 0066 guard 15 (decision 15): Far Side Relay's coverage step passes on the
+// shared network, with two partner relays half a lap apart and none of the
+// player's own; Relay Constellation counts only the player's own relays, so
+// three partner relays do not pass it, and one partner relay short of the
+// two does not pass the coverage step.
+func TestPartnerRelaysCountForCoverageNotForConstellation(t *testing.T) {
+	wall := time.Unix(1000, 0)
+	siteCovWallNow = func() time.Time { wall = wall.Add(time.Hour); return wall }
+	defer func() { siteCovWallNow = time.Now }()
+	cover := catalogObjective(t, "chal-far-side-relay", missions.KindLunarCoverage)
+	constellation := catalogObjective(t, "chal-relay-constellation", missions.KindRelayCoverage)
+
+	w := mustWorld(t)
+	ellipseRelay(w, 0, 180)
+	ellipseRelay(w, 0, 0)
+	partnerRelays(w)
+	if got := cover.Evaluate(w.missionEvalContext()); got != missions.Passed {
+		t.Errorf("two partner relays, none own: coverage step %v, want Passed", got)
+	}
+	w = mustWorld(t)
+	ellipseRelay(w, 0, 180)
+	partnerRelays(w)
+	if got := cover.Evaluate(w.missionEvalContext()); got != missions.InProgress {
+		t.Errorf("one partner relay: coverage step %v, want InProgress", got)
+	}
+
+	w = mustWorld(t)
+	for _, m := range []float64{0, 120, 240} {
+		ellipseRelay(w, 0, m)
+	}
+	partnerRelays(w)
+	w.RecomputeCommGraph()
+	if got := constellation.Evaluate(w.missionEvalContext()); got == missions.Passed {
+		t.Error("three partner relays passed Relay Constellation")
+	}
+	// The equal case: the same three relays, owned, do pass.
+	w = mustWorld(t)
+	for _, m := range []float64{0, 120, 240} {
+		ellipseRelay(w, 0, m)
+	}
+	w.RecomputeCommGraph()
+	if n := w.ConnectedRelayCount(); n < 3 {
+		t.Fatalf("setup: only %d of 3 own relays connected", n)
+	}
+	if got := constellation.Evaluate(w.missionEvalContext()); got != missions.Passed {
+		t.Errorf("three own connected relays: %v, want Passed", got)
 	}
 }

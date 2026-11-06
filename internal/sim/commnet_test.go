@@ -2,6 +2,7 @@ package sim
 
 import (
 	"errors"
+	"math"
 	"strings"
 	"testing"
 	"time"
@@ -903,5 +904,76 @@ func TestGhostRelayKinds(t *testing.T) {
 		if w.CommGraph.HasConnection(probe.ID) {
 			t.Errorf("%s: ghost must not carry traffic", c.name)
 		}
+	}
+}
+
+// benchCommWorld holds exactly 28 CommNet nodes in the Earth system: every
+// ground station, the rest own relays (some in lunar orbit), a third of the
+// non-station nodes partners' relay ghosts (ADR 0066 decision 13's four
+// players' worth).
+func benchCommWorld(b *testing.B, nodes int) *World {
+	b.Helper()
+	w, err := NewWorld()
+	if err != nil {
+		b.Fatal(err)
+	}
+	sys := w.System()
+	moon, earth := *sys.FindBody("moon"), *sys.FindBody("earth")
+	w.Crafts = nil
+	n := len(w.GroundStations)
+	for i := 0; n < nodes; i++ {
+		prim, r := earth, earth.RadiusMeters()+2e7+float64(i)*1e6
+		if i%2 == 1 {
+			prim, r = moon, moon.RadiusMeters()+3e6+float64(i)*1e5
+		}
+		ang := float64(i) * 2.3
+		rel := orbital.Vec3{X: r * math.Cos(ang), Y: r * math.Sin(ang)}
+		vel := orbital.Vec3{X: -math.Sin(ang), Y: math.Cos(ang)}.Scale(math.Sqrt(prim.GravitationalParameter() / r))
+		if i%3 == 2 {
+			w.Ghosts = append(w.Ghosts, Ghost{Owner: "fp", CraftID: uint64(i), PrimaryID: prim.ID, RelPos: rel, Vel: vel,
+				Pos: w.BodyPosition(prim).Add(rel), AntennaKind: spacecraft.AntennaRelay,
+				AntennaRangeM: spacecraft.AntennaRangeRelayCislunar, Controllable: true})
+		} else {
+			c := spacecraft.NewFromLoadout("Relay-Tug")
+			c.Primary, c.State.R, c.State.V = prim, rel, vel
+			c.AntennaKind, c.AntennaRangeM, c.Controllable = spacecraft.AntennaRelay, spacecraft.AntennaRangeRelayCislunar, true
+			w.Crafts = append(w.Crafts, c)
+		}
+		n++
+	}
+	w.EnsureCraftIDs()
+	return w
+}
+
+// BenchmarkRecomputeCommGraph28 is the CPU figure ADR 0066 decision 13 quotes
+// (about 60 microseconds a rebuild with four players' relays), measured at 28
+// nodes rather than scaled. The ghosts case swaps the ghosts for nothing.
+func BenchmarkRecomputeCommGraph28(b *testing.B) {
+	w := benchCommWorld(b, 28)
+	for _, c := range []struct {
+		name   string
+		ghosts bool
+	}{{"with_ghosts", true}, {"ghosts_dropped", false}} {
+		b.Run(c.name, func(b *testing.B) {
+			g := w.Ghosts
+			if !c.ghosts {
+				w.Ghosts = nil
+			}
+			defer func() { w.Ghosts = g }()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				w.RecomputeCommGraph()
+			}
+		})
+	}
+}
+
+// BenchmarkSiteCoverageSample28 is one full sampler compute (30 h lap, 60 s
+// step, memo bypassed) over the same 28-node world, the figure under the 2 s cap.
+func BenchmarkSiteCoverageSample28(b *testing.B) {
+	w := benchCommWorld(b, 28)
+	for i := 0; i < b.N; i++ {
+		w.siteCov = siteCovMemo{}
+		w.SiteCoverage("moon", -90, 0, 108000, 60)
 	}
 }
