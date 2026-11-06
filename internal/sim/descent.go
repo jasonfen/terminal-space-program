@@ -568,7 +568,7 @@ func PredictPoweredStop(c *spacecraft.Spacecraft, horizon time.Duration) (Powere
 // burn from THIS point on the ballistic coast instead of right now, does
 // it still work" without a second implementation.
 func predictPoweredStopFrom(state physics.StateVector, c *spacecraft.Spacecraft, horizon time.Duration) (PoweredStopPrediction, bool) {
-	return predictPoweredStopFromAt(state, c, horizon, 1)
+	return predictPoweredStopFromAt(state, c, horizon, DeorbitBrakeThrottle)
 }
 
 // predictPoweredStopFromAt is predictPoweredStopFrom braking at a fraction of
@@ -755,7 +755,7 @@ func lerpBallisticSample(a, b ballisticSample, frac float64) ballisticSample {
 // Margin.State (CAN'T STOP) already carries that alarm, and a "burn at:
 // Xs ago" row would only muddy it.
 func PredictBurnAt(c *spacecraft.Spacecraft, horizon time.Duration) (BurnAtCue, bool) {
-	cue, _, ok := burnAtCue(c, horizon, 1, burnAtRefineIters)
+	cue, _, ok := burnAtCue(c, horizon, DeorbitBrakeThrottle, burnAtRefineIters)
 	return cue, ok
 }
 

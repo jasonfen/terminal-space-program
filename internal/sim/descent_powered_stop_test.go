@@ -412,3 +412,44 @@ func TestStopStepSizeSecondsAdaptiveShrinkStillWorks(t *testing.T) {
 		t.Errorf("stopStepSizeSeconds = %v, want dt (%v) — neither cap should have engaged", got, dt)
 	}
 }
+
+// TestPredictorsBrakeAtTheReserveThrottle: ADR 0067 decision 7. Both public
+// predictors plan the brake at 1 - BrakeReserveFrac, so the HUD cue, stop: and
+// the N plan agree. Equal case: the same predictors at full throttle differ,
+// so the test can tell a reserve from no reserve.
+func TestPredictorsBrakeAtTheReserveThrottle(t *testing.T) {
+	_, c := dropTestCraft(t, 50_000)
+	c.Thrust = 60_000
+	c.Isp = 311
+	c.DryMass, c.Fuel, c.Monoprop = 5_000, 10_000, 0
+	c.Stages = nil
+	c.State.V = orbital.Vec3{X: -20, Y: 300}
+	c.State.M = c.TotalMass()
+
+	reserve := 1 - BrakeReserveFrac
+	stop, ok := PredictPoweredStop(c, DescentPredictHorizon)
+	wantStop, wok := predictPoweredStopFromAt(c.State, c, DescentPredictHorizon, reserve)
+	fullStop, _ := predictPoweredStopFromAt(c.State, c, DescentPredictHorizon, 1)
+	if !ok || !wok {
+		t.Fatal("predictor refused")
+	}
+	if math.Abs(stop.ElapsedSec-wantStop.ElapsedSec) > 1e-6 {
+		t.Errorf("PredictPoweredStop elapsed %.3f s, want %.3f s (reserve throttle)", stop.ElapsedSec, wantStop.ElapsedSec)
+	}
+	if math.Abs(fullStop.ElapsedSec-wantStop.ElapsedSec) < 1e-3 {
+		t.Fatalf("full-throttle and reserve stops are indistinguishable (%.3f s): the guard measures nothing", fullStop.ElapsedSec)
+	}
+
+	cue, ok := PredictBurnAt(c, DescentPredictHorizon)
+	want, _, wok := burnAtCue(c, DescentPredictHorizon, reserve, burnAtRefineIters)
+	full, _, _ := burnAtCue(c, DescentPredictHorizon, 1, burnAtRefineIters)
+	if !ok || !wok {
+		t.Fatal("cue refused")
+	}
+	if math.Abs(cue.InSec-want.InSec) > 1e-6 {
+		t.Errorf("PredictBurnAt InSec %.3f, want %.3f (reserve throttle)", cue.InSec, want.InSec)
+	}
+	if math.Abs(full.InSec-want.InSec) < 1e-3 {
+		t.Fatalf("full-throttle and reserve cues are indistinguishable (%.3f s)", full.InSec)
+	}
+}
