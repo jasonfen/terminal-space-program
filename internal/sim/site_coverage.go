@@ -214,3 +214,136 @@ func (w *World) SiteCoverage(primaryID string, latDeg, lonDeg, lapS, sampleS flo
 	*m = siteCovMemo{key: key, params: params, at: now, memo: memo, ok: true, computes: m.computes + 1}
 	return memo, true
 }
+
+// CoverageSubject is the surface point the COVERAGE notice follows when a
+// site, landed vessel or landed ghost is targeted (ADR 0066 decision 11).
+type CoverageSubject struct {
+	BodyID   string
+	Label    string
+	Lat, Lon float64
+	LapS     float64
+}
+
+// coverageLapCapS caps the aimed-site lap; the rung keeps its authored lap.
+const coverageLapCapS = 48 * 3600
+
+// TargetCoverage resolves the targeted surface point in the viewed system and
+// the lap to sample: the longest relay period at that body, capped at 48 h.
+// ok=false when the target is not a surface point, or the body has no relay.
+func (w *World) TargetCoverage() (CoverageSubject, bool) {
+	sys := w.System()
+	var s CoverageSubject
+	var bodyName string
+	switch w.Target.Kind {
+	case TargetSite:
+		site, found := w.siteByID(w.Target.SiteID)
+		if !found || site.System != sys.Name {
+			return s, false
+		}
+		bodyName, s.Label, s.Lat, s.Lon = site.Body, site.Name, site.LatDeg, site.LonDeg
+	case TargetCraft:
+		c, _, found := w.ResolveTargetCraft()
+		if !found || !c.Landed || c.SystemIdx != w.SystemIdx {
+			return s, false
+		}
+		bodyName, s.Label = c.Primary.EnglishName, c.Name
+		s.Lat, s.Lon = c.SurfaceLatLon()
+	case TargetGhost:
+		g, p, found := w.ResolveTargetGhost()
+		if !found || !g.Landed {
+			return s, false
+		}
+		bodyName, s.Label, s.Lat, s.Lon = p.EnglishName, g.Name, g.LatDeg, g.LonDeg
+	default:
+		return s, false
+	}
+	for _, b := range sys.Bodies {
+		if b.EnglishName == bodyName {
+			s.BodyID = b.ID
+		}
+	}
+	body := sys.FindBody(s.BodyID)
+	if body == nil {
+		return CoverageSubject{}, false
+	}
+	relays := w.siteRelays(s.BodyID)
+	if len(relays) == 0 {
+		return CoverageSubject{}, false
+	}
+	mu := body.GravitationalParameter()
+	lap := 0.0
+	for _, r := range relays {
+		if r.landed {
+			continue
+		}
+		el := orbital.ElementsFromState(r.state.R, r.state.V, mu)
+		if el.A > 0 && el.E < 1 {
+			lap = math.Max(lap, 2*math.Pi*math.Sqrt(el.A*el.A*el.A/mu))
+		}
+	}
+	if lap == 0 {
+		lap = 24 * 3600 // only landed relays: they do not move, a day shows the body turning
+	}
+	s.LapS = math.Min(math.Ceil(lap/60)*60, coverageLapCapS)
+	return s, true
+}
+
+// LinkedSource is one live-network member seen from a body, for the linked-now
+// overlay: its body-fixed unit direction from the body's centre, distance from
+// that centre and rated range.
+type LinkedSource struct {
+	Dir           render.Vec3
+	DistM, RangeM float64
+}
+
+// LinkedNow lists the live-network members as seen from primaryID at the
+// rotation clock (the texture's frame), and whether the body sits inside the
+// home blanket (it has a ground station, so every surface dot links, as
+// commLinked grants a near-home probe). ok=false without a CommGraph or body.
+func (w *World) LinkedNow(primaryID string) (srcs []LinkedSource, blanket, ok bool) {
+	sys := w.System()
+	body := sys.FindBody(primaryID)
+	if body == nil || w.CommGraph == nil {
+		return nil, false, false
+	}
+	for _, st := range w.GroundStations {
+		if st.BodyID == primaryID {
+			blanket = true
+		}
+	}
+	centre := w.BodyPosition(*body)
+	for _, n := range w.CommGraph.Net {
+		rel := n.Pos.Sub(centre)
+		d := rel.Norm()
+		if d == 0 || n.RangeM <= 0 {
+			continue
+		}
+		u := rel.Unit()
+		lat, lon := render.WorldToBodyFixed(*body, render.Vec3{X: u.X, Y: u.Y, Z: u.Z}, w.Clock.RotationTime)
+		la, lo := lat*math.Pi/180, lon*math.Pi/180
+		srcs = append(srcs, LinkedSource{
+			Dir:    render.Vec3{X: math.Cos(la) * math.Cos(lo), Y: math.Cos(la) * math.Sin(lo), Z: math.Sin(la)},
+			DistM:  d,
+			RangeM: n.RangeM,
+		})
+	}
+	return srcs, blanket, true
+}
+
+// Linked says whether a surface dot at body-fixed unit vector (x, y, z) on a
+// body of radius R sees any source: in range of a basic direct antenna (the
+// link range is the geometric mean, as commLinkRangeM) and above the dot's
+// horizon (the body's own limb is the only occluder considered).
+func Linked(srcs []LinkedSource, R, x, y, z float64) bool {
+	for _, s := range srcs {
+		c := s.DistM * (x*s.Dir.X + y*s.Dir.Y + z*s.Dir.Z) // source height along the dot's vertical
+		if c < R {
+			continue
+		}
+		d2 := s.DistM*s.DistM + R*R - 2*R*c
+		if r := commLinkRangeM(s.RangeM, spacecraft.AntennaRangeDirectBasic); d2 <= r*r {
+			return true
+		}
+	}
+	return false
+}

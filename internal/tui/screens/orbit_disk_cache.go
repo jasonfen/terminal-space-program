@@ -2,11 +2,15 @@ package screens
 
 import (
 	"math"
+	"strconv"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/settings"
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
 // #363: idle CPU on the orbit screen was dominated by re-rasterizing the
@@ -156,5 +160,108 @@ func (v *OrbitView) texturedDiskRaster(systemIdx int, b bodies.CelestialBody, r 
 			grid[idx] = c
 		}
 		return c
+	}
+}
+
+// Linked-now overlay (ADR 0066 decision 12, #863): while the COVERAGE notice
+// is up, the notice's body is tinted, cell by cell, where the ground sees the
+// live network this instant. The result is a list of cells, cached on a key
+// that carries everything it depends on: the disk's screen position (cells are
+// screen-aligned, the v0.36.1 lesson), the camera, and the network members'
+// body-fixed directions quantised like the raster's.
+
+// linkedTintFactor darkens TARGET green into a background that sits behind the
+// texture without reading as night side.
+const linkedTintFactor = 0.22
+
+type linkedKey struct {
+	systemIdx, r, cx, cy       int
+	bodyID                     string
+	subLatQ, subLonQ, upAngleQ int64
+	blanket                    bool
+	srcs                       string
+}
+
+type linkedEntry struct {
+	key   linkedKey
+	cells [][2]int
+}
+
+// linkedSrcsKey fingerprints the network members: direction at the raster
+// quantum, centre distance to the km, range.
+func linkedSrcsKey(srcs []sim.LinkedSource) string {
+	b := make([]byte, 0, 40*len(srcs))
+	for _, s := range srcs {
+		lat := math.Asin(s.Dir.Z) * 180 / math.Pi
+		lon := math.Atan2(s.Dir.Y, s.Dir.X) * 180 / math.Pi
+		b = strconv.AppendInt(b, quantize(lat, diskRasterQuantDeg), 10)
+		b = append(b, '/')
+		b = strconv.AppendInt(b, quantize(lon, diskRasterQuantDeg), 10)
+		b = append(b, '/')
+		b = strconv.AppendInt(b, int64(math.Round(s.DistM/1000)), 10)
+		b = append(b, '/')
+		b = strconv.AppendInt(b, int64(math.Round(s.RangeM/1000)), 10)
+		b = append(b, ',')
+	}
+	return string(b)
+}
+
+// linkedNowWanted: the card row is on, F2 has not cleared the overlays, and
+// the notice is about this body.
+func (v *OrbitView) linkedNowWanted(w *sim.World, bodyID string) bool {
+	if v.declutter || !v.settings.ChipEnabled(settings.ChipCoverageNow) {
+		return false
+	}
+	id, _, _, _, _, _, ok := coverageSource(w)
+	return ok && id == bodyID
+}
+
+// drawLinkedNow tints the cells of the textured disk of b (centre pos, radius
+// r px, camera subLat/subLon, screen-up upX/upY) that see the live network.
+func (v *OrbitView) drawLinkedNow(w *sim.World, b bodies.CelestialBody, pos orbital.Vec3, r int, subLat, subLon, upX, upY float64) {
+	srcs, blanket, ok := w.LinkedNow(b.ID)
+	if !ok {
+		return
+	}
+	cx, cy, _ := v.canvas.Project(pos)
+	key := linkedKey{
+		systemIdx: w.SystemIdx, r: r, cx: cx, cy: cy, bodyID: b.ID, blanket: blanket,
+		subLatQ:  quantize(subLat, diskRasterQuantDeg),
+		subLonQ:  quantize(subLon, diskRasterQuantDeg),
+		upAngleQ: quantize(math.Atan2(upY, upX)*180.0/math.Pi, diskRasterQuantDeg),
+		srcs:     linkedSrcsKey(srcs),
+	}
+	if v.linkedCache == nil {
+		v.linkedCache = map[string]*linkedEntry{}
+	}
+	e := v.linkedCache[b.ID]
+	if e != nil && e.key == key {
+		v.linkedCacheHits++
+	} else {
+		e = &linkedEntry{key: key}
+		R := b.RadiusMeters()
+		r2 := float64(r * r)
+		for col := (cx - r) / 2; col <= (cx+r)/2+1; col++ {
+			for row := (cy - r) / 4; row <= (cy+r)/4+1; row++ {
+				dx := float64(2*col) + 0.5 - float64(cx)
+				dy := float64(4*row) + 1.5 - float64(cy)
+				if dx*dx+dy*dy > r2 {
+					continue
+				}
+				if !blanket {
+					x, y, z := render.PixelBodyVec(dx, dy, r, subLat, subLon, upX, upY)
+					if !sim.Linked(srcs, R, x, y, z) {
+						continue
+					}
+				}
+				e.cells = append(e.cells, [2]int{col, row})
+			}
+		}
+		v.linkedCache[b.ID] = e
+		v.linkedCacheComputes++
+	}
+	tint := render.Shade(render.ColorTarget, linkedTintFactor)
+	for _, c := range e.cells {
+		v.canvas.SetCellBackground(c[0], c[1], tint)
 	}
 }

@@ -50,6 +50,16 @@ type CommGraph struct {
 	// bigger antenna — was the answer (or vice versa). Absent for
 	// connected probes.
 	Reasons map[uint64]CommDisconnectReason
+	// Net is the live network this tick: every ground station and every
+	// forwarder with an unoccluded chain to one, as world-frame points. The
+	// coverage overlay (ADR 0066 decision 12) tints surface dots that see one.
+	Net []CommNetNode
+}
+
+// CommNetNode is one member of the live network (see CommGraph.Net).
+type CommNetNode struct {
+	Pos    orbital.Vec3
+	RangeM float64
 }
 
 // CommDisconnectReason classifies why a probe has no connection this
@@ -403,10 +413,17 @@ func (w *World) RecomputeCommGraph() {
 		}
 		paths[id] = pts
 	}
+	var net []CommNetNode
+	for i, n := range nodes {
+		if res.networked[i] {
+			net = append(net, CommNetNode{Pos: n.pos, RangeM: n.rangeM})
+		}
+	}
 	w.CommGraph = &CommGraph{
 		Connected: res.connected,
 		Paths:     paths,
 		Reasons:   classifyDisconnects(nodes, res),
+		Net:       net,
 	}
 }
 

@@ -70,21 +70,42 @@ func projectPixelToLatLon(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX,
 	if pxRadius < 1 {
 		return 0, 0, false
 	}
-	nxCan := float64(dx) / float64(pxRadius)
-	// v0.8.5.7 fix: canvas uses screen-Y-down (dy > 0 = below body
-	// center), but the orthographic projection wants nyCan > 0 to be
-	// screen-up (north toward sub-observer).
-	nyCan := -float64(dy) / float64(pxRadius)
-	// Rotate canvas frame into body's (east, north) frame at the
-	// sub-observer point. east = 90° CW from north when looking at
-	// the screen with depth toward camera (right-handed local frame
-	// at the surface: east × north = up = +camDir).
+	if pxRadius < 1 {
+		return 0, 0, false
+	}
+	bodyX, bodyY, bodyZ := PixelBodyVec(float64(dx), float64(dy), pxRadius, subLatDeg, subLonDeg, screenUpX, screenUpY)
+	if bodyZ > 1 {
+		bodyZ = 1
+	} else if bodyZ < -1 {
+		bodyZ = -1
+	}
+	lat = math.Asin(bodyZ) * 180.0 / math.Pi
+	if math.Abs(bodyX) < 1e-9 && math.Abs(bodyY) < 1e-9 {
+		return lat, 0, false
+	}
+	absLon = math.Atan2(bodyY, bodyX) * 180.0 / math.Pi
+	for absLon > 180 {
+		absLon -= 360
+	}
+	for absLon <= -180 {
+		absLon += 360
+	}
+	return lat, absLon, true
+}
+
+// PixelBodyVec is projectPixelToLatLon's inverse orthographic step as a
+// body-fixed unit vector (x toward lon 0, z the spin axis), for float pixel
+// offsets (a cell centre sits between pixels). Same conventions as above.
+func PixelBodyVec(dx, dy float64, pxRadius int, subLatDeg, subLonDeg, screenUpX, screenUpY float64) (bodyX, bodyY, bodyZ float64) {
+	if pxRadius < 1 {
+		return 0, 0, 0
+	}
+	nxCan := dx / float64(pxRadius)
+	nyCan := -dy / float64(pxRadius) // canvas is screen-Y-down
 	nx := nxCan*screenUpY - nyCan*screenUpX
 	ny := nxCan*screenUpX + nyCan*screenUpY
 	r2 := nx*nx + ny*ny
 	if r2 > 1 {
-		// Outside the disk — caller should clip first, but keep the
-		// math safe under rounding.
 		s := 1.0 / math.Sqrt(r2)
 		nx *= s
 		ny *= s
@@ -97,26 +118,8 @@ func projectPixelToLatLon(dx, dy, pxRadius int, subLatDeg, subLonDeg, screenUpX,
 	sP, cP := math.Sin(phi0), math.Cos(phi0)
 	sL, cL := math.Sin(lam0), math.Cos(lam0)
 
-	bodyZ := sP*z + cP*ny
-	if bodyZ > 1 {
-		bodyZ = 1
-	} else if bodyZ < -1 {
-		bodyZ = -1
-	}
-	lat = math.Asin(bodyZ) * 180.0 / math.Pi
-
-	bodyX := cP*cL*z - sL*nx - sP*cL*ny
-	bodyY := cP*sL*z + cL*nx - sP*sL*ny
-	if math.Abs(bodyX) < 1e-9 && math.Abs(bodyY) < 1e-9 {
-		// Degenerate — pixel is at the body's pole, longitude undefined.
-		return lat, 0, false
-	}
-	absLon = math.Atan2(bodyY, bodyX) * 180.0 / math.Pi
-	for absLon > 180 {
-		absLon -= 360
-	}
-	for absLon <= -180 {
-		absLon += 360
-	}
-	return lat, absLon, true
+	bodyZ = sP*z + cP*ny
+	bodyX = cP*cL*z - sL*nx - sP*cL*ny
+	bodyY = cP*sL*z + cL*nx - sP*sL*ny
+	return bodyX, bodyY, bodyZ
 }

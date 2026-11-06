@@ -12,25 +12,53 @@ import (
 // the lap and the next gap, read from the same World.SiteCoverage memo the
 // evaluator passes on (one source, so the row cannot disagree with the
 // pass). Nil otherwise, so it is gone the frame the objective passes.
+// coverageSource is what the COVERAGE notice and the linked-now overlay read:
+// a targeted surface point wins; else the rung (#862: any in-progress mission
+// whose current objective is lunar_coverage, not only the active one).
+func coverageSource(w *sim.World) (primaryID, label string, lat, lon, lap, step float64, ok bool) {
+	step = 60
+	if t, found := w.TargetCoverage(); found {
+		return t.BodyID, t.Label, t.Lat, t.Lon, t.LapS, step, true
+	}
+	for i := range w.Missions {
+		m := w.Missions[i]
+		if m.Status != missions.InProgress {
+			continue
+		}
+		o, found := m.CurrentObjective()
+		if !found || o.Kind != missions.KindLunarCoverage || o.Params.PrimaryID == "" {
+			continue
+		}
+		p := o.Params
+		primaryID, lat, lon, lap = p.PrimaryID, p.SiteLatDeg, p.SiteLonDeg, p.LapS
+		if p.SampleS > 0 {
+			step = p.SampleS
+		}
+		if lap <= 0 {
+			lap = 108000
+		}
+		label = fmt.Sprintf("lat %.0f°", lat)
+		switch lat {
+		case -90:
+			label = "south pole"
+		case 90:
+			label = "north pole"
+		}
+		return primaryID, label, lat, lon, lap, step, true
+	}
+	return "", "", 0, 0, 0, 0, false
+}
+
 func (v *OrbitView) buildCoverageChip(w *sim.World) []string {
-	m := w.ActiveMission()
-	if m == nil {
+	primaryID, label, lat, lon, lap, step, ok := coverageSource(w)
+	if !ok {
 		return nil
 	}
-	o, ok := m.CurrentObjective()
-	if !ok || o.Kind != missions.KindLunarCoverage || o.Params.PrimaryID == "" {
-		return nil
+	if r := []rune(label); len(r) > 22 {
+		label = string(r[:21]) + "…"
 	}
-	p := o.Params
-	lap, step := p.LapS, p.SampleS
-	if lap <= 0 {
-		lap = 108000
-	}
-	if step <= 0 {
-		step = 60
-	}
-	cov, ok := w.SiteCoverage(p.PrimaryID, p.SiteLatDeg, p.SiteLonDeg, lap, step)
-	if !ok || len(cov.Covered) == 0 {
+	cov, covOK := w.SiteCoverage(primaryID, lat, lon, lap, step)
+	if !covOK || len(cov.Covered) == 0 {
 		return nil
 	}
 	covered := 0
@@ -40,9 +68,9 @@ func (v *OrbitView) buildCoverageChip(w *sim.World) []string {
 		}
 	}
 	now := coverageNow(w.Clock.SimTime.Sub(cov.Epoch).Seconds(), cov.StepS, len(cov.Covered))
-	body := p.PrimaryID
+	body := primaryID
 	sys := w.System()
-	if b := sys.FindBody(p.PrimaryID); b != nil {
+	if b := sys.FindBody(primaryID); b != nil {
 		body = b.EnglishName
 	}
 	relays := fmt.Sprintf("%d relays at the %s", cov.RelayCount, body)
@@ -50,16 +78,8 @@ func (v *OrbitView) buildCoverageChip(w *sim.World) []string {
 		relays = "1 relay at the " + body
 	}
 	second := coverageSecondRow(cov.Covered, now, cov.StepS, relays)
-	site := fmt.Sprintf("lat %.0f°", p.SiteLatDeg)
-	switch p.SiteLatDeg {
-	case -90:
-		site = "south pole"
-	case 90:
-		site = "north pole"
-	}
-	hours := int(float64(covered) * cov.StepS / 3600)
 	return []string{
-		v.theme.Primary.Render("COVERAGE") + v.theme.Dim.Render(fmt.Sprintf("  %s %s  %dh of %dh", body, site, hours, int(lap/3600))),
+		v.theme.Primary.Render("COVERAGE") + v.theme.Dim.Render(fmt.Sprintf("  %s %s  %s of %s", body, label, hm(float64(covered)*cov.StepS), hm(lap))),
 		v.theme.Dim.Render(second),
 	}
 }
@@ -114,4 +134,14 @@ func coverageNow(elapsedS, stepS float64, n int) int {
 		return 0
 	}
 	return i % (n - 1)
+}
+
+// hm is a duration as 30h, or 1h35m when it is not a whole hour (the aimed
+// lap is a relay period, not an authored round number).
+func hm(sec float64) string {
+	m := int(sec / 60)
+	if m%60 == 0 {
+		return fmt.Sprintf("%dh", m/60)
+	}
+	return fmt.Sprintf("%dh%02dm", m/60, m%60)
 }

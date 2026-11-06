@@ -1,13 +1,17 @@
 package screens
 
 import (
+	"math"
 	"testing"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/missions"
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -252,5 +256,194 @@ func TestOrbitRenderDiskCacheSkipsOffCanvasBodies(t *testing.T) {
 
 	if got := len(v.diskRasterCache); got >= totalBodies {
 		t.Errorf("diskRasterCache holds %d entries for a %d-body system — expected most off-canvas bodies (at default LEO zoom) to be skipped entirely, not cached empty", got, totalBodies)
+	}
+}
+
+// linkedWorld: the coverage rung current and read at Earth, no ground
+// stations (so no home blanket), and a hand-made live network of the given
+// body-fixed-agnostic world directions at 3 radii from Earth's centre.
+func linkedWorld(t *testing.T, dirs ...orbital.Vec3) *sim.World {
+	t.Helper()
+	w, _, _ := spreadNoticeWorld(t)
+	rung := coverageRung(t, w)
+	rung.Objectives[0].Status = missions.Passed
+	rung.Objectives[1].Params.PrimaryID = "earth"
+	w.GroundStations = nil
+	setLinkedNet(w, dirs...)
+	return w
+}
+
+func setLinkedNet(w *sim.World, dirs ...orbital.Vec3) {
+	sys := w.System()
+	earth := *sys.FindBody("earth")
+	c := w.BodyPosition(earth)
+	g := &sim.CommGraph{Connected: map[uint64]bool{}}
+	for _, d := range dirs {
+		g.Net = append(g.Net, sim.CommNetNode{Pos: c.Add(d.Unit().Scale(3 * earth.RadiusMeters())), RangeM: 1e12})
+	}
+	w.CommGraph = g
+}
+
+// tintedCells is the set of cells the overlay painted on v's canvas.
+func tintedCells(v *OrbitView) map[[2]int]bool {
+	tint := render.Shade(render.ColorTarget, linkedTintFactor)
+	out := map[[2]int]bool{}
+	for col := 0; col < 300; col++ {
+		for row := 0; row < 100; row++ {
+			if v.canvas.CellBackground(col, row) == tint {
+				out[[2]int{col, row}] = true
+			}
+		}
+	}
+	return out
+}
+
+// ADR 0066 guard 12: the overlay tints dots that see a connected source, not
+// ones behind the limb; the row off, F2 and a body that is not the notice's
+// leave it off; a cache hit equals the cache-dropped truth, also after the
+// disk moves on screen and after a source moves by more than the quantum.
+func TestLinkedNowOverlay(t *testing.T) {
+	axes := []orbital.Vec3{{X: 1}, {X: -1}, {Y: 1}, {Y: -1}, {Z: 1}, {Z: -1}}
+	frame := func(v *OrbitView, w *sim.World) { v.Render(w, 0, 140, 40) }
+
+	// Blanket (a station on the body): every cell of the disk.
+	wb := linkedWorld(t, axes[0])
+	wb.GroundStations = []sim.GroundStationPreset{{BodyID: "earth"}}
+	vb := NewOrbitView(plainTheme())
+	vb.Resize(140, 40)
+	frame(vb, wb)
+	all := len(tintedCells(vb))
+	if all < 20 {
+		t.Fatalf("home blanket tinted %d cells, want the whole disk (20+)", all)
+	}
+
+	// One source alone: some visible dots see it, never all, and opposite
+	// sources see disjoint dots (3 radii out sees a 70 degree cap).
+	seen := make([]map[[2]int]bool, len(axes))
+	any := false
+	for i, d := range axes {
+		w := linkedWorld(t, d)
+		v := NewOrbitView(plainTheme())
+		v.Resize(140, 40)
+		frame(v, w)
+		seen[i] = tintedCells(v)
+		if len(seen[i]) >= all {
+			t.Errorf("axis %v tinted %d of %d cells: the limb culled nothing", d, len(seen[i]), all)
+		}
+		any = any || len(seen[i]) > 0
+	}
+	if !any {
+		t.Fatal("no source tinted any cell")
+	}
+	for i := 0; i < len(axes); i += 2 {
+		for c := range seen[i] {
+			if seen[i+1][c] {
+				t.Errorf("cell %v sees both %v and %v", c, axes[i], axes[i+1])
+			}
+		}
+	}
+
+	// A source out of range tints nothing (the equal case sits on a float edge, so a clear margin).
+	w := linkedWorld(t, axes[0])
+	w.CommGraph.Net[0].RangeM = 1
+	v := NewOrbitView(plainTheme())
+	v.Resize(140, 40)
+	frame(v, w)
+	if n := len(tintedCells(v)); n != 0 {
+		t.Errorf("out-of-range source tinted %d cells", n)
+	}
+
+	// Row off and F2 clear it.
+	w = linkedWorld(t, axes[4])
+	v = NewOrbitView(plainTheme())
+	v.Resize(140, 40)
+	frame(v, w)
+	on := len(tintedCells(v))
+	if on == 0 {
+		t.Fatal("no tint with the row on")
+	}
+	s := v.settings
+	s.SetChip(settings.ChipCoverageNow, false)
+	v.SetSettings(s)
+	frame(v, w)
+	if n := len(tintedCells(v)); n != 0 {
+		t.Errorf("row off left %d tinted cells", n)
+	}
+	s.SetChip(settings.ChipCoverageNow, true)
+	v.SetSettings(s)
+	v.SetDeclutter(true)
+	frame(v, w)
+	if n := len(tintedCells(v)); n != 0 {
+		t.Errorf("declutter left %d tinted cells", n)
+	}
+	v.SetDeclutter(false)
+
+	// Cache: an identical frame hits; a source moving 0.01 deg stays a hit, 0.1 deg recomputes,
+	// and each result equals a fresh view's.
+	truth := func() map[[2]int]bool {
+		fv := NewOrbitView(plainTheme())
+		fv.Resize(140, 40)
+		frame(fv, w)
+		return tintedCells(fv)
+	}
+	same := func(a, b map[[2]int]bool) bool {
+		if len(a) != len(b) {
+			return false
+		}
+		for c := range a {
+			if !b[c] {
+				return false
+			}
+		}
+		return true
+	}
+	frame(v, w)
+	h0, c0 := v.linkedCacheHits, v.linkedCacheComputes
+	frame(v, w)
+	if v.linkedCacheHits != h0+1 || v.linkedCacheComputes != c0 {
+		t.Errorf("identical frame: hits %d->%d computes %d->%d, want one more hit", h0, v.linkedCacheHits, c0, v.linkedCacheComputes)
+	}
+	tilt := func(deg float64) orbital.Vec3 {
+		r := deg * math.Pi / 180
+		return orbital.Vec3{X: math.Sin(r), Z: math.Cos(r)}
+	}
+	setLinkedNet(w, tilt(0.1))
+	frame(v, w)
+	if v.linkedCacheComputes != c0+1 {
+		t.Errorf("source moved 0.1 deg: computes %d, want %d", v.linkedCacheComputes, c0+1)
+	}
+	if got := tintedCells(v); !same(got, truth()) {
+		t.Error("after the source moved, the cached tint differs from the cache-dropped truth")
+	}
+	// the disk moves on screen with every relay and camera input equal (radius too): a new
+	// screen position must recompute, and equal the cache-dropped truth.
+	setLinkedNet(w, axes...) // six sources: any hemisphere sees some
+	earth := w.System().Bodies[0]
+	for _, b := range w.System().Bodies {
+		if b.ID == "earth" {
+			earth = b
+		}
+	}
+	pos := w.BodyPosition(earth)
+	draw := func(v *OrbitView, shift float64) map[[2]int]bool {
+		v.canvas.Clear()
+		v.canvas.Center(pos.Add(orbital.Vec3{X: shift}))
+		v.drawLinkedNow(w, earth, pos, 20, 10, 20, 0, 1)
+		return tintedCells(v)
+	}
+	pv := NewOrbitView(plainTheme())
+	pv.Resize(140, 40)
+	pv.canvas.SetScale(1e-6)
+	draw(pv, 0)
+	c1 := pv.linkedCacheComputes
+	moved := draw(pv, 3e6) // 3 px: an odd offset, so the cells' alignment changes
+	if pv.linkedCacheComputes == c1 {
+		t.Error("the disk moved on screen and the tint cache did not recompute")
+	}
+	fv := NewOrbitView(plainTheme())
+	fv.Resize(140, 40)
+	fv.canvas.SetScale(1e-6)
+	if want := draw(fv, 3e6); !same(moved, want) || len(want) == 0 {
+		t.Errorf("after the disk moved on screen, the cached tint (%d cells) differs from the cache-dropped truth (%d)", len(moved), len(want))
 	}
 }

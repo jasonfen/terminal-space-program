@@ -221,3 +221,92 @@ func TestSiteCoverageKeyHasGhosts(t *testing.T) {
 		t.Error("a partner's relay burned 10 km higher left the memo key unchanged")
 	}
 }
+
+// ADR 0066 decision 11: the aimed surface point resolves to its body, with a
+// lap of the longest relay period (rounded up to the minute) capped at 48 h;
+// no relay at the body, or no surface target, reads false.
+func TestTargetCoverage(t *testing.T) {
+	w, dirE, _, _, _, _ := moonSiteWorld(t)
+	moon := siteBody(w, "moon")
+	w.Sites = append(w.Sites, Site{ID: 1, Body: moon.EnglishName, System: w.System().Name, LatDeg: -90, Name: "Pole site"})
+	w.SetTargetSite(1)
+	if _, ok := w.TargetCoverage(); ok {
+		t.Fatal("a site with no relay at its body must read false")
+	}
+	addMoonCraft(w, spacecraft.AntennaRelay, 1e9, dirE, 2.0e6)
+	sub, ok := w.TargetCoverage()
+	if !ok || sub.BodyID != "moon" || sub.Label != "Pole site" || sub.Lat != -90 {
+		t.Fatalf("site subject = %+v ok=%v", sub, ok)
+	}
+	period := 2 * math.Pi * math.Sqrt(2.0e6*2.0e6*2.0e6/moon.GravitationalParameter())
+	if want := math.Ceil(period/60) * 60; math.Abs(sub.LapS-want) > 1 {
+		t.Errorf("lap = %v s, want %v s (relay period rounded up to the minute)", sub.LapS, want)
+	}
+	addMoonCraft(w, spacecraft.AntennaRelay, 1e9, dirE, 3.0e7) // period about 128 h
+	if sub, _ = w.TargetCoverage(); sub.LapS != coverageLapCapS {
+		t.Errorf("long-period relay: lap = %v, want the 48 h cap %v", sub.LapS, float64(coverageLapCapS))
+	}
+	w.ClearTarget()
+	if _, ok := w.TargetCoverage(); ok {
+		t.Error("no target must read false")
+	}
+	// a landed ghost is a surface point too
+	w.Ghosts = []Ghost{{Owner: "p", CraftID: 9, Name: "Ghost-1", PrimaryID: "moon", Landed: true, LatDeg: 10, LonDeg: 20}}
+	w.Target = Target{Kind: TargetGhost, GhostOwner: "p", CraftID: 9}
+	if sub, ok = w.TargetCoverage(); !ok || sub.Label != "Ghost-1" || sub.Lon != 20 {
+		t.Errorf("ghost subject = %+v ok=%v", sub, ok)
+	}
+}
+
+// Linked: a source sees a dot only above its horizon and inside the geometric
+// mean of the two ranges; a metre either side of each edge (floats, no exact edge).
+func TestLinked(t *testing.T) {
+	const R = 1737400.0
+	basic := spacecraft.AntennaRangeDirectBasic
+	up := render.Vec3{Z: 1}
+	// source straight above the dot at height h: always above the horizon
+	src := func(h, rng float64) []LinkedSource {
+		return []LinkedSource{{Dir: up, DistM: R + h, RangeM: rng}}
+	}
+	rng := 4 * basic // link range = sqrt(4*basic*basic) = 2*basic
+	if !Linked(src(2*basic-1, rng), R, 0, 0, 1) {
+		t.Error("1 m inside the link range must link")
+	}
+	if Linked(src(2*basic+1, rng), R, 0, 0, 1) {
+		t.Error("1 m outside the link range must not link")
+	}
+	// horizon: a dot 90 deg round from a source at 3R is behind the limb
+	if Linked(src(2*R, 1e15), R, 1, 0, 0) {
+		t.Error("a dot a quarter turn away must be behind the limb")
+	}
+	// the tangent dot of a source at distance d is at cos(a) = R/d
+	d := 3 * R
+	a := math.Acos(R / d)
+	if !Linked(src(d-R, 1e15), R, math.Sin(a-1e-6), 0, math.Cos(a-1e-6)) {
+		t.Error("just above the horizon must link")
+	}
+	if Linked(src(d-R, 1e15), R, math.Sin(a+1e-6), 0, math.Cos(a+1e-6)) {
+		t.Error("just below the horizon must not link")
+	}
+}
+
+// CommGraph.Net lists the stations and the forwarders with a chain to one, and
+// not a relay with no chain.
+func TestCommGraphNetIsTheLiveNetwork(t *testing.T) {
+	w, dirE, _, _, _, _ := moonSiteWorld(t)
+	w.RecomputeCommGraph()
+	base := len(w.CommGraph.Net)
+	if base == 0 {
+		t.Fatal("no relays: Net must hold the stations")
+	}
+	addMoonCraft(w, spacecraft.AntennaRelay, 1e9, dirE, 2.0e6) // between the Moon and Earth: sees a station
+	w.RecomputeCommGraph()
+	if got := len(w.CommGraph.Net); got != base+1 {
+		t.Errorf("connected relay: Net has %d, want %d", got, base+1)
+	}
+	w.Crafts[len(w.Crafts)-1].AntennaRangeM = 1 // out of everyone's reach
+	w.RecomputeCommGraph()
+	if got := len(w.CommGraph.Net); got != base {
+		t.Errorf("isolated relay: Net has %d, want %d", got, base)
+	}
+}
