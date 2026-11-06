@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -61,6 +62,8 @@ func (v *OrbitView) buildTargetBox(w *sim.World) []string {
 			name, cells, titleBadge = v.targetCraftCells(w, c)
 		case sim.TargetGhost:
 			name, cells = v.targetGhostCells(w, c)
+		case sim.TargetSite:
+			name, cells = v.targetSiteCells(w, c)
 		}
 	}
 	// Rule C: the encounter half needs the ACTIVE craft's own trajectory
@@ -86,6 +89,20 @@ func (v *OrbitView) buildTargetBox(w *sim.World) []string {
 		}
 	}
 	title := v.theme.Primary.Render("TARGET") + "  " + name + titleBadge
+	// ADR 0066 decisions 9 and 10: against a surface target while flying, the
+	// Ap/Pe, lead and TCA rows are dead (dashes for ever), so they carry the
+	// land-beside picture. The box never moves.
+	if c != nil {
+		if lb, ok := w.LandBesideReading(); ok {
+			return []string{
+				title,
+				chipRow3(targetCols, "range:", cells.rangeV, "close:", cells.closingV, "rel:", cells.relV),
+				chipRow2(targetCols, "ground:", readout.Distance(lb.GroundM), "bearing:", landBearingLabel(lb)),
+				landBesideLeadRow(cells, lb),
+				chipRow2(targetCols, "miss:", landMissLabel(lb), "cross:", landCrossLabel(lb)),
+			}
+		}
+	}
 	return []string{
 		title,
 		// #478 A4: "closing:" -> "close:" and "rel" -> "rel:" (tighter
@@ -350,4 +367,84 @@ func (v *OrbitView) closestApproachCells(w *sim.World, c *spacecraft.Spacecraft)
 		return "> 4h", "—" // still closing when the search ends
 	}
 	return readout.Countdown(time.Duration(tCA * float64(time.Second))), readout.Distance(distCA)
+}
+
+// targetSiteCells is TARGET's surface-site branch (ADR 0066): range, closing and
+// rel against the site's surface point, and the plane difference; no orbit of
+// its own, so Ap/Pe/incl stay dashes. The landed branch's rows are the
+// land-beside readouts, swapped in by buildTargetBox.
+func (v *OrbitView) targetSiteCells(w *sim.World, c *spacecraft.Spacecraft) (string, targetBoxCells) {
+	cells := dashTargetBoxCells()
+	name := w.TargetName()
+	if nTarget, ok := w.TargetPlaneNormal(); ok {
+		if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
+			if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, true); ok {
+				cells.deltaInclV = diLabel
+			}
+		}
+	}
+	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
+	if !ok {
+		return name, cells
+	}
+	rRel := rT.Sub(c.State.R)
+	vRelVec := vT.Sub(c.State.V)
+	rangeM := rRel.Norm()
+	var closing float64
+	if rangeM > 0 {
+		closing = -rRel.Dot(vRelVec) / rangeM
+	}
+	cells.rangeV = readout.Distance(rangeM)
+	cells.relV = readout.Speed(vRelVec.Norm())
+	cells.closingV = readout.SignedSpeed(closing)
+	return name, cells
+}
+
+// landBesideLeadRow is the Δincl / lead row; the lead: cell becomes lpd: the
+// moment the path meets the ground (a landed target still times a launch, so
+// before that it reads lead: as today).
+func landBesideLeadRow(cells targetBoxCells, lb sim.LandBeside) string {
+	if !lb.ImpactOK {
+		return chipRow2(targetCols, readout.LabelDeltaIncl, cells.deltaInclV, "lead:", cells.leadV)
+	}
+	lpd := "—"
+	if lb.LPDOK {
+		lpd = fmt.Sprintf("%.0f°", lb.LPDDeg)
+	}
+	return chipRow2(targetCols, readout.LabelDeltaIncl, cells.deltaInclV, "lpd:", lpd)
+}
+
+func landBearingLabel(lb sim.LandBeside) string {
+	if !lb.BearingOK {
+		return "—"
+	}
+	return fmt.Sprintf("%.0f°", lb.BearingDeg)
+}
+
+// landMissLabel reads the impact point along the track: long beyond the site,
+// short of it; exactly on it has no side.
+func landMissLabel(lb sim.LandBeside) string {
+	if !lb.MissOK {
+		return "—"
+	}
+	switch {
+	case lb.MissM > 0:
+		return readout.Distance(lb.MissM) + " long"
+	case lb.MissM < 0:
+		return readout.Distance(-lb.MissM) + " short"
+	}
+	return readout.Distance(0)
+}
+
+func landCrossLabel(lb sim.LandBeside) string {
+	if !lb.MissOK {
+		return "—"
+	}
+	switch {
+	case lb.CrossM > 0:
+		return readout.Distance(lb.CrossM) + " R"
+	case lb.CrossM < 0:
+		return readout.Distance(-lb.CrossM) + " L"
+	}
+	return readout.Distance(0)
 }

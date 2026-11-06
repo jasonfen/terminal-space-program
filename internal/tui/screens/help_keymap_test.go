@@ -200,7 +200,7 @@ func TestHelpGlossaryNamesCargoAndHoldRow(t *testing.T) {
 // STAGES pips row says a booster group is lit together.
 func TestHelpGlossaryNamesBoosterReadouts(t *testing.T) {
 	tokens := screens.HelpKeyTokens()
-	for _, code := range []string{"boosters", "core"} {
+	for _, code := range []string{"boosters", "core", "ground", "miss", "lpd"} {
 		if !tokens[code] {
 			t.Errorf("F1 glossary missing a line naming %q (ADR 0058 decision 14)", code)
 		}
@@ -209,7 +209,7 @@ func TestHelpGlossaryNamesBoosterReadouts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"| `COVERAGE` |", "no gap this lap", "| `boosters / core` |", "DRY", "booster group", "PROPELLANT's fuel row"} {
+	for _, want := range []string{"| `COVERAGE` |", "no gap this lap", "| `boosters / core` |", "| `ground / miss / lpd` |", "DRY", "booster group", "PROPELLANT's fuel row"} {
 		if !strings.Contains(string(doc), want) {
 			t.Errorf("docs/controls.md glossary lacks %q", want)
 		}
