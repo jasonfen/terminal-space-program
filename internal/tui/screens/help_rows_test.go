@@ -60,7 +60,10 @@ func helpPhraseRows() []helpPhrase {
 		{name: "nav mode skip rule", token: ";", hasFold: []string{"skip"}},
 		{name: "U releases a batch in a fan, refused near the velocity", section: "VESSEL", token: "U (batch)", has: []string{"fan", "10°", "[q]"}},
 		// ADR 0059 decision 9: a released batch is one stop for [t]; the map stays quick to about 30 vessels per player.
-		{name: "batch is one stop for t, about 30 vessels", section: "VESSEL", token: "batch", has: []string{"[t] steps over it as one stop", "About 30 vessels per player"}},
+		{name: "batch is one row in the target menu, about 30 vessels", section: "VESSEL", token: "batch", has: []string{"one row in the target menu", "About 30 vessels per player"}},
+		// ADR 0066 decision 2: t opens the target menu; t again takes the row; r and d act on your own site.
+		{name: "t opens the target menu", section: "VESSEL", token: "t / T", has: []string{"target menu", "sites here", "t again takes the row", "T clears"}},
+		{name: "r and d act on your own site in the menu", section: "VESSEL", token: "r / d (target menu)", has: []string{"rename", "delete", "you own"}},
 		// ADR 0059 decision 12: L orders an orbit altitude; a raise neither caps warp nor is chased by G.
 		{name: "L orders an orbit altitude, asks, again stops", section: "VESSEL", token: "L", has: []string{"altitude", "any warp", "asks first", "stop"}},
 		// ADR 0059 decision 5: on a released batch L spreads it; again on the carrier stops the spread.

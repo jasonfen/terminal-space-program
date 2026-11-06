@@ -29,8 +29,12 @@ func TestControlsDocNamesBatchRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"| `batch` | U releases a stack of payloads at once; [t] steps over it as one stop. About 30 vessels per player keeps the map quick |",
-		"a released batch is one stop (its nearest member); `j` then `enter` picks a particular one",
+		"| `batch` | U releases a stack of payloads at once; it is one row in the target menu. About 30 vessels per player keeps the map quick |",
+		"a released batch is one row (its nearest member)",
+		// ADR 0066 S2: the target menu rows and the quick start.
+		"| `t` / `T` | Open the target menu / clear your target. The menu lists VESSELS, SITES on this body, PARTNERS and BODIES",
+		"| `r` / `d` (target menu) |",
+		"Press `t` twice to target the Moon",
 	} {
 		if !strings.Contains(string(doc), want) {
 			t.Errorf("docs/controls.md lacks %q", want)
