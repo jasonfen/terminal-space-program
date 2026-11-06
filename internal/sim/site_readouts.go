@@ -8,6 +8,7 @@ package sim
 
 import (
 	"math"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
@@ -147,7 +148,7 @@ func (w *World) LandBesideReading() (LandBeside, bool) {
 			return lb, true
 		}
 	}
-	imp, found := PredictImpact(c, DescentPredictHorizon)
+	imp, found := w.cachedImpact(c)
 	if !found {
 		return lb, true
 	}
@@ -169,4 +170,70 @@ func (w *World) LandBesideReading() (LandBeside, bool) {
 func unitV(v orbital.Vec3) render.Vec3 {
 	u := v.Unit()
 	return render.Vec3{X: u.X, Y: u.Y, Z: u.Z}
+}
+
+type impactCacheKey struct {
+	craftID, bc, energy int64
+	h                   [3]int64
+	primary             string
+	bucket              int64
+}
+
+type impactCache struct {
+	has   bool
+	key   impactCacheKey
+	found bool
+	point orbital.Vec3
+	at    time.Time
+}
+
+// impactCacheTrusted: the forecast is a pure function of the orbit only when
+// nothing is thrusting and drag cannot reach it (airless body, or periapsis
+// above the atmosphere cutoff). Otherwise recompute every frame.
+func impactCacheTrusted(c *spacecraft.Spacecraft) bool {
+	if StackMidBurn(c) {
+		return false
+	}
+	atm := c.Primary.Atmosphere
+	if atm == nil {
+		return true
+	}
+	mu := c.Primary.GravitationalParameter()
+	h := c.State.R.Cross(c.State.V).Norm()
+	e := math.Sqrt(math.Max(0, 1+2*(c.State.V.Dot(c.State.V)/2-mu/c.State.R.Norm())*h*h/(mu*mu)))
+	return h*h/(mu*(1+e)) > c.Primary.RadiusMeters()+atm.CutoffAltitude
+}
+
+// cachedImpact is PredictImpact keyed on the orbit's constants (energy, h
+// vector, ballistic coefficient) so TARGET's every-frame reading does not rerun
+// a 30-minute forecast while the orbit holds still. The impact is stored as an
+// absolute time. Entries expire after a minute of sim time so the 30-minute
+// horizon keeps sliding.
+func (w *World) cachedImpact(c *spacecraft.Spacecraft) (ImpactPrediction, bool) {
+	if !impactCacheTrusted(c) {
+		return w.solveImpact(c)
+	}
+	mu := c.Primary.GravitationalParameter()
+	h := c.State.R.Cross(c.State.V)
+	k := impactCacheKey{
+		craftID: int64(c.ID), primary: c.Primary.ID, bc: qz(c.EffectiveBallisticCoefficient(), 1e-3),
+		energy: qz(c.State.V.Dot(c.State.V)/2-mu/c.State.R.Norm(), 20),
+		h:      [3]int64{qz(h.X, 200), qz(h.Y, 200), qz(h.Z, 200)},
+		bucket: w.Clock.SimTime.Unix() / 60,
+	}
+	now := w.Clock.SimTime
+	if cc := &w.impactCache; cc.has && cc.key == k && (!cc.found || cc.at.After(now)) {
+		if !cc.found {
+			return ImpactPrediction{}, false
+		}
+		return ImpactPrediction{Point: cc.point, TimeToImpact: cc.at.Sub(now)}, true
+	}
+	imp, found := w.solveImpact(c)
+	w.impactCache = impactCache{has: true, key: k, found: found, point: imp.Point, at: now.Add(imp.TimeToImpact)}
+	return imp, found
+}
+
+func (w *World) solveImpact(c *spacecraft.Spacecraft) (ImpactPrediction, bool) {
+	w.impactSolves++
+	return PredictImpact(c, DescentPredictHorizon)
 }
