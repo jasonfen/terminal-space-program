@@ -221,9 +221,9 @@ var targetGroupTitle = map[sim.TargetGroup]string{
 
 func targetGlyph(r sim.TargetRow) string {
 	switch {
-	case r.Group == sim.GroupSites && r.Wreck:
+	case r.Kind == sim.TargetSite && r.Wreck:
 		return "☠"
-	case r.Group == sim.GroupSites:
+	case r.Kind == sim.TargetSite:
 		return "⚑"
 	case r.Group == sim.GroupVessels:
 		return "➤"
@@ -285,6 +285,8 @@ func (m *TargetMenu) Render() string {
 		name = padCells(name, 20)
 		if i == m.cursor {
 			name = m.theme.Primary.Render(name)
+		} else if r.Group == sim.GroupPartners {
+			name = m.theme.Dim.Render(name)
 		}
 		d := targetDist(r.DistM)
 		lines = append(lines, "  "+cur+name+" "+targetGlyph(r)+" "+strings.Repeat(" ", max(0, 9-len(d)))+m.theme.Dim.Render(d))

@@ -53,6 +53,9 @@ type World struct {
 	// monotonic id source, never reused.
 	Sites      []Site
 	NextSiteID uint64
+	// PartnerSites are other players' sites from the session ledger (ADR 0066
+	// decision 5), rebuilt each refreshSession; transient, never saved.
+	PartnerSites []PartnerSite
 
 	// NextNodeID is the monotonic source of stable ManeuverNode.IDs
 	// (v0.16 / ADR 0016). Stamped onto each node as it is planted; never

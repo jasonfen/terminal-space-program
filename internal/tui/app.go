@@ -4859,7 +4859,11 @@ func (a *App) commitTargetRow(r sim.TargetRow) {
 	case sim.TargetGhost:
 		a.world.SetTargetGhost(r.GhostOwner, r.CraftID)
 	case sim.TargetSite:
-		a.world.SetTargetSite(r.SiteID)
+		if r.GhostOwner != "" { // a partner's site (PARTNERS group)
+			a.world.SetTargetPartnerSite(r.GhostOwner, r.SiteID)
+		} else {
+			a.world.SetTargetSite(r.SiteID)
+		}
 	}
 	a.world.RecordAction(missions.ActionCycleTarget) // ADR 0025 §7
 }

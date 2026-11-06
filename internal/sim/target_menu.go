@@ -74,6 +74,18 @@ func (w *World) TargetMenu() (rows []TargetRow, open int) {
 				DistM: w.BodyPosition(ac.Primary).Add(r).Sub(from).Norm()})
 		}
 	}
+	if ac != nil {
+		for _, p := range w.PartnerSites {
+			if p.Body != ac.Primary.EnglishName || p.System != sys.Name {
+				continue
+			}
+			r, _ := surfacePointState(ac.Primary, p.LatDeg, p.LonDeg, w.Clock.SimTime)
+			rows = append(rows, TargetRow{Group: GroupPartners,
+				Target: Target{Kind: TargetSite, SiteID: p.ID, GhostOwner: p.Owner},
+				Name:   p.Handle + ": " + p.Name, Wreck: p.Kind == SiteWreck,
+				DistM: w.BodyPosition(ac.Primary).Add(r).Sub(from).Norm()})
+		}
+	}
 	for _, g := range w.Ghosts {
 		rows = append(rows, TargetRow{Group: GroupPartners, Target: Target{Kind: TargetGhost, CraftID: g.CraftID, GhostOwner: g.Owner},
 			Name: g.Handle + ": " + g.Name, DistM: g.Pos.Sub(from).Norm()})
