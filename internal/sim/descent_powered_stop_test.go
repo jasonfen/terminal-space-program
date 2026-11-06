@@ -455,3 +455,26 @@ func TestPredictorsBrakeAtTheReserveThrottle(t *testing.T) {
 		t.Fatalf("full-throttle and reserve cues are indistinguishable (%.3f s)", full.InSec)
 	}
 }
+
+// TestHUDCueMatchesThePlansLight: ADR 0067 S1 live check. The ENGINE row's
+// countdown and the N plan's light read the same brake from the same state, so
+// they agree to the plan's own resolution (S11 measured an 18 s gap when the
+// HUD cue was full throttle; a 3-round refine left 0.5-0.9 s after the reserve).
+func TestHUDCueMatchesThePlansLight(t *testing.T) {
+	_, c := dropTestCraft(t, 50_000)
+	c.Thrust = 60_000
+	c.Isp = 311
+	c.DryMass, c.Fuel, c.Monoprop = 5_000, 10_000, 0
+	c.Stages = nil
+	c.State.V = orbital.Vec3{X: -20, Y: 300}
+	c.State.M = c.TotalMass()
+
+	hud, ok := PredictBurnAt(c, DescentPredictHorizon)
+	plan, _, pok := burnAtCue(c, DescentPredictHorizon, DeorbitBrakeThrottle, deorbitRefineIters)
+	if !ok || !pok {
+		t.Fatal("cue refused")
+	}
+	if gap := math.Abs(hud.InSec - plan.InSec); gap > 0.1 {
+		t.Errorf("HUD cue %.3f s vs plan light %.3f s, gap %.3f s, want within 0.1 s", hud.InSec, plan.InSec, gap)
+	}
+}

@@ -548,7 +548,7 @@ func bisectPoweredCrossing(pre physics.StateVector, dt float64, accelFn func(r, 
 	return state, hi
 }
 
-// PredictPoweredStop integrates a full-throttle, current-stage-only,
+// PredictPoweredStop integrates a reserve-throttle (1 - BrakeReserveFrac), current-stage-only,
 // surface-relative-retrograde stop burn forward from the craft's CURRENT
 // state (issue #377 §1) — physics.StepRK4 through poweredStopAccel, the
 // planner.SimulateFiniteBurn precedent for iterating a powered burn as a
@@ -721,7 +721,7 @@ type BurnAtCue struct {
 // "use those samples as candidate start states instead of
 // re-propagating" (issue #377 §2) — and spends one more
 // predictPoweredStopFrom call testing it.
-const burnAtRefineIters = 3
+const burnAtRefineIters = deorbitRefineIters // the HUD cue must agree with the N plan's light (ADR 0067 S1)
 
 // lerpBallisticSample linearly interpolates between two adjacent
 // ballistic samples. Not a re-propagation: over one sample interval
