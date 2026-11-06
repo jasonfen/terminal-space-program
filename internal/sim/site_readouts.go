@@ -1,0 +1,147 @@
+// Package sim - land-beside readouts (ADR 0066 decisions 9 and 10): the surface
+// picture TARGET carries while you fly toward a site, a landed vessel or a
+// landed ghost on your primary. One-line reason for a new file: a new
+// production concept (surface geometry against a target), not a slice of an
+// existing file.
+
+package sim
+
+import (
+	"math"
+
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+)
+
+const rad = math.Pi / 180 // degrees to radians
+
+// HaversineM is the great-circle distance in metres between two lat/lon
+// points (degrees) on a sphere of radiusM.
+func HaversineM(lat1, lon1, lat2, lon2, radiusM float64) float64 {
+	dLat, dLon := (lat2-lat1)*rad, (lon2-lon1)*rad
+	a := math.Sin(dLat/2)*math.Sin(dLat/2) +
+		math.Cos(lat1*rad)*math.Cos(lat2*rad)*math.Sin(dLon/2)*math.Sin(dLon/2)
+	return 2 * radiusM * math.Asin(math.Min(1, math.Sqrt(a)))
+}
+
+// ForwardAzimuthDeg is the true initial bearing from point 1 to point 2, in
+// [0, 360), clockwise from north.
+func ForwardAzimuthDeg(lat1, lon1, lat2, lon2 float64) float64 {
+	dLon := (lon2 - lon1) * rad
+	y := math.Sin(dLon) * math.Cos(lat2*rad)
+	x := math.Cos(lat1*rad)*math.Sin(lat2*rad) - math.Sin(lat1*rad)*math.Cos(lat2*rad)*math.Cos(dLon)
+	return math.Mod(math.Atan2(y, x)/rad+360, 360)
+}
+
+// ImpactOffsetM decomposes where the impact point lands against the site along
+// the ground track (the bearing from the sub-point to the impact point):
+// longM is positive beyond the site, crossM positive to the right of the track.
+// ok=false when the track is undefined (the impact is the sub-point). shortcut:
+// the track bearing is taken at the sub-point, not re-measured at the site;
+// upgrade if a descent crosses thousands of km of arc.
+func ImpactOffsetM(subLat, subLon, impLat, impLon, siteLat, siteLon, radiusM float64) (longM, crossM float64, ok bool) {
+	if HaversineM(subLat, subLon, impLat, impLon, radiusM) == 0 {
+		return 0, 0, false
+	}
+	d := HaversineM(siteLat, siteLon, impLat, impLon, radiusM)
+	if d == 0 {
+		return 0, 0, true
+	}
+	track := ForwardAzimuthDeg(subLat, subLon, impLat, impLon)
+	rel := (ForwardAzimuthDeg(siteLat, siteLon, impLat, impLon) - track) * rad
+	return d * math.Cos(rel), d * math.Sin(rel), true
+}
+
+// LookDownDeg is the LPD angle (P64): the look-down angle of the line of sight
+// to the site from the vessel's forward line, the perpendicular to the nose in
+// the vertical plane through the site, positive downward. rVessel and rSite are
+// primary-relative; nose is the unit nose direction.
+func LookDownDeg(rVessel, rSite, nose orbital.Vec3) (float64, bool) {
+	up := rVessel.Unit()
+	d := rSite.Sub(rVessel)
+	toward := d.Sub(up.Scale(d.Dot(up)))
+	if toward.Norm() == 0 || up.Norm() == 0 {
+		return 0, false
+	}
+	toward = toward.Unit()
+	los := math.Atan2(-d.Dot(up), d.Dot(toward))
+	lean := math.Atan2(nose.Dot(toward), nose.Dot(up)) // nose off the zenith, toward the site
+	return math.Remainder(los-lean, 2*math.Pi) / rad, true
+}
+
+// LandBeside is TARGET's surface picture for a surface target.
+type LandBeside struct {
+	GroundM    float64
+	BearingDeg float64
+	BearingOK  bool // false at the equal point: no bearing to nothing
+	ImpactOK   bool // PredictImpact found the ground
+	MissM      float64
+	CrossM     float64
+	LPDDeg     float64
+	LPDOK      bool
+	MissOK     bool
+}
+
+// surfaceTargetLatLon is the aimed surface point on the active vessel's primary:
+// a site, a landed vessel or a landed ghost. ok=false otherwise.
+func (w *World) surfaceTargetLatLon(c *spacecraft.Spacecraft) (lat, lon float64, ok bool) {
+	switch w.Target.Kind {
+	case TargetSite:
+		s, found := w.siteByID(w.Target.SiteID)
+		if !found || s.Body != c.Primary.EnglishName || s.System != w.System().Name {
+			return 0, 0, false
+		}
+		return s.LatDeg, s.LonDeg, true
+	case TargetCraft:
+		t, _, found := w.ResolveTargetCraft()
+		if !found || !t.Landed || t.Primary.ID != c.Primary.ID {
+			return 0, 0, false
+		}
+		lat, lon = t.SurfaceLatLon()
+		return lat, lon, true
+	case TargetGhost:
+		g, p, found := w.ResolveTargetGhost()
+		if !found || !g.Landed || p.ID != c.Primary.ID {
+			return 0, 0, false
+		}
+		return g.LatDeg, g.LonDeg, true
+	}
+	return 0, 0, false
+}
+
+// LandBesideReading reads the surface picture for the active vessel while it
+// flies (ADR 0066 decision 10: no phase gate). ground and bearing read from
+// orbit; miss, cross and lpd fill in when PredictImpact finds the ground.
+func (w *World) LandBesideReading() (LandBeside, bool) {
+	c := w.ActiveCraft()
+	if c == nil || c.Landed || c.Crashed || c.State.R.Norm() == 0 {
+		return LandBeside{}, false
+	}
+	siteLat, siteLon, ok := w.surfaceTargetLatLon(c)
+	if !ok {
+		return LandBeside{}, false
+	}
+	radius := c.Primary.RadiusMeters()
+	subLat, subLon := render.WorldToBodyFixed(c.Primary, unitV(c.State.R), w.Clock.SimTime)
+	lb := LandBeside{GroundM: HaversineM(subLat, subLon, siteLat, siteLon, radius)}
+	if lb.GroundM > 0 {
+		lb.BearingDeg, lb.BearingOK = ForwardAzimuthDeg(subLat, subLon, siteLat, siteLon), true
+	}
+	imp, found := PredictImpact(c, DescentPredictHorizon)
+	if !found {
+		return lb, true
+	}
+	lb.ImpactOK = true
+	// the body turns while the vessel falls: read the impact point at the contact time
+	impLat, impLon := render.WorldToBodyFixed(c.Primary, unitV(imp.Point), w.Clock.SimTime.Add(imp.TimeToImpact))
+	lb.MissM, lb.CrossM, lb.MissOK = ImpactOffsetM(subLat, subLon, impLat, impLon, siteLat, siteLon, radius)
+	rSite, _ := surfacePointState(c.Primary, siteLat, siteLon, w.Clock.SimTime)
+	lb.LPDDeg, lb.LPDOK = LookDownDeg(c.State.R, rSite, c.CurrentAttitudeDir.Unit())
+	return lb, true
+}
+
+func unitV(v orbital.Vec3) render.Vec3 {
+	u := v.Unit()
+	return render.Vec3{X: u.X, Y: u.Y, Z: u.Z}
+}
