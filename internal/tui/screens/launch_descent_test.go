@@ -254,7 +254,7 @@ func TestBurnAtRowDisappearsOnceBurnStarts(t *testing.T) {
 	w := descendingMoonCraft(t, 20_000, 120)
 
 	before := stripANSI(v.Render(w, 200, 60))
-	if !strings.Contains(before, "braking burn at") {
+	if !strings.Contains(before, "brake at") {
 		t.Fatal("precondition: expected ENGINE's node row to show a braking-burn cue for a comfortably-stoppable descent")
 	}
 	if !strings.Contains(before, "stop:") {
@@ -264,7 +264,7 @@ func TestBurnAtRowDisappearsOnceBurnStarts(t *testing.T) {
 	w.ActiveCraft().ActiveBurn = &spacecraft.ActiveBurn{DVRemaining: 100}
 
 	after := stripANSI(v.Render(w, 200, 60))
-	if strings.Contains(after, "braking burn at") {
+	if strings.Contains(after, "brake at") {
 		t.Errorf("ENGINE's braking-burn cue still rendered once ActiveBurn was set:\n%s", after)
 	}
 	if !strings.Contains(after, "stop:") {

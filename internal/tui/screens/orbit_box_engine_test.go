@@ -148,7 +148,7 @@ func TestEngineBoxNodeRowBrakingStartOutranksQueuedNode(t *testing.T) {
 		t.Fatal("setup: expected a resolvable braking start for this descent (matches launch_descent_cache_test.go's own fixture)")
 	}
 	lines := v.buildEngineBox(w)
-	if !strings.Contains(lines[3], "braking burn") {
+	if !strings.Contains(lines[3], "brake at") || !strings.Contains(lines[3], "rsv 10%") {
 		t.Errorf("node row = %q, want the braking-start line to win over the queued node", lines[3])
 	}
 }
