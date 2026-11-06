@@ -1,5 +1,7 @@
 package spacecraft
 
+import "github.com/jasonfen/terminal-space-program/internal/orbital"
+
 // LandingPhase is where the Site+ landing autopilot is in a landing (ADR 0067
 // decision 5). The zero value is Coast: engaged and waiting for the brake cue.
 type LandingPhase int
@@ -52,6 +54,13 @@ type LandingAutopilot struct {
 	// Transient, never saved: the brake's pitch-up knob (radians the thrust
 	// leans from retrograde toward up) and this tick's flags for the readouts.
 	PitchUpRad float64
+	// StopSpanM is the stopping distance at the brake's light: the length the
+	// steering authority (OutOfReachAuthorityFrac) is a fraction of.
+	StopSpanM float64
+	// TrackN is the unit normal of the ground-relative orbit plane at the
+	// light: the along/across axes of the aim stay fixed to it, so a slow
+	// vessel's wandering velocity cannot spin them.
+	TrackN     orbital.Vec3
 	Reserve    bool // the brake throttle is eating into the reserve
 	OutOfReach bool // the law saturates with the stop still off the aim
 }

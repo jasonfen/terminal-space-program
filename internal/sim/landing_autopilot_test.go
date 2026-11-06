@@ -1,6 +1,8 @@
 package sim
 
 import (
+	"errors"
+	"math"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -31,24 +33,169 @@ func flyLanding(t *testing.T, w *World, c *spacecraft.Spacecraft, maxTicks int, 
 	return HaversineM(c.LandedLatDeg, c.LandedLonDeg, s.LatDeg, s.LonDeg, c.Primary.RadiusMeters()), lastSpeed, c.Landed
 }
 
+// ADR 0067 guard 2: the Lander flown by the autopilot from the S11 fixture
+// lands under 10 m/s within 50 m of a modern site, through brake, approach and
+// final in that order, and says the true distance in its Event Flash.
 func TestLandingAutopilotLandsTheLanderOnTheFlag(t *testing.T) {
 	w, c := deorbitWorld(t, 150, 0)
-	dist, v, landed := flyLanding(t, w, c, 2*3600*4, nil)
-	t.Logf("landed=%v crashed=%v dist=%.1f m lastspeed=%.2f phase=%v thr=%.2f alt=%.1f", landed, c.Crashed, dist, v, c.Landing.Phase, c.Throttle, c.Altitude())
+	var phases []spacecraft.LandingPhase
+	dist, v, landed := flyLanding(t, w, c, 2*3600*4, func(int) {
+		if p := c.Landing.Phase; len(phases) == 0 || phases[len(phases)-1] != p {
+			phases = append(phases, p)
+		}
+	})
 	if !landed || dist > 50 || v >= CrashVCritMps {
 		t.Errorf("landed=%v dist=%.1f m speed=%.2f m/s, want landed within 50 m under %v m/s", landed, dist, v, CrashVCritMps)
 	}
+	want := []spacecraft.LandingPhase{spacecraft.PhaseCoast, spacecraft.PhaseBrake, spacecraft.PhaseApproach, spacecraft.PhaseFinal, spacecraft.PhaseCoast}
+	if len(phases) != len(want) { // the last Coast is the autopilot standing down at contact
+		t.Fatalf("phases %v, want %v", phases, want)
+	}
+	for i := range want {
+		if phases[i] != want[i] {
+			t.Fatalf("phases %v, want %v", phases, want)
+		}
+	}
+	if len(w.PendingLandingEvents) != 1 || math.Abs(w.PendingLandingEvents[0].DistanceM-dist) > 1 || w.PendingLandingEvents[0].Crashed {
+		t.Errorf("landing events %+v, want one touchdown at %.1f m", w.PendingLandingEvents, dist)
+	}
 }
 
-func TestLandingTrace(t *testing.T) {
+// ADR 0067 guard 3: unattended. The same landing with another vessel active
+// (the autopilot flies from the vessel's own Target) ends the same way.
+func TestLandingAutopilotFliesUnattended(t *testing.T) {
 	w, c := deorbitWorld(t, 150, 0)
-	flyLanding(t, w, c, 2*3600*4, func(i int) {
-		if c.Landing.Phase == spacecraft.PhaseCoast && !c.Landed && !c.Crashed {
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.EngageLandingAutopilot(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.SpawnCraft(SpawnSpec{Alongside: true}); err != nil {
+		t.Fatal(err)
+	}
+	w.SetActiveCraftIdx(len(w.Crafts) - 1)
+	if w.ActiveCraft() == c {
+		t.Fatal("setup: the lander is still active")
+	}
+	for i := 0; i < 2*3600*4 && !c.Landed && !c.Crashed; i++ {
+		w.Tick()
+	}
+	s := w.Sites[0]
+	dist := HaversineM(c.LandedLatDeg, c.LandedLonDeg, s.LatDeg, s.LonDeg, c.Primary.RadiusMeters())
+	if !c.Landed || dist > 50 {
+		t.Errorf("unattended: landed=%v crashed=%v dist=%.1f m, want landed within 50 m", c.Landed, c.Crashed, dist)
+	}
+}
+
+// ADR 0067 guard 4: Z/X hand over a descent rate; from 100 m the throttle holds
+// the commanded rate within 0.2 m/s with the nose still the autopilot's.
+func TestLandingAutopilotRODHoldsTheCommandedRate(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	var cmd float64
+	var held, checked int
+	flyLanding(t, w, c, 2*3600*4, func(int) {
+		ap := c.Landing
+		if c.Landed || c.Crashed || !ap.Engaged {
 			return
 		}
-		if i%40 == 0 || c.Landed || c.Crashed {
-			f := apFrameOf(c)
-			t.Logf("t=%s ph=%s alt=%.0f vz=%.1f sh=%.1f thr=%.3f fuel=%.0f res=%v oor=%v", w.Clock.SimTime.Format("15:04:05"), c.Landing.Phase.Word(), f.alt, f.vz, f.sh, c.Throttle, c.ActiveStageFuel(), c.Landing.Reserve, c.Landing.OutOfReach)
+		f := apFrameOf(c)
+		if !ap.ROD && f.alt <= 100 {
+			// P66: the first press starts the hold at the rate the vessel is
+			// falling and steps it by one click toward a slower descent
+			if !w.LandingROD(RODStepMps) {
+				t.Fatal("LandingROD refused an engaged autopilot")
+			}
+			cmd = ap.RODRateMps
+			return
+		}
+		if ap.ROD && f.alt > 40 {
+			checked++
+			if math.Abs(f.vz-cmd) <= 0.2 {
+				held++
+			}
 		}
 	})
+	if checked < 20 || cmd >= 0 {
+		t.Fatalf("setup: ROD checked %d ticks at cmd %.2f", checked, cmd)
+	}
+	if held < checked*3/4 { // the first seconds are the transient to the new rate
+		t.Errorf("rate held within 0.2 m/s of %.2f on %d of %d ticks, want 3/4 of them", cmd, held, checked)
+	}
+	if !c.Landed {
+		t.Errorf("ROD landing ended landed=%v crashed=%v", c.Landed, c.Crashed)
+	}
+}
+
+// ADR 0067 guard 5: out of reach reads exactly when the law saturates, with
+// the equal case at the near rung.
+func TestLandingAutopilotSaturationBoundary(t *testing.T) {
+	near := SiteShiftRungNearM
+	floor := 0.55
+	for _, tc := range []struct {
+		name         string
+		theta, along float64
+		spent, want  bool
+	}{
+		{"full throttle, long by the rung", 1, near, false, false},
+		{"full throttle, long past the rung", 1, near + 1, false, true},
+		{"full throttle, short past the rung", 1, -near - 1, false, false},
+		{"just under full, long past the rung", 1 - 0.01, near + 1, false, false},
+		{"hover floor, short by the rung", floor, -near, false, false},
+		{"hover floor, short past the rung", floor, -near - 1, false, true},
+		{"hover floor, long past the rung", floor, near + 1, false, false},
+		{"pitch spent, mid throttle, short by the rung", 0.8, -near, true, false},
+		{"pitch spent, mid throttle, short past the rung", 0.8, -near - 1, true, true},
+		{"pitch spent, mid throttle, long past the rung", 0.8, near + 1, true, false},
+	} {
+		if got := apSaturated(tc.theta, floor, tc.along, tc.spent); got != tc.want {
+			t.Errorf("%s: apSaturated(%.2f, %.2f, %.0f) = %v, want %v", tc.name, tc.theta, floor, tc.along, got, tc.want)
+		}
+	}
+}
+
+// ADR 0067 decision 10: a site beyond the brake's steering authority refuses
+// with the signed shortfall; one the aim is walked past in flight is flagged
+// out of reach and still lands softly at the nearest point.
+func TestLandingAutopilotOutOfReach(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2*3600*4 && (len(c.Nodes) > 0 || c.ActiveBurn != nil); i++ {
+		w.Tick() // fly the deorbit burn
+	}
+	c.Crewed, c.Controllable = true, true // the fixture's crew flag does not survive a tick
+	// a flag 20% further along the track than the stop point
+	s := w.Sites[0]
+	w.plantSite(c, SiteFlag, "far", s.LatDeg, s.LonDeg-4)
+	w.SetTargetSite(w.Sites[len(w.Sites)-1].ID)
+	err := w.EngageLandingAutopilot()
+	var reach *SiteHoldReachError
+	if !errors.As(err, &reach) || c.Landing != nil && c.Landing.Engaged {
+		t.Fatalf("engage on a far flag: err=%v engaged=%v, want a SiteHoldReachError and no engagement", err, c.Landing != nil && c.Landing.Engaged)
+	}
+	t.Logf("refusal along=%.0f cross=%.0f", reach.AlongM, reach.CrossM)
+	// the real site, then walk the aim 150 km short mid-brake: past what the
+	// reserve throttle can shorten the stop by (measured ~44 km, 10% of the
+	// stopping distance), so the law saturates and lands at the nearest point
+	w.SetTargetSite(s.ID)
+	if err := w.EngageLandingAutopilot(); err != nil {
+		t.Fatal(err)
+	}
+	var flagged bool
+	for i := 0; i < 2*3600*4 && !c.Landed && !c.Crashed; i++ {
+		w.Tick()
+		if c.Landing.Phase == spacecraft.PhaseBrake && c.Landing.AimAlongM == 0 {
+			c.Landing.AimAlongM = -150000
+		}
+		flagged = flagged || c.Landing.OutOfReach
+	}
+	dist := HaversineM(c.LandedLatDeg, c.LandedLonDeg, s.LatDeg, s.LonDeg, c.Primary.RadiusMeters())
+	if !flagged || !c.Landed || dist < 30000 || dist > 60000 {
+		t.Errorf("aim walked out of reach: flagged=%v landed=%v crashed=%v dist=%.0f m, want flagged, landed soft ~44 km short of the flag", flagged, c.Landed, c.Crashed, dist)
+	}
+	if len(w.PendingLandingEvents) != 1 || !w.PendingLandingEvents[0].OutOfReach {
+		t.Errorf("events %+v, want one out-of-reach landing", w.PendingLandingEvents)
+	}
 }

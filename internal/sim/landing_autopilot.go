@@ -25,15 +25,16 @@ const (
 	apNewtonGain      = 0.5              // damped Newton step on the downrange error
 	apCrossGain       = 0.8              // fraction of the crossrange error tilted away per tick
 	apMinStopLenM     = 1000.0           // floor on the stopping distance the errors are scaled by
-	apMarginTargetM   = 30.0             // stop altitude the brake holds: the final phase starts from here
+	apMarginTargetM   = 120.0            // stop altitude the brake holds: the final phase's schedule (top at 100 m) takes over from here
 	apProbeTheta      = 0.02             // finite-difference probes for the 2x2 Newton step
 	apProbePitch      = 0.02
 	apStepDamp        = 0.5
 	apMaxStepTheta    = 0.05 // per tick
 	apMaxStepPitchRad = 0.05
 	apMaxPitchUpRad   = 60 * math.Pi / 180
-	apRateGain        = 0.5 // 1/s, descent-rate error to acceleration
-	apDriftGain       = 0.4 // 1/s, drift to acceleration
+	apMaxCrossTiltRad = 0.25 // ~14 degrees: reaches ~10% of the stopping distance across (measured)
+	apRateGain        = 0.5  // 1/s, descent-rate error to acceleration
+	apDriftGain       = 0.4  // 1/s, drift to acceleration
 	apMaxTiltRad      = 25 * math.Pi / 180
 	apTouchdownCutM   = 0.5  // under this altitude the engine is cut
 	apDecelDerate     = 0.5  // share of the net deceleration the descent profile asks for
@@ -160,12 +161,10 @@ func (f apFrame) retro() orbital.Vec3 {
 // ground-relative orbit plane through the start state. The aim is the real
 // site plus the vessel's aim offsets (the computer's site, zero in S2).
 func (w *World) apStopErr(c *spacecraft.Spacecraft, lat, lon float64, start physics.StateVector, stopR orbital.Vec3, tStop time.Time) (along, cross float64) {
-	vRel := physics.AirRelativeVelocity(start.R, start.V, c.Primary)
-	n := start.R.Cross(vRel)
+	n := apTrackNormal(c, start)
 	if n.Norm() == 0 {
 		return 0, 0
 	}
-	n = n.Unit()
 	aimHat := siteVec(c, lat, lon, tStop)
 	tHat := n.Cross(aimHat).Unit()
 	rHat := tHat.Cross(aimHat)
@@ -174,6 +173,20 @@ func (w *World) apStopErr(c *spacecraft.Spacecraft, lat, lon float64, start phys
 	off := tHat.Scale(ap.NavAlongM + ap.AimAlongM).Add(rHat.Scale(ap.NavAcrossM + ap.AimAcrossM))
 	d = d.Sub(off)
 	return d.Dot(tHat), d.Dot(rHat)
+}
+
+// apTrackNormal is the unit normal of the ground-relative orbit plane the
+// aim's axes hang on: the one fixed at the brake's light once flying, else the
+// plane of the given state.
+func apTrackNormal(c *spacecraft.Spacecraft, start physics.StateVector) orbital.Vec3 {
+	if ap := c.Landing; ap != nil && ap.TrackN.Norm() != 0 {
+		return ap.TrackN
+	}
+	vRel := physics.AirRelativeVelocity(start.R, start.V, c.Primary)
+	if n := start.R.Cross(vRel); n.Norm() != 0 {
+		return n.Unit()
+	}
+	return orbital.Vec3{}
 }
 
 // landingCueIn is the sim time until the brake's cue (the latest instant a
@@ -392,6 +405,8 @@ func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
 			return
 		}
 		ap.Phase = spacecraft.PhaseBrake
+		ap.TrackN, ap.StopSpanM, ap.PitchUpRad = orbital.Vec3{}, 0, 0
+		ap.TrackN = apTrackNormal(c, c.State)
 		w.apSetThrottle(c, DeorbitBrakeThrottle)
 		c.ManualBurn = &spacecraft.ManualBurn{StartTime: w.Clock.SimTime}
 		c.DryOrder = false
@@ -469,10 +484,16 @@ func (w *World) apBrake(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilo
 	}
 	psi := ap.PitchUpRad
 	dir := f.retro()
+	if ap.StopSpanM == 0 {
+		ap.StopSpanM = math.Max(w.apForecast(c, lat, lon, theta, psi).span, apMinStopLenM)
+	}
 	lo := math.Max(f.hoverThrottle, 0.05)
 	f0 := w.apForecast(c, lat, lon, theta, psi)
 	if !f0.ok {
-		return dir, theta
+		// no stop to forecast (the tank runs dry first, or the step budget is
+		// spent): this setting cannot be flown, so shorten the stop
+		ap.OutOfReach = true
+		return apPitched(dir, f.up, psi), math.Min(theta+apMaxStepTheta, 1)
 	}
 	f1 := w.apForecast(c, lat, lon, math.Min(theta+apProbeTheta, 1), psi)
 	f2 := w.apForecast(c, lat, lon, theta, psi+apProbePitch)
@@ -484,15 +505,21 @@ func (w *World) apBrake(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilo
 			f1 = w.apForecast(c, lat, lon, theta+dth, psi)
 		}
 		if f1.ok {
-			j00, j10 := (f1.along-f0.along)/dth, (f1.margin-f0.margin)/dth
-			j01, j11 := (f2.along-f0.along)/apProbePitch, (f2.margin-f0.margin)/apProbePitch
-			r0, r1 := -f0.along, apMarginTargetM-f0.margin
-			if det := j00*j11 - j01*j10; math.Abs(det) > 1e-9 {
+			j00, j01 := (f1.along-f0.along)/dth, (f2.along-f0.along)/apProbePitch
+			j10, j11 := (f1.margin-f0.margin)/dth, (f2.margin-f0.margin)/apProbePitch
+			// beyond the steering authority the aim stops pulling: the vessel
+			// flies to the nearest point the brake reaches and lands soft
+			reach := OutOfReachAuthorityFrac * ap.StopSpanM
+			r0, r1 := -clampF(f0.along, -reach, reach), apMarginTargetM-f0.margin
+			if det := j00*j11 - j01*j10; math.Abs(det) > 1e-9 && j11 != 0 {
 				dTheta := (r0*j11 - j01*r1) / det * apStepDamp
 				newTheta = clampF(theta+clampF(dTheta, -apMaxStepTheta, apMaxStepTheta), lo, 1)
-				if j11 != 0 {
-					// the margin keeps its priority after the throttle is clamped
-					newPsi = psi + (r1-j10*(newTheta-theta))/j11*apStepDamp
+				// the margin keeps its priority after the throttle is clamped
+				newPsi = psi + (r1-j10*(newTheta-theta))/j11*apStepDamp
+				if newPsi > apMaxPitchUpRad && j10 > 0 {
+					// pitch is spent: the margin takes throttle from the aim
+					need := theta + (r1-j11*(apMaxPitchUpRad-psi))/j10*apStepDamp
+					newTheta = clampF(math.Max(newTheta, need), lo, 1)
 				}
 			}
 		}
@@ -502,25 +529,35 @@ func (w *World) apBrake(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilo
 		newPsi = psi + math.Copysign(apMaxStepPitchRad, newPsi-psi)
 	}
 	ap.PitchUpRad = newPsi
-	near := SiteShiftRungNearM
-	ap.OutOfReach = (newTheta >= 1-apThrottleEpsilon && f0.along > near) || (newTheta <= lo+apThrottleEpsilon && f0.along < -near)
+	ap.OutOfReach = apSaturated(newTheta, lo, f0.along, newPsi >= apMaxPitchUpRad-apThrottleEpsilon)
 	ap.Reserve = newTheta > DeorbitBrakeThrottle+apThrottleEpsilon
-	if rt := w.apRuntimeFor(c); ap.OutOfReach {
-		rt.outOfReach = true
-	}
-	if newPsi != 0 {
-		if perp := f.up.Sub(dir.Scale(f.up.Dot(dir))); perp.Norm() > 1e-12 {
-			dir = dir.Scale(math.Cos(newPsi)).Add(perp.Unit().Scale(math.Sin(newPsi))).Unit()
-		}
-	}
+	w.apRuntimeFor(c).outOfReach = ap.OutOfReach // the last brake tick's reading is the landing's
+	dir = apPitched(dir, f.up, newPsi)
 	// crossrange: tilt the thrust away from the error, within the steering authority
 	if f.sh > 1 {
-		phi := clampF(-apCrossGain*f0.cross/f0.span, -OutOfReachAuthorityFrac, OutOfReachAuthorityFrac)
+		phi := clampF(-apCrossGain*f0.cross/f0.span, -apMaxCrossTiltRad, apMaxCrossTiltRad)
 		rHat := f.vh.Unit().Cross(f.up)
 		lateral := rHat.Sub(dir.Scale(rHat.Dot(dir))).Unit()
 		dir = dir.Scale(math.Cos(phi)).Add(lateral.Scale(math.Sin(phi))).Unit()
 	}
 	return dir, newTheta
+}
+
+// apSaturated: the law is out of reach when the throttle is pinned at a limit
+// with the stop still off the aim by more than the near rung (decision 10): at
+// full throttle with the stop long, or at the hover floor (or with the pitch-up
+// spent holding the margin) with it short.
+func apSaturated(theta, floor, along float64, pitchSpent bool) bool {
+	return (theta >= 1-apThrottleEpsilon && along > SiteShiftRungNearM) ||
+		((theta <= floor+apThrottleEpsilon || pitchSpent) && along < -SiteShiftRungNearM)
+}
+
+// apPitched leans dir toward up by psi radians, in the plane they span.
+func apPitched(dir, up orbital.Vec3, psi float64) orbital.Vec3 {
+	if perp := up.Sub(dir.Scale(up.Dot(dir))); psi != 0 && perp.Norm() > 1e-12 {
+		return dir.Scale(math.Cos(psi)).Add(perp.Unit().Scale(math.Sin(psi))).Unit()
+	}
+	return dir
 }
 
 func clampF(x, lo, hi float64) float64 { return math.Max(lo, math.Min(hi, x)) }
