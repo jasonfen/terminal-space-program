@@ -7,6 +7,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 const moonR = 1737400.0
@@ -212,5 +213,114 @@ func TestSurfaceTargetLatLonPartnerSiteIDCollidesWithOwn(t *testing.T) {
 	c.Primary = moon
 	if lat, lon, ok := w.surfaceTargetLatLon(c); !ok || lat != -40 || lon != 120 {
 		t.Errorf("aim = %v %v ok=%v, want -40 120", lat, lon, ok)
+	}
+}
+
+// F6: TARGET's land-beside reading reruns the 30-minute forecast only when the
+// orbit changes, not every frame; a cold read equals the uncached forecast.
+func TestLandBesideForecastRunsOnlyWhenTheOrbitChanges(t *testing.T) {
+	w, lander, _ := siteWorld(t)
+	lander.Landed, lander.Crashed = false, false
+	r := lander.Primary.RadiusMeters() + 100000
+	mu := lander.Primary.GravitationalParameter()
+	lander.State.R = orbital.Vec3{X: r}
+	lander.State.V = orbital.Vec3{Y: math.Sqrt(mu / r)}
+	w.SetTargetSite(w.Sites[0].ID)
+	w.impactSolves = 0
+	for i := 0; i < 200; i++ {
+		w.Tick()
+		w.LandBesideReading()
+	}
+	if w.impactSolves > 2 {
+		t.Fatalf("200 frames on an unchanged orbit ran %d forecasts, want at most 2", w.impactSolves)
+	}
+	// a burn (new orbit) invalidates
+	before := w.impactSolves
+	lander.State.V = lander.State.V.Scale(0.5)
+	lb, _ := w.LandBesideReading()
+	if w.impactSolves != before+1 || !lb.ImpactOK {
+		t.Errorf("after a retro burn: solves %d->%d impact=%v, want one new forecast that finds the ground", before, w.impactSolves, lb.ImpactOK)
+	}
+	before = w.impactSolves
+	w.LandBesideReading()
+	if w.impactSolves != before {
+		t.Errorf("same orbit again re-ran the forecast")
+	}
+	// mid-burn: never cached
+	lander.ActiveBurn = &spacecraft.ActiveBurn{}
+	before = w.impactSolves
+	w.LandBesideReading()
+	w.LandBesideReading()
+	if w.impactSolves != before+2 {
+		t.Errorf("mid-burn solves %d->%d, want 2 (uncached)", before, w.impactSolves)
+	}
+}
+
+func TestLandBesideColdReadEqualsUncachedForecast(t *testing.T) {
+	w, lander, _ := siteWorld(t)
+	lander.Landed, lander.Crashed = false, false
+	r := lander.Primary.RadiusMeters() + 100000
+	mu := lander.Primary.GravitationalParameter()
+	lander.State.R = orbital.Vec3{X: r}
+	lander.State.V = orbital.Vec3{Y: 0.2 * math.Sqrt(mu/r)}
+	lander.CurrentAttitudeDir = orbital.Vec3{X: 1}
+	w.SetTargetSite(w.Sites[0].ID)
+	cached, _ := w.LandBesideReading()
+	imp, found := PredictImpact(lander, DescentPredictHorizon)
+	got, ok := w.cachedImpact(lander)
+	if !found || !ok || got.Point != imp.Point || got.TimeToImpact != imp.TimeToImpact {
+		t.Fatalf("cold cachedImpact %+v, want PredictImpact %+v", got, imp)
+	}
+	// a hit one second later reads the same ground contact, one second nearer
+	w.Clock.SimTime = w.Clock.SimTime.Add(time.Second)
+	hit, _ := w.cachedImpact(lander)
+	if hit.Point != imp.Point || hit.TimeToImpact != imp.TimeToImpact-time.Second || !cached.ImpactOK {
+		t.Errorf("hit %+v after 1 s, want the same point and TTI-1s", hit)
+	}
+}
+
+// Drag moves the answer along the orbit, so an orbit that dips into the
+// atmosphere is never cached; one that clears it is.
+func TestImpactCacheSkipsOrbitsThatReachTheAtmosphere(t *testing.T) {
+	w, lander, _ := siteWorld(t)
+	for _, b := range w.System().Bodies {
+		if b.Atmosphere != nil && b.ID == "earth" {
+			lander.Primary = b
+		}
+	}
+	if lander.Primary.Atmosphere == nil {
+		t.Fatal("setup: no atmospheric body")
+	}
+	lander.Landed, lander.Crashed = false, false
+	mu, r := lander.Primary.GravitationalParameter(), lander.Primary.RadiusMeters()+20000
+	lander.State.R = orbital.Vec3{X: r}
+	lander.State.V = orbital.Vec3{Y: 0.9 * math.Sqrt(mu/r)} // periapsis inside the air
+	w.impactSolves = 0
+	w.cachedImpact(lander)
+	w.cachedImpact(lander)
+	if w.impactSolves != 2 {
+		t.Errorf("in-atmosphere orbit: %d forecasts for 2 reads, want 2", w.impactSolves)
+	}
+	r = lander.Primary.RadiusMeters() + lander.Primary.Atmosphere.CutoffAltitude + 200000
+	lander.State.R, lander.State.V = orbital.Vec3{X: r}, orbital.Vec3{Y: math.Sqrt(mu / r)}
+	w.impactSolves = 0
+	w.cachedImpact(lander)
+	w.cachedImpact(lander)
+	if w.impactSolves != 1 {
+		t.Errorf("clear orbit: %d forecasts for 2 reads, want 1", w.impactSolves)
+	}
+}
+
+func BenchmarkLandBesideInOrbit(b *testing.B) {
+	t := &testing.T{}
+	w, lander, _ := siteWorld(t)
+	lander.Landed, lander.Crashed = false, false
+	r := lander.Primary.RadiusMeters() + 100000
+	lander.State.R = orbital.Vec3{X: r}
+	lander.State.V = orbital.Vec3{Y: math.Sqrt(lander.Primary.GravitationalParameter() / r)}
+	w.SetTargetSite(w.Sites[0].ID)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		w.LandBesideReading()
 	}
 }

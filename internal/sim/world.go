@@ -169,6 +169,9 @@ type World struct {
 	// deorbitCache memoises the stop-point forecasts TARGET's miss:/cross: read
 	// (deorbit.go).
 	deorbitCache deorbitCache
+	// impactCache memoises LandBesideReading's free-fall forecast (site_readouts.go).
+	impactCache  impactCache
+	impactSolves int // forecasts actually run, for the hit-count test
 
 	// planChain memoises the HUD's chained node walk (plan_chain.go).
 	planChain planChainCache
