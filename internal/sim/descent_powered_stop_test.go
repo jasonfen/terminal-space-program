@@ -130,7 +130,9 @@ func TestPredictPoweredStopMatchesAnalyticConstantGCase(t *testing.T) {
 
 	g0 := stdGravityMps2
 	ispg0 := ispSec * g0
-	mdot := thrustN / ispg0
+	// The predictor brakes at the reserve throttle (ADR 0067 decision 7), so the
+	// closed form takes the thrust it actually flies, not the engine's rating.
+	mdot := thrustN * (1 - BrakeReserveFrac) / ispg0
 	a := massKg0 / mdot
 
 	wantT := analyticStopTime(t, v0, gotG, ispg0, a)
