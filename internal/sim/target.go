@@ -878,6 +878,11 @@ func (w *World) TargetName() string {
 			}
 			return s.Name
 		}
+		// F4: a vanished site still HOLDS the aim; same pending text as an unresolved ghost.
+		if h := w.GhostOwnerHandle(w.Target.GhostOwner); h != "" {
+			return h + "'s site (pending)"
+		}
+		return "pending target lock"
 	case TargetGhost:
 		if g, ok := w.ghostByRef(w.Target.GhostOwner, w.Target.CraftID); ok {
 			if g.Handle != "" {

@@ -137,3 +137,29 @@ func TestRemoveSiteClearsTargetOnIt(t *testing.T) {
 		t.Errorf("remove target site: target %+v sites %+v", w.Target, w.Sites)
 	}
 }
+
+// Equal id: deleting your id-1 flag must not clear an aim on a partner's id-1 flag.
+func TestRemoveSiteKeepsPartnerTargetWithSameID(t *testing.T) {
+	w, _, _, _, _, _ := moonSiteWorld(t)
+	moon := siteBody(w, "moon")
+	sys := w.System().Name
+	w.Sites = append(w.Sites, Site{ID: 1, Body: moon.EnglishName, System: sys})
+	w.PartnerSites = []PartnerSite{{Site: Site{ID: 1, Owner: "p", Body: moon.EnglishName, System: sys}}}
+	w.SetTargetPartnerSite("p", 1)
+	if !w.RemoveSite(1) {
+		t.Fatal("own site 1 not removed")
+	}
+	if w.Target.Kind != TargetSite || w.Target.GhostOwner != "p" {
+		t.Errorf("partner aim cleared: %+v", w.Target)
+	}
+}
+
+// F4: a partner's site that vanished (or a solo save with the aim persisted)
+// keeps a pending name, not a blank TARGET title.
+func TestTargetNameVanishedPartnerSiteIsPending(t *testing.T) {
+	w, _, _, _, _, _ := moonSiteWorld(t)
+	w.Target = Target{Kind: TargetSite, SiteID: 7, GhostOwner: "p"}
+	if got := w.TargetName(); got != "pending target lock" {
+		t.Errorf("name = %q, want pending target lock", got)
+	}
+}
