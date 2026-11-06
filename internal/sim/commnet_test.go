@@ -820,3 +820,88 @@ func TestOrionConnectsInLEOAndAtTheMoon(t *testing.T) {
 		t.Errorf("reason at 384,400 km = %v, want none", r)
 	}
 }
+
+// farSideProbeWorld is TestCargoDragonFarSideOfLunaIsDark's setup: a Cargo
+// Dragon 100 km over the Moon's far side, plus a controllable relay ghost
+// 10,000 km out on the limb, in range of Earth's stations and in sight of the
+// probe (ADR 0066 decision 13).
+func farSideProbeWorld(t *testing.T) (w *World, probe *spacecraft.Spacecraft, relay Ghost) {
+	t.Helper()
+	w = mustWorld(t)
+	sys := w.System()
+	moon := *sys.FindBody("moon")
+	away := w.BodyPosition(moon).Sub(w.BodyPosition(*sys.FindBody("earth"))).Unit()
+	probe = spacecraft.NewFromLoadout("Cargo-Dragon")
+	probe.SystemIdx, probe.Primary = 0, moon
+	probe.State.R = away.Scale(moon.RadiusMeters() + 100_000)
+	w.Crafts = []*spacecraft.Spacecraft{probe}
+	w.EnsureCraftIDs()
+	w.SetActiveCraftIdx(0)
+	rel := orbital.Vec3{X: -away.Y, Y: away.X}.Scale(1e7)
+	relay = Ghost{Owner: "fp-ansi", CraftID: probe.ID, PrimaryID: "moon", RelPos: rel,
+		Pos: w.BodyPosition(moon).Add(rel), AntennaKind: spacecraft.AntennaRelay,
+		AntennaRangeM: spacecraft.AntennaRangeRelayCislunar, Controllable: true}
+	return
+}
+
+// Guard 13: a probe over the far side reads CONNECTED through a partner's
+// relay and NO SIGNAL the tick the report is dropped; the ghost is no probe,
+// no station and no ConnectedRelayCount member, even when its craft id equals
+// an own craft's (ids are per player), and it never makes its own id
+// connected.
+func TestGhostRelayCarriesTrafficAndIsNothingElse(t *testing.T) {
+	w, probe, relay := farSideProbeWorld(t)
+	w.RecomputeCommGraph()
+	if w.CommGraph.HasConnection(probe.ID) {
+		t.Fatal("setup: far-side probe must be dark with no relay")
+	}
+	w.Ghosts = []Ghost{relay}
+	w.RecomputeCommGraph()
+	if !w.CommGraph.HasConnection(probe.ID) {
+		t.Fatalf("probe not connected through a partner relay (reason %v)", w.CommGraph.Reason(probe.ID))
+	}
+	if n := len(w.CommGraph.Path(probe.ID)); n != 3 {
+		t.Errorf("path = %d points, want probe, ghost, station", n)
+	}
+	if w.ConnectedRelayCount() != 0 || w.CommGraph.Connected[0] || len(w.CommGraph.Connected) != 1 {
+		t.Errorf("ghost leaked into the solve: count=%d connected=%v", w.ConnectedRelayCount(), w.CommGraph.Connected)
+	}
+	w.Ghosts = nil
+	w.RecomputeCommGraph()
+	if w.CommGraph.HasConnection(probe.ID) {
+		t.Error("report dropped: probe must read NO SIGNAL the same tick")
+	}
+}
+
+// A ghost relay that cannot reach a station is not one: it is never a sink.
+func TestGhostRelayIsNeverAStation(t *testing.T) {
+	w, probe, relay := farSideProbeWorld(t)
+	// Behind the Moon beside the probe: linked to it, hidden from every station.
+	rel := probe.State.R.Unit().Scale(probe.State.R.Norm() + 200_000)
+	relay.RelPos, relay.Pos = rel, w.BodyPosition(probe.Primary).Add(rel)
+	w.Ghosts = []Ghost{relay}
+	w.RecomputeCommGraph()
+	if w.CommGraph.HasConnection(probe.ID) {
+		t.Error("a probe linked to an unconnected ghost relay must stay dark")
+	}
+}
+
+// Only a controllable relay-antenna ghost is a node.
+func TestGhostRelayKinds(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		mut  func(*Ghost)
+	}{
+		{"direct antenna", func(g *Ghost) { g.AntennaKind = spacecraft.AntennaDirect }},
+		{"not controllable", func(g *Ghost) { g.Controllable = false }},
+		{"no antenna", func(g *Ghost) { g.AntennaKind = "" }},
+	} {
+		w, probe, relay := farSideProbeWorld(t)
+		c.mut(&relay)
+		w.Ghosts = []Ghost{relay}
+		w.RecomputeCommGraph()
+		if w.CommGraph.HasConnection(probe.ID) {
+			t.Errorf("%s: ghost must not carry traffic", c.name)
+		}
+	}
+}
