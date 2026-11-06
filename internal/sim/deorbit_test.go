@@ -172,6 +172,21 @@ func TestDeorbitEqualCaseBurnsAtOnceAndReplacesItself(t *testing.T) {
 	}
 }
 
+// The "at once" window is a hair either side of 60 degrees: 5e-4 deg short of it
+// still burns now, 0.01 deg short waits a lap (the site has just passed 60).
+func TestDeorbitAtOnceToleranceEdges(t *testing.T) {
+	w, _ := deorbitWorld(t, 60-5e-4, 0)
+	plan, err := w.PlanDeorbitOntoSite()
+	if err != nil || plan.In > time.Second {
+		t.Errorf("59.9995 deg ahead: in %v err %v, want at once", plan.In, err)
+	}
+	w, _ = deorbitWorld(t, 60-0.01, 0)
+	plan, err = w.PlanDeorbitOntoSite()
+	if err != nil || plan.In < 90*time.Minute {
+		t.Errorf("59.99 deg ahead: in %v err %v, want a lap (about 118 min) away", plan.In, err)
+	}
+}
+
 // A vessel that cannot stop (thrust under its weight) aims the free-fall impact: after its
 // burn the dashed arc ends within 1 km of the site and the plan says impact.
 func TestDeorbitCannotStopAimsTheFreeFall(t *testing.T) {
@@ -243,6 +258,11 @@ func TestDeorbitOffTrackCap(t *testing.T) {
 	w, c := deorbitWorld(t, 60, DeorbitMaxOffTrackDeg)
 	if _, err := w.PlanDeorbitOntoSite(); err != nil {
 		t.Fatalf("1.0 deg off the track: %v, want a plant", err)
+	}
+	// within the 1e-6 deg tolerance of the cap still plants
+	w, _ = deorbitWorld(t, 60, DeorbitMaxOffTrackDeg+5e-7)
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Errorf("cap + 5e-7 deg: %v, want a plant", err)
 	}
 	w, c = deorbitWorld(t, 60, 1.1)
 	_, err := w.PlanDeorbitOntoSite()
