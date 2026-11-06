@@ -265,7 +265,7 @@ func TestReportsSurviveARestart(t *testing.T) {
 	srv.relay.Report(relay.CraftReport{Owner: "SHA256:alice", SubspaceTime: at, Crafts: []relay.CraftState{{ID: 1}}})
 	srv.relay.Report(relay.CraftReport{Owner: sessiondir.HostFingerprint, SubspaceTime: at})
 	deadline := time.Now().Add(2 * time.Second)
-	for len(srv.store.ReadReports()) < 2 && time.Now().Before(deadline) {
+	for len(srv.store.ReadReports()) < 1 && time.Now().Before(deadline) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	again, err := New(Config{Addr: "127.0.0.1:0", HostKeyPath: filepath.Join(t.TempDir(), "hostkey"), SessionDir: dir})
@@ -279,6 +279,18 @@ func TestReportsSurviveARestart(t *testing.T) {
 	}
 	if again.presence.isOnline("SHA256:alice") {
 		t.Error("seeded owner reads online")
+	}
+}
+
+// The host's own report is never written to reports/: its world is fresh
+// every start, so a file would only be a write racing shutdown (a CI flake
+// on TestStartHostingViaMessage removed its temp dir under the writer).
+func TestHostReportIsNotPersisted(t *testing.T) {
+	srv := newOfflineServer(t)
+	srv.relay.Report(relay.CraftReport{Owner: sessiondir.HostFingerprint, SubspaceTime: time.Date(2040, 1, 1, 0, 0, 0, 0, time.UTC)})
+	srv.writeReport(relay.CraftReport{Owner: sessiondir.HostFingerprint})
+	if n := len(srv.store.ReadReports()); n != 0 {
+		t.Errorf("%d report files for the host, want 0", n)
 	}
 }
 
