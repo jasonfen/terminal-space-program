@@ -14,7 +14,7 @@
         },
         {
           "name": "Aim for the Moon",
-          "description": "Press [t] to cycle the target slot until TARGET reads Moon. [T] clears it.",
+          "description": "Press [t] twice to target the Moon. [T] clears it.",
           "kind": "event",
           "params": { "action": "cycle_target", "require_target_body_id": "moon" }
         }
@@ -126,7 +126,7 @@
         },
         {
           "name": "Target it",
-          "description": "Press [t] to cycle the target slot until TARGET shows the other vessel.",
+          "description": "Press [t] and pick the other vessel.",
           "kind": "event",
           "params": { "action": "cycle_target", "require_target_craft": true }
         },

@@ -122,7 +122,7 @@ func TestHelpFirstFlightPage(t *testing.T) {
 		t.Fatalf("orbit start must precede the pad (orbit=%d pad=%d):\n%s", orbit, pad, v)
 	}
 	for _, want := range []string{
-		"TARGET reads Moon", "[space] only drops stages", "light the engine and lift off",
+		"twice to target the Moon", "[space] only drops stages", "light the engine and lift off",
 		"ORBIT READY", "F1 → MANUAL FLIGHT for the rest",
 	} {
 		if !strings.Contains(v, want) {
