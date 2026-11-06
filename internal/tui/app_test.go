@@ -831,3 +831,36 @@ func TestArrowsTurnTheInertialHoldNotTheTrims(t *testing.T) {
 		t.Error("→ under Prograde no longer trims")
 	}
 }
+
+// The F3 card (ADR 0066 decision 6): F3 opens it over the map, a letter flips
+// its row and writes settings.json, it swallows other flight keys (t does not
+// open the target menu under it), esc closes, and the choice survives a reload.
+func TestSurfaceMarksCardFlipsPersistsAndSwallows(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	press := func(r rune) { a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}) }
+	a.Update(tea.KeyMsg{Type: tea.KeyF3})
+	if !a.marksCardOpen {
+		t.Fatal("F3 did not open the marks card")
+	}
+	press('t')
+	if a.targetMenuOpen {
+		t.Error("t opened the target menu under the marks card")
+	}
+	press('f')
+	if a.orbitView.Settings().ChipEnabled(settings.ChipMarksFlags) {
+		t.Error("f left flags on")
+	}
+	if reloaded, _ := settings.Load(); reloaded.ChipEnabled(settings.ChipMarksFlags) {
+		t.Error("flags off was not persisted")
+	}
+	if !a.orbitView.Settings().ChipEnabled(settings.ChipMarksWrecks) {
+		t.Error("f also switched wrecks off")
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyEsc})
+	if a.marksCardOpen {
+		t.Error("esc left the card open")
+	}
+}

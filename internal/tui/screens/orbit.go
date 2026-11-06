@@ -1216,9 +1216,13 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// marker wins its cell; no camera re-fit (ADR 0021: drawn geometry
 	// never triggers a fit).
 	tgtGhost, _, ghostTargeted := w.ResolveTargetGhost()
+	v.drawSurfaceMarks(w, scale, canvasReach)
 	for _, g := range w.Ghosts {
 		ghostColor := lipgloss.Color(render.ColorDim)
 		isTarget := ghostTargeted && g.Owner == tgtGhost.Owner && g.CraftID == tgtGhost.CraftID
+		if g.Landed && !isTarget && v.landedGhostHidden(w, g, scale, canvasReach) {
+			continue
+		}
 		// Inspect (ADR 0041 §3): ghosts are the entities the ADR's
 		// "whose line is whose" diagnosis is really about — every ghost
 		// draws in the same ColorDim, so two other players are
@@ -1417,6 +1421,9 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			otherPrimaryPos := w.BodyPosition(other.Primary)
 			otherPxR := mapBodyPixelRadius(other.Primary, false, scale, canvasReach)
 			otherInertial := otherPrimaryPos.Add(other.State.R)
+			if v.surfaceVesselHidden(w, i, other) {
+				continue
+			}
 			otherEl := orbital.ElementsFromState(other.State.R, other.State.V, other.Primary.GravitationalParameter())
 			// #375: same craftHasOrbit exclusion as the active vessel above
 			// — every other landed vessel on the map loses its needle too.

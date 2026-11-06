@@ -152,6 +152,9 @@ type App struct {
 	// targetMenu is the `t` card (ADR 0066 decision 2); targetMenuOpen says it is up.
 	targetMenu     *screens.TargetMenu
 	targetMenuOpen bool
+	// marksCard is the `y` surface-marks card (ADR 0066 decision 6).
+	marksCard     *screens.SurfaceMarksCard
+	marksCardOpen bool
 	// card is the one question on screen (ADR 0054, #633): the quit prompt
 	// or a flight ask (end flight, transpose, deploy, quickload), drawn
 	// over the dimmed screen. nil = no question is up.
@@ -332,6 +335,7 @@ func New(scenario *sim.StartScenario) (*App, error) {
 		porkchop:   screens.NewPorkchop(sth),
 		menu:       screens.NewMenu(sth),
 		targetMenu: screens.NewTargetMenu(sth),
+		marksCard:  screens.NewSurfaceMarksCard(sth),
 		missions:   screens.NewMissions(sth),
 		spawn:      screens.NewSpawnCraft(sth),
 
@@ -1102,6 +1106,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// The target menu (ADR 0066) swallows every key but the warp keys.
 		if a.targetMenuOpen && !key.Matches(m, a.keys.WarpUp, a.keys.WarpDown, a.keys.CancelWarp) {
 			return a.handleTargetMenuKey(m)
+		}
+		if a.marksCardOpen && !key.Matches(m, a.keys.WarpUp, a.keys.WarpDown, a.keys.CancelWarp) {
+			return a.handleMarksCardKey(m)
 		}
 		// ~ opens chat from the flight view (ADR 0035 §4; U+007E, a
 		// different rune from the U+0060 boss key, and absent from every
@@ -2081,6 +2088,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			default:
 				a.flash(fmt.Sprintf("transpose failed: %v", err))
 			}
+			return a, nil
+		case key.Matches(m, a.keys.SurfaceMarks) && a.active == screenOrbit:
+			a.marksCard.Open()
+			a.marksCardOpen = true
 			return a, nil
 		case key.Matches(m, a.keys.CycleTarget):
 			if a.active == screenBodyInfo {
@@ -3904,6 +3915,8 @@ func (a *App) commitInspect() {
 		a.world.SetTargetCraft(idx)
 	case screens.InspectGhost:
 		a.world.SetTargetGhost(ref.Owner, ref.CraftID)
+	case screens.InspectSite:
+		a.world.SetTargetSite(ref.SiteID)
 	default:
 		a.toast(fmt.Sprintf("%s can't be a target", name))
 		return
@@ -4337,6 +4350,9 @@ func (a *App) View() string {
 	// not held (Jason 2026-10-12, conflict 1).
 	if a.targetMenuOpen && a.card == nil {
 		base = a.cardOver(base, a.targetMenu.Render(), screens.CardW)
+	}
+	if a.marksCardOpen && a.card == nil {
+		base = a.cardOver(base, a.marksCard.Render(a.orbitView.Settings().ChipEnabled), screens.CardW)
 	}
 	if a.card != nil {
 		// Raised from the pause menu, the quit card replaces the pause card
@@ -4792,6 +4808,18 @@ func (a *App) doRefinePlan() {
 // orbitalSemiMajor is craft c's semi-major axis about its primary, metres.
 func orbitalSemiMajor(c *spacecraft.Spacecraft) float64 {
 	return orbital.ElementsFromState(c.State.R, c.State.V, c.Primary.GravitationalParameter()).A
+}
+
+// handleMarksCardKey routes a key while the `y` card is up.
+func (a *App) handleMarksCardKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
+	chip, flip, closeCard := a.marksCard.HandleKey(m.String())
+	if flip {
+		a.toggleChip(chip)
+	}
+	if closeCard {
+		a.marksCardOpen = false
+	}
+	return a, nil
 }
 
 // handleTargetMenuKey routes a key while the `t` card is up. esc closes it,

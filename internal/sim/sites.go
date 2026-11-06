@@ -140,3 +140,20 @@ func (w *World) RemoveSite(id uint64) bool {
 	}
 	return false
 }
+
+// SiteWorldPos is a site's inertial position (its body's centre plus the
+// co-rotating surface point) and the body it sits on. ok=false for a site on
+// a body of another system or an unknown body, which the map does not draw.
+func (w *World) SiteWorldPos(s Site) (pos orbital.Vec3, body bodies.CelestialBody, ok bool) {
+	sys := w.System()
+	if s.System != sys.Name {
+		return
+	}
+	for _, b := range sys.Bodies {
+		if b.EnglishName == s.Body {
+			r, _ := surfacePointState(b, s.LatDeg, s.LonDeg, w.Clock.SimTime)
+			return w.BodyPosition(b).Add(r), b, true
+		}
+	}
+	return
+}

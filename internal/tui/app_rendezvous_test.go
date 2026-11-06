@@ -73,10 +73,14 @@ func TestRendezvousRespondKey(t *testing.T) {
 	}
 	w := a.world
 
-	// No invite: y is a free key — nothing arms.
+	// No invite: y is a free key: nothing arms, and it does not open the
+	// surface-marks card (that is F3).
 	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	if w.RendezvousArm != nil {
 		t.Fatal("y with no invite armed a rendezvous")
+	}
+	if a.marksCardOpen {
+		t.Fatal("y with no invite opened the surface-marks card")
 	}
 
 	tau := w.Clock.SimTime.Add(3 * time.Hour)
