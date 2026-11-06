@@ -130,7 +130,9 @@ func TestPredictPoweredStopMatchesAnalyticConstantGCase(t *testing.T) {
 
 	g0 := stdGravityMps2
 	ispg0 := ispSec * g0
-	mdot := thrustN / ispg0
+	// The predictor brakes at the reserve throttle (ADR 0067 decision 7), so the
+	// closed form takes the thrust it actually flies, not the engine's rating.
+	mdot := thrustN * (1 - BrakeReserveFrac) / ispg0
 	a := massKg0 / mdot
 
 	wantT := analyticStopTime(t, v0, gotG, ispg0, a)
@@ -410,5 +412,69 @@ func TestStopStepSizeSecondsAdaptiveShrinkStillWorks(t *testing.T) {
 	// Neither cap engages: full dt.
 	if got := stopStepSizeSeconds(dt, fuelTimeLeftSec, 1000.0, 1.0); got != dt {
 		t.Errorf("stopStepSizeSeconds = %v, want dt (%v) — neither cap should have engaged", got, dt)
+	}
+}
+
+// TestPredictorsBrakeAtTheReserveThrottle: ADR 0067 decision 7. Both public
+// predictors plan the brake at 1 - BrakeReserveFrac, so the HUD cue, stop: and
+// the N plan agree. Equal case: the same predictors at full throttle differ,
+// so the test can tell a reserve from no reserve.
+func TestPredictorsBrakeAtTheReserveThrottle(t *testing.T) {
+	_, c := dropTestCraft(t, 50_000)
+	c.Thrust = 60_000
+	c.Isp = 311
+	c.DryMass, c.Fuel, c.Monoprop = 5_000, 10_000, 0
+	c.Stages = nil
+	c.State.V = orbital.Vec3{X: -20, Y: 300}
+	c.State.M = c.TotalMass()
+
+	reserve := 1 - BrakeReserveFrac
+	stop, ok := PredictPoweredStop(c, DescentPredictHorizon)
+	wantStop, wok := predictPoweredStopFromAt(c.State, c, DescentPredictHorizon, reserve)
+	fullStop, _ := predictPoweredStopFromAt(c.State, c, DescentPredictHorizon, 1)
+	if !ok || !wok {
+		t.Fatal("predictor refused")
+	}
+	if math.Abs(stop.ElapsedSec-wantStop.ElapsedSec) > 1e-6 {
+		t.Errorf("PredictPoweredStop elapsed %.3f s, want %.3f s (reserve throttle)", stop.ElapsedSec, wantStop.ElapsedSec)
+	}
+	if math.Abs(fullStop.ElapsedSec-wantStop.ElapsedSec) < 1e-3 {
+		t.Fatalf("full-throttle and reserve stops are indistinguishable (%.3f s): the guard measures nothing", fullStop.ElapsedSec)
+	}
+
+	cue, ok := PredictBurnAt(c, DescentPredictHorizon)
+	want, _, wok := burnAtCue(c, DescentPredictHorizon, reserve, burnAtRefineIters)
+	full, _, _ := burnAtCue(c, DescentPredictHorizon, 1, burnAtRefineIters)
+	if !ok || !wok {
+		t.Fatal("cue refused")
+	}
+	if math.Abs(cue.InSec-want.InSec) > 1e-6 {
+		t.Errorf("PredictBurnAt InSec %.3f, want %.3f (reserve throttle)", cue.InSec, want.InSec)
+	}
+	if math.Abs(full.InSec-want.InSec) < 1e-3 {
+		t.Fatalf("full-throttle and reserve cues are indistinguishable (%.3f s)", full.InSec)
+	}
+}
+
+// TestHUDCueMatchesThePlansLight: ADR 0067 S1 live check. The ENGINE row's
+// countdown and the N plan's light read the same brake from the same state, so
+// they agree to the plan's own resolution (S11 measured an 18 s gap when the
+// HUD cue was full throttle; a 3-round refine left 0.5-0.9 s after the reserve).
+func TestHUDCueMatchesThePlansLight(t *testing.T) {
+	_, c := dropTestCraft(t, 50_000)
+	c.Thrust = 60_000
+	c.Isp = 311
+	c.DryMass, c.Fuel, c.Monoprop = 5_000, 10_000, 0
+	c.Stages = nil
+	c.State.V = orbital.Vec3{X: -20, Y: 300}
+	c.State.M = c.TotalMass()
+
+	hud, ok := PredictBurnAt(c, DescentPredictHorizon)
+	plan, _, pok := burnAtCue(c, DescentPredictHorizon, DeorbitBrakeThrottle, deorbitRefineIters)
+	if !ok || !pok {
+		t.Fatal("cue refused")
+	}
+	if gap := math.Abs(hud.InSec - plan.InSec); gap > 0.1 {
+		t.Errorf("HUD cue %.3f s vs plan light %.3f s, gap %.3f s, want within 0.1 s", hud.InSec, plan.InSec, gap)
 	}
 }

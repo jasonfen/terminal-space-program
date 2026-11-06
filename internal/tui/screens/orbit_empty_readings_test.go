@@ -59,7 +59,7 @@ func TestFoldTrailingDashRowsBottomOnly(t *testing.T) {
 	if got := foldTrailingDashRows([]string{"T", "  a:  —"}); len(got) != 1 {
 		t.Errorf("title must survive an all-dash box, got %q", got)
 	}
-	if isDashRow("  node:  ● braking burn at 3 km") || isDashRow("  a:  0.00") {
+	if isDashRow("  node:  ● brake at 3 km") || isDashRow("  a:  0.00") {
 		t.Error("a row with a reading must not count as a dash row")
 	}
 	if !isDashRow("  impact:   —   stop:   —") || isDashRow("  plan:") {

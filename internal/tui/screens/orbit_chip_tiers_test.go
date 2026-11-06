@@ -25,7 +25,6 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
-	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 type tierReading struct {
@@ -412,7 +411,7 @@ func engineWorstCaseFixtures(t *testing.T) []vabStagesFixture {
 	// Extreme braking readouts through the same format (the fixtures only
 	// reach a few of them).
 	for _, tc := range []struct{ alt, sec float64 }{{4000, 300}, {999999, 360000}} {
-		line := fmt.Sprintf("%s braking burn at %s  %s", hudNodeMarker, readout.Distance(tc.alt), readout.Countdown(secondsToDuration(tc.sec)))
+		line := brakeAtLine(tc.alt, tc.sec)
 		add(fmt.Sprintf("braking synth alt=%.0f in=%.0fs", tc.alt, tc.sec), []string{chipRowAt("node:", line, engineCols.value1)})
 	}
 	return out
@@ -425,14 +424,14 @@ func TestEngineWorstCaseFixturesReachEveryBranch(t *testing.T) {
 	joined := map[string]bool{}
 	for _, r := range engineWorstCaseFixtures(t) {
 		for _, l := range r.lines {
-			for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "braking burn", "+10 [m]", "⚠", "Surf ", "Tgt ", "▸ raise", "▸ lower", "starts in", "● RAISE"} {
+			for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "brake at", "+10 [m]", "⚠", "Surf ", "Tgt ", "▸ raise", "▸ lower", "starts in", "● RAISE"} {
 				if strings.Contains(l, want) {
 					joined[want] = true
 				}
 			}
 		}
 	}
-	for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "braking burn", "+10 [m]", "⚠", "Surf ", "Tgt ", "▸ raise", "▸ lower", "starts in", "● RAISE"} {
+	for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "brake at", "+10 [m]", "⚠", "Surf ", "Tgt ", "▸ raise", "▸ lower", "starts in", "● RAISE"} {
 		if !joined[want] {
 			t.Errorf("worst-case ENGINE fixtures never rendered %q", want)
 		}

@@ -216,14 +216,18 @@ func (v *OrbitView) engineNodeLine(w *sim.World, c *spacecraft.Spacecraft) strin
 		return chipRowAt("node:", v.engineRaiseLine(w, c), engineCols.value1)
 	case nodeBranchBraking:
 		stopDat := v.cachedDescentStop(w, c)
-		line := fmt.Sprintf("%s braking burn at %s  %s", hudNodeMarker,
-			readout.Distance(stopDat.burnAt.AltitudeM),
-			readout.Countdown(secondsToDuration(stopDat.burnAt.InSec)))
-		return chipRowAt("node:", line, engineCols.value1)
+		return chipRowAt("node:", brakeAtLine(stopDat.burnAt.AltitudeM, stopDat.burnAt.InSec), engineCols.value1)
 	case nodeBranchQueued:
 		return chipRowAt("node:", v.engineQueuedNodeLine(w, c), engineCols.value1)
 	}
 	return chipRowAt("node:", "—", engineCols.value1)
+}
+
+// brakeAtLine is the braking-start row; rsv names the throttle the cue leaves
+// in reserve (ADR 0067 decision 7), so it is never read as a full-power plan.
+func brakeAtLine(altM, inSec float64) string {
+	return fmt.Sprintf("%s brake at %s  %s  rsv %.0f%%", hudNodeMarker,
+		readout.Distance(altM), readout.Countdown(secondsToDuration(inSec)), sim.BrakeReserveFrac*100)
 }
 
 // nodeBranch names which of the node row's four states is showing.

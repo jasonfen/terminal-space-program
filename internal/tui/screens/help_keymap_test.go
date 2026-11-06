@@ -209,7 +209,7 @@ func TestHelpGlossaryNamesBoosterReadouts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"| `COVERAGE` |", "no gap this lap", "| `boosters / core` |", "| `ground / miss / lpd` |", "`+` is long, past the site; `\u2212` is short of it", "DRY", "booster group", "PROPELLANT's fuel row"} {
+	for _, want := range []string{"| `COVERAGE` |", "no gap this lap", "| `boosters / core` |", "| `ground / miss / lpd` |", "| `rsv` |", "`rsv 10%`", "`+` is long, past the site; `\u2212` is short of it", "DRY", "booster group", "PROPELLANT's fuel row"} {
 		if !strings.Contains(string(doc), want) {
 			t.Errorf("docs/controls.md glossary lacks %q", want)
 		}
