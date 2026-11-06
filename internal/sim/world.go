@@ -1369,7 +1369,9 @@ func activeCraftHasOverBudgetNode(c *spacecraft.Spacecraft) bool {
 // 0027). Factored out of missionEvalContext (which feeds the
 // relay_coverage evaluator) so the MISSION chip's live "relays online N/3"
 // row (#426) reads the exact same count rather than re-deriving it. Returns
-// 0 before the first CommGraph build.
+// 0 before the first CommGraph build. Own slate only: a partner's relay (a
+// ghost, ADR 0066 decision 13) carries traffic in the graph but is never
+// counted here, so Relay Constellation still counts your own relays.
 func (w *World) ConnectedRelayCount() int {
 	if w.CommGraph == nil {
 		return 0
