@@ -40,11 +40,20 @@ func flyLanding(t *testing.T, w *World, c *spacecraft.Spacecraft, maxTicks int, 
 func TestLandingAutopilotLandsTheLanderOnTheFlag(t *testing.T) {
 	w, c := deorbitWorld(t, 150, 0)
 	var phases []spacecraft.LandingPhase
+	vz100, seen100 := 0.0, false
 	dist, v, landed := flyLanding(t, w, c, 2*3600*4, func(int) {
 		if p := c.Landing.Phase; len(phases) == 0 || phases[len(phases)-1] != p {
 			phases = append(phases, p)
 		}
+		if f := apFrameOf(c); !seen100 && c.Landing.Phase == spacecraft.PhaseFinal && f.alt <= 100 {
+			vz100, seen100 = f.vz, true
+		}
 	})
+	// the schedule's top: 3 m/s down at 100 m (found in the live check falling
+	// at 12 m/s there before the profile's feed-forward)
+	if !seen100 || math.Abs(vz100+FinalRateAt100mMps) > 1.5 {
+		t.Errorf("at 100 m the descent rate is %.2f m/s (seen=%v), want %.1f within 1.5", vz100, seen100, -FinalRateAt100mMps)
+	}
 	if !landed || dist > 50 || v >= CrashVCritMps {
 		t.Errorf("landed=%v dist=%.1f m speed=%.2f m/s, want landed within 50 m under %v m/s", landed, dist, v, CrashVCritMps)
 	}

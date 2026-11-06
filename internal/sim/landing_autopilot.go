@@ -615,6 +615,11 @@ func (w *World) apFinal(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilo
 		rCmd = ap.RODRateMps
 	}
 	aUp := f.g + apRateGain*(rCmd-f.vz)
+	if !ap.ROD && f.alt > 100 && rCmd < 0 {
+		// feed-forward: the profile itself slows at the derated net deceleration,
+		// so ask for it instead of waiting for the rate error to build
+		aUp += math.Max(apDecelDerate*(f.aMax-f.g), 0.1) * f.vz / rCmd
+	}
 	if aUp < 0 {
 		aUp = 0
 	}
