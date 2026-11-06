@@ -257,3 +257,56 @@ func TestTargetCoverage(t *testing.T) {
 		t.Errorf("ghost subject = %+v ok=%v", sub, ok)
 	}
 }
+
+// Linked: a source sees a dot only above its horizon and inside the geometric
+// mean of the two ranges; a metre either side of each edge (floats, no exact edge).
+func TestLinked(t *testing.T) {
+	const R = 1737400.0
+	basic := spacecraft.AntennaRangeDirectBasic
+	up := render.Vec3{Z: 1}
+	// source straight above the dot at height h: always above the horizon
+	src := func(h, rng float64) []LinkedSource {
+		return []LinkedSource{{Dir: up, DistM: R + h, RangeM: rng}}
+	}
+	rng := 4 * basic // link range = sqrt(4*basic*basic) = 2*basic
+	if !Linked(src(2*basic-1, rng), R, 0, 0, 1) {
+		t.Error("1 m inside the link range must link")
+	}
+	if Linked(src(2*basic+1, rng), R, 0, 0, 1) {
+		t.Error("1 m outside the link range must not link")
+	}
+	// horizon: a dot 90 deg round from a source at 3R is behind the limb
+	if Linked(src(2*R, 1e15), R, 1, 0, 0) {
+		t.Error("a dot a quarter turn away must be behind the limb")
+	}
+	// the tangent dot of a source at distance d is at cos(a) = R/d
+	d := 3 * R
+	a := math.Acos(R / d)
+	if !Linked(src(d-R, 1e15), R, math.Sin(a-1e-6), 0, math.Cos(a-1e-6)) {
+		t.Error("just above the horizon must link")
+	}
+	if Linked(src(d-R, 1e15), R, math.Sin(a+1e-6), 0, math.Cos(a+1e-6)) {
+		t.Error("just below the horizon must not link")
+	}
+}
+
+// CommGraph.Net lists the stations and the forwarders with a chain to one, and
+// not a relay with no chain.
+func TestCommGraphNetIsTheLiveNetwork(t *testing.T) {
+	w, dirE, _, _, _, _ := moonSiteWorld(t)
+	w.RecomputeCommGraph()
+	base := len(w.CommGraph.Net)
+	if base == 0 {
+		t.Fatal("no relays: Net must hold the stations")
+	}
+	addMoonCraft(w, spacecraft.AntennaRelay, 1e9, dirE, 2.0e6) // between the Moon and Earth: sees a station
+	w.RecomputeCommGraph()
+	if got := len(w.CommGraph.Net); got != base+1 {
+		t.Errorf("connected relay: Net has %d, want %d", got, base+1)
+	}
+	w.Crafts[len(w.Crafts)-1].AntennaRangeM = 1 // out of everyone's reach
+	w.RecomputeCommGraph()
+	if got := len(w.CommGraph.Net); got != base {
+		t.Errorf("isolated relay: Net has %d, want %d", got, base)
+	}
+}

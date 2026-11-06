@@ -12,35 +12,30 @@ import (
 // the lap and the next gap, read from the same World.SiteCoverage memo the
 // evaluator passes on (one source, so the row cannot disagree with the
 // pass). Nil otherwise, so it is gone the frame the objective passes.
-func (v *OrbitView) buildCoverageChip(w *sim.World) []string {
-	// A targeted surface point wins; else the rung (#862: any in-progress
-	// mission whose current objective is lunar_coverage, not only the active one).
-	var primaryID, label string
-	var lat, lon, lap, step float64 = 0, 0, 0, 60
-	if t, ok := w.TargetCoverage(); ok {
-		primaryID, label, lat, lon, lap = t.BodyID, t.Label, t.Lat, t.Lon, t.LapS
-	} else {
-		for i := range w.Missions {
-			m := w.Missions[i]
-			if m.Status != missions.InProgress {
-				continue
-			}
-			o, ok := m.CurrentObjective()
-			if !ok || o.Kind != missions.KindLunarCoverage || o.Params.PrimaryID == "" {
-				continue
-			}
-			p := o.Params
-			primaryID, lat, lon, lap = p.PrimaryID, p.SiteLatDeg, p.SiteLonDeg, p.LapS
-			if p.SampleS > 0 {
-				step = p.SampleS
-			}
-			if lap <= 0 {
-				lap = 108000
-			}
-			break
+// coverageSource is what the COVERAGE notice and the linked-now overlay read:
+// a targeted surface point wins; else the rung (#862: any in-progress mission
+// whose current objective is lunar_coverage, not only the active one).
+func coverageSource(w *sim.World) (primaryID, label string, lat, lon, lap, step float64, ok bool) {
+	step = 60
+	if t, found := w.TargetCoverage(); found {
+		return t.BodyID, t.Label, t.Lat, t.Lon, t.LapS, step, true
+	}
+	for i := range w.Missions {
+		m := w.Missions[i]
+		if m.Status != missions.InProgress {
+			continue
 		}
-		if primaryID == "" {
-			return nil
+		o, found := m.CurrentObjective()
+		if !found || o.Kind != missions.KindLunarCoverage || o.Params.PrimaryID == "" {
+			continue
+		}
+		p := o.Params
+		primaryID, lat, lon, lap = p.PrimaryID, p.SiteLatDeg, p.SiteLonDeg, p.LapS
+		if p.SampleS > 0 {
+			step = p.SampleS
+		}
+		if lap <= 0 {
+			lap = 108000
 		}
 		label = fmt.Sprintf("lat %.0f°", lat)
 		switch lat {
@@ -49,12 +44,21 @@ func (v *OrbitView) buildCoverageChip(w *sim.World) []string {
 		case 90:
 			label = "north pole"
 		}
+		return primaryID, label, lat, lon, lap, step, true
+	}
+	return "", "", 0, 0, 0, 0, false
+}
+
+func (v *OrbitView) buildCoverageChip(w *sim.World) []string {
+	primaryID, label, lat, lon, lap, step, ok := coverageSource(w)
+	if !ok {
+		return nil
 	}
 	if r := []rune(label); len(r) > 22 {
 		label = string(r[:21]) + "…"
 	}
-	cov, ok := w.SiteCoverage(primaryID, lat, lon, lap, step)
-	if !ok || len(cov.Covered) == 0 {
+	cov, covOK := w.SiteCoverage(primaryID, lat, lon, lap, step)
+	if !covOK || len(cov.Covered) == 0 {
 		return nil
 	}
 	covered := 0

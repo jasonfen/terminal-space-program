@@ -287,3 +287,63 @@ func (w *World) TargetCoverage() (CoverageSubject, bool) {
 	s.LapS = math.Min(math.Ceil(lap/60)*60, coverageLapCapS)
 	return s, true
 }
+
+// LinkedSource is one live-network member seen from a body, for the linked-now
+// overlay: its body-fixed unit direction from the body's centre, distance from
+// that centre and rated range.
+type LinkedSource struct {
+	Dir           render.Vec3
+	DistM, RangeM float64
+}
+
+// LinkedNow lists the live-network members as seen from primaryID at the
+// rotation clock (the texture's frame), and whether the body sits inside the
+// home blanket (it has a ground station, so every surface dot links, as
+// commLinked grants a near-home probe). ok=false without a CommGraph or body.
+func (w *World) LinkedNow(primaryID string) (srcs []LinkedSource, blanket, ok bool) {
+	sys := w.System()
+	body := sys.FindBody(primaryID)
+	if body == nil || w.CommGraph == nil {
+		return nil, false, false
+	}
+	for _, st := range w.GroundStations {
+		if st.BodyID == primaryID {
+			blanket = true
+		}
+	}
+	centre := w.BodyPosition(*body)
+	for _, n := range w.CommGraph.Net {
+		rel := n.Pos.Sub(centre)
+		d := rel.Norm()
+		if d == 0 || n.RangeM <= 0 {
+			continue
+		}
+		u := rel.Unit()
+		lat, lon := render.WorldToBodyFixed(*body, render.Vec3{X: u.X, Y: u.Y, Z: u.Z}, w.Clock.RotationTime)
+		la, lo := lat*math.Pi/180, lon*math.Pi/180
+		srcs = append(srcs, LinkedSource{
+			Dir:    render.Vec3{X: math.Cos(la) * math.Cos(lo), Y: math.Cos(la) * math.Sin(lo), Z: math.Sin(la)},
+			DistM:  d,
+			RangeM: n.RangeM,
+		})
+	}
+	return srcs, blanket, true
+}
+
+// Linked says whether a surface dot at body-fixed unit vector (x, y, z) on a
+// body of radius R sees any source: in range of a basic direct antenna (the
+// link range is the geometric mean, as commLinkRangeM) and above the dot's
+// horizon (the body's own limb is the only occluder considered).
+func Linked(srcs []LinkedSource, R, x, y, z float64) bool {
+	for _, s := range srcs {
+		c := s.DistM * (x*s.Dir.X + y*s.Dir.Y + z*s.Dir.Z) // source height along the dot's vertical
+		if c < R {
+			continue
+		}
+		d2 := s.DistM*s.DistM + R*R - 2*R*c
+		if r := commLinkRangeM(s.RangeM, spacecraft.AntennaRangeDirectBasic); d2 <= r*r {
+			return true
+		}
+	}
+	return false
+}

@@ -327,6 +327,11 @@ type OrbitView struct {
 	diskRasterCache         map[string]*diskRasterEntry
 	diskRasterCacheHits     int
 	diskRasterCacheComputes int
+	// linkedCache is the linked-now overlay's cell list per body (see
+	// orbit_disk_cache.go); …Hits / …Computes are test hooks.
+	linkedCache         map[string]*linkedEntry
+	linkedCacheHits     int
+	linkedCacheComputes int
 
 	// smallBodies lists the bodies drawn this frame at smallBodyMaxR dots or
 	// less, refilled every Render, so markers can step off them (GM Q2).
@@ -1076,6 +1081,9 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				v.canvas.FillTexturedDiskTagged(pos, r, func(dx, dy int) lipgloss.Color {
 					return cached(dx, dy, pxR)
 				}, bodyTag)
+				if pxR >= render.BodyTextureMinRadius && v.linkedNowWanted(w, b.ID) {
+					v.drawLinkedNow(w, b, pos, pxR, subLat, subLon, upX, upY)
+				}
 			} else {
 				v.canvas.FillColoredDiskTagged(pos, r, bodyTag)
 			}
