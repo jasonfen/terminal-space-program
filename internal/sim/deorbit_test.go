@@ -231,6 +231,13 @@ func TestDeorbitRefusalsVerbatim(t *testing.T) {
 		{"no signal", ErrDeorbitNoSignal, func(w *World, c *spacecraft.Spacecraft) { c.Crewed = false }},
 		{"no orbit", ErrDeorbitNoOrbit, func(w *World, c *spacecraft.Spacecraft) { c.State.V = c.State.V.Scale(1.6) }},
 		{"already falling", ErrDeorbitFalling, func(w *World, c *spacecraft.Spacecraft) { c.State.V = c.State.V.Scale(0.8) }},
+		{"no engine", ErrDeorbitNoEngine, func(w *World, c *spacecraft.Spacecraft) {
+			for i := range c.Stages {
+				c.Stages[i].Thrust = 0
+			}
+			c.SyncFields()
+			c.Crewed, c.Controllable = true, true
+		}},
 		{"no solution", ErrDeorbitNoSolution, func(w *World, c *spacecraft.Spacecraft) {
 			c.Stages[0].FuelMass = 5 // a stop that never finishes: dry before it stops
 			c.SyncFields()
@@ -240,7 +247,7 @@ func TestDeorbitRefusalsVerbatim(t *testing.T) {
 	lines := map[error]string{
 		ErrDeorbitNoSite: "no site targeted, press t", ErrDeorbitOtherBody: "site not on this body",
 		ErrDeorbitLanded: "on the ground", ErrDeorbitNoSignal: "NO SIGNAL", ErrDeorbitNoOrbit: "no orbit to leave",
-		ErrDeorbitFalling: "already falling, fly miss:", ErrDeorbitNoSolution: "no solution from this orbit",
+		ErrDeorbitFalling: "already falling, fly miss:", ErrDeorbitNoEngine: "no engine", ErrDeorbitNoSolution: "no solution from this orbit",
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

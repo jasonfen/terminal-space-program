@@ -51,6 +51,7 @@ var (
 	ErrDeorbitNoOrbit    = errors.New("no orbit to leave")
 	ErrDeorbitFalling    = errors.New("already falling, fly miss:")
 	ErrDeorbitNoSolution = errors.New("no solution from this orbit")
+	ErrDeorbitNoEngine   = errors.New("no engine")
 )
 
 // DeorbitOffTrackError is the off-track refusal: the angle, and either when the
@@ -141,6 +142,9 @@ func (w *World) DeorbitPreflight() error {
 	}
 	if !w.CanCommandCraft(c) {
 		return ErrDeorbitNoSignal
+	}
+	if c.Thrust <= 0 {
+		return ErrDeorbitNoEngine
 	}
 	return nil
 }
@@ -288,6 +292,9 @@ func (w *World) PlanDeorbitOntoSite() (*DeorbitPlan, error) {
 	}
 	if !w.canCommand(c) {
 		return nil, ErrDeorbitNoSignal
+	}
+	if c.Thrust <= 0 { // executeDueNodes drops a node for a vessel with no engine
+		return nil, ErrDeorbitNoEngine
 	}
 	mu := c.Primary.GravitationalParameter()
 	el := orbital.ElementsFromState(c.State.R, c.State.V, mu)

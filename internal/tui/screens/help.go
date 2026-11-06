@@ -152,7 +152,7 @@ var helpSections = []helpSection{
 		{"H", "plant transfer to [t] target (plane-aware); refuses if a burn is planted (clear in [m]) or for another planet's moon"},
 		{"I", "plant plane match ([t] target body / vessel / equatorial); also works inside the planner"},
 		{"C", "plant circularize burn at next apoapsis; also works inside the planner"},
-		{"N", "deorbit onto the targeted site: plant one retro burn that puts your 90% brake's stop point on the flag; N again re-solves; also works inside the planner"},
+		{"N", "deorbit onto the targeted site: plant one retro burn that puts your 90% brake's stop point on the flag (burn-at assumes full throttle); N again re-solves; also works inside the planner"},
 		{"K", "close on target vessel: plant nudge, or open the Rendezvous Planner if too far in phase; also works inside the planner"},
 		{"R", "refine plan (re-Lambert the arrival); also works inside the planner"},
 		{"P", "porkchop plot to your TARGET planet; also works inside the planner"},
