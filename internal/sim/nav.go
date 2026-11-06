@@ -26,6 +26,10 @@ import (
 //	             a/d left/right across its face. Offered by `;` only when
 //	             the target has a port; the self-switch never enters it.
 //	             Appended last: the numbers are persisted (`nav_mode`).
+//	NavSite    — the landing frame (ADR 0067 decision 5): offered by `;`
+//	             when a surface target is aimed and the vessel is off the
+//	             ground; q engages the Site+ landing autopilot. The ball
+//	             is the local-horizon sphere, as in NavSurface.
 type NavMode int
 
 const (
@@ -33,6 +37,7 @@ const (
 	NavSurface
 	NavTarget
 	NavPort
+	NavSite
 )
 
 // String returns a short HUD label. #478 A2 (one spelling of a frame
@@ -52,6 +57,8 @@ func (n NavMode) Tag() string {
 		return "TGT"
 	case NavPort:
 		return "PORT"
+	case NavSite:
+		return "SITE"
 	}
 	return "ORBIT"
 }
@@ -84,7 +91,21 @@ func (w *World) ResolveAttitudeIntent(intent AttitudeIntent) spacecraft.BurnMode
 	if nav == NavPort && !w.TargetHasPort() {
 		nav = NavOrbit
 	}
+	if nav == NavSite && !w.SiteFrameOffered() {
+		nav = NavOrbit
+	}
 	switch nav {
+	case NavSite:
+		// ADR 0067 decision 5: q is the landing autopilot's hold; the other
+		// keys read as the surface frame the ball shows.
+		switch intent {
+		case IntentRadialOut:
+			return spacecraft.BurnSite
+		case IntentPrograde:
+			return spacecraft.BurnSurfacePrograde
+		case IntentRetrograde:
+			return spacecraft.BurnSurfaceRetrograde
+		}
 	case NavPort:
 		// ADR 0053 decision 7: the six keys become the six port
 		// directions. q pushes IN toward their port (your nose on this
@@ -151,16 +172,20 @@ func (w *World) CycleNavMode() NavMode {
 	// to the vessel. The gated attitude command is SetAttitudeMode.
 	hasCraftTarget := w.HasRelativeTarget()
 	hasPort := w.TargetHasPort()
+	hasSite := w.SiteFrameOffered()
 	// Walk the candidates without writing NavMode: a skipped mode must
 	// have no side effects (setNavMode zeroes trims on PORT entry/exit), so
 	// only the mode the cycle lands on goes through setNavMode (#689).
 	next := w.NavMode
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 5; i++ {
 		next = navModeNext(next)
 		if next == NavTarget && !hasCraftTarget {
 			continue
 		}
 		if next == NavPort && !hasPort {
+			continue
+		}
+		if next == NavSite && !hasSite {
 			continue
 		}
 		break
@@ -179,9 +204,23 @@ func navModeNext(m NavMode) NavMode {
 		return NavTarget
 	case NavTarget:
 		return NavPort
+	case NavPort:
+		return NavSite
 	default:
 		return NavSurface
 	}
+}
+
+// SiteFrameOffered: SITE is offered when a surface target is aimed on the
+// active vessel's primary and the vessel is off the ground (ADR 0067
+// decision 5), the way PORT is offered when the target has a port.
+func (w *World) SiteFrameOffered() bool {
+	c := w.ActiveCraft()
+	if c == nil || c.Landed || c.Crashed {
+		return false
+	}
+	_, _, ok := w.surfaceTargetLatLon(c)
+	return ok
 }
 
 // reconcileNavMode forces NavTarget back to NavOrbit when the player
@@ -197,6 +236,9 @@ func (w *World) reconcileNavMode() {
 	if w.NavMode == NavPort && !w.TargetHasPort() {
 		w.setNavMode(NavOrbit)
 		w.resetDanglingPortHold()
+	}
+	if w.NavMode == NavSite && !w.SiteFrameOffered() {
+		w.setNavMode(NavOrbit) // the autopilot, if engaged, keeps flying its own target
 	}
 }
 
@@ -273,6 +315,8 @@ func (w *World) AttitudeHoldParts(mode spacecraft.BurnMode) (string, NavMode) {
 		// target's port, so they tag their OWN frame, never the live
 		// NavMode (a hold of Port+ stays "Port+ (PORT)" after ; moves on).
 		frame = NavPort
+	case spacecraft.BurnSite:
+		frame = NavSite // ADR 0067: Site+ is frame-locked to the site
 	}
 	// #478 A2: the bracket tag already names the frame, so a surface-
 	// framed mode drops its own redundant "Surface " word ("Surface

@@ -51,12 +51,17 @@ type PartnerSite struct {
 
 // targetSite resolves the target's site: one of yours (GhostOwner empty) or a
 // partner's, keyed by owner and that owner's own site id.
-func (w *World) targetSite() (Site, bool) {
-	if w.Target.GhostOwner == "" {
-		return w.siteByID(w.Target.SiteID)
+func (w *World) targetSite() (Site, bool) { return w.siteOfTarget(w.Target) }
+
+// siteOfTarget is targetSite for any aim, so the landing autopilot can read a
+// vessel that is not the active one through its own Target (ADR 0067 decision
+// 1). It is the one site lookup; nothing else calls siteByID for a target.
+func (w *World) siteOfTarget(t Target) (Site, bool) {
+	if t.GhostOwner == "" {
+		return w.siteByID(t.SiteID)
 	}
 	for _, p := range w.PartnerSites {
-		if p.Owner == w.Target.GhostOwner && p.ID == w.Target.SiteID {
+		if p.Owner == t.GhostOwner && p.ID == t.SiteID {
 			return p.Site, true
 		}
 	}

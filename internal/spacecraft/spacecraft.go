@@ -200,6 +200,15 @@ type Spacecraft struct {
 	// fold it into the schema-20 bump if that ever matters.
 	InertialDir orbital.Vec3
 
+	// SiteDir (ADR 0067) is the direction a BurnSite hold slews to: the
+	// landing autopilot writes it every tick. Transient: the next tick
+	// rewrites it, so it is not saved.
+	SiteDir orbital.Vec3 `json:"-"`
+
+	// Landing is the Site+ autopilot's state (ADR 0067 decision 13); nil when
+	// the vessel never engaged it.
+	Landing *LandingAutopilot
+
 	// AttitudeRate (ADR 0055 slice 0) is the nose's inertial angular
 	// velocity in rad/s, world axes, measured by the sim from the slew it
 	// applied this tick. It is what makes a port point's velocity more than

@@ -3013,6 +3013,7 @@ func (w *World) executeDueNodes() {
 			continue
 		}
 		w.executeDueNodesFor(c)
+		w.tickLandingAutopilot(c) // ADR 0067: every vessel, active or not
 	}
 }
 

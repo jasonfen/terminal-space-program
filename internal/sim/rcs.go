@@ -74,6 +74,11 @@ func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
 	if w.ActiveCraft().ActiveBurn != nil {
 		return false
 	}
+	// ADR 0067 decision 5: the landing autopilot owns the engine, as a planted
+	// burn does; and Site+ itself is no pulse direction (SITE-frame RCS is S5).
+	if w.ActiveCraft().Landing.Owns() || mode == spacecraft.BurnSite {
+		return false
+	}
 	// v0.9.2+: BurnDirection handles surface modes + pitch trim.
 	// v0.9.3+: resolve target snapshot for the four target-relative
 	// modes; non-target modes ignore the snapshot.
