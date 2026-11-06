@@ -91,7 +91,7 @@ var helpSections = []helpSection{
 		{"shift+↑ / shift+↓", "pan the view up / down (plain arrows are the flight trims, see MANUAL FLIGHT)"},
 		{"> / <", "tilt the 3D view up / down (tilted view only; moves the camera, never the vessel)"},
 		{"{ / }", "yaw the 3D view left / right, wraps 360° (tilted view only)"},
-		{"y", "surface marks: show or hide landed vessels [v], flags [f], wrecks [w], partners' marks [p], coverage now [c] on the map (space flips the row; [t] still lists them all)"},
+		{"F3", "surface marks: show or hide landed vessels [v], flags [f], wrecks [w], partners' marks [p], coverage now [c] on the map (space flips the row; [t] still lists them all)"},
 		{"F2", "declutter: hide the instrument boxes + navball + Centerline scope (ENGINE, PROPELLANT stay while an engine is lit)"},
 	}},
 	{"TIME & WARP", [][2]string{
@@ -346,8 +346,8 @@ var helpSections = []helpSection{
 		{"▷", "entry: your path crosses into a body's sphere of influence"},
 		{"◁", "exit: your path crosses back out of it"},
 		{"⊗", "impact: where your trajectory meets the ground (surface view)"},
-		{"⚑", "a flag: where a vessel touched down, in that vessel's colour; a partner's is dim ([y] hides them)"},
-		{"☠", "a wreck: where a vessel crashed, dim ([y] hides them)"},
+		{"⚑", "a flag: where a vessel touched down, in that vessel's colour; a partner's is dim ([F3] hides them)"},
+		{"☠", "a wreck: where a vessel crashed, dim ([F3] hides them)"},
 		{"dim / red", "a dimmed marker is on the path without your burn; a red one is below the surface"},
 	}},
 }

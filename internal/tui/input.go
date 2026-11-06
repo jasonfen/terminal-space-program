@@ -476,7 +476,7 @@ func DefaultKeymap() Keymap {
 		SetOrbitAltitude:    key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "orbit altitude: raise or lower, again stops")),
 		TransferControl:     key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "transfer control of a cross-player stack")),
 		CycleTarget:         key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "cycle target (body / vessel)")),
-		SurfaceMarks:        key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "surface marks filter")),
+		SurfaceMarks:        key.NewBinding(key.WithKeys("f3"), key.WithHelp("F3", "surface marks filter")),
 		ClearTarget:         key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "clear target")),
 		CycleNavMode:        key.NewBinding(key.WithKeys(";"), key.WithHelp(";", "nav: surface / orbit / target")),
 		Stage:               key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "decouple bottom stage")),

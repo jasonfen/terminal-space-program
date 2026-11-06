@@ -175,7 +175,7 @@ On the Keyboard layout screen `←` / `→`, `Space` or `Enter` cycle the layout
 | `{` / `}` | Yaw the 3D view left / right in 5° steps, wrapping (tilted view only) |
 | `o` | **Proximity view** for the last kilometres of a rendezvous: the target vessel sits dead centre, its direction of travel runs right, the planet is below, so you read your drift the way the physics works. Needs a vessel target; a `CLOSE RANGE` chip reminds you once within 35 km. The side picture takes the full width and draws both hulls at their real widths (a Dragon 4.0 m across, a tug 1.0 m; no engine bell or legs here), with a dotted corridor running 50 m out along the target's port axis; at the 140x40 design size the [Centerline scope](#docking) sits in its top-right corner, over the navball's twin slot. Below that size the scope is dropped. Both vessels' docking ports are marked `○` (theirs in target green, yours in your vessel's colour), a port line joins them with its length, and the chip gains `port:`, `misalign:`, `lateral:` and `hold:` rows (see [Docking](#docking)). A target hull that is further out of your plane (across the view's depth) than the two half-widths added is drawn as a dotted outline instead of a filled block, port mark kept; your own hull is always filled. The `range:` row reads one decimal under 10 m (`range: 1.0 m`) and whole metres from 10 m. The plain arrows still trim your vessel here; the PROXIMITY chip's `trim:` row and the bottom legend show it. Press again to return to the map as you left it |
 | `V` | **Launch / surface view**: chase-cam on your active vessel with a curved horizon, pad marker, and breadcrumb trail, scaled tight at liftoff and pulled back high up. Lifting off routes you here automatically. Press again to return to the map |
-| `y` | **Surface marks** card: show or hide landed vessels (`v`), flags (`f`), wrecks (`w`), partners' marks (`p`) and coverage now (`c`) on the map; `space` flips the highlighted row. Remembered in Settings. Only the map is filtered: the `t` menu still lists every site, and a mark you have targeted stays drawn |
+| `F3` | **Surface marks** card: show or hide landed vessels (`v`), flags (`f`), wrecks (`w`), partners' marks (`p`) and coverage now (`c`) on the map; `space` flips the highlighted row. Remembered in Settings. Only the map is filtered: the `t` menu still lists every site, and a mark you have targeted stays drawn |
 | `j` | **Inspect**: each press steps a bright highlight onto the next thing drawn (bodies, vessels, other players' ghosts, planned burns, flags and wrecks, the closest-approach `✕`) and names it in a chip. One press past the last item clears it; `Esc` clears immediately. Clicking any orbit line or marker jumps the highlight there |
 | `Enter` | While inspecting: make the highlighted thing your target and clear the highlight. Works on vessels and other players, not just bodies. Things that can't be a target say so |
 
@@ -505,8 +505,8 @@ Each marker on the map is one glyph; the colour says what kind it is. This is th
 | `▷` | entry: your path crosses into a body's sphere of influence |
 | `◁` | exit: your path crosses back out of it |
 | `⊗` | impact: where your trajectory meets the ground (surface view) |
-| `⚑` | a flag: where a vessel touched down, in that vessel's colour; a partner's is dim (`y` hides them) |
-| `☠` | a wreck: where a vessel crashed, dim (`y` hides them) |
+| `⚑` | a flag: where a vessel touched down, in that vessel's colour; a partner's is dim (`F3` hides them) |
+| `☠` | a wreck: where a vessel crashed, dim (`F3` hides them) |
 | `dim / red` | a dimmed marker is on the path without your burn; a red one is below the surface |
 
 ## Screens

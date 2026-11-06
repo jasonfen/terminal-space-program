@@ -35,7 +35,7 @@ func TestControlsDocNamesBatchRow(t *testing.T) {
 		"| `t` / `T` | Open the target menu / clear your target. The menu lists VESSELS, SITES on this body, PARTNERS and BODIES",
 		"| `r` / `d` (target menu) |",
 		// ADR 0066 S3: the y card and the flag and wreck markers.
-		"| `y` | **Surface marks** card: show or hide landed vessels (`v`), flags (`f`), wrecks (`w`), partners' marks (`p`) and coverage now (`c`)",
+		"| `F3` | **Surface marks** card: show or hide landed vessels (`v`), flags (`f`), wrecks (`w`), partners' marks (`p`) and coverage now (`c`)",
 		"| `⚑` | a flag: where a vessel touched down",
 		"| `☠` | a wreck: where a vessel crashed",
 		"Press `t` twice to target the Moon",

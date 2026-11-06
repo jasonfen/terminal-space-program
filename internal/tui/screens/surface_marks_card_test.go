@@ -33,7 +33,7 @@ func TestSurfaceMarksCardKeysAndWidth(t *testing.T) {
 	if chip, _, _ := c.HandleKey(" "); chip != settings.ChipCoverageNow {
 		t.Errorf("up from row 0 landed on %q, want coverage.now", chip)
 	}
-	for _, k := range []string{"esc", "y"} {
+	for _, k := range []string{"esc", "f3"} {
 		if _, ok, closed := c.HandleKey(k); ok || !closed {
 			t.Errorf("%q: flip=%v closed=%v, want a close", k, ok, closed)
 		}

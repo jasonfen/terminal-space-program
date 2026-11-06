@@ -832,7 +832,7 @@ func TestArrowsTurnTheInertialHoldNotTheTrims(t *testing.T) {
 	}
 }
 
-// The `y` card (ADR 0066 decision 6): y opens it over the map, a letter flips
+// The F3 card (ADR 0066 decision 6): F3 opens it over the map, a letter flips
 // its row and writes settings.json, it swallows other flight keys (t does not
 // open the target menu under it), esc closes, and the choice survives a reload.
 func TestSurfaceMarksCardFlipsPersistsAndSwallows(t *testing.T) {
@@ -841,9 +841,9 @@ func TestSurfaceMarksCardFlipsPersistsAndSwallows(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 	press := func(r rune) { a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}}) }
-	press('y')
+	a.Update(tea.KeyMsg{Type: tea.KeyF3})
 	if !a.marksCardOpen {
-		t.Fatal("y did not open the marks card")
+		t.Fatal("F3 did not open the marks card")
 	}
 	press('t')
 	if a.targetMenuOpen {

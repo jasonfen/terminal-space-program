@@ -36,7 +36,7 @@ func (c *SurfaceMarksCard) Open() { c.cursor = 0 }
 // HandleKey moves the cursor, and returns the chip to flip (ok) or close.
 func (c *SurfaceMarksCard) HandleKey(k string) (flip settings.Chip, ok, closeCard bool) {
 	switch k {
-	case "esc", "y":
+	case "esc", "f3":
 		return "", false, true
 	case "up":
 		c.cursor = (c.cursor + len(surfaceMarkRows) - 1) % len(surfaceMarkRows)
