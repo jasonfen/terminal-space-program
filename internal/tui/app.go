@@ -1309,6 +1309,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.doPlanCircularize()
 					a.closeManeuverToOrbit()
 					return a, nil
+				case key.Matches(m, a.keys.PlanDeorbit):
+					a.doPlanDeorbit()
+					a.closeManeuverToOrbit()
+					return a, nil
 				case key.Matches(m, a.keys.PlanRendezvous):
 					// handlePlanRendezvousKey may itself route to the
 					// Rendezvous Planner picker (a.active = screenOrbit
@@ -1701,6 +1705,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// node fires, periapsis rises to match apoapsis, mission
 			// passes. Mirrors v0.7.4's `I` planter shape.
 			a.doPlanCircularize()
+			return a, nil
+		case key.Matches(m, a.keys.PlanDeorbit):
+			a.doPlanDeorbit()
 			return a, nil
 		case key.Matches(m, a.keys.PlanRendezvous):
 			// v0.10.2+: `K` plants the recommended single-burn nudge
@@ -4568,7 +4575,11 @@ func (a *App) activeCraftNodes() []sim.ManeuverNode {
 // the row's live-burn branch, a queued node by its burn start (or its
 // trigger event while it waits to resolve). Empty when nothing is planted
 // or firing.
-func (a *App) plantedBurnSummary() string {
+func (a *App) plantedBurnSummary() string { return a.plantedBurnSummaryExcept("") }
+
+// plantedBurnSummaryExcept is plantedBurnSummary ignoring queued nodes tagged
+// skipKey: N replaces its own node, so only other burns block it.
+func (a *App) plantedBurnSummaryExcept(skipKey string) string {
 	c := a.world.ActiveCraft()
 	if c == nil {
 		return ""
@@ -4576,10 +4587,17 @@ func (a *App) plantedBurnSummary() string {
 	if ab := c.ActiveBurn; ab != nil {
 		return fmt.Sprintf("%s %s left, firing", ab.Mode, readout.DeltaV(ab.DVRemaining))
 	}
-	if len(c.Nodes) == 0 {
+	var n spacecraft.ManeuverNode
+	found := false
+	for _, q := range c.Nodes {
+		if skipKey == "" || q.AdvisoryKey != skipKey {
+			n, found = q, true
+			break
+		}
+	}
+	if !found {
 		return ""
 	}
-	n := c.Nodes[0]
 	if !n.IsResolved() {
 		return fmt.Sprintf("%s %s, %s", n.Mode, readout.DeltaV(n.DV), n.Event)
 	}
@@ -4646,6 +4664,61 @@ func (a *App) doPlanTransfer() {
 		// keybinding. Refuse out loud like every sibling guard does.
 		a.refuse("transfer", "no target — press t to aim at a body")
 	}
+}
+
+// doPlanDeorbit executes `N`: plant the retro burn that stops the vessel on the
+// targeted site (ADR 0066 decision 21), replacing its own earlier node. Shared
+// by the map binding and the planner's QUICK PLANS block.
+func (a *App) doPlanDeorbit() {
+	if !a.world.CraftVisibleHere() {
+		a.refuse("deorbit", "vessel not in this system")
+		return
+	}
+	if planted := a.plantedBurnSummaryExcept(sim.AdvisoryKeyDeorbit); planted != "" {
+		a.refuse("deorbit", fmt.Sprintf("a burn is already planted (%s); clear it in [m] first", planted))
+		return
+	}
+	plan, err := a.world.PlanDeorbitOntoSite()
+	if err != nil {
+		a.refuse("deorbit", deorbitRefusal(err))
+		return
+	}
+	aim := "stop"
+	if plan.Impact {
+		aim = "impact"
+	}
+	side := "long"
+	long := plan.LongM
+	if long < 0 {
+		side, long = "short", -long
+	}
+	a.flash(fmt.Sprintf("deorbit onto %s → %s retro in %s, %s %s %s",
+		plan.Site, readout.DeltaV(plan.DV), readout.Duration(plan.In), aim, readout.Distance(long), side))
+}
+
+// shortAngle is readout.Angle without trailing zeros ("4.2°", "78°").
+func shortAngle(deg float64) string {
+	s := strings.TrimSuffix(readout.Angle(deg), "°")
+	if strings.Contains(s, ".") {
+		s = strings.TrimRight(strings.TrimRight(s, "0"), ".")
+	}
+	return s + "°"
+}
+
+// deorbitRefusal is one factual footer line for a refused N.
+func deorbitRefusal(err error) string {
+	var off *sim.DeorbitOffTrackError
+	if !errors.As(err, &off) {
+		return err.Error()
+	}
+	hemi := "N"
+	if off.LatDeg < 0 {
+		hemi = "S"
+	}
+	if off.Reaches {
+		return fmt.Sprintf("site %s off your track, under it in %s", shortAngle(off.OffDeg), readout.Duration(off.UnderIn))
+	}
+	return fmt.Sprintf("site at %s%s, your orbit reaches %s", shortAngle(math.Abs(off.LatDeg)), hemi, shortAngle(off.ReachDeg))
 }
 
 // doPlanPlaneMatch executes `I`: plant a plane-match burn. See

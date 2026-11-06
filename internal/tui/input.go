@@ -103,6 +103,9 @@ type Keymap struct {
 	// "single keystroke for the natural last step of an ascent"
 	// shortcut, mirroring the v0.7.4 `I` plane-match planter.
 	PlanCircularize key.Binding
+	// PlanDeorbit (ADR 0066 decision 21) plants the retro node that stops the
+	// vessel on the targeted site.
+	PlanDeorbit key.Binding
 	// PlanRendezvous (v0.10.2+) plants the recommended single-burn
 	// nudge that improves closest approach to the current craft
 	// target. Mirrors the H/I/C capital-letter plant-burn family;
@@ -442,6 +445,7 @@ func DefaultKeymap() Keymap {
 		PlanTransfer:    key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "plant transfer to selected body (plane-aware)")),
 		PlanIncl:        key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "plant plane match (body / vessel / equatorial)")),
 		PlanCircularize: key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "plant circularize burn at next apoapsis")),
+		PlanDeorbit:     key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "plant deorbit burn onto the targeted site")),
 		PlanRendezvous:  key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "plant rendezvous nudge to target vessel")),
 		Porkchop:        key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "porkchop plot to target planet")),
 		Save:            key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "quicksave")),

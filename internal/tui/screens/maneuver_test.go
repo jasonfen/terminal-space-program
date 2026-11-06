@@ -271,7 +271,7 @@ func TestManeuverBudgetLineShowsAfterPlan(t *testing.T) {
 }
 
 // TestManeuverQuickPlansBlockListsAllSix — ADR 0047 §4 / #428: the
-// QUICK PLANS block lists all six one-key planners regardless of
+// QUICK PLANS block lists all seven one-key planners (N added by ADR 0066) regardless of
 // legality (illegal ones are dimmed with a reason, not hidden).
 func TestManeuverQuickPlansBlockListsAllSix(t *testing.T) {
 	w, err := sim.NewWorld()
@@ -284,7 +284,7 @@ func TestManeuverQuickPlansBlockListsAllSix(t *testing.T) {
 	if !strings.Contains(out, "QUICK PLANS") {
 		t.Fatalf("QUICK PLANS header missing:\n%s", out)
 	}
-	for _, key := range []string{"[H]", "[I]", "[C]", "[K]", "[P]", "[R]"} {
+	for _, key := range []string{"[H]", "[I]", "[C]", "[K]", "[N]", "[P]", "[R]"} {
 		if !strings.Contains(out, key) {
 			t.Errorf("QUICK PLANS block missing %s:\n%s", key, out)
 		}
@@ -296,6 +296,9 @@ func TestManeuverQuickPlansBlockListsAllSix(t *testing.T) {
 	}
 	if !strings.Contains(out, "no target, press t to aim at a planet") {
 		t.Errorf("P's no-target reason missing:\n%s", out)
+	}
+	if !strings.Contains(out, "deorbit onto target site") || !strings.Contains(out, "no site targeted, press t") {
+		t.Errorf("N's row or its no-site reason missing:\n%s", out)
 	}
 }
 

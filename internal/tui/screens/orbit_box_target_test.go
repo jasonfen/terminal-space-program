@@ -13,7 +13,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // TestTargetBoxNoTargetIsAllDashes tests buildTargetBox itself, not
@@ -234,18 +236,23 @@ func moonSiteDescentWorld(t *testing.T, fall bool) *sim.World {
 // until the path meets the ground, then lpd:, miss: and cross: read numbers.
 func TestTargetBoxLandBesideRows(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
+	fall := func(f bool) func(*testing.T) *sim.World {
+		return func(t *testing.T) *sim.World { return moonSiteDescentWorld(t, f) }
+	}
 	cases := []struct {
 		name         string
-		fall         bool
+		build        func(*testing.T) *sim.World
 		wantLead     string
 		wantNoLpd    bool
 		missCrossNum bool
+		wantPlanTag  bool // ADR 0066 decision 21: a planted deorbit reads its stop, tagged
 	}{
-		{"orbit: ground and bearing, miss/cross dash, lead kept", false, "lead:", true, false},
-		{"falling: lpd, miss and cross read numbers", true, "lpd:", false, true},
+		{"orbit: ground and bearing, miss/cross dash, lead kept", fall(false), "lead:", true, false, false},
+		{"falling: lpd, miss and cross read numbers", fall(true), "lpd:", false, true, false},
+		{"deorbit planted: the planned stop, tagged (plan), lead kept", moonSitePlanWorld, "lead:", true, true, true},
 	}
 	for _, tc := range cases {
-		w := moonSiteDescentWorld(t, tc.fall)
+		w := tc.build(t)
 		lines := v.buildTargetBox(w)
 		if len(lines) != 5 {
 			t.Fatalf("%s: %d lines, want 5 (the box never moves)", tc.name, len(lines))
@@ -261,7 +268,30 @@ func TestTargetBoxLandBesideRows(t *testing.T) {
 		if !strings.Contains(m, "miss:") || !strings.Contains(m, "cross:") || hasNum != tc.missCrossNum {
 			t.Errorf("%s: miss row = %q, numbers wanted=%v", tc.name, m, tc.missCrossNum)
 		}
+		if tagged := strings.HasSuffix(strings.TrimRight(m, " "), "(plan)"); tagged != tc.wantPlanTag {
+			t.Errorf("%s: miss row = %q, (plan) tag wanted=%v", tc.name, m, tc.wantPlanTag)
+		}
 	}
+}
+
+// moonSitePlanWorld is a Lander in a 100 km equatorial orbit with a site on its
+// ground track 60 degrees ahead and a deorbit planted onto it (N).
+func moonSitePlanWorld(t *testing.T) *sim.World {
+	t.Helper()
+	w := moonSiteDescentWorld(t, false)
+	c := w.ActiveCraft()
+	st, _ := spacecraft.BuildModule(spacecraft.StageModuleLanderID)
+	c.Stages = st
+	c.SyncFields()
+	c.Crewed, c.Controllable = true, true
+	c.State.M = c.TotalMass()
+	ahead := orbital.Vec3{X: math.Cos(math.Pi / 3), Y: math.Sin(math.Pi / 3)}
+	lat, lon := render.WorldToBodyFixed(c.Primary, render.Vec3{X: ahead.X, Y: ahead.Y}, w.Clock.SimTime)
+	w.Sites[0].LatDeg, w.Sites[0].LonDeg = lat, lon
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatalf("PlanDeorbitOntoSite: %v", err)
+	}
+	return w
 }
 
 // Landed (not flying) the rows keep the box's plain Ap/TCA labels.
