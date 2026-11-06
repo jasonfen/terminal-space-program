@@ -35,6 +35,7 @@ const (
 	apMaxCrossTiltRad = 0.25 // ~14 degrees: reaches ~10% of the stopping distance across (measured)
 	apRateGain        = 0.5  // 1/s, descent-rate error to acceleration
 	apDriftGain       = 0.4  // 1/s, drift to acceleration
+	apCloseGain       = 0.05 // 1/s, position error to closing speed in final
 	apMaxTiltRad      = 25 * math.Pi / 180
 	apTouchdownCutM   = 0.5  // under this altitude the engine is cut
 	apDecelDerate     = 0.5  // share of the net deceleration the descent profile asks for
@@ -425,7 +426,7 @@ func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
 	var dir orbital.Vec3
 	var theta float64
 	if ap.Phase == spacecraft.PhaseFinal {
-		dir, theta = w.apFinal(c, ap, f)
+		dir, theta = w.apFinal(c, ap, f, lat, lon)
 	} else {
 		dir, theta = w.apBrake(c, ap, f, lat, lon)
 	}
@@ -519,6 +520,11 @@ func (w *World) apBrake(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilo
 				newTheta = clampF(theta+clampF(dTheta, -apMaxStepTheta, apMaxStepTheta), lo, 1)
 				// the margin keeps its priority after the throttle is clamped
 				newPsi = psi + (r1-j10*(newTheta-theta))/j11*apStepDamp
+				if newPsi < 0 && j00 != 0 {
+					// no pitch to give back: the margin is surplus, so the throttle
+					// alone closes the aim
+					newTheta = clampF(theta+clampF(r0/j00*apStepDamp, -apMaxStepTheta, apMaxStepTheta), lo, 1)
+				}
 				if newPsi > apMaxPitchUpRad && j10 > 0 {
 					// pitch is spent: the margin takes throttle from the aim
 					need := theta + (r1-j11*(apMaxPitchUpRad-psi))/j10*apStepDamp
@@ -578,9 +584,29 @@ func apFinalRate(h, netDecel float64) float64 {
 	return -math.Sqrt(FinalRateAt100mMps*FinalRateAt100mMps + 2*math.Max(apDecelDerate*netDecel, 0.1)*(h-100))
 }
 
+// apCloseVelocity is the ground-relative velocity the final phase asks for:
+// zero, plus a slow closing speed toward the aim point (half the final entry
+// speed at most) so the brake's last tens of metres do not stand as the miss.
+func (w *World) apCloseVelocity(c *spacecraft.Spacecraft, f apFrame, lat, lon float64) orbital.Vec3 {
+	aimHat := siteVec(c, lat, lon, w.Clock.SimTime)
+	aim := aimHat.Scale(c.Primary.RadiusMeters())
+	if n := apTrackNormal(c, c.State); n.Norm() != 0 {
+		tHat := n.Cross(aimHat).Unit()
+		ap := c.Landing
+		aim = aim.Add(tHat.Scale(ap.NavAlongM + ap.AimAlongM)).Add(tHat.Cross(aimHat).Scale(ap.NavAcrossM + ap.AimAcrossM))
+	}
+	e := aim.Sub(c.State.R)
+	e = e.Sub(f.up.Scale(e.Dot(f.up)))
+	d := e.Norm()
+	if d == 0 {
+		return orbital.Vec3{}
+	}
+	return e.Unit().Scale(math.Min(d*apCloseGain, FinalPhaseGroundSpeedMps/2))
+}
+
 // apFinal nulls the drift and flies the descent rate: thrust = m * (g - a_cmd)
 // toward the commanded rate, tilted against the horizontal velocity.
-func (w *World) apFinal(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilot, f apFrame) (orbital.Vec3, float64) {
+func (w *World) apFinal(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilot, f apFrame, lat, lon float64) (orbital.Vec3, float64) {
 	if f.aMax <= 0 {
 		return f.up, 0
 	}
@@ -592,7 +618,7 @@ func (w *World) apFinal(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilo
 	if aUp < 0 {
 		aUp = 0
 	}
-	aH := f.vh.Scale(-apDriftGain)
+	aH := w.apCloseVelocity(c, f, lat, lon).Sub(f.vh).Scale(apDriftGain)
 	if lim := aUp * math.Tan(apMaxTiltRad); aH.Norm() > lim {
 		aH = aH.Unit().Scale(lim)
 	}

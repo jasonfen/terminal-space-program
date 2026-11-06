@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -313,5 +314,33 @@ func TestLandingAutopilotBlocksRCS(t *testing.T) {
 	}
 	if w.FireRCSPulse(spacecraft.BurnSite) {
 		t.Error("BurnSite fired as an RCS pulse")
+	}
+}
+
+// Found in the live check: a coast at 100000x flies the exact Kepler orbit,
+// not the 1x integrator the deorbit plan was solved on, so the brake lights
+// seconds later with the stop kilometres long. The law still lands within 50 m
+// of the flag (it first stood 939 m off, then 69 m, before the surplus-margin
+// and closing-speed terms).
+func TestLandingAutopilotLandsAfterAHighWarpCoast(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	w.Clock.BaseStep = 50 * time.Millisecond // the game's own step
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.EngageLandingAutopilot(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 4000000 && !c.Landed && !c.Crashed; i++ {
+		w.Clock.WarpIdx = len(WarpFactors) - 1
+		if c.Landing.Phase != spacecraft.PhaseCoast {
+			w.Clock.WarpIdx = 1 // the brake is warp-capped at 10x in the game
+		}
+		w.Tick()
+	}
+	s := w.Sites[0]
+	d := HaversineM(c.LandedLatDeg, c.LandedLonDeg, s.LatDeg, s.LonDeg, c.Primary.RadiusMeters())
+	if !c.Landed || d > 50 {
+		t.Errorf("after a 100000x coast: landed=%v crashed=%v dist=%.0f m, want landed within 50 m", c.Landed, c.Crashed, d)
 	}
 }
