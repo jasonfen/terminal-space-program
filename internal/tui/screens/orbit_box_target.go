@@ -99,7 +99,7 @@ func (v *OrbitView) buildTargetBox(w *sim.World) []string {
 				chipRow3(targetCols, "range:", cells.rangeV, "close:", cells.closingV, "rel:", cells.relV),
 				chipRow2(targetCols, "ground:", readout.Distance(lb.GroundM), "bearing:", landBearingLabel(lb)),
 				landBesideLeadRow(cells, lb),
-				chipRow2(targetCols, "miss:", landMissLabel(lb), "cross:", landCrossLabel(lb)),
+				landMissRow(lb),
 			}
 		}
 	}
@@ -424,17 +424,22 @@ func landBearingLabel(lb sim.LandBeside) string {
 	return fmt.Sprintf("%.0f°", lb.BearingDeg)
 }
 
-// landMissLabel reads the impact point along the track: long beyond the site,
-// short of it; exactly on it has no side.
+func landMissRow(lb sim.LandBeside) string {
+	return chipRow2(targetCols, "miss:", landMissLabel(lb), "cross:", landCrossLabel(lb))
+}
+
+// landMissLabel reads the impact point along the track: + beyond the site
+// (long), U+2212 short of it; exactly on it has no side, like cross:. A sign,
+// not a word, so cross: keeps the column bearing: starts on at 10 km and up.
 func landMissLabel(lb sim.LandBeside) string {
 	if !lb.MissOK {
 		return "—"
 	}
 	switch {
 	case lb.MissM > 0:
-		return readout.Distance(lb.MissM) + " long"
+		return "+" + readout.Distance(lb.MissM)
 	case lb.MissM < 0:
-		return readout.Distance(-lb.MissM) + " short"
+		return "\u2212" + readout.Distance(-lb.MissM)
 	}
 	return readout.Distance(0)
 }

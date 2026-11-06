@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -315,4 +316,54 @@ func TestTargetBoxVanishedSiteSaysNotYetResolved(t *testing.T) {
 	if title := ansi.Strip(v.buildTargetBox(w)[0]); !strings.Contains(title, "pending target lock (not yet resolved)") {
 		t.Errorf("title = %q, want the pending name plus (not yet resolved)", title)
 	}
+}
+
+// F8 (ADR 0066 batch review): miss: is signed, + long and U+2212 short, so its
+// value never overruns label2 and cross: starts where bearing: does (ADR 0051
+// decision 4). Own function: the table above drives a World, this one a LandBeside
+// by value so 9.99 km, 10 km and 999 km are exact. The zero case reads "0 m"
+// unsigned, like cross: does.
+func TestLandMissRowSignAndAlignment(t *testing.T) {
+	col := func(row, label string) int {
+		s := ansi.Strip(row)
+		return lipgloss.Width(s[:strings.Index(s, label)])
+	}
+	ground := chipRow2(targetCols, "ground:", "67.80 km", "bearing:", "63°")
+	for _, tc := range []struct {
+		missM float64
+		want  string
+	}{
+		{9990, "+9.990 km"}, {10000, "+10.00 km"}, {999e3, "+999.0 km"},
+		{-9990, "\u22129.990 km"}, {-10000, "\u221210.00 km"}, {-999e3, "\u2212999.0 km"},
+		{0, "miss:  0 m"},
+	} {
+		for _, planned := range []bool{false, true} {
+			row := ansi.Strip(landMissRow(sim.LandBeside{MissOK: true, MissM: tc.missM, CrossM: 30310, Planned: planned}))
+			if !strings.Contains(row, tc.want) || strings.Contains(row, "long") || strings.Contains(row, "short") {
+				t.Errorf("miss %g plan=%v: row %q, want %q and no long/short word", tc.missM, planned, row, tc.want)
+			}
+			if c, b := col(row, "cross:"), col(ground, "bearing:"); c != b {
+				t.Errorf("miss %g plan=%v: cross: at col %d, bearing: at %d: %q", tc.missM, planned, c, b, row)
+			}
+			if planned && !strings.HasSuffix(row, "(plan)") {
+				t.Errorf("miss %g: row %q lost its (plan) tag", tc.missM, row)
+			}
+		}
+	}
+}
+
+// The F1 glossary row says what the miss: sign means (docs/controls.md is pinned
+// in help_keymap_test.go).
+func TestHelpGlossaryMissSign(t *testing.T) {
+	for _, s := range helpSections {
+		for _, r := range s.rows {
+			if strings.HasPrefix(r[0], "ground / miss") {
+				if !strings.Contains(r[1], "+ is long, past the site; \u2212 is short of it") {
+					t.Errorf("F1 miss row lacks the sign meaning: %q", r[1])
+				}
+				return
+			}
+		}
+	}
+	t.Fatal("F1 has no ground / miss row")
 }

@@ -2,6 +2,7 @@ package sim
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -166,8 +167,20 @@ func TestProximityRefusalPaths(t *testing.T) {
 	if w.ProximityAvailable() {
 		t.Error("ProximityAvailable with a BODY target")
 	}
-	if r := w.ProximityRefusal(); r == "" {
-		t.Error("body target: refusal is empty")
+	r := w.ProximityRefusal()
+	if !strings.Contains(r, "not a body") || !strings.Contains(r, "[t] target menu") || strings.Contains(r, "cycles") {
+		t.Errorf("body target refusal = %q, want 'not a body' and the target menu", r)
+	}
+	// A site is aimed at through the same menu and is not a body.
+	w.Sites = append(w.Sites, Site{ID: 1, Body: w.ActiveCraft().Primary.EnglishName, System: w.System().Name})
+	w.NextSiteID = 1
+	w.SetTargetSite(1)
+	if r := w.ProximityRefusal(); !strings.Contains(r, "not a site") || strings.Contains(r, "cycles") {
+		t.Errorf("site target refusal = %q, want 'not a site'", r)
+	}
+	w.ClearTarget()
+	if r := w.ProximityRefusal(); !strings.Contains(r, "[t] target menu") || strings.Contains(r, "cycles") {
+		t.Errorf("no-target refusal = %q, want the target menu", r)
 	}
 }
 
