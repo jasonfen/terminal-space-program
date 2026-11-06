@@ -157,6 +157,22 @@ func TestCoverageSecondRow(t *testing.T) {
 			t.Errorf("coverageNow(%v) = %d, want %d", tc.elapsed, got, tc.want)
 		}
 	}
+	// #894: the covered time counts the lap's ring once (the last sample is
+	// the first a lap on) and can never read past the lap; equal cases at none,
+	// one gap sample, and all.
+	for _, tc := range []struct {
+		name string
+		cov  []bool
+		want string
+	}{
+		{"all covered", lap(0, 0), "30h"},
+		{"one sample short", lap(0, 1), "29h59m"},
+		{"none covered", lap(0, 1801), "0h"},
+	} {
+		if got := hm(coverageCoveredS(tc.cov, 108000)); got != tc.want {
+			t.Errorf("%s: covered %q, want %q", tc.name, got, tc.want)
+		}
+	}
 	// The widest form must fit the bay's 56 cells at 140x40.
 	if got := coverageSecondRow(lap(1799, 1), 0, 60, "5 relays at the Moon"); len([]rune(got)) > 56 {
 		t.Errorf("widest row is %d cells, bay holds 56: %q", len([]rune(got)), got)
@@ -180,7 +196,7 @@ func TestCoverageNotice(t *testing.T) {
 	}
 	rung.Objectives[0].Status = missions.Passed
 	f := spreadFrame(v, w)
-	if !strings.Contains(f, "COVERAGE  Moon south pole  0h of 30h") || !strings.Contains(f, "0 relays at the Moon") {
+	if !strings.Contains(f, "COVERAGE  Moon south pole") || !strings.Contains(f, "covered 0h of 30h") || !strings.Contains(f, "0 relays at the Moon") {
 		t.Fatalf("rung current, no notice:\n%s", f)
 	}
 	if err := w.SpreadBatch(id, 550e3); err != nil {

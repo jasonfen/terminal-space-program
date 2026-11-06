@@ -61,12 +61,6 @@ func (v *OrbitView) buildCoverageChip(w *sim.World) []string {
 	if !covOK || len(cov.Covered) == 0 {
 		return nil
 	}
-	covered := 0
-	for _, c := range cov.Covered {
-		if c {
-			covered++
-		}
-	}
 	now := coverageNow(w.Clock.SimTime.Sub(cov.Epoch).Seconds(), cov.StepS, len(cov.Covered))
 	body := primaryID
 	sys := w.System()
@@ -79,7 +73,8 @@ func (v *OrbitView) buildCoverageChip(w *sim.World) []string {
 	}
 	second := coverageSecondRow(cov.Covered, now, cov.StepS, relays)
 	return []string{
-		v.theme.Primary.Render("COVERAGE") + v.theme.Dim.Render(fmt.Sprintf("  %s %s  %s of %s", body, label, hm(float64(covered)*cov.StepS), hm(lap))),
+		v.theme.Primary.Render("COVERAGE") + v.theme.Dim.Render(fmt.Sprintf("  %s %s", body, label)),
+		v.theme.Dim.Render(fmt.Sprintf("  covered %s of %s", hm(coverageCoveredS(cov.Covered, lap)), hm(lap))),
 		v.theme.Dim.Render(second),
 	}
 }
@@ -144,4 +139,21 @@ func hm(sec float64) string {
 		return fmt.Sprintf("%dh", m/60)
 	}
 	return fmt.Sprintf("%dh%02dm", m/60, m%60)
+}
+
+// coverageCoveredS is the linked time over the lap: the samples are the lap's
+// ring plus its far end (the last sample is the first a lap on), so only the
+// ring counts, scaled to the lap, so a fully linked lap reads the lap (#894).
+func coverageCoveredS(covered []bool, lapS float64) float64 {
+	m := len(covered) - 1
+	if m < 1 {
+		return 0
+	}
+	n := 0
+	for _, c := range covered[:m] {
+		if c {
+			n++
+		}
+	}
+	return float64(n) / float64(m) * lapS
 }
