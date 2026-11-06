@@ -153,3 +153,13 @@ func TestRemoveSiteKeepsPartnerTargetWithSameID(t *testing.T) {
 		t.Errorf("partner aim cleared: %+v", w.Target)
 	}
 }
+
+// F4: a partner's site that vanished (or a solo save with the aim persisted)
+// keeps a pending name, not a blank TARGET title.
+func TestTargetNameVanishedPartnerSiteIsPending(t *testing.T) {
+	w, _, _, _, _, _ := moonSiteWorld(t)
+	w.Target = Target{Kind: TargetSite, SiteID: 7, GhostOwner: "p"}
+	if got := w.TargetName(); got != "pending target lock" {
+		t.Errorf("name = %q, want pending target lock", got)
+	}
+}
