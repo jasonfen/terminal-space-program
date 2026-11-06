@@ -1127,9 +1127,12 @@ func (s *Server) persistReports(stop <-chan struct{}) {
 	}
 }
 
-// writeReport persists r unless its owner has been forgotten since the
-// report was queued.
+// writeReport persists r unless its owner is the host or has been forgotten
+// since the report was queued.
 func (s *Server) writeReport(r relay.CraftReport) {
+	if r.Owner == sessiondir.HostFingerprint {
+		return // never seeded (the host's world is fresh every start), so never written
+	}
 	s.reportMu.Lock()
 	defer s.reportMu.Unlock()
 	for _, h := range s.relay.Snapshot("") {
