@@ -209,3 +209,47 @@ func TestCoverageNotice(t *testing.T) {
 		t.Errorf("the notice outlived the pass:\n%s", f)
 	}
 }
+
+// #862: an earlier unfinished rung does not hide the coverage rung's notice
+// (the MISSION chip keeps the active-mission rule, the notice reads any
+// in-progress coverage step).
+func TestCoverageNoticeEarlierRungUnfinished(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(140, 40)
+	w, _, _ := spreadNoticeWorld(t)
+	rung := coverageRung(t, w)
+	rung.Objectives[0].Status = missions.Passed
+	for i := range w.Missions {
+		if w.Missions[i].ID != rung.ID {
+			w.Missions[i].Status = missions.InProgress
+			break
+		}
+	}
+	if w.ActiveMission() == rung {
+		t.Skip("fixture: the earlier rung did not take the active slot")
+	}
+	if f := spreadFrame(v, w); !strings.Contains(f, "COVERAGE  Moon south pole") {
+		t.Fatalf("earlier rung unfinished, notice absent:\n%s", f)
+	}
+}
+
+// ADR 0066 decision 11: a targeted site on a body with relays reads its own
+// coverage; clearing the target removes the notice.
+func TestCoverageNoticeFollowsTargetedSite(t *testing.T) {
+	v := NewOrbitView(chipTestTheme())
+	v.Resize(140, 40)
+	w, _, _ := spreadNoticeWorld(t)
+	w.Sites = append(w.Sites, sim.Site{ID: 1, Body: "Earth", System: w.System().Name, LatDeg: 10, LonDeg: 20, Name: "Surveyor 3 site"})
+	if f := spreadFrame(v, w); strings.Contains(f, "COVERAGE") {
+		t.Fatalf("notice with no target:\n%s", f)
+	}
+	w.SetTargetSite(1)
+	f := spreadFrame(v, w)
+	if !strings.Contains(f, "COVERAGE  Earth Surveyor 3 site  ") || !strings.Contains(f, "relays at the Earth") {
+		t.Fatalf("targeted site notice:\n%s", f)
+	}
+	w.ClearTarget()
+	if f := spreadFrame(v, w); strings.Contains(f, "COVERAGE") {
+		t.Errorf("notice outlived the target:\n%s", f)
+	}
+}

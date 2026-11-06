@@ -221,3 +221,39 @@ func TestSiteCoverageKeyHasGhosts(t *testing.T) {
 		t.Error("a partner's relay burned 10 km higher left the memo key unchanged")
 	}
 }
+
+// ADR 0066 decision 11: the aimed surface point resolves to its body, with a
+// lap of the longest relay period (rounded up to the minute) capped at 48 h;
+// no relay at the body, or no surface target, reads false.
+func TestTargetCoverage(t *testing.T) {
+	w, dirE, _, _, _, _ := moonSiteWorld(t)
+	moon := siteBody(w, "moon")
+	w.Sites = append(w.Sites, Site{ID: 1, Body: moon.EnglishName, System: w.System().Name, LatDeg: -90, Name: "Pole site"})
+	w.SetTargetSite(1)
+	if _, ok := w.TargetCoverage(); ok {
+		t.Fatal("a site with no relay at its body must read false")
+	}
+	addMoonCraft(w, spacecraft.AntennaRelay, 1e9, dirE, 2.0e6)
+	sub, ok := w.TargetCoverage()
+	if !ok || sub.BodyID != "moon" || sub.Label != "Pole site" || sub.Lat != -90 {
+		t.Fatalf("site subject = %+v ok=%v", sub, ok)
+	}
+	period := 2 * math.Pi * math.Sqrt(2.0e6*2.0e6*2.0e6/moon.GravitationalParameter())
+	if want := math.Ceil(period/60) * 60; math.Abs(sub.LapS-want) > 1 {
+		t.Errorf("lap = %v s, want %v s (relay period rounded up to the minute)", sub.LapS, want)
+	}
+	addMoonCraft(w, spacecraft.AntennaRelay, 1e9, dirE, 3.0e7) // period about 128 h
+	if sub, _ = w.TargetCoverage(); sub.LapS != coverageLapCapS {
+		t.Errorf("long-period relay: lap = %v, want the 48 h cap %v", sub.LapS, float64(coverageLapCapS))
+	}
+	w.ClearTarget()
+	if _, ok := w.TargetCoverage(); ok {
+		t.Error("no target must read false")
+	}
+	// a landed ghost is a surface point too
+	w.Ghosts = []Ghost{{Owner: "p", CraftID: 9, Name: "Ghost-1", PrimaryID: "moon", Landed: true, LatDeg: 10, LonDeg: 20}}
+	w.Target = Target{Kind: TargetGhost, GhostOwner: "p", CraftID: 9}
+	if sub, ok = w.TargetCoverage(); !ok || sub.Label != "Ghost-1" || sub.Lon != 20 {
+		t.Errorf("ghost subject = %+v ok=%v", sub, ok)
+	}
+}

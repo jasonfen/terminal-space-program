@@ -214,3 +214,76 @@ func (w *World) SiteCoverage(primaryID string, latDeg, lonDeg, lapS, sampleS flo
 	*m = siteCovMemo{key: key, params: params, at: now, memo: memo, ok: true, computes: m.computes + 1}
 	return memo, true
 }
+
+// CoverageSubject is the surface point the COVERAGE notice follows when a
+// site, landed vessel or landed ghost is targeted (ADR 0066 decision 11).
+type CoverageSubject struct {
+	BodyID   string
+	Label    string
+	Lat, Lon float64
+	LapS     float64
+}
+
+// coverageLapCapS caps the aimed-site lap; the rung keeps its authored lap.
+const coverageLapCapS = 48 * 3600
+
+// TargetCoverage resolves the targeted surface point in the viewed system and
+// the lap to sample: the longest relay period at that body, capped at 48 h.
+// ok=false when the target is not a surface point, or the body has no relay.
+func (w *World) TargetCoverage() (CoverageSubject, bool) {
+	sys := w.System()
+	var s CoverageSubject
+	var bodyName string
+	switch w.Target.Kind {
+	case TargetSite:
+		site, found := w.siteByID(w.Target.SiteID)
+		if !found || site.System != sys.Name {
+			return s, false
+		}
+		bodyName, s.Label, s.Lat, s.Lon = site.Body, site.Name, site.LatDeg, site.LonDeg
+	case TargetCraft:
+		c, _, found := w.ResolveTargetCraft()
+		if !found || !c.Landed || c.SystemIdx != w.SystemIdx {
+			return s, false
+		}
+		bodyName, s.Label = c.Primary.EnglishName, c.Name
+		s.Lat, s.Lon = c.SurfaceLatLon()
+	case TargetGhost:
+		g, p, found := w.ResolveTargetGhost()
+		if !found || !g.Landed {
+			return s, false
+		}
+		bodyName, s.Label, s.Lat, s.Lon = p.EnglishName, g.Name, g.LatDeg, g.LonDeg
+	default:
+		return s, false
+	}
+	for _, b := range sys.Bodies {
+		if b.EnglishName == bodyName {
+			s.BodyID = b.ID
+		}
+	}
+	body := sys.FindBody(s.BodyID)
+	if body == nil {
+		return CoverageSubject{}, false
+	}
+	relays := w.siteRelays(s.BodyID)
+	if len(relays) == 0 {
+		return CoverageSubject{}, false
+	}
+	mu := body.GravitationalParameter()
+	lap := 0.0
+	for _, r := range relays {
+		if r.landed {
+			continue
+		}
+		el := orbital.ElementsFromState(r.state.R, r.state.V, mu)
+		if el.A > 0 && el.E < 1 {
+			lap = math.Max(lap, 2*math.Pi*math.Sqrt(el.A*el.A*el.A/mu))
+		}
+	}
+	if lap == 0 {
+		lap = 24 * 3600 // only landed relays: they do not move, a day shows the body turning
+	}
+	s.LapS = math.Min(math.Ceil(lap/60)*60, coverageLapCapS)
+	return s, true
+}
