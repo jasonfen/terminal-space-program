@@ -62,26 +62,64 @@ type siteCovMemo struct {
 	computes int // test counter
 }
 
-// siteRelays are the slate's controllable, flying relay-antenna vessels
-// orbiting primaryID in the viewed system.
-func (w *World) siteRelays(primaryID string) []*spacecraft.Spacecraft {
-	var out []*spacecraft.Spacecraft
+// siteRelay is one relay the sampler places at each sample time: a flying
+// vessel (own or a partner's ghost) coasts by Kepler from its state; a
+// landed one is a fixed body-fixed point (ADR 0066 decisions 11, 13).
+type siteRelay struct {
+	key      string // memo-key identity; a ghost's carries its owner so ids never collide
+	rangeM   float64
+	state    physics.StateVector // primary-relative, at the sim clock (flying)
+	landed   bool
+	lat, lon float64 // landed only
+}
+
+// siteRelays are the controllable relay-antenna vessels orbiting or parked
+// on primaryID in the viewed system: the slate's, then partners' ghosts.
+func (w *World) siteRelays(primaryID string) []siteRelay {
+	var out []siteRelay
+	sys := w.System()
+	body := sys.FindBody(primaryID)
 	for _, c := range w.Crafts {
 		if c == nil || c.SystemIdx != w.SystemIdx || c.AntennaKind != spacecraft.AntennaRelay ||
-			!c.Controllable || c.Landed || c.Crashed || c.Primary.ID != primaryID {
+			!c.Controllable || c.Crashed || c.Primary.ID != primaryID {
 			continue
 		}
-		out = append(out, c)
+		r := siteRelay{key: fmt.Sprint(c.ID), rangeM: c.AntennaRangeM, state: c.State}
+		if c.Landed {
+			if body == nil {
+				continue
+			}
+			v := render.Vec3{X: c.State.R.X, Y: c.State.R.Y, Z: c.State.R.Z}
+			r.landed = true
+			r.lat, r.lon = render.WorldToBodyFixed(*body, v, w.Clock.SimTime)
+		}
+		out = append(out, r)
+	}
+	for _, g := range w.Ghosts {
+		if !ghostIsRelay(g) || g.PrimaryID != primaryID {
+			continue
+		}
+		out = append(out, siteRelay{
+			key: g.Owner + "/" + fmt.Sprint(g.CraftID), rangeM: g.AntennaRangeM,
+			state:  physics.StateVector{R: g.RelPos, V: g.Vel, M: 1},
+			landed: g.Landed, lat: g.LatDeg, lon: g.LonDeg,
+		})
 	}
 	return out
 }
 
-func (w *World) siteCovKey(primaryID string, relays []*spacecraft.Spacecraft) string {
+func (w *World) siteCovKey(primaryID string, relays []siteRelay) string {
 	var parts []string
+	sys := w.System()
+	mu := sys.FindBody(primaryID).GravitationalParameter()
 	for _, c := range relays {
-		el := orbital.ElementsFromState(c.State.R, c.State.V, c.Primary.GravitationalParameter())
+		if c.landed {
+			parts = append(parts, fmt.Sprintf("%s:L%.2f/%.2f", c.key, c.lat, c.lon))
+			continue
+		}
+		el := orbital.ElementsFromState(c.state.R, c.state.V, mu)
 		d := 180 / math.Pi
-		parts = append(parts, fmt.Sprintf("%d:%.0f/%.3f/%.1f/%.1f/%.1f", c.ID,
+		parts = append(parts, fmt.Sprintf("%s:%.0f/%.3f/%.1f/%.1f/%.1f", c.key,
 			math.Round(el.A/1000), math.Round(el.E*1000)/1000,
 			math.Round(el.I*d*10)/10, math.Round(el.Omega*d*10)/10, math.Round(el.Arg*d*10)/10))
 	}
@@ -91,8 +129,9 @@ func (w *World) siteCovKey(primaryID string, relays []*spacecraft.Spacecraft) st
 
 // SiteCoverage samples whether the surface point (lat, lon) of primaryID is
 // linked to a ground station at each of lapS/sampleS+1 times from now,
-// through the slate's relays at that body (other bodies' relays and
-// landed vessels are left out, a known under-count). ok=false for an
+// through the relays at that body: the slate's (landed ones as fixed
+// points) and partners' (other bodies' relays are left out, a known
+// under-count). ok=false for an
 // unknown body or non-positive lap/step. The memo recomputes when the
 // relay set, their rounded elements or the sim hour change, and at most
 // once per siteCovMinWall of wall clock.
@@ -147,13 +186,15 @@ func (w *World) SiteCoverage(primaryID string, latDeg, lonDeg, lapS, sampleS flo
 			})
 		}
 		for _, c := range relays {
-			r := c.State.R
-			if s, ok := physics.KeplerStep(c.State, mu, float64(i)*sampleS); ok {
+			r := c.state.R
+			if c.landed {
+				r, _ = surfacePointState(*body, c.lat, c.lon, t)
+			} else if s, ok := physics.KeplerStep(c.state, mu, float64(i)*sampleS); ok {
 				r = s.R
 			}
 			nodes = append(nodes, commNode{
 				pos:      bodyPos.Add(r),
-				rangeM:   c.AntennaRangeM,
+				rangeM:   c.rangeM,
 				forwards: true,
 				bodyID:   primaryID,
 				nearHome: stationBodies[primaryID] && r.Norm() <= nearHomeRadiiFactor*R,

@@ -363,6 +363,28 @@ func (w *World) RecomputeCommGraph() {
 		})
 	}
 
+	// A partner's relay (ADR 0066 decision 13) forwards traffic for your
+	// vessels and is nothing else: not a probe (nobody's command gate is
+	// solved for another player's craft), not a station, craftID 0, so it is
+	// never a BFS source and never in ConnectedRelayCount.
+	for _, g := range w.Ghosts {
+		if !ghostIsRelay(g) {
+			continue
+		}
+		primary := sys.FindBody(g.PrimaryID)
+		if primary == nil {
+			continue
+		}
+		nodes = append(nodes, commNode{
+			pos:      g.Pos,
+			rangeM:   g.AntennaRangeM,
+			forwards: true,
+			bodyID:   g.PrimaryID,
+			nearHome: stationBodies[g.PrimaryID] &&
+				g.RelPos.Norm() <= nearHomeRadiiFactor*primary.RadiusMeters(),
+		})
+	}
+
 	res := connectivityFull(nodes, occ)
 	paths := make(map[uint64][]orbital.Vec3, len(res.paths))
 	for id, idxPath := range res.paths {
@@ -386,6 +408,12 @@ func (w *World) RecomputeCommGraph() {
 		Paths:     paths,
 		Reasons:   classifyDisconnects(nodes, res),
 	}
+}
+
+// ghostIsRelay: a partner's controllable craft with a relay antenna, the only
+// kind of ghost that is a CommNet node.
+func ghostIsRelay(g Ghost) bool {
+	return g.AntennaKind == spacecraft.AntennaRelay && g.Controllable && g.AntennaRangeM > 0
 }
 
 // nearestStationPos returns the world position of the closest ground station
