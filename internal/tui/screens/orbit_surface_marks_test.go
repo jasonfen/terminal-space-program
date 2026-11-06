@@ -71,3 +71,42 @@ func TestSurfaceMarksFilterAndLimb(t *testing.T) {
 	}
 	t.Error("no targeted hidden mark drew alone")
 }
+
+// F2: a partner's flag and wreck draw (ghost Dim) from the ledger, the
+// "partners' marks" row governs them, and a targeted one draws alone.
+// F3 (drawing half): the target is owner plus id, so your own id-1 flag does
+// not draw in TARGET colour while the partner's id 1 is aimed.
+func TestSurfaceMarksPartnerSites(t *testing.T) {
+	v := NewOrbitView(Theme{})
+	v.Resize(200, 60)
+	w := marksWorld(t, 0)
+	body, sys := w.ActiveCraft().Primary.EnglishName, w.System().Name
+	// Two spots on opposite sides of the disk so one faces the camera.
+	for i, lon := range []float64{0, 180} {
+		w.PartnerSites = append(w.PartnerSites, sim.PartnerSite{Handle: "pal", Site: sim.Site{
+			ID: uint64(i + 1), Owner: "SHA256:pal", Body: body, System: sys, LonDeg: lon,
+			Kind: []sim.SiteKind{sim.SiteFlag, sim.SiteWreck}[i], Name: "theirs"}})
+	}
+	f, k := marksCount(marksFrame(v, w))
+	if f+k != 1 {
+		t.Fatalf("partner sites: %d flags %d wrecks drawn, want exactly the near-side one", f, k)
+	}
+	s := v.settings
+	s.SetChip(settings.ChipMarksPartners, false)
+	v.SetSettings(s)
+	if f, k = marksCount(marksFrame(v, w)); f+k != 0 {
+		t.Errorf("partners' marks off: %d drawn, want 0", f+k)
+	}
+	// Equal case: own id 1 and the aimed partner id 1; only the partner is targeted.
+	w.Sites = append(w.Sites, sim.Site{ID: 1, Body: body, System: sys, LonDeg: 30, Name: "mine"})
+	w.SetTargetPartnerSite("SHA256:pal", 1)
+	if w.Target.Kind != sim.TargetSite {
+		t.Fatalf("partner site not aimed: %+v", w.Target)
+	}
+	s.SetChip(settings.ChipMarksPartners, true)
+	v.SetSettings(s)
+	own := sim.Site{ID: 1, Owner: ""}
+	if v.siteTargeted(w, own) || !v.siteTargeted(w, w.PartnerSites[0].Site) {
+		t.Errorf("owner not part of the target match")
+	}
+}
