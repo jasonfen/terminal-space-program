@@ -234,13 +234,15 @@ func targetGlyph(r sim.TargetRow) string {
 }
 
 // targetDist is a distance in metres as the card shows it: m under a km,
-// one decimal under 10 km, then whole km with thousands commas.
+// one decimal under 10 km, whole km with thousands commas, then Mkm from a million km.
 func targetDist(m float64) string {
 	switch km := m / 1000; {
 	case m < 1000:
 		return fmt.Sprintf("%.0f m", m)
 	case km < 10:
 		return fmt.Sprintf("%.1f km", km)
+	case km >= 1e6:
+		return fmt.Sprintf("%.1f Mkm", km/1e6)
 	default:
 		s := fmt.Sprintf("%.0f", km)
 		for i := len(s) - 3; i > 0; i -= 3 {

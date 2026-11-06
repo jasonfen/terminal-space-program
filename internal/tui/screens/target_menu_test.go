@@ -56,7 +56,7 @@ func TestTargetDist(t *testing.T) {
 	for _, c := range []struct {
 		m    float64
 		want string
-	}{{999, "999 m"}, {1000, "1.0 km"}, {9999, "10.0 km"}, {10000, "10 km"}, {384.4e6, "384,400 km"}} {
+	}{{999, "999 m"}, {1000, "1.0 km"}, {9999, "10.0 km"}, {10000, "10 km"}, {384.4e6, "384,400 km"}, {999999e3, "999,999 km"}, {1e9, "1.0 Mkm"}, {170.1e9, "170.1 Mkm"}} {
 		if got := targetDist(c.m); got != c.want {
 			t.Errorf("targetDist(%g) = %q, want %q", c.m, got, c.want)
 		}
