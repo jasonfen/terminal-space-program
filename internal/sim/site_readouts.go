@@ -93,7 +93,7 @@ type LandBeside struct {
 func (w *World) surfaceTargetLatLon(c *spacecraft.Spacecraft) (lat, lon float64, ok bool) {
 	switch w.Target.Kind {
 	case TargetSite:
-		s, found := w.siteByID(w.Target.SiteID)
+		s, found := w.targetSite()
 		if !found || s.Body != c.Primary.EnglishName || s.System != w.System().Name {
 			return 0, 0, false
 		}

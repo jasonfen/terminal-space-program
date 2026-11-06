@@ -170,7 +170,7 @@ func (w *World) RemoveSite(id uint64) bool {
 			continue
 		}
 		w.Sites = append(w.Sites[:i], w.Sites[i+1:]...)
-		if w.Target.Kind == TargetSite && w.Target.SiteID == id {
+		if w.Target.Kind == TargetSite && w.Target.GhostOwner == "" && w.Target.SiteID == id {
 			w.ClearTarget()
 		}
 		return true

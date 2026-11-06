@@ -199,3 +199,18 @@ func TestLandBesideCrossClosesUnderAHeldTrim(t *testing.T) {
 		}
 	}
 }
+
+// Equal case: a partner's site and one of yours share id 1; the aim point is the partner's.
+func TestSurfaceTargetLatLonPartnerSiteIDCollidesWithOwn(t *testing.T) {
+	w, _, _, _, _, _ := moonSiteWorld(t)
+	moon := siteBody(w, "moon")
+	sys := w.System().Name
+	w.Sites = append(w.Sites, Site{ID: 1, Body: moon.EnglishName, System: sys, LatDeg: 12.5, LonDeg: -33})
+	w.PartnerSites = []PartnerSite{{Site: Site{ID: 1, Owner: "p", Body: moon.EnglishName, System: sys, LatDeg: -40, LonDeg: 120}}}
+	w.SetTargetPartnerSite("p", 1)
+	c := w.ActiveCraft()
+	c.Primary = moon
+	if lat, lon, ok := w.surfaceTargetLatLon(c); !ok || lat != -40 || lon != 120 {
+		t.Errorf("aim = %v %v ok=%v, want -40 120", lat, lon, ok)
+	}
+}
