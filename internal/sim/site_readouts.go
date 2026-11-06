@@ -125,7 +125,9 @@ func (w *World) LandBesideReading() (LandBeside, bool) {
 	radius := c.Primary.RadiusMeters()
 	subLat, subLon := render.WorldToBodyFixed(c.Primary, unitV(c.State.R), w.Clock.SimTime)
 	lb := LandBeside{GroundM: HaversineM(subLat, subLon, siteLat, siteLon, radius)}
-	if lb.GroundM > 0 {
+	// Under half a metre there is no direction worth reading; exact zero is
+	// not reachable on every platform (CI's amd64 left 1e-10 m directly above).
+	if lb.GroundM >= 0.5 {
 		lb.BearingDeg, lb.BearingOK = ForwardAzimuthDeg(subLat, subLon, siteLat, siteLon), true
 	}
 	imp, found := PredictImpact(c, DescentPredictHorizon)
