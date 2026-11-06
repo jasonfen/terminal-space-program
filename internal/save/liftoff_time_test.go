@@ -3,6 +3,7 @@ package save_test
 // New file: save_test.go is over the ~600-line rule.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -50,7 +51,7 @@ func TestV17SaveLoadsWithZeroLiftoff(t *testing.T) {
 		}
 	}
 	s = strings.Join(out, "\n")
-	s = strings.Replace(s, `"version": 21`, `"version": 17`, 1)
+	s = strings.Replace(s, fmt.Sprintf(`"version": %d`, save.SchemaVersion), `"version": 17`, 1)
 	if !strings.Contains(s, `"version": 17`) {
 		t.Fatal("setup: version line not rewritten")
 	}

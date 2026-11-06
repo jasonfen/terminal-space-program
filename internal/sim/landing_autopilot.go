@@ -484,6 +484,9 @@ func (w *World) apBrake(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilo
 	}
 	psi := ap.PitchUpRad
 	dir := f.retro()
+	if ap.TrackN.Norm() == 0 { // a reload mid-brake: the plane is not saved
+		ap.TrackN = apTrackNormal(c, c.State)
+	}
 	if ap.StopSpanM == 0 {
 		ap.StopSpanM = math.Max(w.apForecast(c, lat, lon, theta, psi).span, apMinStopLenM)
 	}

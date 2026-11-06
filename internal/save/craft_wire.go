@@ -202,6 +202,7 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 	}
 	// ADR 0059 (schema v17): batch tag and raise order.
 	wc.BatchID, wc.BatchLead, wc.Raise = c.BatchID, c.BatchLead, raiseToWire(c.Raise)
+	wc.Landing = landingToWire(c.Landing) // schema v22 (ADR 0067)
 	wc.BatchClampExemptUntilNano = timeToNano(c.BatchClampExemptUntil)
 	wc.LiftoffSimTimeNano = timeToNano(c.LiftoffSimTime) // schema v18
 	return wc
@@ -486,6 +487,7 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 		}
 	}
 	c.BatchID, c.BatchLead, c.Raise = wc.BatchID, wc.BatchLead, raiseFromWire(wc.Raise)
+	c.Landing = landingFromWire(wc.Landing)
 	c.BatchClampExemptUntil = timeFromNano(wc.BatchClampExemptUntilNano)
 	c.LiftoffSimTime = timeFromNano(wc.LiftoffSimTimeNano) // schema v18
 	return c, nil
@@ -514,6 +516,24 @@ func timeFromNano(n int64) time.Time {
 		return time.Time{}
 	}
 	return time.Unix(0, n).UTC()
+}
+
+func landingToWire(a *spacecraft.LandingAutopilot) *LandingWire {
+	if a == nil {
+		return nil
+	}
+	return &LandingWire{Engaged: a.Engaged, Phase: int(a.Phase), ROD: a.ROD, RODRateMps: a.RODRateMps,
+		ThrottleHeld: a.ThrottleHeld, AimAlongM: a.AimAlongM, AimAcrossM: a.AimAcrossM,
+		NavAlongM: a.NavAlongM, NavAcrossM: a.NavAcrossM, NavSeeded: a.NavSeeded}
+}
+
+func landingFromWire(w *LandingWire) *spacecraft.LandingAutopilot {
+	if w == nil {
+		return nil
+	}
+	return &spacecraft.LandingAutopilot{Engaged: w.Engaged, Phase: spacecraft.LandingPhase(w.Phase), ROD: w.ROD,
+		RODRateMps: w.RODRateMps, ThrottleHeld: w.ThrottleHeld, AimAlongM: w.AimAlongM, AimAcrossM: w.AimAcrossM,
+		NavAlongM: w.NavAlongM, NavAcrossM: w.NavAcrossM, NavSeeded: w.NavSeeded}
 }
 
 func raiseToWire(r *spacecraft.RaiseOrder) *RaiseWire {
