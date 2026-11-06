@@ -27,6 +27,11 @@ func (v *OrbitView) markShown(c settings.Chip, targeted bool) bool {
 	return targeted || v.settings.ChipEnabled(c)
 }
 
+// siteTargeted matches the aimed site on owner and id: ids are per player.
+func (v *OrbitView) siteTargeted(w *sim.World, s sim.Site) bool {
+	return w.Target.Kind == sim.TargetSite && w.Target.SiteID == s.ID && w.Target.GhostOwner == s.Owner
+}
+
 // siteChip is the card row that governs a site: partners' marks first, then
 // the kind.
 func siteChip(s sim.Site) settings.Chip {
@@ -48,8 +53,12 @@ func (v *OrbitView) drawSurfaceMarks(w *sim.World, scale float64, canvasReach in
 	groups := map[cell][]sim.Site{}
 	var order []cell
 	pos := map[cell]sim.Site{} // representative: the targeted one, else the first
-	for _, s := range w.Sites {
-		targeted := w.Target.Kind == sim.TargetSite && w.Target.SiteID == s.ID
+	all := append([]sim.Site(nil), w.Sites...)
+	for _, p := range w.PartnerSites {
+		all = append(all, p.Site)
+	}
+	for _, s := range all {
+		targeted := v.siteTargeted(w, s)
 		if !v.markShown(siteChip(s), targeted) {
 			continue
 		}
@@ -83,7 +92,7 @@ func (v *OrbitView) drawSurfaceMarks(w *sim.World, scale float64, canvasReach in
 				}
 			}
 		}
-		ref := InspectRef{Kind: InspectSite, SiteID: s.ID}
+		ref := InspectRef{Kind: InspectSite, SiteID: s.ID, Owner: s.Owner}
 		if targeted {
 			col = render.ColorTarget
 		}
@@ -97,7 +106,7 @@ func (v *OrbitView) drawSurfaceMarks(w *sim.World, scale float64, canvasReach in
 		if n := len(groups[c]); n > 1 {
 			name = fmt.Sprintf("%d sites · %s …", n, rep.Name)
 		}
-		v.addInspectable(InspectRef{Kind: InspectSite, SiteID: rep.ID}, name, p, true)
+		v.addInspectable(InspectRef{Kind: InspectSite, SiteID: rep.ID, Owner: rep.Owner}, name, p, true)
 	}
 }
 

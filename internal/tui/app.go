@@ -3923,7 +3923,11 @@ func (a *App) commitInspect() {
 	case screens.InspectGhost:
 		a.world.SetTargetGhost(ref.Owner, ref.CraftID)
 	case screens.InspectSite:
-		a.world.SetTargetSite(ref.SiteID)
+		if ref.Owner != "" {
+			a.world.SetTargetPartnerSite(ref.Owner, ref.SiteID)
+		} else {
+			a.world.SetTargetSite(ref.SiteID)
+		}
 	default:
 		a.toast(fmt.Sprintf("%s can't be a target", name))
 		return

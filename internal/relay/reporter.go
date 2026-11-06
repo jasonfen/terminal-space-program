@@ -199,15 +199,18 @@ func snapshotWorld(w *sim.World) ([]craftKey, []CraftState) {
 		if c.SystemIdx >= 0 && c.SystemIdx < len(w.Systems) {
 			system = w.Systems[c.SystemIdx].Name
 		}
+		// A wreck is on the ground at its crater: it crosses the wire as a
+		// parked craft so a viewer pins it by rotation (F5).
+		onGround := c.Landed || c.Crashed
 		var el orbital.Elements
-		if !c.Landed {
+		if !onGround {
 			el = orbital.ElementsFromState(c.State.R, c.State.V, c.Primary.GravitationalParameter())
 		}
 		keys = append(keys, craftKey{
 			id:      c.ID,
 			system:  system,
 			primary: c.Primary.ID,
-			landed:  c.Landed,
+			landed:  onGround,
 			el:      el,
 		})
 		cs := CraftState{
@@ -218,20 +221,20 @@ func snapshotWorld(w *sim.World) ([]craftKey, []CraftState) {
 			Primary: c.Primary.ID,
 			R:       c.State.R,
 			V:       c.State.V,
-			Landed:  c.Landed,
+			Landed:  onGround,
 
 			AntennaKind:   c.AntennaKind,
 			AntennaRangeM: c.AntennaRangeM,
 			Controllable:  c.Controllable,
 		}
-		if c.Landed {
+		if onGround {
 			cs.LatDeg, cs.LonDeg = c.SurfaceLatLon()
 		}
 		// The hull, as the vessel derives it for itself (sim.PortGeometry),
 		// so a ghost's port is the one its owner would measure. A landed
 		// craft, or one whose attitude is uninitialised, sends none: "no
 		// shape known" (ADR 0053 decision 9).
-		if g := sim.VesselPortGeometry(c); !c.Landed && g.Known {
+		if g := sim.VesselPortGeometry(c); !onGround && g.Known {
 			cs.Attitude, cs.NoseM, cs.WidthM = g.Axis, g.NoseM, g.WidthM
 			for _, p := range g.Ports {
 				cs.Ports = append(cs.Ports, PortState{OffsetM: p.OffsetM, Name: p.Name})
