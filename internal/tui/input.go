@@ -215,6 +215,8 @@ type Keymap struct {
 	// place of the pre-v0.9 implicit body cursor. Cycle order:
 	// non-active sibling craft → bodies in current system → none.
 	CycleTarget key.Binding
+	// SurfaceMarks opens the `y` card (ADR 0066 decision 6).
+	SurfaceMarks key.Binding
 	ClearTarget key.Binding
 
 	// CycleNavMode (v0.9.3+): rotate the SAS reference frame through
@@ -474,6 +476,7 @@ func DefaultKeymap() Keymap {
 		SetOrbitAltitude:    key.NewBinding(key.WithKeys("L"), key.WithHelp("L", "orbit altitude: raise or lower, again stops")),
 		TransferControl:     key.NewBinding(key.WithKeys("J"), key.WithHelp("J", "transfer control of a cross-player stack")),
 		CycleTarget:         key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "cycle target (body / vessel)")),
+		SurfaceMarks:        key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "surface marks filter")),
 		ClearTarget:         key.NewBinding(key.WithKeys("T"), key.WithHelp("T", "clear target")),
 		CycleNavMode:        key.NewBinding(key.WithKeys(";"), key.WithHelp(";", "nav: surface / orbit / target")),
 		Stage:               key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "decouple bottom stage")),

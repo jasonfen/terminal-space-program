@@ -65,7 +65,7 @@ func TestSessionRendezvousCommandArms(t *testing.T) {
 }
 
 // The main-screen respond key (v0.29 S2): [y] with a pending invite
-// adopts the initiator's τ+CA verbatim; without an invite `y` is inert.
+// adopts the initiator's τ+CA verbatim; without an invite `y` opens the marks card.
 func TestRendezvousRespondKey(t *testing.T) {
 	a, err := New(nil)
 	if err != nil {
@@ -73,11 +73,12 @@ func TestRendezvousRespondKey(t *testing.T) {
 	}
 	w := a.world
 
-	// No invite: y is a free key — nothing arms.
+	// No invite: y opens the surface-marks card (ADR 0066) and arms nothing.
 	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'y'}})
 	if w.RendezvousArm != nil {
 		t.Fatal("y with no invite armed a rendezvous")
 	}
+	a.Update(tea.KeyMsg{Type: tea.KeyEsc})
 
 	tau := w.Clock.SimTime.Add(3 * time.Hour)
 	w.RendezvousInvite = &sim.RendezvousInvite{

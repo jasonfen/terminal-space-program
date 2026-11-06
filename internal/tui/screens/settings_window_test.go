@@ -10,8 +10,9 @@ import (
 // TestSettingsFitsAndKeepsCursorVisibleAt104x24 is the #373 repro, re-pinned
 // for the framed two-column layout (B11 / G9 Q4): at the Playable Floor the
 // whole screen (the frame, CHIPS, GAMEPLAY, SAVES, DISPLAY) fits the height
-// the App gives it (24 rows minus the Title Row), nothing scrolls, and the
-// cursor and the legend are on screen after two Down presses.
+// the App gives it (24 rows minus the Title Row), the CHIPS list windows
+// with a marker (ADR 0066 made it 17 rows), and the cursor and the legend are
+// on screen after two Down presses.
 func TestSettingsFitsAndKeepsCursorVisibleAt104x24(t *testing.T) {
 	s := NewSettingsScreen(Theme{})
 	s.HandleKey("down")
@@ -27,8 +28,11 @@ func TestSettingsFitsAndKeepsCursorVisibleAt104x24(t *testing.T) {
 			t.Errorf("104x24 settings is missing %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "more") {
-		t.Errorf("104x24 settings still scrolls (a 'more' marker is drawn):\n%s", out)
+	// ADR 0066 added five surface-mark rows to CHIPS, so the 17-row list no
+	// longer fits 104x24: it windows (TestSettingsWindowsChipsWhenTheyDoNotFit)
+	// and says so with a marker, while GAMEPLAY, SAVES and DISPLAY stay whole.
+	if !strings.Contains(out, "more") {
+		t.Errorf("104x24 CHIPS drops rows with no 'more' marker:\n%s", out)
 	}
 }
 

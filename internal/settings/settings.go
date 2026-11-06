@@ -60,6 +60,14 @@ const (
 	ChipCapture         Chip = "capture"
 	ChipFrameTransition Chip = "frameTransition"
 	ChipSOIPass         Chip = "soiPass"
+
+	// Surface marks (ADR 0066 decision 6): the `y` card's rows. They filter
+	// what the orbit map draws, never what the `t` menu lists.
+	ChipMarksLanded   Chip = "marks.landed"
+	ChipMarksFlags    Chip = "marks.flags"
+	ChipMarksWrecks   Chip = "marks.wrecks"
+	ChipMarksPartners Chip = "marks.partners"
+	ChipCoverageNow   Chip = "coverage.now" // wired by the coverage overlay slice
 )
 
 // Note: the eight ADR 0051 instrument boxes are NOT toggleable off the
@@ -88,6 +96,11 @@ var AllChips = []Chip{
 	ChipCapture,
 	ChipFrameTransition,
 	ChipSOIPass,
+	ChipMarksLanded,
+	ChipMarksFlags,
+	ChipMarksWrecks,
+	ChipMarksPartners,
+	ChipCoverageNow,
 }
 
 // chipLabels maps each Chip to the human-readable name the Settings
@@ -106,6 +119,11 @@ var chipLabels = map[Chip]string{
 	ChipCapture:         "Capture preview",
 	ChipFrameTransition: "Frame transition",
 	ChipSOIPass:         "SOI pass",
+	ChipMarksLanded:     "Landed vessels",
+	ChipMarksFlags:      "Flags",
+	ChipMarksWrecks:     "Wrecks",
+	ChipMarksPartners:   "Partners' marks",
+	ChipCoverageNow:     "Coverage now",
 }
 
 // Label returns the display name for c, falling back to the raw key for

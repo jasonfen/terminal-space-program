@@ -48,6 +48,7 @@ const (
 	InspectGhost  // another player's craft (ADR 0034 Kepler ghost)
 	InspectNode   // a planted maneuver node
 	InspectApproach
+	InspectSite // a flag or wreck on a body's surface (ADR 0066)
 )
 
 // InspectRef is the stable identity of one inspectable entity — stable
@@ -71,6 +72,8 @@ type InspectRef struct {
 	// NodeIdx identifies an InspectNode, 1-based — the same convention
 	// CellTag.NodeIdx already uses.
 	NodeIdx int
+	// SiteID identifies an InspectSite.
+	SiteID uint64
 }
 
 // OwnerKey renders a ref as the opaque string the canvas records on each
@@ -91,6 +94,8 @@ func (r InspectRef) OwnerKey() string {
 		return fmt.Sprintf("n:%d", r.NodeIdx)
 	case InspectApproach:
 		return "ca"
+	case InspectSite:
+		return fmt.Sprintf("s:%d", r.SiteID)
 	}
 	return ""
 }
