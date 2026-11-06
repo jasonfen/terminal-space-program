@@ -173,7 +173,7 @@ type World struct {
 	// (deorbit.go).
 	deorbitCache deorbitCache
 	// impactCache memoises LandBesideReading's free-fall forecast (site_readouts.go).
-	impactCache  impactCache
+	impactCache impactCache
 	// apRT: the landing autopilot's transient per-vessel cue cache (ADR 0067);
 	// lastSimDelta is the sim step of the tick in progress, for its light test.
 	apRT         map[uint64]*apRuntime
