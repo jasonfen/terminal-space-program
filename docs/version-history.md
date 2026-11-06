@@ -2,6 +2,13 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.66.1
+
+The COVERAGE notice says what it measures (PR `#895`, closes `#894`; tag `v0.66.1`). Save schema unchanged.
+
+- **`covered` on its own row.** The notice reads `covered 48h of 48h` between the site name and the gap line, so the linked time is labelled.
+- **A fully linked lap reads the lap.** It read one sample past it (`48h01m of 48h`); the lap's end sample is no longer counted twice.
+
 ### v0.66.0
 
 Surface sites (ADR 0066; PRs `#865` to `#873`, `#884`, `#885`, `#887`; fixes `#870`, `#888` to `#890`, `#892`, `#893`; tag `v0.66.0`). Save schema 21, session meta version 6.
