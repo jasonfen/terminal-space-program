@@ -62,7 +62,11 @@ import (
 // acknowledgement state (dirty marks, delivered copies, FromCompositeID,
 // Done). A v4 record carries none, and zero means both seats acknowledged,
 // which is all v4 could express; migrateMetaV4ToV5 states that explicitly.
-const MetaVersion = 5
+//
+// v6 (ADR 0066 decision 5): adds Sites, the surface-site ledger (flags and
+// wrecks of every player, so they outlive their owner's session and a
+// restart). A v5 file has none; migrateMetaV5ToV6 leaves Sites empty.
+const MetaVersion = 6
 
 // Roster roles. Host is the session's root operator (ADR 0034): the
 // player whose machine runs the session, with invite/removal authority
@@ -246,6 +250,27 @@ type Meta struct {
 	// in a fresh or non-docking session; the serve layer syncs it from
 	// the live relay ledger on change.
 	Docks []DockLink `json:"docks,omitempty"`
+	// Sites is the surface-site ledger (v6+, ADR 0066 decision 5).
+	Sites []SiteLink `json:"sites,omitempty"`
+}
+
+// SiteLink is one planted site in the ledger: owner fingerprint + the
+// owner's own site id are the identity. BodyID is the catalog body ID (the
+// cross-player identity, the wire's and the ghosts'), not the English name a
+// World stores. Kind is sim.SiteKind.
+type SiteLink struct {
+	Owner         string  `json:"owner"`
+	OwnerHandle   string  `json:"owner_handle,omitempty"`
+	ID            uint64  `json:"id"`
+	BodyID        string  `json:"body_id"`
+	System        string  `json:"system"`
+	LatDeg        float64 `json:"lat_deg"`
+	LonDeg        float64 `json:"lon_deg"`
+	Kind          int     `json:"kind,omitempty"`
+	Name          string  `json:"name"`
+	CraftID       uint64  `json:"craft_id,omitempty"`
+	PlantedAtNano int64   `json:"planted_at_nano"`
+	UpdatedAtNano int64   `json:"updated_at_nano"`
 }
 
 // Store owns one session directory. All mutations re-read
@@ -503,8 +528,15 @@ func migrateMeta(m *Meta) {
 	if m.Version < 5 {
 		migrateMetaV4ToV5(m)
 	}
+	if m.Version < 6 {
+		migrateMetaV5ToV6(m)
+	}
 	m.Version = MetaVersion
 }
+
+// migrateMetaV5ToV6: a v5 session has no site ledger, so Sites is empty (the
+// players' flags come back from their own saves on connect, decision 5).
+func migrateMetaV5ToV6(m *Meta) { m.Sites = nil }
 
 // migrateMetaV4ToV5 reads every v4 dock as fully acknowledged: no seat dirty,
 // no copy held, not settled. A v4 file cannot carry those fields, so this only
@@ -576,6 +608,18 @@ func (s *Store) SetDocks(docks []DockLink) error {
 		return err
 	}
 	m.Docks = docks
+	return s.writeMeta(m)
+}
+
+// SetSites persists the surface-site ledger (v6). Re-reads under the lock so
+// a concurrent roster or dock write is not clobbered.
+func (s *Store) SetSites(sites []SiteLink) error {
+	defer s.lock()()
+	m, err := s.readMeta()
+	if err != nil {
+		return err
+	}
+	m.Sites = sites
 	return s.writeMeta(m)
 }
 

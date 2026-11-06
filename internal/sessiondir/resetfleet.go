@@ -127,8 +127,10 @@ func (s *Store) ResetFleet(epoch time.Time) ([]FleetResetEntry, error) {
 	// it already wiped. Safe: the parked payloads on these records are
 	// wiped by design, and every check that can refuse the whole reset has
 	// already run above. Roster and invites are deliberately untouched.
-	if len(m.Docks) > 0 {
-		m.Docks = nil
+	// The site ledger goes too: a flag whose owner's slate is wiped would
+	// otherwise be put back into the fresh world on connect (ADR 0066).
+	if len(m.Docks) > 0 || len(m.Sites) > 0 {
+		m.Docks, m.Sites = nil, nil
 		if err := s.writeMeta(m); err != nil {
 			return nil, err
 		}
