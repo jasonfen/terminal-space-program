@@ -91,6 +91,7 @@ type Server struct {
 	store      *sessiondir.Store
 	relay      *relay.Store
 	dock       *relay.DockLedger
+	sites      *relay.SiteLedger // ADR 0066 decision 5; flushed under persistMu
 	presence   *presence
 	chat       *chatRing
 
@@ -176,6 +177,10 @@ type Server struct {
 	// some later, unrelated transition to happen to carry the state out.
 	// Guarded by persistMu, which every flush already takes.
 	dockPersistFailed bool
+
+	// sitePersistFailed is dockPersistFailed's twin for the site ledger.
+	// Guarded by persistMu.
+	sitePersistFailed bool
 }
 
 // DefaultHostKeyPath returns the per-host SSH identity path, sibling
@@ -216,7 +221,7 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("serve: enroll host: %w", err)
 	}
 	srv := &Server{
-		store: store, relay: relay.NewStore(), dock: relay.NewDockLedger(),
+		store: store, relay: relay.NewStore(), dock: relay.NewDockLedger(), sites: relay.NewSiteLedger(),
 		presence: newPresence(), chat: newChatRing(), ver: newVersionSurface(),
 		live: newSessionRegistry(), sweepEvery: defaultSweepEvery, reprieveWindow: defaultReprieveWindow,
 		reclaimWait: defaultReclaimWait, awayAfter: defaultAwayAfter,
@@ -237,6 +242,10 @@ func New(cfg Config) (*Server, error) {
 			return nil, fmt.Errorf("serve: load body catalog for dock restore: %w", err)
 		}
 		srv.dock.SeedFull(dockLinksToSnapshots(m.Docks), systems)
+	}
+	// ADR 0066 decision 5: every player's flags and wrecks come back.
+	if m, err := store.Meta(); err == nil {
+		srv.sites.Seed(siteLinksToRecords(m.Sites))
 	}
 	// ADR 0066 decision 14: every player's last report comes back from
 	// reports/ with its owner offline (nobody has connected yet). The host is
