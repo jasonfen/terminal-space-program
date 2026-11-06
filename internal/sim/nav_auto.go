@@ -97,6 +97,9 @@ func (w *World) NavSpeed() (float64, NavMode) {
 		}
 		nav = NavOrbit
 	}
+	if nav == NavSite {
+		nav = NavSurface // ADR 0067: SITE reads the ground speed, as SURF does
+	}
 	if nav == NavSurface {
 		om := render.BodySpinOmegaWorld(c.Primary)
 		omega := orbital.Vec3{X: om.X, Y: om.Y, Z: om.Z}

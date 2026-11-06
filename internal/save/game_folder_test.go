@@ -3,6 +3,7 @@ package save_test
 // New file: save_test.go is over the ~600-line rule (v0.63.3 game folders).
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,7 +48,7 @@ func TestV18SaveLoadsWithNoGameFolder(t *testing.T) {
 			out = append(out, ln)
 		}
 	}
-	s = strings.Replace(strings.Join(out, "\n"), `"version": 21`, `"version": 18`, 1)
+	s = strings.Replace(strings.Join(out, "\n"), fmt.Sprintf(`"version": %d`, save.SchemaVersion), `"version": 18`, 1)
 	if !strings.Contains(s, `"version": 18`) {
 		t.Fatal("setup: version line not rewritten")
 	}

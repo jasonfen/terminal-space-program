@@ -71,6 +71,10 @@ func (w *World) NavballBasis() (NavballBasis, bool) {
 	if nav == NavTarget && !w.HasRelativeTarget() {
 		nav = NavOrbit
 	}
+	// NavSite (ADR 0067): the landing frame shows the local-horizon sphere.
+	if nav == NavSite {
+		nav = NavSurface
+	}
 	// NavPort (ADR 0053): the ball is framed on the target's relative
 	// velocity exactly as in NavTarget, so the sphere does not lurch when
 	// the pilot steps from TGT to PORT; a vanished port degrades to orbit.

@@ -145,6 +145,9 @@ type World struct {
 	// per-tick, per-craft, app.go-drained contract as
 	// PendingBurnFiredEvents.
 	PendingBurnFinishedEvents []BurnFinishedEvent
+	// PendingLandingEvents queues the landing autopilot's touchdowns, out-of-reach
+	// landings and crashes for app.go's Event Flash (ADR 0067 decision 5).
+	PendingLandingEvents []LandingEvent
 
 	// PendingRaiseEvents queues the commanded raise's end-of-order Event
 	// Flashes (ADR 0059 decision 4: complete, argon exhausted, stopped).
@@ -170,7 +173,11 @@ type World struct {
 	// (deorbit.go).
 	deorbitCache deorbitCache
 	// impactCache memoises LandBesideReading's free-fall forecast (site_readouts.go).
-	impactCache  impactCache
+	impactCache impactCache
+	// apRT: the landing autopilot's transient per-vessel cue cache (ADR 0067);
+	// lastSimDelta is the sim step of the tick in progress, for its light test.
+	apRT         map[uint64]*apRuntime
+	lastSimDelta time.Duration
 	impactSolves int // forecasts actually run, for the hit-count test
 
 	// planChain memoises the HUD's chained node walk (plan_chain.go).
@@ -1009,6 +1016,7 @@ func (w *World) Tick() {
 			}
 		}
 	}
+	w.lastSimDelta = simDelta
 	w.Clock.SimTime = w.Clock.SimTime.Add(simDelta)
 	// v0.8.5.7+: advance RotationTime alongside SimTime, capped at
 	// RotationCapWarp so visible rotation stays smooth even at warp
@@ -1709,6 +1717,12 @@ func (w *World) clampedWarp() float64 {
 	// non-active craft while the player is flying another.
 	if w.AnyCraftThrusting() && selected > burnWarpCap {
 		selected = burnWarpCap
+	}
+	// ADR 0067 decision 5: a landing autopilot flying its brake or descent
+	// caps warp as a planted burn does, thrusting or not this tick; one still
+	// coasting to its cue glides warp down so a tick cannot step past it.
+	if lim, ok := w.landingAutopilotWarpLimit(); ok && selected > lim {
+		selected = lim
 	}
 	// ADR 0053 decision 8: the same cap inside DockingDistM of another
 	// non-debris hull, so two hulls cannot alias through each other

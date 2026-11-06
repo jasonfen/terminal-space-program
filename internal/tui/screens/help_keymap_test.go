@@ -236,3 +236,40 @@ func TestSpawnFormArrowsRowNamesFrozenEllipse(t *testing.T) {
 		t.Errorf("docs/controls.md lacks the Moon row")
 	}
 }
+
+// TestHelpNamesTheSiteLandingAutopilot (ADR 0067 decision 12): the `;` row
+// reaches Site, `q` in SITE engages Site+, `Z / X` hand over a descent rate
+// and `z / x` take the raw throttle, in F1 and in controls.md row for row.
+func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
+	h := screens.NewHelp(screens.Theme{})
+	h.OpenFor("MANUAL FLIGHT")
+	f1 := strings.Join(strings.Fields(h.Render(140, 40, keylayout.QWERTY)), " ")
+	doc, err := os.ReadFile("../../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"Surface → Orbit → Target → Port → Site",
+		"q (SITE) in SITE: engage the landing autopilot (hold: Site+ brake / approach / final)",
+		"Z / X (Site+) under Site+: hand over a descent rate, 1 m/s a press (alt 0.3); z / x take the raw throttle back",
+	} {
+		if !strings.Contains(f1, want) {
+			t.Errorf("F1 MANUAL FLIGHT page lacks %q", want)
+		}
+	}
+	for _, want := range []string{
+		"Surface → Orbit → Target → Port → Site",
+		"| `q` in Site | With the main engine selected, engage the landing autopilot (`hold: Site+ (SITE)`)",
+		"| `Z` / `X` under `Site+` | Hand over a rate of descent:",
+		"`z` / `x` give the raw throttle back and keep the steering",
+		"| `Site+` / `ROD` |",
+	} {
+		if !strings.Contains(string(doc), want) {
+			t.Errorf("docs/controls.md lacks %q", want)
+		}
+	}
+	tokens := screens.HelpKeyTokens()
+	if !tokens["Site+"] || !tokens["ROD"] {
+		t.Error("F1 glossary does not name Site+ and ROD")
+	}
+}

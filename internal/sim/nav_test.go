@@ -217,6 +217,7 @@ func TestAttitudeHoldPartsNamesFrame(t *testing.T) {
 		{NavOrbit, spacecraft.BurnPrograde, "Prograde", NavOrbit},
 		{NavOrbit, spacecraft.BurnInertial, "Inertial", NavOrbit}, // ADR 0063: tagged ORBIT
 		{NavPort, spacecraft.BurnInertial, "Inertial", NavOrbit},  // the mode's frame, not the live NavMode
+		{NavOrbit, spacecraft.BurnSite, "Site+", NavSite},         // ADR 0067: frame-locked to the site
 	}
 	for _, tc := range cases {
 		w.NavMode = tc.nav
@@ -224,5 +225,46 @@ func TestAttitudeHoldPartsNamesFrame(t *testing.T) {
 		if label != tc.wantLabel || frame != tc.wantFrame {
 			t.Errorf("nav %v mode %v: got (%q, %v), want (%q, %v)", tc.nav, tc.mode, label, frame, tc.wantLabel, tc.wantFrame)
 		}
+	}
+}
+
+// ADR 0067 decision 5: SITE is the fifth frame. `;` offers it only with a
+// surface target aimed and the vessel off the ground, `q` there is Site+, and
+// it drops to ORBIT when the target goes (the way PORT drops).
+func TestNavSiteOfferedResolvedAndDropped(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0) // a flying Lander with a flag aimed
+	w.NavMode = NavPort
+	if got := w.CycleNavMode(); got != NavSite {
+		t.Fatalf("; from PORT with a site aimed = %v, want SITE", got)
+	}
+	if got := w.ResolveAttitudeIntent(IntentRadialOut); got != spacecraft.BurnSite {
+		t.Errorf("q in SITE = %v, want Site+", got)
+	}
+	if got := w.NavMode.Tag(); got != "SITE" {
+		t.Errorf("tag = %q, want SITE", got)
+	}
+	if got := w.CycleNavMode(); got != NavSurface {
+		t.Errorf("; from SITE = %v, want SURF", got)
+	}
+	w.NavMode = NavSite
+	w.ClearTarget() // the target goes: SITE drops
+	if w.NavMode != NavOrbit {
+		t.Errorf("after the target cleared: nav = %v, want ORBIT", w.NavMode)
+	}
+	// no surface target: the cycle skips SITE and q is plain radial
+	w.NavMode = NavPort
+	if got := w.CycleNavMode(); got == NavSite {
+		t.Error("; offered SITE with no surface target")
+	}
+	w.NavMode = NavSite
+	if got := w.ResolveAttitudeIntent(IntentRadialOut); got == spacecraft.BurnSite {
+		t.Error("q resolved to Site+ with no surface target")
+	}
+	// on the ground it is not offered either
+	w.SetTargetSite(w.Sites[0].ID)
+	c.Landed = true
+	w.NavMode = NavPort
+	if got := w.CycleNavMode(); got == NavSite {
+		t.Error("; offered SITE to a landed vessel")
 	}
 }

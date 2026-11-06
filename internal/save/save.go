@@ -131,7 +131,30 @@ import (
 // the truth for every earlier save; migrateV20PayloadToV21 only primes the id
 // counter. The bump makes a v20 binary refuse a v21 envelope instead of
 // dropping the sites and a site target.
-const SchemaVersion = 21
+//
+// ADR 0067 bumps to v22 - Craft.landing, the Site+ landing autopilot (engaged,
+// phase, ROD, aim offset, and the navigation-error pair reserved at zero for
+// slice 4). Absent decodes to not engaged with zero offsets, the truth for
+// every earlier save; migrateV21PayloadToV22 drops any autopilot a v21 envelope
+// carries (none can). The bump makes a v21 binary refuse a v22 envelope instead
+// of dropping a booster's mid-brake state.
+const SchemaVersion = 22
+
+// LandingWire is spacecraft.LandingAutopilot on the wire (schema v22). Only
+// state that cannot be re-derived is saved: the brake's pitch-up, track plane
+// and stopping distance re-converge on the next tick.
+type LandingWire struct {
+	Engaged      bool    `json:"engaged,omitempty"`
+	Phase        int     `json:"phase,omitempty"`
+	ROD          bool    `json:"rod,omitempty"`
+	RODRateMps   float64 `json:"rod_rate_mps,omitempty"`
+	ThrottleHeld bool    `json:"throttle_held,omitempty"`
+	AimAlongM    float64 `json:"aim_along_m,omitempty"`
+	AimAcrossM   float64 `json:"aim_across_m,omitempty"`
+	NavAlongM    float64 `json:"nav_along_m,omitempty"` // reserved: slice 4 fills it
+	NavAcrossM   float64 `json:"nav_across_m,omitempty"`
+	NavSeeded    bool    `json:"nav_seeded,omitempty"`
+}
 
 // RaiseWire is spacecraft.RaiseOrder on the wire (StartAt as UnixNano).
 type RaiseWire struct {
@@ -382,10 +405,11 @@ type Craft struct {
 	// LiftoffSimTime (schema v18, ADR 0062): UnixNano, absent = never lifted off.
 	LiftoffSimTimeNano int64 `json:"liftoff_sim_time,omitempty"`
 
-	BatchID                   uint64     `json:"batch_id,omitempty"`
-	BatchLead                 bool       `json:"batch_lead,omitempty"`
-	BatchClampExemptUntilNano int64      `json:"batch_clamp_exempt_until_unix_nano,omitempty"`
-	Raise                     *RaiseWire `json:"raise,omitempty"`
+	BatchID                   uint64       `json:"batch_id,omitempty"`
+	BatchLead                 bool         `json:"batch_lead,omitempty"`
+	BatchClampExemptUntilNano int64        `json:"batch_clamp_exempt_until_unix_nano,omitempty"`
+	Raise                     *RaiseWire   `json:"raise,omitempty"`
+	Landing                   *LandingWire `json:"landing,omitempty"` // schema v22 (ADR 0067)
 
 	// Crashed / CanSoftLand / OnPad / LandedLatDeg / LandedLonDeg
 	// (v0.11.4+, schema v6 additive — no bump, per ADR 0004). All
@@ -809,6 +833,11 @@ func Load(path string) (*sim.World, error) {
 	// migration primes the id counter past any site already present.
 	if f.Version < 21 {
 		migrateV20PayloadToV21(&f.Payload)
+	}
+	// schema v22 (ADR 0067): the landing autopilot is additive; a v21 envelope
+	// carries none.
+	if f.Version < 22 {
+		migrateV21PayloadToV22(&f.Payload)
 	}
 	// Identity bumps (v10, v11, v14, v16, v17) have no transform: absent keys
 	// decode to the truth, and TestIdentityBumpsLoadUnchanged pins that.

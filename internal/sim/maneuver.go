@@ -277,6 +277,9 @@ func (w *World) SetAttitudeMode(mode spacecraft.BurnMode) {
 	if w.dockMagnetPulls(c) || w.ghostMagnetPulls(c) { // ADR 0053 decision 5: the magnet owns the nose
 		return
 	}
+	if mode != spacecraft.BurnSite { // ADR 0067 decision 5: any hold key takes the nose
+		w.DisengageLandingAutopilot(c)
+	}
 	c.AttitudeMode = mode
 	if mode == spacecraft.BurnInertial {
 		c.HoldInertial()
@@ -3013,6 +3016,7 @@ func (w *World) executeDueNodes() {
 			continue
 		}
 		w.executeDueNodesFor(c)
+		w.tickLandingAutopilot(c) // ADR 0067: every vessel, active or not
 	}
 }
 

@@ -218,7 +218,23 @@ const (
 	// AllBurnModes (the player reaches it with the A key). Appended last so
 	// persisted mode ints keep their meaning.
 	BurnInertial
+
+	// BurnSite (ADR 0067 decision 5): the landing autopilot's hold, "Site+" in
+	// the SITE frame. The direction is SiteDir, written each tick by the
+	// autopilot (sim.tickLandingAutopilot); trims do not apply. A live hold
+	// only, not in AllBurnModes (a planted Site node has no meaning). Appended
+	// last so persisted mode ints keep their meaning.
+	BurnSite
 )
+
+// SiteHold is the direction a BurnSite hold aims at: SiteDir once the
+// autopilot has written one, else the current nose.
+func (s *Spacecraft) SiteHold() orbital.Vec3 {
+	if s.SiteDir.Norm() != 0 {
+		return s.SiteDir.Unit()
+	}
+	return s.CurrentAttitudeDir.Unit()
+}
 
 // InertialHold is the direction a BurnInertial hold aims at: InertialDir
 // once set, else the current nose.
@@ -287,6 +303,8 @@ func (m BurnMode) String() string {
 		return "Port right"
 	case BurnInertial:
 		return "Inertial"
+	case BurnSite:
+		return "Site+"
 	}
 	return "?"
 }
@@ -794,6 +812,7 @@ func (s *Spacecraft) ThrustAccelFnAtWithTargetAtt(mode BurnMode, mu, throttle fl
 	headingTrim := s.HeadingTrim
 	portPitch, portYaw := s.PortPitchTrim, s.PortYawTrim
 	nose := s.InertialHold() // BurnInertial's direction
+	siteNose := s.SiteHold() // BurnSite's direction
 	return func(r, v orbital.Vec3, _ float64) orbital.Vec3 {
 		gravity := physics.Accel(r, mu)
 		if thrust == 0 || mass == 0 {
@@ -803,6 +822,8 @@ func (s *Spacecraft) ThrustAccelFnAtWithTargetAtt(mode BurnMode, mu, throttle fl
 		switch mode {
 		case BurnInertial:
 			dir = nose
+		case BurnSite:
+			dir = siteNose
 		case BurnSurfacePrograde, BurnSurfaceRetrograde:
 			vSurf := v.Sub(omega.Cross(r))
 			n := vSurf.Norm()
@@ -819,7 +840,7 @@ func (s *Spacecraft) ThrustAccelFnAtWithTargetAtt(mode BurnMode, mu, throttle fl
 		default:
 			dir = DirectionUnit(mode, r, v)
 		}
-		if mode != BurnInertial {
+		if mode != BurnInertial && mode != BurnSite {
 			dir = ApplyTrims(dir, r, spinAxis, pitchTrim, headingTrim)
 			dir = PortLean(dir, rT, vT, aT, portPitch, portYaw) // ADR 0055: after the hold, like BurnDirection
 		}

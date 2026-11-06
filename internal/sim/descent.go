@@ -510,7 +510,7 @@ func stopStepSizeSeconds(dt, fuelTimeLeftSec, speedPre, aAvail float64) float64 
 // massKg is non-positive — no fuel, no thrust). Surface-relative, not
 // inertial (issue #377 §1): the goal is zero speed OVER THE GROUND, so
 // this uses physics.AirRelativeVelocity, matching descentKinematics.
-func poweredStopAccel(r, v orbital.Vec3, mu float64, primary bodies.CelestialBody, bc, thrustN, massKg float64) orbital.Vec3 {
+func poweredStopAccel(r, v orbital.Vec3, mu float64, primary bodies.CelestialBody, bc, thrustN, massKg, pitchUp float64) orbital.Vec3 {
 	accel := physics.Accel(r, mu).Add(physics.DragAccel(r, v, primary, bc))
 	if thrustN <= 0 || massKg <= 0 {
 		return accel
@@ -521,6 +521,14 @@ func poweredStopAccel(r, v orbital.Vec3, mu float64, primary bodies.CelestialBod
 		return accel
 	}
 	dir := vRel.Scale(-1 / n)
+	if pitchUp != 0 {
+		// the landing autopilot's pitch-up (ADR 0067): the thrust leans from
+		// retrograde toward local up by pitchUp radians, in their plane
+		up := r.Unit()
+		if perp := up.Sub(dir.Scale(up.Dot(dir))); perp.Norm() > 1e-12 {
+			dir = dir.Scale(math.Cos(pitchUp)).Add(perp.Unit().Scale(math.Sin(pitchUp)))
+		}
+	}
 	return accel.Add(dir.Scale(thrustN / massKg))
 }
 
@@ -575,6 +583,13 @@ func predictPoweredStopFrom(state physics.StateVector, c *spacecraft.Spacecraft,
 // full thrust (ADR 0066 decision 21 brakes at 90 %, so the pilot has throttle
 // authority left over). throttle 1 is the historical full-throttle stop.
 func predictPoweredStopFromAt(state physics.StateVector, c *spacecraft.Spacecraft, horizon time.Duration, throttle float64) (PoweredStopPrediction, bool) {
+	return predictPoweredStopFromAtPitch(state, c, horizon, throttle, 0)
+}
+
+// predictPoweredStopFromAtPitch is predictPoweredStopFromAt with the thrust
+// leaned pitchUp radians from retrograde toward local up: the landing
+// autopilot's second knob beside the throttle (ADR 0067). 0 is the plain stop.
+func predictPoweredStopFromAtPitch(state physics.StateVector, c *spacecraft.Spacecraft, horizon time.Duration, throttle, pitchUp float64) (PoweredStopPrediction, bool) {
 	if c == nil {
 		return PoweredStopPrediction{}, false
 	}
@@ -629,7 +644,7 @@ func predictPoweredStopFromAt(state physics.StateVector, c *spacecraft.Spacecraf
 		stepDt := stopStepSizeSeconds(dt, fuelKg/mdot, speedPre, aAvail)
 		massSnap := massKg
 		accelFn := func(r, v orbital.Vec3, _ float64) orbital.Vec3 {
-			return poweredStopAccel(r, v, mu, primary, bc, thrustFull, massSnap)
+			return poweredStopAccel(r, v, mu, primary, bc, thrustFull, massSnap, pitchUp)
 		}
 		pre := state
 		state = physics.StepRK4(state, stepDt, accelFn, 0)
