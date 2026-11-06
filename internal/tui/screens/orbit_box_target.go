@@ -376,6 +376,9 @@ func (v *OrbitView) closestApproachCells(w *sim.World, c *spacecraft.Spacecraft)
 func (v *OrbitView) targetSiteCells(w *sim.World, c *spacecraft.Spacecraft) (string, targetBoxCells) {
 	cells := dashTargetBoxCells()
 	name := w.TargetName()
+	if !w.TargetSiteResolves() {
+		return name + " (not yet resolved)", cells
+	}
 	if nTarget, ok := w.TargetPlaneNormal(); ok {
 		if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
 			if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, true); ok {

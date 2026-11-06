@@ -305,3 +305,14 @@ func TestTargetBoxLandBesideAbsentWhileLanded(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0066 decision 7: a site that no longer resolves keeps the lock and the
+// title says so, as for an unresolved ghost (F4).
+func TestTargetBoxVanishedSiteSaysNotYetResolved(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w := moonSiteDescentWorld(t, false)
+	w.Target = sim.Target{Kind: sim.TargetSite, SiteID: 99, GhostOwner: "p"}
+	if title := ansi.Strip(v.buildTargetBox(w)[0]); !strings.Contains(title, "pending target lock (not yet resolved)") {
+		t.Errorf("title = %q, want the pending name plus (not yet resolved)", title)
+	}
+}

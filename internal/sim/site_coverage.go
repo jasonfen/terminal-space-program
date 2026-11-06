@@ -236,7 +236,7 @@ func (w *World) TargetCoverage() (CoverageSubject, bool) {
 	var bodyName string
 	switch w.Target.Kind {
 	case TargetSite:
-		site, found := w.siteByID(w.Target.SiteID)
+		site, found := w.targetSite()
 		if !found || site.System != sys.Name {
 			return s, false
 		}

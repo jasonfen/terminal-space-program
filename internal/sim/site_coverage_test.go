@@ -313,3 +313,18 @@ func TestCommGraphNetIsTheLiveNetwork(t *testing.T) {
 		t.Errorf("isolated relay: Net has %d, want %d", got, base)
 	}
 }
+
+// A partner's site shares its id with one of yours (both players' first flag is
+// id 1): the coverage subject must be the partner's point, not yours.
+func TestTargetCoveragePartnerSiteIDCollidesWithOwn(t *testing.T) {
+	w, dirE, _, _, _, _ := moonSiteWorld(t)
+	moon := siteBody(w, "moon")
+	sys := w.System().Name
+	w.Sites = append(w.Sites, Site{ID: 1, Body: moon.EnglishName, System: sys, LatDeg: 12.5, LonDeg: -33, Name: "Own site"})
+	w.PartnerSites = []PartnerSite{{Site: Site{ID: 1, Owner: "p", Body: moon.EnglishName, System: sys, LatDeg: -40, LonDeg: 120, Name: "Their site"}}}
+	addMoonCraft(w, spacecraft.AntennaRelay, 1e9, dirE, 2.0e6)
+	w.SetTargetPartnerSite("p", 1)
+	if sub, ok := w.TargetCoverage(); !ok || sub.Label != "Their site" || sub.Lat != -40 || sub.Lon != 120 {
+		t.Errorf("partner subject = %+v ok=%v", sub, ok)
+	}
+}
