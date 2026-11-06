@@ -72,7 +72,7 @@ type InspectRef struct {
 	// NodeIdx identifies an InspectNode, 1-based — the same convention
 	// CellTag.NodeIdx already uses.
 	NodeIdx int
-	// SiteID identifies an InspectSite.
+	// SiteID identifies an InspectSite; Owner is set for a partner's.
 	SiteID uint64
 }
 
@@ -95,7 +95,7 @@ func (r InspectRef) OwnerKey() string {
 	case InspectApproach:
 		return "ca"
 	case InspectSite:
-		return fmt.Sprintf("s:%d", r.SiteID)
+		return fmt.Sprintf("s:%s/%d", r.Owner, r.SiteID)
 	}
 	return ""
 }

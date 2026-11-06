@@ -199,3 +199,35 @@ func TestGhostSOIPrimaryOffset(t *testing.T) {
 		t.Errorf("Vel off reported by %.3g m/s", d)
 	}
 }
+
+// F5: a crashed craft is on the surface at its crater. It crosses the wire as
+// a parked one, so the viewer pins it to the crater by rotation instead of
+// Kepler-stepping the frozen impact state under the ground across the skew.
+func TestGhostCrashedStaysAtCrater(t *testing.T) {
+	owner, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	oc := owner.ActiveCraft()
+	oc.Crashed = true
+	oc.LandedLatDeg, oc.LandedLonDeg = 10, 20
+	oc.State.R = oc.State.R.Scale(oc.Primary.RadiusMeters() / oc.State.R.Norm())
+	rep := reportFor(t, owner, "SHA256:owner")
+
+	viewer, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld viewer: %v", err)
+	}
+	viewer.Clock.SimTime = rep.SubspaceTime.Add(time.Hour)
+	ghosts := GhostsFor(viewer, []CraftReport{rep}, nil)
+	if len(ghosts) != 1 {
+		t.Fatalf("want one ghost, got %d", len(ghosts))
+	}
+	g := ghosts[0]
+	if alt := g.RelPos.Norm() - oc.Primary.RadiusMeters(); math.Abs(alt) > 1 {
+		t.Errorf("crashed ghost %.0f m off the surface after 1 h of skew", alt)
+	}
+	if !g.Landed || g.LatDeg != 10 || g.LonDeg != 20 {
+		t.Errorf("crashed ghost not pinned to the crater: %+v", g)
+	}
+}
