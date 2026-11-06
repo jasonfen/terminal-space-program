@@ -279,6 +279,55 @@ func TestLandBesideColdReadEqualsUncachedForecast(t *testing.T) {
 	}
 }
 
+// A found impact is an absolute time, so warp steps of many sim-minutes on an
+// unchanged orbit must not re-solve; the entry expires exactly at the impact,
+// and a "no impact" answer slides after a minute (R2-1).
+func TestImpactCacheSurvivesWarpAndExpires(t *testing.T) {
+	w, lander, _ := siteWorld(t)
+	lander.Landed, lander.Crashed = false, false
+	r := lander.Primary.RadiusMeters() + 100000
+	mu := lander.Primary.GravitationalParameter()
+	lander.State.R = orbital.Vec3{X: r}
+	lander.State.V = orbital.Vec3{Y: 0.2 * math.Sqrt(mu/r)}
+	w.impactSolves = 0
+	imp, found := w.cachedImpact(lander)
+	if !found || imp.TimeToImpact < 4*time.Minute {
+		t.Fatalf("setup: found=%v tti=%v, want a falling orbit with 4+ min to impact", found, imp.TimeToImpact)
+	}
+	t0 := w.Clock.SimTime
+	for step := time.Duration(1); t0.Add(step * 61 * time.Second).Before(t0.Add(imp.TimeToImpact)); step++ {
+		w.Clock.SimTime = t0.Add(step * 61 * time.Second)
+		w.cachedImpact(lander)
+	}
+	if w.impactSolves != 1 {
+		t.Errorf("warp steps of 61 s on a falling orbit ran %d forecasts, want 1", w.impactSolves)
+	}
+	w.Clock.SimTime = t0.Add(imp.TimeToImpact) // equal case: impact time reached
+	w.cachedImpact(lander)
+	if w.impactSolves != 2 {
+		t.Errorf("at the impact time the entry must expire: %d forecasts, want 2", w.impactSolves)
+	}
+
+	// no impact: kept inside a minute, re-solved after it
+	r = lander.Primary.RadiusMeters() + 100000
+	lander.State.R, lander.State.V = orbital.Vec3{X: r}, orbital.Vec3{Y: math.Sqrt(mu / r)}
+	w.impactSolves = 0
+	if _, f := w.cachedImpact(lander); f {
+		t.Fatal("setup: circular orbit found an impact")
+	}
+	t0 = w.Clock.SimTime
+	w.Clock.SimTime = t0.Add(59 * time.Second)
+	w.cachedImpact(lander)
+	if w.impactSolves != 1 {
+		t.Errorf("no-impact at +59 s: %d forecasts, want 1", w.impactSolves)
+	}
+	w.Clock.SimTime = t0.Add(60 * time.Second)
+	w.cachedImpact(lander)
+	if w.impactSolves != 2 {
+		t.Errorf("no-impact at +60 s: %d forecasts, want 2 (horizon slid)", w.impactSolves)
+	}
+}
+
 // Drag moves the answer along the orbit, so an orbit that dips into the
 // atmosphere is never cached; one that clears it is.
 func TestImpactCacheSkipsOrbitsThatReachTheAtmosphere(t *testing.T) {
