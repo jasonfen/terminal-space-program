@@ -850,16 +850,36 @@ stores its own Target (`TargetNone` / `TargetBody` / `TargetCraft` /
 switches. `TargetNone` is the zero value and means consumers fall back to
 their kind-less defaults.
 
-**Target Cycle** (grilled 2026-09-04, #425): the order `t` walks. **Nearest
-first**: none, then the moons of the Vessel's current Primary, then other
-Vessels (nearest first; a **Batch** counts once, as its nearest member, and
-its carrier counts on its own), then the remaining Bodies outward in catalog order with their
-moons after them; the Vessel's own Primary is skipped (it is never a
-useful aim). From LEO the first press is the Moon; from lunar orbit it is
-Earth. The order re-derives when the Primary changes, but the bound
-Target itself never jumps on an SOI change. There is no reverse cycle.
-_Avoid_: Aim, Lock, Selection, Catalog order (the pre-#425 cycle, which
-put Mercury first from LEO and made the Moon the ninth press).
+**Target Menu** (ADR 0066; replaces the **Target Cycle** of #425): the card
+`t` opens over the live map, grouped VESSELS, SITES ON THE <body>,
+PARTNERS, BODIES, **nearest first** inside each group (the #425 order,
+kept: the moons of the Vessel's current Primary lead BODIES, a **Batch**
+is one row, the Vessel's own Primary is never listed). `↑/↓` and `enter`
+pick; **`t` again takes the highlighted row**, so `t t` is what one `t`
+did before (the Moon from LEO, the partner after an undock); `esc`
+closes; `T` clears. SITES shows the five nearest **Sites** and a `… N
+more` row that opens the full list in place; on your own Site `r`
+renames and `d` deletes (a `delete / keep it` card). Warp keys still work
+while it is open. On body info `t` still targets the body shown.
+_Avoid_: Target cycle (retired), Aim, Lock, Selection, Picker (the
+rendezvous and roster pickers are other things).
+
+**Site** (ADR 0066):
+A named point on a Body's surface and a **Target** kind of its own
+(`TargetSite`): a **flag** where a Vessel touched down (`Lander-1 site`,
+planted by every soft touchdown, never by a pad spawn), a **wreck** where
+one crashed (`Lander-2 wreck`, outlives **End Flight**), a named **point**
+(the coverage rung's south pole), later a **zone** (#726). It has a body,
+a latitude and longitude, a kind, a name, the planting Vessel's ID and
+two wall-clock stamps; it is saved with the game (schema 21), drawn as
+`⚑` / `☠` on the disk, named by **Inspect**, and listed under SITES in the
+**Target Menu**. Its target state is the co-rotating surface point, the
+landed integrator's own formula, so Δincl and plane nodes read against it
+as against a parked Vessel (the launch window and the Rendezvous Planner
+refuse a Site). A partner's Site comes from the **Site Ledger** and sits
+under PARTNERS. Only the owner renames or deletes.
+_Avoid_: Waypoint, Marker (a Site is state, a marker is ink), Landing
+site (one kind of Site), Flag (the glyph, not the noun).
 
 **Inertial** (hold, ADR 0063):
 The attitude hold that keeps the nose where it points now, chosen with `A`.
@@ -1243,6 +1263,9 @@ un-Landed transition releases the Vessel with full surface co-rotation
 velocity — the ~465 m/s eastward boost at Earth's equator. Player
 concept: the Vessel is *parked on the ground, moving with the ground*.
 
+Every soft touchdown (either route below) also plants a flag **Site** at
+the touchdown point (ADR 0066); a Launchpad spawn does not.
+
 Set by:
 - A **Launchpad** spawn (also sets [[#launchpad|OnPad]] true).
 - A controlled-descent **Touchdown** — a Vessel with `CanSoftLand`
@@ -1417,11 +1440,16 @@ A terminal Vessel state caused by a destructive surface arrival —
 contact velocity above `V_CRIT`, off-vertical attitude, or a Vessel
 without `CanSoftLand` regardless of how gently it touched. Set at
 the `physics.ClampToSurface` site when the Touchdown predicate fails.
-Integration is skipped (no gravity, no drag, no slew); rendering uses
-the composed-stage sprite in `ColorDim` with no engine flame.
+Integration is skipped (no gravity, no drag, no slew) and, since ADR
+0066, the wreck is pinned to its impact latitude and longitude like a
+**Landed** Vessel (before that its inertial position was frozen and the
+ground turned under it; a wreck from an older save, with no stored
+coordinates, still drifts, #881); rendering uses the composed-stage sprite
+in `ColorDim` with no engine flame, and a `☠` **Site** of kind wreck is
+planted at the point.
 Crashed Vessels persist in the slate as visible wreckage at the
 impact point until the player invokes **End Flight** (`E` key,
-confirm prompt) to remove them from the world.
+confirm prompt) to remove them from the world; the wreck Site stays.
 
 Player concept: the Vessel is destroyed; the wreckage is a marker,
 not a controllable craft. Auto-switch active to the next Vessel in
@@ -2236,14 +2264,19 @@ antenna + a probe core on one stage — to a Body's surface and touching
 down; once **Landed**, the relay-antenna craft is immediately a body-fixed
 relay node, with no staging or "establish station" step. The relay graph
 treats Landed Vessels with relay antennas identically to DSN stations —
-they are body-fixed (co-rotating) relay nodes.
+they are body-fixed (co-rotating) relay nodes, in the live graph and in
+the coverage sampler (ADR 0066). Two surface points are not in line of
+sight of each other, so a landed relay covers a **Site** only at its own
+point (#880).
 _Avoid_: DSN (that's the catalog ring), Station (overloaded with space
 stations), Network node (engineering term, not player-facing).
 
 **CommNet** (Communications Network):
 The relay graph that determines whether an uncrewed **Vessel** can be
 commanded. Computed once per tick from all antenna-equipped Vessels plus
-the **DSN ground-station ring**; each probe Vessel's reachability is BFS
+the **DSN ground-station ring**, plus every partner **Ghost** with a relay
+antenna as a forwarding node (ADR 0066; never a source or a sink); each
+probe Vessel's reachability is BFS
 from that Vessel through relay hops to any ground station. **Crewed**
 Vessels are never gated (they always have `Controllable = true`);
 uncrewed **probe** Vessels require a relay chain to be commandable.
@@ -2531,8 +2564,41 @@ draws as a diamond with `port: unknown` and cannot be captured. Otherwise
 never physically interactive: a bump off a Ghost moves only the bumper.
 Its hull takes the same cues as a local one: the dotted **Hull outline** when
 out of your plane, a solid scope circle when **Alongside**.
+A **landed** Ghost (ADR 0066) is placed by body rotation at the viewer's
+clock from its reported latitude and longitude, exact however far the
+two clocks are apart; it draws Dim with no orbit line, is a target, and
+never couples or docks. A Ghost with a relay antenna is the one
+exception to render-only: it is a **CommNet** node that forwards for
+everyone (never a command source, never a station), so a lander links
+through a partner's relay and COVERAGE, the **Linked Now** tint and COMMS
+count the same relays.
 _Avoid_: Shadow, phantom, remote vessel (a Ghost is a projection, not
 the vessel).
+
+**Site Ledger** (ADR 0066):
+The session's record of every player's **Sites**, in `session.json`
+(`sites`, MetaVersion 6) beside the dock cross-ref, flushed on every
+verb and seeded at start like the dock ledger. Sites enter it from the
+owner's seat the frame a touchdown or crash is classified (the server
+runs no physics); the verbs (`Plant`, `Rename`, `Remove`) are owner-only.
+On connect a player's own Sites reconcile with the ledger per Site by
+stamp, newest wins, missing ones published or put back; a save carries
+only its owner's Sites, so a session save loaded solo shows your flags
+and nobody else's. A plain kick or disconnect keeps a player's Sites for
+the session's life; `kick and delete vessels` drops them.
+_Avoid_: Flag store, Shared save, Site table.
+
+**Persisted Report** (ADR 0066):
+The server's copy of each player's last craft report, written to
+`reports/<sha256(fp)>.json` in the session directory when it arrives and
+seeded back into the relay store at start with the owner marked offline
+(the host's own report is never written: its world starts fresh).
+So every absent player's **Ghosts** (orbiting, landed, relays) survive a
+server restart, placed at the viewer's clock, until the owner's next
+report replaces them. `kick and delete vessels` and `--reset-fleet`
+remove the file. ADR 0034's "frozen offline ghosts" freeze past restarts.
+_Avoid_: Ghost save, Snapshot (the live store's read), Payload (the
+player's whole World, a different file).
 
 **Sync**:
 The forward-only verb for joining another player's Subspace: the player
@@ -3612,6 +3678,29 @@ not budgeted.
 _Avoid_: Drop / hide for space (the pre-#422 behaviour, where a
 critical Chip clamped onto the canvas painted over its neighbour),
 Collapse (bare; say Compact Form), Responsive.
+
+**Surface Marks** (ADR 0066):
+The per-kind show/hide for what the map draws on a Body's ground: landed
+Vessels, flags, wrecks, partners' marks, and the coverage tint (**Linked
+Now**). `F3` opens a checklist card over the live map (`y` stays the
+rendezvous respond key); `space` or a row's letter flips it; all on by
+default; remembered in Settings. The filter affects the map only: a
+hidden kind stays in the **Target Menu** and targetable, and a targeted
+hidden mark draws alone. **Declutter** (F2) is a separate switch: it
+clears boxes, and it also hides the **Linked Now** tint, but never a map
+mark.
+_Avoid_: Map filter, Layers, Declutter (F2 is boxes, this is marks).
+
+**Linked Now** (ADR 0066):
+The map's faint tint on the targeted **Site**'s Body where the ground is
+linked to a ground station this instant, through whatever the **CommNet**
+links. One tint, drawn as a cell background under the texture, on the
+focused disk only; a view of the moment, never a pass criterion (ADR
+0027): the COVERAGE notice's lap figures are the truth of coverage. Shown
+with the notice; the `coverage now` row of **Surface Marks** and F2 hide
+it.
+_Avoid_: Coverage map (that would be the lap), Footprint (a relay's
+line of sight whether linked or not).
 
 **Declutter**:
 The momentary "hide all overlays" action (`F2`). Retired and rewritten
