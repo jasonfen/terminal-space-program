@@ -89,7 +89,8 @@ func (w *World) siteRelays(primaryID string) []siteRelay {
 			if body == nil {
 				continue
 			}
-			v := render.Vec3{X: c.State.R.X, Y: c.State.R.Y, Z: c.State.R.Z}
+			u := c.State.R.Unit()
+			v := render.Vec3{X: u.X, Y: u.Y, Z: u.Z}
 			r.landed = true
 			r.lat, r.lon = render.WorldToBodyFixed(*body, v, w.Clock.SimTime)
 		}

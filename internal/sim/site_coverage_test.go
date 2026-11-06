@@ -140,3 +140,84 @@ func TestSiteCoverageMemo(t *testing.T) {
 		t.Errorf("changed key at exactly the wall cap: %d computes, want 3", n)
 	}
 }
+
+// Decisions 11, 13: a partner's relay (flying or landed) and an own landed
+// relay count in the sampler, and the sampler equals the solver for each, the
+// solver seeing the ghost through RecomputeCommGraph.
+func TestSiteCoverageSharedAndLandedRelays(t *testing.T) {
+	w, dirE, nLat, nLon, fLat, fLon := moonSiteWorld(t)
+	moon := siteBody(w, "moon")
+	wall := time.Unix(1000, 0)
+	siteCovWallNow = func() time.Time { wall = wall.Add(time.Hour); return wall }
+	defer func() { siteCovWallNow = time.Now }()
+	cov := func(lat, lon float64) siteCoverage { c, _ := w.SiteCoverage("moon", lat, lon, siteTestLap, siteTestStep); return c }
+	surf := func(lat, lon float64) (r, v orbital.Vec3) { return surfacePointState(moon, lat, lon, w.Clock.SimTime) }
+
+	// A partner's flying relay over the near site.
+	rM := moon.RadiusMeters() + 3e6
+	rel := dirE.Scale(rM)
+	vel := orbital.Vec3{X: -dirE.Y, Y: dirE.X}.Scale(sqrtMuOverR(moon.GravitationalParameter(), rM))
+	w.Ghosts = []Ghost{{Owner: "fp-b", CraftID: 1, PrimaryID: "moon", RelPos: rel, Vel: vel,
+		AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar, Controllable: true}}
+	if c := cov(nLat, nLon); c.Fraction() != 1 || c.RelayCount != 1 {
+		t.Errorf("partner relay over the site: frac=%v relays=%d, want 1, 1", c.Fraction(), c.RelayCount)
+	}
+	if c := cov(fLat, fLon); c.Fraction() != 0 {
+		t.Errorf("Moon between far site and partner relay: frac=%v, want 0", c.Fraction())
+	}
+	// A partner's landed relay on the near side links a site at its own point.
+	// (A site 1 degree away is not linked: the chord between two surface
+	// points dips under the sphere, in the live CommNet as in the sampler.)
+	r, v := surf(nLat, nLon)
+	w.Ghosts = []Ghost{{Owner: "fp-b", CraftID: 1, PrimaryID: "moon", Landed: true, LatDeg: nLat, LonDeg: nLon,
+		RelPos: r, Vel: v, AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar, Controllable: true}}
+	if c := cov(nLat, nLon); c.Fraction() != 1 || c.RelayCount != 1 {
+		t.Errorf("landed partner relay at the site: frac=%v relays=%d, want 1, 1", c.Fraction(), c.RelayCount)
+	}
+	// Sampler equals solver for the ghost: a probe parked at the far side reads what sample 0 says.
+	w.Ghosts = []Ghost{{Owner: "fp-b", CraftID: 1, PrimaryID: "moon", RelPos: rel, Vel: vel,
+		AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar, Controllable: true}}
+	w.Ghosts[0].Pos = w.BodyPosition(moon).Add(rel)
+	for _, c := range []struct{ lat, lon float64 }{{nLat, nLon}, {fLat, fLon}} {
+		dir := render.BodyFixedToWorld(moon, c.lat, c.lon, w.Clock.SimTime)
+		probe := addMoonCraft(w, spacecraft.AntennaDirect, spacecraft.AntennaRangeDirectBasic,
+			orbital.Vec3{X: dir.X, Y: dir.Y, Z: dir.Z}, moon.RadiusMeters())
+		w.RecomputeCommGraph()
+		got := w.CommGraph.HasConnection(probe.ID)
+		w.Crafts = w.Crafts[:len(w.Crafts)-1]
+		if s := cov(c.lat, c.lon).Covered[0]; s != got {
+			t.Errorf("site (%v,%v): sampler=%v solver=%v", c.lat, c.lon, s, got)
+		}
+	}
+	// An own landed relay is a fixed node: it covers the site where it sits.
+	w.Ghosts = nil
+	lander := addMoonCraft(w, spacecraft.AntennaRelay, spacecraft.AntennaRangeRelayCislunar, dirE, moon.RadiusMeters())
+	lander.Landed = true
+	if c := cov(nLat, nLon); c.Fraction() != 1 || c.RelayCount != 1 {
+		t.Errorf("own landed relay at the site: frac=%v relays=%d, want 1, 1", c.Fraction(), c.RelayCount)
+	}
+}
+
+// Two relays with the same CraftID from different owners (ids are per player)
+// are both counted, and a ghost's rounded elements are in the memo key.
+func TestSiteCoverageKeyHasGhosts(t *testing.T) {
+	w, dirE, _, _, _, _ := moonSiteWorld(t)
+	moon := siteBody(w, "moon")
+	rM := moon.RadiusMeters() + 3e6
+	g := func(owner string, dr float64) Ghost {
+		return Ghost{Owner: owner, CraftID: 1, PrimaryID: "moon", RelPos: dirE.Scale(rM + dr),
+			Vel: orbital.Vec3{X: -dirE.Y, Y: dirE.X}.Scale(sqrtMuOverR(moon.GravitationalParameter(), rM)),
+			AntennaKind: spacecraft.AntennaRelay, AntennaRangeM: spacecraft.AntennaRangeRelayCislunar, Controllable: true}
+	}
+	addMoonCraft(w, spacecraft.AntennaRelay, spacecraft.AntennaRangeRelayCislunar, dirE, rM).ID = 1
+	key := func() string { return w.siteCovKey("moon", w.siteRelays("moon")) }
+	w.Ghosts = []Ghost{g("a", 0), g("b", 0)}
+	if n := len(w.siteRelays("moon")); n != 3 {
+		t.Fatalf("own relay + two same-id ghosts: %d relays, want 3", n)
+	}
+	k0 := key()
+	w.Ghosts = []Ghost{g("a", 0), g("b", 1e4)}
+	if key() == k0 {
+		t.Error("a partner's relay burned 10 km higher left the memo key unchanged")
+	}
+}
