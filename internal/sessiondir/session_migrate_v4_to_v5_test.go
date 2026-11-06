@@ -39,8 +39,8 @@ func TestMigrateMetaV4ToV5(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Meta: %v", err)
 	}
-	if m.Version != 5 || MetaVersion != 5 {
-		t.Fatalf("migrated Version %d, MetaVersion %d, want 5", m.Version, MetaVersion)
+	if m.Version != MetaVersion {
+		t.Fatalf("migrated Version %d, MetaVersion %d, want them equal", m.Version, MetaVersion)
 	}
 	if len(m.Docks) != 1 {
 		t.Fatalf("docks = %d, want 1", len(m.Docks))
@@ -58,8 +58,8 @@ func TestMigrateMetaV4ToV5(t *testing.T) {
 	}
 	raw, _ := os.ReadFile(filepath.Join(dir, "session.json"))
 	var probe struct{ Version int }
-	if err := json.Unmarshal(raw, &probe); err != nil || probe.Version != 5 {
-		t.Errorf("on-disk version after a write = %d (%v), want 5", probe.Version, err)
+	if err := json.Unmarshal(raw, &probe); err != nil || probe.Version != MetaVersion {
+		t.Errorf("on-disk version after a write = %d (%v), want %d", probe.Version, err, MetaVersion)
 	}
 }
 

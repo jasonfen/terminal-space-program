@@ -39,6 +39,12 @@ type reportingModel struct {
 	// while hosting swapping the App's World.
 	repairedFor *sim.World
 
+	// sitesFor / sitesKnown: the World syncSites last reconciled with the site
+	// ledger and the id to stamp pairs it agreed on (sites.go). A different
+	// World is a connect.
+	sitesFor   *sim.World
+	sitesKnown map[uint64]int64
+
 	// ls is this session's registry entry, nil for the host (ADR 0054). The
 	// tick reads its dropped record and quits when the host has ended the
 	// session.
@@ -647,6 +653,7 @@ func (m *reportingModel) refreshSession(now time.Time) {
 	// Ghosts (S5): everyone else's craft at this world's sim-time.
 	others := m.srv.relay.Snapshot(m.owner)
 	w.Ghosts = relay.GhostsFor(w, others, handles)
+	m.syncSites(w, handles)
 
 	// Deferred re-latch of a craft/ghost target lock (#294). w.Target
 	// arrives here already TargetGhost if it was saved that way (the

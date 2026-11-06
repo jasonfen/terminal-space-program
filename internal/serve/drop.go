@@ -294,6 +294,13 @@ func (s *Server) finishPurge(fp, handle string, ls *liveSession) purgeDoneMsg {
 	}
 	s.dock.DropRecordsNaming(fp)
 	s.forgetReport(fp)
+	// Their flags and wrecks go with their vessels (ADR 0066 decision 5); a
+	// plain kick never reaches here.
+	if s.sites.DropSitesOf(fp) > 0 {
+		if err := s.persistSites(); err != nil {
+			s.markSiteFlushFailed(err)
+		}
+	}
 	flushErr := s.persistDocks()
 	if flushErr != nil {
 		s.markDockFlushFailed(flushErr)

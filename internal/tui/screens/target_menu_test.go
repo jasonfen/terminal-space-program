@@ -44,11 +44,17 @@ func TestTargetMenuRenderIsCardWide(t *testing.T) {
 		sim.TargetRow{Group: sim.GroupVessels, Name: "Starlink-3", Count: 24, DistM: 1.2e6},
 		sim.TargetRow{Group: sim.GroupSites, Name: "Lander-6 wreck", Wreck: true, DistM: 88e3},
 		sim.TargetRow{Group: sim.GroupPartners, Name: "ansi: Orion-2", DistM: 8.4e6},
+		sim.TargetRow{Group: sim.GroupPartners, Target: sim.Target{Kind: sim.TargetSite, SiteID: 3, GhostOwner: "fp"}, Name: "ansi: Orion site", DistM: 310e3},
 		sim.TargetRow{Group: sim.GroupBodies, Name: "Earth", DistM: 384.4e6})
-	for i, ln := range strings.Split(m.Render(), "\n") {
+	out := m.Render()
+	for i, ln := range strings.Split(out, "\n") {
 		if w := lipgloss.Width(ln); w != CardW {
 			t.Errorf("line %d is %d cells, want %d: %q", i, w, CardW, ln)
 		}
+	}
+	// A partner's site keeps its flag glyph under PARTNERS and has no r/d.
+	if !strings.Contains(out, "ansi: Orion site") || !strings.Contains(out, "⚑") {
+		t.Errorf("partner site row or flag glyph missing:\n%s", out)
 	}
 }
 

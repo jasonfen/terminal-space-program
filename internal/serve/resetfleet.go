@@ -31,6 +31,7 @@ func (s *Server) ResetFleet(hostClock time.Time) ([]sessiondir.FleetResetEntry, 
 		// serve.New seeded the live ledger from session.json before this
 		// ran; the store cleared only the on-disk docks (ADR 0040 amendment 6).
 		s.dock.Clear()
+		s.sites.Clear() // the store dropped the on-disk sites with the slates
 	}
 	return entries, epoch, err
 }

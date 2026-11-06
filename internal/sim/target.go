@@ -868,7 +868,14 @@ func (w *World) TargetName() string {
 			return n
 		}
 	case TargetSite:
-		if s, ok := w.siteByID(w.Target.SiteID); ok {
+		if s, ok := w.targetSite(); ok {
+			if w.Target.GhostOwner != "" {
+				for _, p := range w.PartnerSites {
+					if p.Owner == s.Owner && p.ID == s.ID {
+						return p.Handle + ": " + s.Name
+					}
+				}
+			}
 			return s.Name
 		}
 	case TargetGhost:

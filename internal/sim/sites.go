@@ -40,6 +40,43 @@ type Site struct {
 	UpdatedAtNano int64
 }
 
+// PartnerSite is another player's site read from the server ledger (ADR 0066
+// decision 5). Site.Owner is their key fingerprint and Site.Body is already
+// resolved to this catalog's EnglishName; Handle is their display name.
+// Transient: rebuilt each session refresh, never saved.
+type PartnerSite struct {
+	Site
+	Handle string
+}
+
+// targetSite resolves the target's site: one of yours (GhostOwner empty) or a
+// partner's, keyed by owner and that owner's own site id.
+func (w *World) targetSite() (Site, bool) {
+	if w.Target.GhostOwner == "" {
+		return w.siteByID(w.Target.SiteID)
+	}
+	for _, p := range w.PartnerSites {
+		if p.Owner == w.Target.GhostOwner && p.ID == w.Target.SiteID {
+			return p.Site, true
+		}
+	}
+	return Site{}, false
+}
+
+// SetTargetPartnerSite aims at a partner's site (a PARTNERS row). An unknown
+// pair clears the target.
+func (w *World) SetTargetPartnerSite(owner string, id uint64) {
+	for _, p := range w.PartnerSites {
+		if p.Owner == owner && p.ID == id {
+			w.Target = Target{Kind: TargetSite, SiteID: id, GhostOwner: owner}
+			w.mirrorTargetToActiveCraft()
+			w.reconcileNavMode()
+			return
+		}
+	}
+	w.ClearTarget()
+}
+
 func (w *World) siteByID(id uint64) (Site, bool) {
 	for _, s := range w.Sites {
 		if s.ID == id {
@@ -65,7 +102,7 @@ func (w *World) SetTargetSite(id uint64) {
 // (R, V) plus the body, from the landed integrator's own formula. ok=false for
 // a stale id or a site on a body of another system.
 func (w *World) targetSiteState() (r, v orbital.Vec3, primary bodies.CelestialBody, ok bool) {
-	s, found := w.siteByID(w.Target.SiteID)
+	s, found := w.targetSite()
 	if !found {
 		return
 	}
