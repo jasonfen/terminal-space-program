@@ -333,9 +333,13 @@ func (w *World) ProximityRefusal() string {
 	}
 	switch w.Target.Kind {
 	case TargetNone:
-		return "no target — [t] cycles to a nearby vessel"
+		return "no target — [t] target menu to pick a vessel"
 	case TargetBody, TargetSite:
-		return "needs a VESSEL target, not a body — [t] cycles to nearby vessels"
+		what := "a body"
+		if w.Target.Kind == TargetSite {
+			what = "a site"
+		}
+		return "needs a VESSEL target, not " + what + " — [t] target menu to pick a vessel"
 	}
 	if g, _, ok := w.ResolveTargetGhost(); ok && g.Landed {
 		return "target is parked on the ground"
