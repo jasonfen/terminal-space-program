@@ -395,6 +395,10 @@ type PoweredStopPrediction struct {
 	// ElapsedSec is the flight time from the integration's start to
 	// termination.
 	ElapsedSec float64
+	// StopR is the primary-relative position where a StopStopped brake ended
+	// (ADR 0066 decision 21: the stop point a deorbit burn aims at). Zero
+	// for every other outcome.
+	StopR orbital.Vec3
 	// DVUsedMps is the Δv the rocket-equation accounting actually spent
 	// reaching termination (bounded by the stage's available Δv).
 	DVUsedMps float64
@@ -564,6 +568,13 @@ func PredictPoweredStop(c *spacecraft.Spacecraft, horizon time.Duration) (Powere
 // burn from THIS point on the ballistic coast instead of right now, does
 // it still work" without a second implementation.
 func predictPoweredStopFrom(state physics.StateVector, c *spacecraft.Spacecraft, horizon time.Duration) (PoweredStopPrediction, bool) {
+	return predictPoweredStopFromAt(state, c, horizon, 1)
+}
+
+// predictPoweredStopFromAt is predictPoweredStopFrom braking at a fraction of
+// full thrust (ADR 0066 decision 21 brakes at 90 %, so the pilot has throttle
+// authority left over). throttle 1 is the historical full-throttle stop.
+func predictPoweredStopFromAt(state physics.StateVector, c *spacecraft.Spacecraft, horizon time.Duration, throttle float64) (PoweredStopPrediction, bool) {
 	if c == nil {
 		return PoweredStopPrediction{}, false
 	}
@@ -578,7 +589,7 @@ func predictPoweredStopFrom(state physics.StateVector, c *spacecraft.Spacecraft,
 		return PoweredStopPrediction{}, false
 	}
 	bc := c.EffectiveBallisticCoefficient()
-	thrustFull := c.Thrust
+	thrustFull := c.Thrust * throttle
 	ispSec := c.Isp
 	massKg := c.TotalMass()
 	fuelKg := c.ActiveStageFuel()
@@ -652,6 +663,7 @@ func predictPoweredStopFrom(state physics.StateVector, c *spacecraft.Spacecraft,
 				Outcome:        outcome,
 				MarginM:        stopState.R.Norm() - radius,
 				ImpactSpeedMps: impactSpeed,
+				StopR:          stopState.R,
 				ElapsedSec:     elapsed - stepDt + tau,
 				DVUsedMps:      dvUsed,
 			}
@@ -697,6 +709,9 @@ func predictPoweredStopFrom(state physics.StateVector, c *spacecraft.Spacecraft,
 type BurnAtCue struct {
 	AltitudeM float64
 	InSec     float64
+	// State is the coast state at the cue (the stop-point forecast starts
+	// there; ADR 0066 decision 21).
+	State physics.StateVector
 }
 
 // burnAtRefineIters bounds PredictBurnAt's continuous refinement once
@@ -740,13 +755,24 @@ func lerpBallisticSample(a, b ballisticSample, frac float64) ballisticSample {
 // Margin.State (CAN'T STOP) already carries that alarm, and a "burn at:
 // Xs ago" row would only muddy it.
 func PredictBurnAt(c *spacecraft.Spacecraft, horizon time.Duration) (BurnAtCue, bool) {
+	cue, _, ok := burnAtCue(c, horizon, 1, burnAtRefineIters)
+	return cue, ok
+}
+
+// burnAtCue is PredictBurnAt for a brake at a fraction of full thrust, with a
+// caller-chosen number of refinement rounds (the deorbit solver wants the cue
+// to a fraction of a second; the HUD cue is happy with three). impactFound
+// says whether the coast met the ground inside the horizon: without it the
+// cue is only "the end of the sample", not a descent.
+func burnAtCue(c *spacecraft.Spacecraft, horizon time.Duration, throttle float64, refineIters int) (cue BurnAtCue, impactFound, ok bool) {
 	if c == nil {
-		return BurnAtCue{}, false
+		return BurnAtCue{}, false, false
 	}
-	fc, ok := forwardBallisticPath(c, horizon)
-	if !ok || len(fc.samples) < 2 {
-		return BurnAtCue{}, false
+	fc, setupOK := forwardBallisticPath(c, horizon)
+	if !setupOK || len(fc.samples) < 2 {
+		return BurnAtCue{}, false, false
 	}
+	impactFound = fc.ImpactFound
 	radius := c.Primary.RadiusMeters()
 
 	safeAt := func(s ballisticSample) bool {
@@ -754,12 +780,12 @@ func PredictBurnAt(c *spacecraft.Spacecraft, horizon time.Duration) (BurnAtCue, 
 		if remaining <= 0 {
 			return false
 		}
-		pred, ok := predictPoweredStopFrom(s.state, c, remaining)
+		pred, ok := predictPoweredStopFromAt(s.state, c, remaining, throttle)
 		return ok && pred.Outcome == StopStopped && pred.MarginM >= 0
 	}
 
 	if !safeAt(fc.samples[0]) {
-		return BurnAtCue{}, false
+		return BurnAtCue{}, impactFound, false
 	}
 
 	loIdx, hiIdx := 0, len(fc.samples)-1
@@ -768,7 +794,7 @@ func PredictBurnAt(c *spacecraft.Spacecraft, horizon time.Duration) (BurnAtCue, 
 		// shallow / slow descent) — best effort: the latest candidate we
 		// actually have.
 		last := fc.samples[hiIdx]
-		return BurnAtCue{AltitudeM: last.state.R.Norm() - radius, InSec: last.elapsedSec}, true
+		return BurnAtCue{AltitudeM: last.state.R.Norm() - radius, InSec: last.elapsedSec, State: last.state}, impactFound, true
 	}
 	for hiIdx-loIdx > 1 {
 		mid := (loIdx + hiIdx) / 2
@@ -781,7 +807,7 @@ func PredictBurnAt(c *spacecraft.Spacecraft, horizon time.Duration) (BurnAtCue, 
 
 	lo, hi := fc.samples[loIdx], fc.samples[hiIdx]
 	loFrac, hiFrac := 0.0, 1.0
-	for i := 0; i < burnAtRefineIters; i++ {
+	for i := 0; i < refineIters; i++ {
 		mid := (loFrac + hiFrac) / 2
 		if safeAt(lerpBallisticSample(lo, hi, mid)) {
 			loFrac = mid
@@ -790,7 +816,7 @@ func PredictBurnAt(c *spacecraft.Spacecraft, horizon time.Duration) (BurnAtCue, 
 		}
 	}
 	best := lerpBallisticSample(lo, hi, loFrac)
-	return BurnAtCue{AltitudeM: best.state.R.Norm() - radius, InSec: best.elapsedSec}, true
+	return BurnAtCue{AltitudeM: best.state.R.Norm() - radius, InSec: best.elapsedSec, State: best.state}, impactFound, true
 }
 
 // marginTightAltitudeFrac is the fraction of CURRENT altitude below

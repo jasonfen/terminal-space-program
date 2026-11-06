@@ -81,6 +81,11 @@ type LandBeside struct {
 	LPDDeg     float64
 	LPDOK      bool
 	MissOK     bool
+	// Planned: miss/cross read the planted deorbit node's stop point, not yet
+	// flown (decision 21: tagged (plan)). Stop: they read the 90 % brake's stop
+	// point of a vessel that can stop, not the free fall.
+	Planned bool
+	Stop    bool
 }
 
 // surfaceTargetLatLon is the aimed surface point on the active vessel's primary:
@@ -130,13 +135,31 @@ func (w *World) LandBesideReading() (LandBeside, bool) {
 	if lb.GroundM >= 0.5 {
 		lb.BearingDeg, lb.BearingOK = ForwardAzimuthDeg(subLat, subLon, siteLat, siteLon), true
 	}
+	// Decision 21: a vessel that can stop reads where it would STOP, not where
+	// it would crash; before the planted burn that is the plan's stop point.
+	canStop := canBrakeAtSite(c)
+	if n, ok := deorbitNode(c); ok && canStop && c.ActiveBurn == nil {
+		if pt, ok := w.plannedAim(c, n); ok {
+			oLat, oLon := render.WorldToBodyFixed(c.Primary, unitV(pt.originR), pt.origin)
+			aLat, aLon := render.WorldToBodyFixed(c.Primary, unitV(pt.R), pt.at)
+			lb.MissM, lb.CrossM, lb.MissOK = ImpactOffsetM(oLat, oLon, aLat, aLon, siteLat, siteLon, radius)
+			lb.Planned, lb.Stop = true, true
+			return lb, true
+		}
+	}
 	imp, found := PredictImpact(c, DescentPredictHorizon)
 	if !found {
 		return lb, true
 	}
 	lb.ImpactOK = true
 	// the body turns while the vessel falls: read the impact point at the contact time
-	impLat, impLon := render.WorldToBodyFixed(c.Primary, unitV(imp.Point), w.Clock.SimTime.Add(imp.TimeToImpact))
+	aim, at := imp.Point, w.Clock.SimTime.Add(imp.TimeToImpact)
+	if canStop {
+		if pt, ok := w.liveAim(c); ok {
+			aim, at, lb.Stop = pt.R, pt.at, true
+		}
+	}
+	impLat, impLon := render.WorldToBodyFixed(c.Primary, unitV(aim), at)
 	lb.MissM, lb.CrossM, lb.MissOK = ImpactOffsetM(subLat, subLon, impLat, impLon, siteLat, siteLon, radius)
 	rSite, _ := surfacePointState(c.Primary, siteLat, siteLon, w.Clock.SimTime)
 	lb.LPDDeg, lb.LPDOK = LookDownDeg(c.State.R, rSite, c.CurrentAttitudeDir.Unit())
