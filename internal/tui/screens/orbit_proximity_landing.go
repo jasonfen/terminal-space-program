@@ -127,11 +127,31 @@ func (v *OrbitView) landingChipRows(w *sim.World, st sim.ProximityState) []strin
 		chipRow("cross:", landCrossLabel(lb)),
 		chipRow("aim:", aim),
 		proximityHoldRow(w),
-		v.proximityEngineRow(w),
+		v.landingEngineRow(w),
 		v.proximityRCSRow(w),
 		proximityMonopropRow(w),
 	}
 	return rows
+}
+
+// landingEngineRow is proximityEngineRow in the cells a landing leaves it: a
+// landing burns for minutes, so the burn clock (the ENGINE box's) and the
+// FIRING word (hold: names the phase) give way to a lit ● and the Δv pair, which
+// otherwise outgrow the 39 cells and widen the chip. The tank's state still shows.
+func (v *OrbitView) landingEngineRow(w *sim.World) string {
+	c := w.ActiveCraft()
+	if c == nil {
+		return chipRow("throttle:", "—")
+	}
+	label, throttle := engineThrottleTarget(c)
+	val := fmt.Sprintf("%.0f%%", throttle*100)
+	switch {
+	case sim.StackDryArmed(c):
+		val += " " + v.theme.Warning.Render("✕")
+	case sim.StackMidBurn(c):
+		val += " " + v.theme.Warning.Render("●")
+	}
+	return chipRow(label, val+"  Δv "+deltaVReadout(c))
 }
 
 // landingChipCompact is the LANDING chip's Compact Form: name, range, the
