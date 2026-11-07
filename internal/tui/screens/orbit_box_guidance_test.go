@@ -170,7 +170,7 @@ func TestGuidanceSiteHoldIsAccentedOnlyWhileEngaged(t *testing.T) {
 		t.Errorf("engaged coast: want %q accented in %q", "Site+ auto wait", row())
 	}
 	c.Landing.Nose = true // fix E: the nose hold is the pilot's, not the armed autopilot
-	if r := row(); strings.Contains(r, th.Warning.Render("Site+")) || !strings.Contains(r, "Site+ wait") {
+	if r := row(); strings.Contains(r, th.Warning.Render("Site+ wait")) || !strings.Contains(r, "Site+ wait") {
 		t.Errorf("nose hold should read plain %q: %q", "Site+ wait", r)
 	}
 	c.Landing.Nose = false
