@@ -353,3 +353,34 @@ func TestLandingAutopilotLandsAfterAHighWarpCoast(t *testing.T) {
 		t.Errorf("after a 100000x coast: landed=%v crashed=%v dist=%.0f m, want landed within 50 m", c.Landed, c.Crashed, d)
 	}
 }
+
+// F2: stepping to another vessel and back re-enters SITE for an engaged
+// autopilot, so q (which resolves by frame) stays the autopilot's key.
+func TestLandingAutopilotSurvivesVesselSwitch(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.EngageLandingAutopilot(); err != nil {
+		t.Fatal(err)
+	}
+	w.setNavMode(NavSite)
+	if _, err := w.SpawnCraft(SpawnSpec{Alongside: true}); err != nil {
+		t.Fatal(err)
+	}
+	other, home := 1-w.ActiveCraftIdx, w.ActiveCraftIdx
+	if w.Crafts[home] != c {
+		other, home = w.ActiveCraftIdx, 1-w.ActiveCraftIdx
+		w.SetActiveCraftIdx(home)
+	}
+	w.setNavMode(NavSite)
+	phase := c.Landing.Phase
+	w.SetActiveCraftIdx(other)
+	w.SetActiveCraftIdx(home)
+	if w.NavMode != NavSite {
+		t.Fatalf("NavMode after ] [ = %v, want SITE", w.NavMode)
+	}
+	if err := w.EngageLandingAutopilot(); err != nil || !c.Landing.Engaged || c.Landing.Phase != phase {
+		t.Errorf("q after ] [: err=%v engaged=%v phase %v -> %v", err, c.Landing.Engaged, phase, c.Landing.Phase)
+	}
+}

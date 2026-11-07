@@ -787,6 +787,10 @@ func (w *World) SetActiveCraftIdx(idx int) {
 			}
 			w.Target = incoming.Target
 			w.reconcileNavMode()
+			// An engaged landing autopilot keeps q: back on its vessel the frame is SITE again.
+			if incoming.Landing != nil && incoming.Landing.Engaged && w.SiteFrameOffered() {
+				w.setNavMode(NavSite)
+			}
 			return
 		}
 	}
