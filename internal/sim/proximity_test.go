@@ -812,6 +812,18 @@ func TestLandingStopArc(t *testing.T) {
 		t.Fatalf("arc has %d points", n)
 	}
 	end := arc.Points[len(arc.Points)-1].Sub(w.BodyPosition(c.Primary))
+	// and on the miss: the TARGET box reads for the same plain stop: the arc's end,
+	// measured along the drawn track from the flag, is that miss (+ long)
+	st, _ := w.ProximityState()
+	lb, lbOK := w.LandBesideReading()
+	if !lbOK || !lb.MissOK || !lb.Stop {
+		t.Fatalf("no stop-based miss to compare: %+v", lb)
+	}
+	x := arc.Points[len(arc.Points)-1].Sub(st.TargetWorld).Dot(st.Frame.AlongTrack)
+	t.Logf("arc end %.1f m along the track from the flag; miss: %.1f m", x, lb.MissM)
+	if math.Abs(x-lb.MissM) > 25 {
+		t.Errorf("arc ends %.1f m along from the flag, miss: reads %.1f m", x, lb.MissM)
+	}
 	if h := end.Norm() - c.Primary.RadiusMeters(); h < 0 || h > 500 {
 		t.Errorf("arc ends %g m above the ground, want a hover stop inside 500 m", h)
 	}
