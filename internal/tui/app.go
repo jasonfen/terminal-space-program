@@ -2168,6 +2168,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.active != screenOrbit {
 				return a, nil
 			}
+			if a.siteAimHeld() { // ADR 0067 S4 moves the aim here; until then the press is consumed
+				return a, nil
+			}
 			if a.world.NudgeInertialHold(-spacecraft.HeadingTrimStepRad, 0) { // ADR 0063: under Inertial → turns the held nose right
 				return a, nil
 			}
@@ -2185,6 +2188,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.active != screenOrbit {
 				return a, nil
 			}
+			if a.siteAimHeld() { // ADR 0067 S4 moves the aim here; until then the press is consumed
+				return a, nil
+			}
 			if a.world.NudgeInertialHold(+spacecraft.HeadingTrimStepRad, 0) {
 				return a, nil
 			}
@@ -2197,6 +2203,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.HeadingTrimNorth):
 			if a.active != screenOrbit { // see PitchTrimEast above
+				return a, nil
+			}
+			if a.siteAimHeld() { // ADR 0067 S4 moves the aim here; until then the press is consumed
 				return a, nil
 			}
 			// ADR 0049 decision 9 (key moved to ↑ by ADR 0052): offsetRad IS
@@ -2225,6 +2234,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.active != screenOrbit {
 				return a, nil
 			}
+			if a.siteAimHeld() { // ADR 0067 S4 moves the aim here; until then the press is consumed
+				return a, nil
+			}
 			if a.world.NudgeInertialHold(0, -spacecraft.PitchTrimStepRad) {
 				return a, nil
 			}
@@ -2242,6 +2254,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// 1° per press. Same flight-screen-only gate and same signs as
 			// the plain arrows above.
 			if a.active != screenOrbit {
+				return a, nil
+			}
+			if a.siteAimHeld() { // ADR 0067 S4 moves the aim here; until then the press is consumed
 				return a, nil
 			}
 			// ADR 0055: in PORT alt is 0.25° across the port face. Only the
@@ -3034,6 +3049,13 @@ func (a *App) maybeAutosave(now time.Time) {
 		a.flash("autosave failed: " + reason)
 	}
 	a.autosaveFailing = err != nil
+}
+
+// siteAimHeld: an engaged Site+ autopilot owns the nose, so the arrows must not
+// pile surface trims the next hand-flown hold would inherit.
+func (a *App) siteAimHeld() bool {
+	c := a.world.ActiveCraft()
+	return c != nil && c.AttitudeMode == spacecraft.BurnSite && c.Landing != nil && c.Landing.Engaged
 }
 
 // portTrim is the arrow keys' PORT branch (ADR 0055 decision 4): with

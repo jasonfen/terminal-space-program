@@ -27,7 +27,7 @@ func landingFrame(t *testing.T, mutate func(*sim.World)) (*OrbitView, *sim.World
 }
 
 // ADR 0067 decision 8: the landing view draws the ground line and the flag,
-// the ◇ sits on the ⚑ (no nav error until S4) so only the ⚑ shows, the legend
+// the ⌖ sits on the ⚑ (no nav error until S4) so only the ⚑ shows, the legend
 // names the view, and the LANDING chip is 41 cells wide (39 inside) with the
 // rows in the ADR's order. Re-measured at 140x40, not inherited (#482).
 func TestLandingViewDrawsGroundFlagAndChip(t *testing.T) {
@@ -84,7 +84,7 @@ func landingChipCase(t *testing.T, firing bool) {
 }
 
 // The computer's site is the real one until the nav error exists (S4), so the
-// ◇ sits under the ⚑.
+// ⌖ sits under the ⚑.
 func TestLandingViewComputerSiteIsRealSite(t *testing.T) {
 	_, w, _ := landingFrame(t, nil)
 	st, _ := w.ProximityState()
@@ -111,7 +111,7 @@ func TestProximityFitRadiusSurface(t *testing.T) {
 	}
 }
 
-// Hint strip: the move-aim legend only under the Site+ hold, today's text otherwise.
+// Hint strip: an arrow-free legend under the Site+ hold, today's text otherwise.
 func TestLandingViewHintStrip(t *testing.T) {
 	_, _, plain := landingFrame(t, nil)
 	if !strings.Contains(plain, proximityHintStripText) {
@@ -124,7 +124,10 @@ func TestLandingViewHintStrip(t *testing.T) {
 		w.ActiveCraft().AttitudeMode = spacecraft.BurnSite
 	})
 	if !strings.Contains(site, landingSiteHintStripText) {
-		t.Errorf("Site+ hold: the strip should read the move-aim legend\n%s", site)
+		t.Errorf("Site+ hold: the strip should read the arrow-free legend\n%s", site)
+	}
+	if strings.Contains(site, "move aim") || strings.Contains(site, "[←→↑↓]") {
+		t.Errorf("Site+ hold: no arrow legend until S4\n%s", site)
 	}
 }
 
