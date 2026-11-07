@@ -842,6 +842,14 @@ func burnAtCue(c *spacecraft.Spacecraft, horizon time.Duration, throttle float64
 
 	lo, hi := fc.samples[loIdx], fc.samples[hiIdx]
 	loFrac, hiFrac := 0.0, 1.0
+	// The cue quantum is bracket/2^iters; at the burn's ~1.6 km/s a coarse one
+	// steps the stop point tens of metres (miss: jumped 85 m), so refine until
+	// it is under CueQuantumS, never fewer rounds than the caller asked for.
+	if span := hi.elapsedSec - lo.elapsedSec; span > CueQuantumS {
+		if n := int(math.Ceil(math.Log2(span / CueQuantumS))); n > refineIters {
+			refineIters = n
+		}
+	}
 	for i := 0; i < refineIters; i++ {
 		mid := (loFrac + hiFrac) / 2
 		if safeAt(lerpBallisticSample(lo, hi, mid)) {

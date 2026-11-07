@@ -6,6 +6,11 @@ package sim
 // Slice S1 reads only BrakeReserveFrac; the rest are declared now so later
 // slices read them from here instead of writing literals.
 const (
+	// CueQuantumS: the finest step (s) the burn-at cue may move in; sets how
+	// many refine rounds burnAtCue runs. 5 ms is ~8 m of stop point at orbital
+	// speed. Playtest-tuned; found by the `miss:` jump diagnosis (fix-F).
+	CueQuantumS = 0.005
+
 	// BrakeReserveFrac: the throttle the cue, stop:, N and the autopilot plan
 	// leave in reserve (1 - reserve = 0.9). ADR 0067 row 1; Q7.
 	BrakeReserveFrac = 0.10

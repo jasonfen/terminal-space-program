@@ -8,9 +8,13 @@ package sim
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // --- Analytic verification -------------------------------------------
@@ -476,5 +480,101 @@ func TestHUDCueAgreesWithPlanLightAtTheSameRefineIterations(t *testing.T) {
 	}
 	if gap := math.Abs(hud.InSec - plan.InSec); gap > 0.1 {
 		t.Errorf("HUD cue %.3f s vs plan light %.3f s, gap %.3f s, want within 0.1 s", hud.InSec, plan.InSec, gap)
+	}
+}
+
+// TestMissReadoutSteadyBrakeHasNoJumps: fix-F. A steady 90 % retrograde hand
+// brake (playtest Lander, 100 km Moon orbit, site 70 deg ahead, N, Site+ off)
+// moves miss: by a few metres a second. The burn-at cue used to be quantised
+// to 13 s/2^8 = 51 ms, which at ~1.6 km/s stepped miss: by up to 85 m. Sampled
+// every second with the cache bypassed over the first 3 min of the brake.
+func TestMissReadoutSteadyBrakeHasNoJumps(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := w.Crafts[0]
+	for _, b := range w.System().Bodies {
+		if b.ID == "moon" {
+			c.Primary = b
+		}
+	}
+	st, _ := spacecraft.BuildModule(spacecraft.StageModuleLanderID)
+	c.Stages = st
+	c.SyncFields()
+	c.Landed, c.Crashed, c.Crewed, c.Controllable = false, false, true, true
+	r := c.Primary.RadiusMeters() + 100000
+	mu := c.Primary.GravitationalParameter()
+	c.State.R = orbital.Vec3{X: r}
+	c.State.V = orbital.Vec3{Y: math.Sqrt(mu / r)}
+	c.State.M = c.TotalMass()
+	c.CurrentAttitudeDir = c.State.V.Unit()
+	ahead := 70 * math.Pi / 180
+	lat, lon := render.WorldToBodyFixed(c.Primary, render.Vec3{X: math.Cos(ahead), Y: math.Sin(ahead)}, w.Clock.SimTime)
+	w.NextSiteID++
+	w.Sites = append(w.Sites, Site{ID: w.NextSiteID, Body: c.Primary.EnglishName, System: w.System().Name, LatDeg: lat, LonDeg: lon, Kind: SiteFlag, Name: "Flag-1", CraftID: c.ID})
+	w.ActiveCraftIdx = 0
+	w.SetTargetSite(w.NextSiteID)
+	if _, err := w.PlanDeorbitAndEngage(); err != nil {
+		t.Fatal(err)
+	}
+	w.DisengageLandingAutopilot(c)
+	w.SetAttitudeMode(spacecraft.BurnSurfaceRetrograde)
+	// fly the deorbit burn, then coast analytically to 2 s before the burn-at
+	// cue (no drag on the Moon): the 25 min coast is the slow part
+	burned := false
+	for i := 0; i < 200000 && !burned; i++ {
+		w.Tick()
+		burned = i > 10 && len(c.Nodes) == 0 && c.ActiveBurn == nil
+	}
+	cue0, _, ok := burnAtCue(c, deorbitHorizon, DeorbitBrakeThrottle, deorbitRefineIters)
+	if !burned || !ok {
+		t.Fatalf("burned=%v cue=%v", burned, ok)
+	}
+	skip := cue0.InSec - 2
+	c.State, _ = physics.KeplerStep(c.State, mu, skip)
+	c.State.M = c.TotalMass()
+	w.Clock.SimTime = w.Clock.SimTime.Add(time.Duration(skip * float64(time.Second)))
+	c.CurrentAttitudeDir = c.State.V.Unit().Scale(-1) // the held mode slewed to retrograde during the skipped coast
+	t0 := w.Clock.SimTime
+	var lit time.Time
+	lastS, n := -1, 0
+	prev, maxStep := 0.0, 0.0
+	for i := 0; i < 3_000_000 && !c.Crashed && !c.Landed; i++ {
+		w.Tick()
+		el := w.Clock.SimTime.Sub(t0)
+		if lit.IsZero() {
+			if len(c.Nodes) == 0 && c.ActiveBurn == nil && el > 0 {
+				if cue, _, ok := burnAtCue(c, deorbitHorizon, DeorbitBrakeThrottle, deorbitRefineIters); ok && cue.InSec <= 0.5 {
+					c.Throttle = 0.9
+					c.ManualBurn = &ManualBurn{StartTime: w.Clock.SimTime} // canCommand is false in this bare world
+					lit = w.Clock.SimTime
+				}
+			}
+			continue
+		}
+		s := int(w.Clock.SimTime.Sub(lit).Seconds())
+		if s == lastS {
+			continue
+		}
+		lastS = s
+		w.deorbitCache = deorbitCache{} // bypass the 1 s cache bucket
+		lb, _ := w.LandBesideReading()
+		if !lb.MissOK {
+			t.Fatalf("no miss at %d s", s)
+		}
+		if n > 0 {
+			maxStep = math.Max(maxStep, math.Abs(lb.MissM-prev))
+		}
+		prev, n = lb.MissM, n+1
+		if s >= 180 {
+			break
+		}
+	}
+	if n < 150 {
+		t.Fatalf("only %d samples", n)
+	}
+	if maxStep >= 25 {
+		t.Errorf("miss: stepped %.1f m in 1 s on a steady brake, want under 25 m", maxStep)
 	}
 }
