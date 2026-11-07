@@ -991,3 +991,27 @@ func TestLSpreadRefusalFlashes(t *testing.T) {
 		t.Error("a refused spread left orders")
 	}
 }
+
+// B1: under an engaged Site+ the arrows are consumed and write no trim (the
+// hold ignores trims, so they would pile up for the next hand-flown hold).
+func TestArrowsWriteNoTrimUnderEngagedSite(t *testing.T) {
+	a, c := padApp(t)
+	c.AttitudeMode = spacecraft.BurnSite
+	c.Landing = &spacecraft.LandingAutopilot{}
+	press := func() {
+		for _, k := range []tea.KeyType{tea.KeyLeft, tea.KeyRight, tea.KeyUp, tea.KeyDown} {
+			a.Update(keyType(k))
+			a.Update(tea.KeyMsg{Type: k, Alt: true})
+		}
+	}
+	press()
+	if c.PitchTrim == 0 && c.HeadingTrim == 0 {
+		t.Fatal("instrument: arrows write no trim even with the autopilot off")
+	}
+	c.PitchTrim, c.HeadingTrim = 0, 0
+	c.Landing.Engaged = true
+	press()
+	if c.PitchTrim != 0 || c.HeadingTrim != 0 {
+		t.Errorf("engaged Site+: pitch trim %v heading trim %v, want 0", c.PitchTrim, c.HeadingTrim)
+	}
+}

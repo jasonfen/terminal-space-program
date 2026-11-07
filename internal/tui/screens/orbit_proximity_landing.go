@@ -16,12 +16,13 @@ import (
 )
 
 const (
-	// landingSiteHintStripText is the strip under the Site+ hold.
-	landingSiteHintStripText = "[←→↑↓] move aim · [o] map · [F1] help · [t] target · [./,] warp"
+	// landingSiteHintStripText is the strip under the Site+ hold: no arrow
+	// legend until ADR 0067 S4 gives the arrows the aim.
+	landingSiteHintStripText = "[o] map · [F1] help · [t] target · [./,] warp"
 	// landingStopGlyph is where the powered stop ends on the ground.
 	landingStopGlyph = '⊙'
 	// computerSiteGlyph is the computer's landing site (ADR 0067 decision 4).
-	computerSiteGlyph = '◇'
+	computerSiteGlyph = '⌖'
 	// landingGroundSegments is how many edges the ground arc is drawn with.
 	landingGroundSegments = 96
 )
@@ -36,7 +37,7 @@ func landingSiteMark(w *sim.World) rune {
 }
 
 // computerSiteWorld is where the computer believes the site is. Zero nav error
-// until S4 writes the offset: it is the real point, so the ◇ sits under the ⚑.
+// until S4 writes the offset: it is the real point, so the ⌖ sits under the ⚑.
 func computerSiteWorld(st sim.ProximityState) orbital.Vec3 { return st.TargetWorld }
 
 // drawLandingScene draws the ground, the powered-stop arc, the marks and the
@@ -69,7 +70,7 @@ func (v *OrbitView) drawLandingScene(w *sim.World, st sim.ProximityState) {
 			v.canvas.SetCellOverlayColored(arc.Points[len(arc.Points)-1], landingStopGlyph, render.ColorPredictedPath)
 		}
 	}
-	// ◇ first, ⚑ over it: with no nav error they share a cell and only ⚑ shows.
+	// ⌖ first, ⚑ over it: with no nav error they share a cell and only ⚑ shows.
 	// The reveal rule (⚑ only inside SiteRevealRangeM when the two differ) is
 	// inert until S4 gives them a reason to differ.
 	cs := computerSiteWorld(st)

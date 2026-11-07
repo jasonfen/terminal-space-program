@@ -334,7 +334,7 @@ var helpSections = []helpSection{
 		{"◉ ● ○ ◇", "STAGES pips, bottom stage first: ◉ lit (burns next; every stage of a booster group is lit), ● fuelled and waiting, ○ spent, ◇ no tank (a pod or payload)"},
 		{"speed", "in the navball frame, named (surface) / (orbit) / (target) / (port), alongside vert: and horiz:"},
 		{"(max N)", "the same figure at full throttle, when it differs from the current one"},
-		{"Site+ / ROD", "the landing autopilot's hold (q in SITE): brake, approach, final to touchdown; ROD is the descent rate Z / X hand you, held by the throttle"},
+		{"Site+ / ROD", "the landing autopilot's hold (q in SITE): brake, approach, final to touchdown; ROD is the descent rate Z / X hand you, held by the throttle; the arrows do nothing while it flies"},
 		{"alt rate", "LANDING chip, the landing view: how fast your altitude changes (- falling)"},
 		{"fwd vel / lat vel", "LANDING chip: your speed over the ground along the track you entered the view on, and across it, tagged R or L of that line"},
 		{"aim", "LANDING chip: where the stop is aimed against the site, along (+ long, − short) and across (R / L); 0 m until you move it"},
