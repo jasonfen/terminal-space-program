@@ -250,7 +250,7 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Surface → Orbit → Target → Port → Site",
-		"q (SITE) in SITE: engage the landing autopilot (hold: Site+ brake / approach / final)",
+		"q (SITE) in SITE: engage the landing autopilot (hold: Site+ wait / brake / approach / final); a hold key or b takes it off",
 		"Z / X (Site+) under Site+: hand over a descent rate, 1 m/s a press (alt 0.3); z / x take the raw throttle back",
 	} {
 		if !strings.Contains(f1, want) {
@@ -262,7 +262,9 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 		"| `q` in Site | With the main engine selected, engage the landing autopilot (`hold: Site+ (SITE)`)",
 		"| `Z` / `X` under `Site+` | Hand over a rate of descent:",
 		"`z` / `x` give the raw throttle back and keep the steering",
-		"| `Site+` / `ROD` |",
+		"| `Site+` / `ROD` | The landing autopilot's hold (`q` in SITE): `wait` for the brake",
+		"`hold:` reads `Site+ wait` (amber) until the brake lights",
+		"and so does `b` (surface retrograde, the engine yours: footer `Site+ off: engine lit by hand`)",
 	} {
 		if !strings.Contains(string(doc), want) {
 			t.Errorf("docs/controls.md lacks %q", want)
