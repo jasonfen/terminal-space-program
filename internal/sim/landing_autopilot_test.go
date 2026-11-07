@@ -302,6 +302,81 @@ func TestLandingAutopilotHandover(t *testing.T) {
 	if err := w3.EngageLandingAutopilot(); err != nil || !c3.Landing.Engaged {
 		t.Errorf("re-engage: err=%v engaged=%v", err, c3.Landing.Engaged)
 	}
+
+	// q while engaged takes everything back: the raw throttle and the ROD mode
+	// go, the phase stays (ADR 0067 decision 5: q re-engages from where you are)
+	w4, c4 := deorbitWorld(t, 150, 0)
+	var hadHeld, hadROD bool
+	var phaseBefore spacecraft.LandingPhase
+	flyLanding(t, w4, c4, 2*3600*4, func(int) {
+		ap := c4.Landing
+		switch {
+		case !hadHeld && ap.Phase == spacecraft.PhaseBrake:
+			w4.LandingHandOverThrottle()
+			c4.Throttle = 0.75
+			phaseBefore, hadHeld = ap.Phase, true
+			if err := w4.EngageLandingAutopilot(); err != nil || ap.ThrottleHeld || ap.Phase != phaseBefore {
+				t.Errorf("q after z: err=%v held=%v phase=%v, want throttle taken back in phase %v", err, ap.ThrottleHeld, ap.Phase, phaseBefore)
+			}
+		case hadHeld && !hadROD && ap.Phase == spacecraft.PhaseFinal:
+			hadROD = w4.LandingROD(+RODStepMps)
+			if !ap.ROD {
+				t.Fatal("setup: Z did not latch the descent rate in final")
+			}
+			if err := w4.EngageLandingAutopilot(); err != nil || ap.ROD || ap.Phase != spacecraft.PhaseFinal {
+				t.Errorf("q after Z: err=%v ROD=%v phase=%v, want ROD off in final", err, ap.ROD, ap.Phase)
+			}
+		}
+	})
+	if !hadHeld || !hadROD {
+		t.Fatalf("setup: brake handover %v, final ROD %v", hadHeld, hadROD)
+	}
+}
+
+// x or z pressed on the coast must not freeze the brake: there is no throttle
+// to hand over before the light, so the autopilot still trims it (review F1:
+// the latched 90% brake crashed 2,573 m from the flag).
+func TestLandingAutopilotCoastThrottleKeyIsNoOp(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	pressed := false
+	dist, _, landed := flyLanding(t, w, c, 2*3600*4, func(int) {
+		if !pressed && c.Landing.Phase == spacecraft.PhaseCoast {
+			w.LandingHandOverThrottle() // what x/z do first
+			w.SetThrottle(0)
+			pressed = true
+		}
+	})
+	if !pressed || c.Landing.ThrottleHeld {
+		t.Fatalf("setup: pressed=%v held=%v", pressed, c.Landing.ThrottleHeld)
+	}
+	if !landed || dist > 50 {
+		t.Errorf("x on the coast: landed=%v %.0f m from the flag, want a landing within 50 m", landed, dist)
+	}
+}
+
+// Z/X latch a descent rate only in approach and final; in brake the key is the
+// raw throttle's and the orbital sink rate is not latched (review F4: -69 m/s).
+func TestLandingAutopilotRODNotInBrake(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	braked, final := false, false
+	flyLanding(t, w, c, 2*3600*4, func(int) {
+		ap := c.Landing
+		if !braked && ap.Phase == spacecraft.PhaseBrake {
+			braked = true
+			if w.LandingROD(+RODStepMps) || ap.ROD {
+				t.Errorf("Z in brake latched ROD %.1f m/s, want the key left to the throttle", ap.RODRateMps)
+			}
+		}
+		if !final && ap.Phase == spacecraft.PhaseFinal { // the equal side of the gate
+			final = true
+			if !w.LandingROD(+RODStepMps) || !ap.ROD {
+				t.Error("Z in final did not latch ROD")
+			}
+		}
+	})
+	if !braked || !final {
+		t.Fatalf("setup: braked=%v final=%v", braked, final)
+	}
 }
 
 // ADR 0067 decision 5: RCS pulses are blocked while the autopilot owns the

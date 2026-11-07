@@ -272,6 +272,12 @@ func (w *World) EngageLandingAutopilot() error {
 	if c.Landed {
 		return ErrDeorbitLanded
 	}
+	if ap := c.Landing; ap != nil && ap.Engaged {
+		// q again takes the throttle back and keeps the phase, whatever the link
+		// or the target is doing: it is already flying
+		ap.ROD, ap.ThrottleHeld = false, false
+		return nil
+	}
 	lat, lon, _, ok := w.apTarget(c)
 	if !ok {
 		if w.Target.Kind == TargetSite {
@@ -291,9 +297,6 @@ func (w *World) EngageLandingAutopilot() error {
 	ap := c.Landing
 	if ap == nil {
 		ap = &spacecraft.LandingAutopilot{}
-	}
-	if ap.Engaged {
-		return nil
 	}
 	ap.Engaged, ap.ROD, ap.ThrottleHeld = true, false, false
 	ap.Phase = spacecraft.PhaseCoast
@@ -357,6 +360,9 @@ func (w *World) LandingROD(delta float64) bool {
 		return false
 	}
 	ap := c.Landing
+	if ap.Phase != spacecraft.PhaseApproach && ap.Phase != spacecraft.PhaseFinal {
+		return false // P66 is a final-phase mode: in coast and brake the key is the raw throttle's
+	}
 	if !ap.ROD {
 		ap.ROD, ap.ThrottleHeld = true, false
 		ap.RODRateMps = apFrameOf(c).vz
@@ -374,6 +380,9 @@ func (w *World) LandingHandOverThrottle() bool {
 	c := w.ActiveCraft()
 	if c == nil || c.Landing == nil || !c.Landing.Engaged {
 		return false
+	}
+	if c.Landing.Phase == spacecraft.PhaseCoast {
+		return true // no throttle to hand over yet: latching it would freeze the brake at its light
 	}
 	c.Landing.ROD, c.Landing.ThrottleHeld = false, true
 	return true
@@ -393,7 +402,7 @@ func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
 	if !ok || c.ActiveStageFuel() <= 0 || c.Thrust <= 0 {
 		return // nothing to fly to, or nothing to fly with: keep the state, do nothing
 	}
-	ap.Reserve, ap.OutOfReach = false, false
+	ap.Reserve, ap.OutOfReach, ap.ForecastOK = false, false, false
 	f := apFrameOf(c)
 	if ap.Phase == spacecraft.PhaseCoast {
 		if c.ActiveBurn != nil {
@@ -499,6 +508,7 @@ func (w *World) apBrake(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilo
 		ap.OutOfReach = true
 		return apPitched(dir, f.up, psi), math.Min(theta+apMaxStepTheta, 1)
 	}
+	ap.ForecastAlongM, ap.ForecastCrossM, ap.ForecastOK = f0.along, f0.cross, true
 	f1 := w.apForecast(c, lat, lon, math.Min(theta+apProbeTheta, 1), psi)
 	f2 := w.apForecast(c, lat, lon, theta, psi+apProbePitch)
 	newTheta, newPsi := theta, psi
@@ -587,21 +597,27 @@ func apFinalRate(h, netDecel float64) float64 {
 // apCloseVelocity is the ground-relative velocity the final phase asks for:
 // zero, plus a slow closing speed toward the aim point (half the final entry
 // speed at most) so the brake's last tens of metres do not stand as the miss.
-func (w *World) apCloseVelocity(c *spacecraft.Spacecraft, f apFrame, lat, lon float64) orbital.Vec3 {
+func (w *World) apCloseVelocity(c *spacecraft.Spacecraft, f apFrame, lat, lon float64) (vel orbital.Vec3, along, cross float64, ok bool) {
 	aimHat := siteVec(c, lat, lon, w.Clock.SimTime)
 	aim := aimHat.Scale(c.Primary.RadiusMeters())
+	var tHat, rHat orbital.Vec3
 	if n := apTrackNormal(c, c.State); n.Norm() != 0 {
-		tHat := n.Cross(aimHat).Unit()
+		tHat = n.Cross(aimHat).Unit()
+		rHat = tHat.Cross(aimHat)
 		ap := c.Landing
-		aim = aim.Add(tHat.Scale(ap.NavAlongM + ap.AimAlongM)).Add(tHat.Cross(aimHat).Scale(ap.NavAcrossM + ap.AimAcrossM))
+		aim = aim.Add(tHat.Scale(ap.NavAlongM + ap.AimAlongM)).Add(rHat.Scale(ap.NavAcrossM + ap.AimAcrossM))
+		ok = true
 	}
 	e := aim.Sub(c.State.R)
 	e = e.Sub(f.up.Scale(e.Dot(f.up)))
+	if ok { // the error the phase is closing, as miss:/cross: sign it (+ long, + right)
+		along, cross = -e.Dot(tHat), -e.Dot(rHat)
+	}
 	d := e.Norm()
 	if d == 0 {
-		return orbital.Vec3{}
+		return orbital.Vec3{}, along, cross, ok
 	}
-	return e.Unit().Scale(math.Min(d*apCloseGain, FinalPhaseGroundSpeedMps/2))
+	return e.Unit().Scale(math.Min(d*apCloseGain, FinalPhaseGroundSpeedMps/2)), along, cross, ok
 }
 
 // apFinal nulls the drift and flies the descent rate: thrust = m * (g - a_cmd)
@@ -623,7 +639,9 @@ func (w *World) apFinal(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilo
 	if aUp < 0 {
 		aUp = 0
 	}
-	aH := w.apCloseVelocity(c, f, lat, lon).Sub(f.vh).Scale(apDriftGain)
+	vClose, along, cross, ok := w.apCloseVelocity(c, f, lat, lon)
+	ap.ForecastAlongM, ap.ForecastCrossM, ap.ForecastOK = along, cross, ok
+	aH := vClose.Sub(f.vh).Scale(apDriftGain)
 	if lim := aUp * math.Tan(apMaxTiltRad); aH.Norm() > lim {
 		aH = aH.Unit().Scale(lim)
 	}

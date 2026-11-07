@@ -148,6 +148,14 @@ func (w *World) LandBesideReading() (LandBeside, bool) {
 			return lb, true
 		}
 	}
+	// Past the coast the autopilot's own forecast is the one truthful stop (the
+	// landing view's marker draws it); off, miss: stays the hand-flyer's plain stop.
+	if ap := c.Landing; ap != nil && ap.Engaged && ap.Phase != spacecraft.PhaseCoast && ap.ForecastOK {
+		lb.MissM, lb.CrossM, lb.MissOK, lb.ImpactOK, lb.Stop = ap.ForecastAlongM, ap.ForecastCrossM, true, true, true
+		rSite, _ := surfacePointState(c.Primary, siteLat, siteLon, w.Clock.SimTime)
+		lb.LPDDeg, lb.LPDOK = LookDownDeg(c.State.R, rSite, c.CurrentAttitudeDir.Unit())
+		return lb, true
+	}
 	imp, found := w.cachedImpact(c)
 	if !found {
 		return lb, true
