@@ -822,4 +822,15 @@ func TestLandingStopArc(t *testing.T) {
 	if !ok || arc2.FromCue || arc2.PitchUpRad != 0.2 || math.Abs(arc2.Throttle-c.EffectiveThrottle()) > 1e-9 {
 		t.Errorf("braking arc: ok=%v fromCue=%v pitch=%g throttle=%g, want the autopilot's 0.2 and %g from the vessel", ok, arc2.FromCue, arc2.PitchUpRad, arc2.Throttle, c.EffectiveThrottle())
 	}
+	// a throttle too low to stop meets the ground: the arc ends on it, never under it
+	c.Throttle = 0.3
+	arc3, ok := w.LandingStopArc()
+	if !ok || arc3.Stopped {
+		t.Fatalf("underpowered arc: ok=%v stopped=%v, want a crashing arc", ok, arc3.Stopped)
+	}
+	for i, p := range arc3.Points {
+		if h := p.Sub(w.BodyPosition(c.Primary)).Norm() - c.Primary.RadiusMeters(); h < -1e-6 {
+			t.Fatalf("arc point %d is %g m under the ground", i, h)
+		}
+	}
 }

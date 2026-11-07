@@ -811,12 +811,18 @@ func (w *World) LandingStopArc() (LandingArc, bool) {
 		return LandingArc{}, false
 	}
 	now, primaryPos := w.Clock.SimTime, w.BodyPosition(c.Primary)
-	pts := make([]orbital.Vec3, len(trace))
-	for i, s := range trace {
+	pts := make([]orbital.Vec3, 0, len(trace))
+	for _, s := range trace {
+		if s.R.Norm() < c.Primary.RadiusMeters() { // a brake that meets the ground ends there, not under it
+			break
+		}
 		at := now.Add(time.Duration((lead + s.T) * float64(time.Second)))
 		lat, lon := render.WorldToBodyFixed(c.Primary, unitV(s.R), at)
 		d := render.BodyFixedToWorld(c.Primary, lat, lon, now)
-		pts[i] = primaryPos.Add(orbital.Vec3{X: d.X, Y: d.Y, Z: d.Z}.Scale(s.R.Norm()))
+		pts = append(pts, primaryPos.Add(orbital.Vec3{X: d.X, Y: d.Y, Z: d.Z}.Scale(s.R.Norm())))
+	}
+	if len(pts) < 2 {
+		return LandingArc{}, false
 	}
 	if pred.Outcome == StopStopped { // the integrator ran one step past the floor: end on the bisected stop
 		lat, lon := render.WorldToBodyFixed(c.Primary, unitV(pred.StopR), now.Add(time.Duration((lead+pred.ElapsedSec)*float64(time.Second))))
