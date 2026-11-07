@@ -456,11 +456,11 @@ func TestPredictorsBrakeAtTheReserveThrottle(t *testing.T) {
 	}
 }
 
-// TestHUDCueMatchesThePlansLight: ADR 0067 S1 live check. The ENGINE row's
+// TestHUDCueAgreesWithPlanLightAtTheSameRefineIterations: ADR 0067 S1 live check. A pin on burnAtRefineIters, not a measurement: the ENGINE row's
 // countdown and the N plan's light read the same brake from the same state, so
 // they agree to the plan's own resolution (S11 measured an 18 s gap when the
 // HUD cue was full throttle; a 3-round refine left 0.5-0.9 s after the reserve).
-func TestHUDCueMatchesThePlansLight(t *testing.T) {
+func TestHUDCueAgreesWithPlanLightAtTheSameRefineIterations(t *testing.T) {
 	_, c := dropTestCraft(t, 50_000)
 	c.Thrust = 60_000
 	c.Isp = 311

@@ -60,9 +60,14 @@ type LandingAutopilot struct {
 	// TrackN is the unit normal of the ground-relative orbit plane at the
 	// light: the along/across axes of the aim stay fixed to it, so a slow
 	// vessel's wandering velocity cannot spin them.
-	TrackN     orbital.Vec3
-	Reserve    bool // the brake throttle is eating into the reserve
-	OutOfReach bool // the law saturates with the stop still off the aim
+	TrackN orbital.Vec3
+	// ForecastAlongM / ForecastCrossM: the stop the law is steering toward (brake,
+	// approach) or the position error it is closing (final), as miss: and cross:
+	// sign them (+ long, + right). Written each tick; ForecastOK false until then.
+	ForecastAlongM, ForecastCrossM float64
+	ForecastOK                     bool
+	Reserve                        bool // the brake throttle is eating into the reserve
+	OutOfReach                     bool // the law saturates with the stop still off the aim
 }
 
 // Owns reports whether the autopilot has the engine: engaged and not out in

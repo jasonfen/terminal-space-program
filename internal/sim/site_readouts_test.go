@@ -373,3 +373,53 @@ func BenchmarkLandBesideInOrbit(b *testing.B) {
 		w.LandBesideReading()
 	}
 }
+
+// ADR 0067 review F3: past the coast, miss: and cross: read the autopilot's own
+// forecast (the stop the landing view's marker draws); with it off they read
+// the plain stop. In final the reading is the position error being closed, so
+// it ends within the landing's 50 m (the plain stop read +80 m at 0% throttle).
+func TestLandBesideReadsTheAutopilotsForecast(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	var sawBrake, sawOff, signed bool
+	var lastMiss, lastCross float64
+	flyLanding(t, w, c, 2*3600*4, func(int) {
+		ap := c.Landing
+		if !ap.Engaged || ap.Phase == spacecraft.PhaseCoast || !ap.ForecastOK {
+			return
+		}
+		lb, ok := w.LandBesideReading()
+		if !ok || !lb.MissOK || lb.MissM != ap.ForecastAlongM || lb.CrossM != ap.ForecastCrossM {
+			t.Fatalf("%v: miss %v cross %v ok=%v, want the forecast %v / %v", ap.Phase.Word(), lb.MissM, lb.CrossM, ok, ap.ForecastAlongM, ap.ForecastCrossM)
+		}
+		lastMiss, lastCross = lb.MissM, lb.CrossM
+		if f := apFrameOf(c); ap.Phase == spacecraft.PhaseFinal && !signed && f.sh > 0.5 {
+			// + is long: the flag lies behind the vessel's ground track
+			lat, lon, _, _ := w.apTarget(c)
+			toSite := siteVec(c, lat, lon, w.Clock.SimTime).Scale(c.Primary.RadiusMeters()).Sub(c.State.R)
+			if d := toSite.Dot(f.vh.Unit()); math.Abs(d) > 3 && math.Abs(lb.MissM) > 3 {
+				signed = true
+				if (d < 0) != (lb.MissM > 0) {
+					t.Errorf("final: flag %.0f m ahead of the vessel but miss reads %+.0f m", d, lb.MissM)
+				}
+			}
+		}
+		if ap.Phase == spacecraft.PhaseBrake && !sawOff {
+			sawBrake, sawOff = true, true
+			ap.Engaged = false // autopilot off: the plain stop, a different number
+			plain, _ := w.LandBesideReading()
+			ap.Engaged = true
+			if plain.MissM == lb.MissM {
+				t.Errorf("autopilot off still reads the forecast %v", plain.MissM)
+			}
+		}
+	})
+	if !sawBrake {
+		t.Fatal("setup: no brake tick read")
+	}
+	if !signed {
+		t.Log("final-phase sign not exercised: no tick with the flag >3 m off")
+	}
+	if math.Abs(lastMiss) > 50 || math.Abs(lastCross) > 50 {
+		t.Errorf("last reading before contact miss %.1f cross %.1f m, want both within 50", lastMiss, lastCross)
+	}
+}

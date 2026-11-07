@@ -335,7 +335,7 @@ func TestLandMissRowSignAndAlignment(t *testing.T) {
 	}{
 		{9990, "+9.990 km"}, {10000, "+10.00 km"}, {999e3, "+999.0 km"},
 		{-9990, "\u22129.990 km"}, {-10000, "\u221210.00 km"}, {-999e3, "\u2212999.0 km"},
-		{0, "miss:  0 m"},
+		{0, "miss:  0 m"}, {-0.4, "miss:  0 m"}, {0.4, "miss:  0 m"}, // a value that rounds to 0 m has no side
 	} {
 		for _, planned := range []bool{false, true} {
 			row := ansi.Strip(landMissRow(sim.LandBeside{MissOK: true, MissM: tc.missM, CrossM: 30310, Planned: planned}))
@@ -347,6 +347,11 @@ func TestLandMissRowSignAndAlignment(t *testing.T) {
 			}
 			if planned && !strings.HasSuffix(row, "(plan)") {
 				t.Errorf("miss %g: row %q lost its (plan) tag", tc.missM, row)
+			}
+			if math.Abs(tc.missM) < 1 {
+				if got := ansi.Strip(landCrossLabel(sim.LandBeside{MissOK: true, CrossM: tc.missM})); got != "0 m" {
+					t.Errorf("cross %g: %q, want an unsided 0 m", tc.missM, got)
+				}
 			}
 		}
 	}

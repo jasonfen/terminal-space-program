@@ -64,7 +64,7 @@ func TestSiteFrameFlashAndUnderWeightRefusal(t *testing.T) {
 // key takes the nose.
 func TestSiteHoldKeysUnderTheAutopilot(t *testing.T) {
 	a, c := siteHoldApp(t)
-	c.Landing = &spacecraft.LandingAutopilot{Engaged: true}
+	c.Landing = &spacecraft.LandingAutopilot{Engaged: true, Phase: spacecraft.PhaseFinal} // Z/X latch a rate only in approach and final; z/x hand over only past the coast
 	c.Throttle = 0.5
 	pressKey(a, 'X')
 	if !c.Landing.ROD || c.Landing.RODRateMps != -sim.RODStepMps || c.Throttle != 0.5 {
