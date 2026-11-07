@@ -22,6 +22,9 @@ var multiWordLabels = []string{
 	readout.LabelOrbitFPA, // "orbit fpa:"
 	readout.LabelRelSpeed, // "rel speed:"
 	"τ in:",               // rendezvous row (orbit_chip_builders.go)
+	"alt rate:",           // LANDING chip rows (orbit_proximity_landing.go)
+	"fwd vel:",
+	"lat vel:",
 }
 
 // isDashRow reports whether a rendered box row carries no reading: at
