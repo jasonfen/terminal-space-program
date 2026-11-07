@@ -805,7 +805,7 @@ func TestLandingStopArc(t *testing.T) {
 		t.Fatal("deorbit burn never fired")
 	}
 	arc, ok := w.LandingStopArc()
-	if !ok || !arc.Stopped || !arc.FromCue || arc.PitchUpRad != 0 {
+	if !ok || !arc.Stopped || !arc.FromCue || arc.PitchUpRad != 0 || arc.Throttle != DeorbitBrakeThrottle {
 		t.Fatalf("coast arc: ok=%v stopped=%v fromCue=%v pitch=%g", ok, arc.Stopped, arc.FromCue, arc.PitchUpRad)
 	}
 	if n := len(arc.Points); n < 10 {
@@ -817,8 +817,9 @@ func TestLandingStopArc(t *testing.T) {
 	}
 	// engaged and braking: the lean comes from the autopilot
 	c.Landing = &spacecraft.LandingAutopilot{Engaged: true, Phase: spacecraft.PhaseBrake, PitchUpRad: 0.2}
+	c.Throttle = 0.95 // the autopilot's trim, off the 0.90 plan
 	arc2, ok := w.LandingStopArc()
-	if !ok || arc2.FromCue || arc2.PitchUpRad != 0.2 {
-		t.Errorf("braking arc: ok=%v fromCue=%v pitch=%g, want the autopilot's 0.2 from the vessel", ok, arc2.FromCue, arc2.PitchUpRad)
+	if !ok || arc2.FromCue || arc2.PitchUpRad != 0.2 || math.Abs(arc2.Throttle-c.EffectiveThrottle()) > 1e-9 {
+		t.Errorf("braking arc: ok=%v fromCue=%v pitch=%g throttle=%g, want the autopilot's 0.2 and %g from the vessel", ok, arc2.FromCue, arc2.PitchUpRad, arc2.Throttle, c.EffectiveThrottle())
 	}
 }

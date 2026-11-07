@@ -777,14 +777,17 @@ type LandingArc struct {
 	// PitchUpRad is the lean the arc was integrated at: the autopilot's own
 	// while it is braking, else 0 (the plan's straight retrograde stop).
 	PitchUpRad float64
+	// Throttle is the fraction of full thrust it was integrated at: the reserve
+	// throttle before the light, the autopilot's own trim while it brakes.
+	Throttle float64
 	// FromCue: the arc starts at the brake's light on the coast, not at the
 	// vessel (it has not lit yet).
 	FromCue bool
 }
 
 // LandingStopArc integrates the stop at the reserve throttle (DeorbitBrakeThrottle,
-// S1), from the vessel while it brakes (the autopilot's pitch-up lean read from
-// its state, so the drawn arc is the one it flies) or from the plan's light on
+// S1), from the vessel while it brakes (the autopilot's pitch-up lean and
+// trimmed throttle read from its state, so the drawn arc is the one it flies) or from the plan's light on
 // the coast before that. ok=false off the surface scene or with no ground met.
 func (w *World) LandingStopArc() (LandingArc, bool) {
 	c := w.ActiveCraft()
@@ -794,14 +797,16 @@ func (w *World) LandingStopArc() (LandingArc, bool) {
 	if _, _, ground := w.surfaceTargetLatLon(c); !ground {
 		return LandingArc{}, false
 	}
-	start, lead, pitch, fromCue := c.State, 0.0, 0.0, false
+	start, lead, pitch, throttle, fromCue := c.State, 0.0, 0.0, DeorbitBrakeThrottle, false
 	if ap := c.Landing; ap != nil && ap.Engaged && ap.Phase != spacecraft.PhaseCoast {
-		pitch = ap.PitchUpRad
+		// the arc it is flying: its lean AND the throttle it has trimmed to (a
+		// plan's stop has no margin to spare, 0.90 and 0.91 end on different sides)
+		pitch, throttle = ap.PitchUpRad, c.EffectiveThrottle()
 	} else if cue, ground, has := burnAtCue(c, deorbitHorizon, DeorbitBrakeThrottle, burnAtRefineIters); ground && has {
 		start, lead, fromCue = cue.State, cue.InSec, true
 	}
 	var trace []stopSample
-	pred, ok := predictPoweredStopTraced(start, c, deorbitHorizon-time.Duration(lead*float64(time.Second)), DeorbitBrakeThrottle, pitch, &trace)
+	pred, ok := predictPoweredStopTraced(start, c, deorbitHorizon-time.Duration(lead*float64(time.Second)), throttle, pitch, &trace)
 	if !ok || len(trace) < 2 {
 		return LandingArc{}, false
 	}
@@ -818,5 +823,5 @@ func (w *World) LandingStopArc() (LandingArc, bool) {
 		d := render.BodyFixedToWorld(c.Primary, lat, lon, now)
 		pts[len(pts)-1] = primaryPos.Add(orbital.Vec3{X: d.X, Y: d.Y, Z: d.Z}.Scale(pred.StopR.Norm()))
 	}
-	return LandingArc{Points: pts, Stopped: pred.Outcome == StopStopped, PitchUpRad: pitch, FromCue: fromCue}, true
+	return LandingArc{Points: pts, Stopped: pred.Outcome == StopStopped, PitchUpRad: pitch, Throttle: throttle, FromCue: fromCue}, true
 }
