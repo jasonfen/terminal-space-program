@@ -350,6 +350,19 @@ func (w *World) DisengageLandingAutopilot(c *spacecraft.Spacecraft) {
 	}
 }
 
+// LandingTakeEngine is b under an engaged Site+ (playtest P1): the pilot flies
+// the engine, so the autopilot goes off and the nose goes to surface retrograde,
+// as a hold key does. Reports whether it was engaged.
+func (w *World) LandingTakeEngine() bool {
+	c := w.ActiveCraft()
+	if c == nil || c.Landing == nil || !c.Landing.Engaged {
+		return false
+	}
+	w.DisengageLandingAutopilot(c)
+	w.SetAttitudeMode(spacecraft.BurnSurfaceRetrograde)
+	return true
+}
+
 // LandingROD is Z/X under the autopilot (decision 5, P66): step the descent
 // rate the throttle holds, starting at the rate the vessel is falling. delta is
 // +/- RODStepMps (or RODFineStepMps); + slows the descent. Reports whether the

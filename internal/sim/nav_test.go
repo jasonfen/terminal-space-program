@@ -268,3 +268,27 @@ func TestNavSiteOfferedResolvedAndDropped(t *testing.T) {
 		t.Error("; offered SITE to a landed vessel")
 	}
 }
+
+// ADR 0067 playtest P2: the coast phase has its own hold word, so an engaged
+// Site+ never reads as a bare hold; disengaged it is plain Site+.
+func TestSiteHoldLabelNamesEveryPhase(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := w.ActiveCraft()
+	c.Landing = &spacecraft.LandingAutopilot{}
+	if got := w.siteHoldLabel(); got != "Site+" {
+		t.Errorf("disengaged = %q, want Site+", got)
+	}
+	c.Landing.Engaged = true
+	for p, want := range map[spacecraft.LandingPhase]string{
+		spacecraft.PhaseCoast: "Site+ wait", spacecraft.PhaseBrake: "Site+ brake",
+		spacecraft.PhaseApproach: "Site+ approach", spacecraft.PhaseFinal: "Site+ final",
+	} {
+		c.Landing.Phase = p
+		if got := w.siteHoldLabel(); got != want {
+			t.Errorf("phase %v = %q, want %q", p, got, want)
+		}
+	}
+}

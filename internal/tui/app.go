@@ -1942,7 +1942,18 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.ToggleBurn):
 			wasBurning := a.world.ActiveCraft() != nil && a.world.ActiveCraft().ManualBurn != nil
+			tookEngine := a.world.LandingTakeEngine() // playtest P1: b under Site+ switches it off
 			a.world.ToggleManualBurn()
+			if c := a.world.ActiveCraft(); tookEngine && c != nil {
+				switch {
+				case c.ManualBurn != nil:
+					a.flash("Site+ off: engine lit by hand")
+				case wasBurning:
+					a.flash("Site+ off: engine cut by hand")
+				default:
+					a.flash("Site+ off")
+				}
+			}
 			a.world.RecordAction(missions.ActionToggleBurn) // ADR 0025 §7
 			// Ignite only when the engine actually lit (not on a cut, and
 			// not when throttle/fuel/command refused it): Flight School's

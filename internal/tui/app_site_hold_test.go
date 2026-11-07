@@ -114,3 +114,52 @@ func TestSiteHoldTextIsFacts(t *testing.T) {
 		t.Errorf("crash flash = %q, want crashed and no out-of-reach", got)
 	}
 }
+
+// ADR 0067 playtest P1: b with Site+ engaged, in any phase, switches the
+// autopilot off like a hold key: surface retrograde, then b means what it does
+// on the engine, and the footer states the fact.
+func TestBTakesTheEngineFromSitePlus(t *testing.T) {
+	cases := []struct {
+		name    string
+		phase   spacecraft.LandingPhase
+		burning bool
+		want    string
+		lit     bool
+	}{
+		{"coast, engine dark", spacecraft.PhaseCoast, false, "Site+ off: engine lit by hand", true},
+		{"brake, engine lit", spacecraft.PhaseBrake, true, "Site+ off: engine cut by hand", false},
+		{"final, engine lit", spacecraft.PhaseFinal, true, "Site+ off: engine cut by hand", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a, c := siteHoldApp(t)
+			c.AttitudeMode = spacecraft.BurnSite
+			c.Landing = &spacecraft.LandingAutopilot{Engaged: true, Phase: tc.phase}
+			if tc.burning {
+				a.world.StartManualBurn()
+				if c.ManualBurn == nil {
+					t.Fatal("setup: engine did not light")
+				}
+			}
+			pressKey(a, 'b')
+			if c.Landing.Engaged {
+				t.Error("b left Site+ engaged")
+			}
+			if c.AttitudeMode != spacecraft.BurnSurfaceRetrograde {
+				t.Errorf("hold = %v, want surface retrograde", c.AttitudeMode)
+			}
+			if (c.ManualBurn != nil) != tc.lit {
+				t.Errorf("engine lit = %v, want %v", c.ManualBurn != nil, tc.lit)
+			}
+			if a.statusMsg != tc.want {
+				t.Errorf("footer = %q, want %q", a.statusMsg, tc.want)
+			}
+		})
+	}
+	// Site+ off: b is the plain toggle with no Site+ footer.
+	a, c := siteHoldApp(t)
+	pressKey(a, 'b')
+	if c.ManualBurn == nil || strings.Contains(a.statusMsg, "Site+") {
+		t.Errorf("plain b: lit=%v footer %q", c.ManualBurn != nil, a.statusMsg)
+	}
+}

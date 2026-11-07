@@ -14,7 +14,7 @@ const (
 )
 
 // Word is the phase as GUIDANCE's hold: row spells it ("brake", "approach",
-// "final"); Coast reads as "brake" armed, so it is spelled "coast".
+// "final"); Coast is the wait for the brake cue, so it is spelled "wait".
 func (p LandingPhase) Word() string {
 	switch p {
 	case PhaseBrake:
@@ -24,7 +24,7 @@ func (p LandingPhase) Word() string {
 	case PhaseFinal:
 		return "final"
 	}
-	return "coast"
+	return "wait"
 }
 
 // LandingAutopilot is the per-vessel Site+ state (ADR 0067 decisions 1, 13): it

@@ -45,6 +45,9 @@ func (v *OrbitView) buildGuidanceBox(w *sim.World) []string {
 	if holdFrame != w.NavMode {
 		frameWord = v.theme.Warning.Render(frameWord)
 	}
+	if c.AttitudeMode == spacecraft.BurnSite && c.Landing != nil && c.Landing.Engaged {
+		holdName = v.theme.Warning.Render(holdName) // ADR 0067 P2: Warning is the theme's armed/active accent
+	}
 	holdLabel := fmt.Sprintf("%s (%s)", holdName, frameWord)
 	navLabel := fmt.Sprintf("%s", w.NavMode)
 
