@@ -161,7 +161,7 @@ func (v *OrbitView) targetBodyCells(w *sim.World, c *spacecraft.Spacecraft) (str
 	if !ro.Hyperbolic {
 		if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
 			nTarget := orbital.OrbitNormalWorld(b)
-			if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, false); ok {
+			if diLabel, ok := v.deltaInclLabel(nCraft, nTarget); ok {
 				cells.deltaInclV = diLabel
 			}
 		}
@@ -235,7 +235,7 @@ func (v *OrbitView) targetCraftCells(w *sim.World, c *spacecraft.Spacecraft) (st
 	}
 	if nTarget, ok := w.TargetPlaneNormal(); ok {
 		if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
-			if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, !craftHasOrbit(tc)); ok {
+			if diLabel, ok := v.deltaInclLabel(nCraft, nTarget); ok {
 				cells.deltaInclV = diLabel
 			}
 		}
@@ -312,7 +312,7 @@ func (v *OrbitView) targetGhostCells(w *sim.World, c *spacecraft.Spacecraft) (st
 	}
 	if nTarget, ok := w.TargetPlaneNormal(); ok {
 		if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
-			if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, g.Landed); ok {
+			if diLabel, ok := v.deltaInclLabel(nCraft, nTarget); ok {
 				cells.deltaInclV = diLabel
 			}
 		}
@@ -381,7 +381,7 @@ func (v *OrbitView) targetSiteCells(w *sim.World, c *spacecraft.Spacecraft) (str
 	}
 	if nTarget, ok := w.TargetPlaneNormal(); ok {
 		if nCraft, ok := craftOrbitNormalForRelativeIncl(c); ok {
-			if diLabel, ok := v.deltaInclLabel(nCraft, nTarget, true); ok {
+			if diLabel, ok := v.deltaInclLabel(nCraft, nTarget); ok {
 				cells.deltaInclV = diLabel
 			}
 		}

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/muesli/termenv"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -52,8 +53,9 @@ func TestBuildTargetChipShowsDeltaInclForOrbitingVesselTarget(t *testing.T) {
 // TestBuildTargetChipTagsDeltaInclDueEastForLandedVesselTarget pins
 // ADR 0050 decision 7: a landed target's plane is r × v of its actual
 // co-rotation state, which equals the due-east launch plane at every
-// latitude, so the row says so rather than pretending the assumption
-// isn't there. The active craft's own orbit is the seed equatorial LEO
+// latitude. The row used to say "(due east)"; that pushed lead:/lpd:
+// four cells right of the column (Jason 2026-11-07), so the tag is gone
+// and the test also pins lead: on targetCols.label2. The active craft's own orbit is the seed equatorial LEO
 // orbit (inclination ~0° in the body-equatorial frame), so the plane
 // angle to a due-east launch plane from the KSC pad latitude
 // (28.6083°) is exactly that latitude, independent of node alignment:
@@ -86,10 +88,20 @@ func TestBuildTargetChipTagsDeltaInclDueEastForLandedVesselTarget(t *testing.T) 
 	// "landed at:" cell (the retired chip's own row for this branch);
 	// Ap:/Pe:/incl: simply dash for a landed target instead. This test
 	// is actually about the Δincl due-east tag, unaffected by that.
-	diRe := regexp.MustCompile(`Δincl:\s+([0-9]+\.[0-9]+)°\s+\(due east\)`)
+	diRe := regexp.MustCompile(`Δincl:\s+([0-9]+\.[0-9]+)°`)
 	m := diRe.FindStringSubmatch(joined)
 	if m == nil {
-		t.Fatalf("expected a 'Δincl: N° (due east)' row for the landed vessel target, got:\n%s", joined)
+		t.Fatalf("expected a 'Δincl: N°' row for the landed vessel target, got:\n%s", joined)
+	}
+	for _, l := range lines {
+		row := ansi.Strip(l)
+		if !strings.HasPrefix(strings.TrimLeft(row, " "), "Δincl:") {
+			continue
+		}
+		i := strings.Index(row, "lead:")
+		if i < 0 || lipgloss.Width(row[:i]) != targetCols.label2 {
+			t.Errorf("lead: must start at cell %d on the Δincl row, got %q", targetCols.label2, row)
+		}
 	}
 	got, err := strconv.ParseFloat(m[1], 64)
 	if err != nil {

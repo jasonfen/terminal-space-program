@@ -1332,16 +1332,12 @@ func craftOrbitNormalForRelativeIncl(c *spacecraft.Spacecraft) (orbital.Vec3, bo
 }
 
 // deltaInclLabel renders a Δincl value the same way at every call site
-// (review r1 F2): styled Warning past 30°, and tagged "(due east)" when
-// dueEast is true: a landed vessel target's plane is its co-rotation
-// state, which equals the due-east launch plane at every latitude
-// (decision 7), not a real orbit, so the row says so. Before this, the
-// TARGET chip's TargetCraft branch tagged it and the pad's
-// landedInclHeadingRows didn't, so a player who only ever sees the
-// compact TARGET chip at 140x40 (no Δincl at all) saw an untagged
-// figure on the pad with no way to know it assumed due east. ok is
+// (review r1 F2): styled Warning past 30°. A landed or surface target's
+// plane is the due-east launch plane from its spot (ADR 0050 decision 7);
+// the row used to tag that "(due east)", which pushed lead:/lpd: four cells
+// off their column (Jason 2026-11-07), so it reads the bare angle. ok is
 // false when the two normals don't define an angle (relativePlaneAngleDeg).
-func (v *OrbitView) deltaInclLabel(nCraft, nTarget orbital.Vec3, dueEast bool) (string, bool) {
+func (v *OrbitView) deltaInclLabel(nCraft, nTarget orbital.Vec3) (string, bool) {
 	di, ok := relativePlaneAngleDeg(nCraft, nTarget)
 	if !ok {
 		return "", false
@@ -1349,9 +1345,6 @@ func (v *OrbitView) deltaInclLabel(nCraft, nTarget orbital.Vec3, dueEast bool) (
 	label := readout.Angle(di)
 	if di > 30 {
 		label = v.theme.Warning.Render(label)
-	}
-	if dueEast {
-		label += " (due east)"
 	}
 	return label, true
 }

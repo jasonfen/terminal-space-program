@@ -1387,8 +1387,9 @@ a *relative* `|r×v|` threshold rather than the old exact-zero test — a
 real pole is never exactly zero, so the old guards let a shipped North
 Pole preset through as floating-point noise). A **landed** vessel
 target has no orbit to measure, so the figure is its due-east launch
-plane (`r×v` for its co-rotation state) and is tagged as one:
-`Δincl: 53.59° (due east)`.
+plane (`r×v` for its co-rotation state), as is a surface site's; the
+row reads the bare angle (`Δincl: 53.59°`), since a `(due east)` tag
+pushed `lead:` off its column.
 _Avoid_: Launch lat (the old row label), locked, minimum inclination
 (say Inclination Floor).
 
