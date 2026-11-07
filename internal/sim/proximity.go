@@ -142,7 +142,8 @@ type ProximityState struct {
 	Surface bool
 	// AltM is the height above the mean radius, AltRateMS its rate (+ up).
 	// FwdVelMS / LatVelMS are the speed over the ground along the track and
-	// across it (+ to the right of the track): the LM cross-pointer's pair.
+	// across it (+ to the right of the track), in the vessel's own horizon: the
+	// LM cross-pointer's pair.
 	AltM, AltRateMS    float64
 	FwdVelMS, LatVelMS float64
 }
@@ -285,6 +286,15 @@ func (w *World) surfaceProximityState(c *spacecraft.Spacecraft) (ProximityState,
 	}
 	fwd := north.Scale(math.Cos(w.landTrack.azRad)).Add(east.Scale(math.Sin(w.landTrack.azRad)))
 	left := up.Cross(fwd)
+	// fwd vel / lat vel are read in the VESSEL's own horizon along the same
+	// bearing (N60's forward velocity is over the ground under you, not the
+	// component of an orbit along a line 1700 km away).
+	fwdV, leftV := fwd, left
+	if upV := c.State.R.Unit(); upV.Norm() > 0 {
+		if d, ok := horizontalUnit(fwd, upV, 1e-9); ok {
+			fwdV, leftV = d, upV.Cross(d)
+		}
+	}
 	primaryPos := w.BodyPosition(c.Primary)
 	rel, relV := c.State.R.Sub(rT), c.State.V.Sub(vT)
 	st := ProximityState{
@@ -299,8 +309,8 @@ func (w *World) surfaceProximityState(c *spacecraft.Spacecraft) (ProximityState,
 		Surface:     true,
 		AltM:        c.State.R.Norm() - c.Primary.RadiusMeters(),
 		AltRateMS:   c.State.V.Dot(c.State.R.Unit()),
-		FwdVelMS:    vGround.Dot(fwd),
-		LatVelMS:    -vGround.Dot(left),
+		FwdVelMS:    vGround.Dot(fwdV),
+		LatVelMS:    -vGround.Dot(leftV),
 	}
 	st.HullGapM = st.RangeM
 	if st.RangeM > 0 {
