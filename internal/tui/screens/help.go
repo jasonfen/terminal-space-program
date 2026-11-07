@@ -132,7 +132,7 @@ var helpSections = []helpSection{
 		{";", "NavMode cycle: Surface → Orbit → Target → Port → Site (a frame with nothing to aim at is skipped)"},
 		{"; (self-switch)", "Surface → Orbit climbing through the upper atmosphere (Earth 51 km); Orbit → Surface coming back down. ; overrides"},
 		{"; (to a target)", "Target, Port and Site are chosen by hand only; they never switch themselves"},
-		{"q (SITE)", "in SITE: engage the landing autopilot (hold: Site+ wait / brake / approach / final); a hold key or b takes it off"},
+		{"q (SITE)", "in SITE: re-engage Site+ after a takeover (N engages it; hold: Site+ wait); a hold key or b takes it off"},
 		{"Z / X (Site+)", "under Site+: hand over a descent rate, 1 m/s a press (alt 0.3); z / x take the raw throttle back"},
 	}},
 	{"NAVIGATION", [][2]string{
@@ -155,7 +155,7 @@ var helpSections = []helpSection{
 		{"H", "plant transfer to [t] target (plane-aware); refuses if a burn is planted (clear in [m]) or for another planet's moon"},
 		{"I", "plant plane match ([t] target body / vessel / equatorial); also works inside the planner"},
 		{"C", "plant circularize burn at next apoapsis; also works inside the planner"},
-		{"N", "deorbit onto the targeted site: plant one retro burn that puts your 90% brake's stop point on the flag (the brake cue plans the same 90%, rsv 10%); N again re-solves; also works inside the planner"},
+		{"N", "deorbit onto the targeted site: plant one retro burn that puts your 90% brake's stop point on the flag (the brake cue plans the same 90%, rsv 10%); and engage Site+ on [SITE] (the clock stays yours); N again re-solves; also works inside the planner"},
 		{"K", "close on target vessel: plant nudge, or open the Rendezvous Planner if too far in phase; also works inside the planner"},
 		{"R", "refine plan (re-Lambert the arrival); also works inside the planner"},
 		{"P", "porkchop plot to your TARGET planet; also works inside the planner"},

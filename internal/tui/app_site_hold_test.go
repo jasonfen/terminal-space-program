@@ -163,3 +163,13 @@ func TestBTakesTheEngineFromSitePlus(t *testing.T) {
 		t.Errorf("plain b: lit=%v footer %q", c.ManualBurn != nil, a.statusMsg)
 	}
 }
+
+// Playtest P3: N on a site engages Site+ on SITE in one press.
+func TestNEngagesSitePlus(t *testing.T) {
+	a, c := siteHoldApp(t)
+	a.world.NavMode = sim.NavSurface
+	pressKey(a, 'N')
+	if c.Landing == nil || !c.Landing.Engaged || c.AttitudeMode != spacecraft.BurnSite || a.world.NavMode != sim.NavSite {
+		t.Errorf("after N (%q): landing=%+v hold=%v nav=%v, want Site+ engaged on SITE", a.statusMsg, c.Landing, c.AttitudeMode, a.world.NavMode)
+	}
+}

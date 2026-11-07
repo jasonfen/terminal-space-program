@@ -4779,9 +4779,13 @@ func (a *App) doPlanDeorbit() {
 		a.refuse("deorbit", fmt.Sprintf("a burn is already planted (%s); clear it in [m] first", planted))
 		return
 	}
-	plan, err := a.world.PlanDeorbitOntoSite()
-	if err != nil {
+	plan, err := a.world.PlanDeorbitAndEngage() // playtest P3: N is the "land itself" key
+	if plan == nil {
 		a.refuse("deorbit", deorbitRefusal(err))
+		return
+	}
+	if err != nil { // planted, but Site+ would not engage
+		a.refuse("site hold", siteHoldRefusal(err))
 		return
 	}
 	aim := "stop"

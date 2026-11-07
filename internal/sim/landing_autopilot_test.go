@@ -459,3 +459,25 @@ func TestLandingAutopilotSurvivesVesselSwitch(t *testing.T) {
 		t.Errorf("q after ] [: err=%v engaged=%v phase %v -> %v", err, c.Landing.Engaged, phase, c.Landing.Phase)
 	}
 }
+
+// Playtest P3: N on a site alone (no ;, no q, no other key) lands the vessel.
+// It plants the burn, engages Site+ and puts the navball on SITE.
+func TestPlanDeorbitAndEngageLandsWithNoOtherKey(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	if _, err := w.PlanDeorbitAndEngage(); err != nil {
+		t.Fatal(err)
+	}
+	if !c.Landing.Engaged || c.AttitudeMode != spacecraft.BurnSite || w.NavMode != NavSite {
+		t.Fatalf("after N: engaged=%v hold=%v nav=%v, want Site+ on SITE", c.Landing.Engaged, c.AttitudeMode, w.NavMode)
+	}
+	if _, err := w.PlanDeorbitAndEngage(); err != nil || !c.Landing.Engaged { // N again re-solves, stays engaged
+		t.Fatalf("second N: err=%v engaged=%v", err, c.Landing.Engaged)
+	}
+	for i := 0; i < 2*3600*4 && !c.Landed && !c.Crashed; i++ {
+		w.Tick()
+	}
+	s := w.Sites[0]
+	if d := HaversineM(c.LandedLatDeg, c.LandedLonDeg, s.LatDeg, s.LonDeg, c.Primary.RadiusMeters()); !c.Landed || d > 50 {
+		t.Errorf("landed=%v %.1f m from the flag, want within 50 m", c.Landed, d)
+	}
+}
