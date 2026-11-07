@@ -498,7 +498,7 @@ func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
 		c.SiteDir = f.retro()
 		if ap.Nose {
 			// the nose hold waits for the pilot's engine (or a hover's slow ground speed)
-			if c.EffectiveThrottle() <= 0 && f.sh >= FinalPhaseGroundSpeedMps {
+			if c.ManualBurn == nil && f.sh >= FinalPhaseGroundSpeedMps {
 				return
 			}
 			ap.Phase = spacecraft.PhaseBrake

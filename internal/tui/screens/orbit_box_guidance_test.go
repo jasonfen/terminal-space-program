@@ -166,9 +166,14 @@ func TestGuidanceSiteHoldIsAccentedOnlyWhileEngaged(t *testing.T) {
 	row := func() string { return v.buildGuidanceBox(w)[1] }
 
 	c.Landing = &spacecraft.LandingAutopilot{Engaged: true}
-	if want := th.Warning.Render("Site+ wait"); !strings.Contains(row(), want) {
-		t.Errorf("engaged coast: want %q accented in %q", "Site+ wait", row())
+	if want := th.Warning.Render("Site+ auto wait"); !strings.Contains(row(), want) {
+		t.Errorf("engaged coast: want %q accented in %q", "Site+ auto wait", row())
 	}
+	c.Landing.Nose = true // fix E: the nose hold is the pilot's, not the armed autopilot
+	if r := row(); strings.Contains(r, th.Warning.Render("Site+")) || !strings.Contains(r, "Site+ wait") {
+		t.Errorf("nose hold should read plain %q: %q", "Site+ wait", r)
+	}
+	c.Landing.Nose = false
 	c.Landing.Engaged = false
 	if r := row(); strings.Contains(r, th.Warning.Render("Site+")) || strings.Contains(r, "wait") {
 		t.Errorf("disengaged Site+ should be plain and phase-free: %q", r)
