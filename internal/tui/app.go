@@ -1895,30 +1895,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleUp):
-			if a.world.LandingROD(+sim.RODStepMps) { // ADR 0067: under Site+, Z/X step a descent rate
-				return a, nil
-			}
+			a.world.LandingHandOverThrottle() // playtest Q4a: Z/X are the throttle everywhere; under Site+ they take it, steering kept
 			a.world.AdjustThrottle(0.1)
 			a.world.RecordAction(missions.ActionThrottleUp) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleDown):
-			if a.world.LandingROD(-sim.RODStepMps) {
-				return a, nil
-			}
+			a.world.LandingHandOverThrottle() // playtest Q4a: Z/X are the throttle everywhere; under Site+ they take it, steering kept
 			a.world.AdjustThrottle(-0.1)
 			a.world.RecordAction(missions.ActionThrottleDown) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleUpFine):
-			if a.world.LandingROD(+sim.RODFineStepMps) {
-				return a, nil
-			}
+			a.world.LandingHandOverThrottle() // playtest Q4a: Z/X are the throttle everywhere; under Site+ they take it, steering kept
 			a.world.AdjustThrottle(0.01)
 			a.world.RecordAction(missions.ActionThrottleUp) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleDownFine):
-			if a.world.LandingROD(-sim.RODFineStepMps) {
-				return a, nil
-			}
+			a.world.LandingHandOverThrottle() // playtest Q4a: Z/X are the throttle everywhere; under Site+ they take it, steering kept
 			a.world.AdjustThrottle(-0.01)
 			a.world.RecordAction(missions.ActionThrottleDown) // ADR 0025 §7
 			return a, nil
@@ -1935,10 +1927,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.handleAttitudeIntent(sim.IntentNormalMinus)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeRadialOut):
+			if a.siteSink(-sim.RODStepMps) {
+				return a, nil
+			}
 			a.handleAttitudeIntent(sim.IntentRadialOut)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeRadialIn):
+			if a.siteSink(+sim.RODStepMps) {
+				return a, nil
+			}
 			a.handleAttitudeIntent(sim.IntentRadialIn)
+			return a, nil
+		case key.Matches(m, a.keys.SinkFasterFine):
+			a.siteSink(-sim.RODFineStepMps)
+			return a, nil
+		case key.Matches(m, a.keys.SinkSlowerFine):
+			a.siteSink(+sim.RODFineStepMps)
 			return a, nil
 		case key.Matches(m, a.keys.ToggleBurn):
 			wasBurning := a.world.ActiveCraft() != nil && a.world.ActiveCraft().ManualBurn != nil
@@ -3060,6 +3064,17 @@ func (a *App) maybeAutosave(now time.Time) {
 		a.flash("autosave failed: " + reason)
 	}
 	a.autosaveFailing = err != nil
+}
+
+// siteSink is e / q (alt: fine) under an engaged Site+ in SITE (playtest Q4a):
+// step the descent rate in approach and final, steering kept. delta + is a
+// slower sink. With RCS armed the keys are not ours (S5). Reports consumed.
+func (a *App) siteSink(delta float64) bool {
+	c := a.world.ActiveCraft()
+	if c == nil || a.world.NavMode != sim.NavSite || c.EngineMode == spacecraft.EngineRCS {
+		return false
+	}
+	return a.world.LandingROD(delta)
 }
 
 // siteAimHeld: an engaged Site+ autopilot owns the nose, so the arrows must not

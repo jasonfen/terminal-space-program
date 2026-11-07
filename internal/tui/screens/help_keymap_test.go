@@ -251,7 +251,7 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 	for _, want := range []string{
 		"Surface → Orbit → Target → Port → Site",
 		"q (SITE) in SITE: re-engage Site+ after a takeover (N engages it; hold: Site+ wait); a hold key or b takes it off",
-		"Z / X (Site+) under Site+: hand over a descent rate, 1 m/s a press (alt 0.3); z / x take the raw throttle back",
+		"e / q (Site+) approach and final: e sinks 1 m/s slower, q faster; z x Z X take the throttle, steering kept",
 	} {
 		if !strings.Contains(f1, want) {
 			t.Errorf("F1 MANUAL FLIGHT page lacks %q", want)
@@ -260,8 +260,10 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 	for _, want := range []string{
 		"Surface → Orbit → Target → Port → Site",
 		"| `q` in Site | With the main engine selected, engage the landing autopilot (`hold: Site+ (SITE)`)",
-		"| `Z` / `X` under `Site+` | Hand over a rate of descent:",
-		"`z` / `x` give the raw throttle back and keep the steering",
+		"| `e` / `q` under `Site+` | In approach and final, set the rate of descent:",
+		"`Z` / `X` / `z` / `x` take the throttle and keep the steering",
+		"the descent rate `e` / `q` set",
+		"(`alt+e` / `alt+q` 0.3 m/s)",
 		"| `Site+` / `ROD` | The landing autopilot's hold (`q` in SITE): `wait` for the brake",
 		"It also puts the navball on SITE and engages the landing autopilot (`hold: Site+ wait`)",
 		"`hold:` reads `Site+ wait` (amber) until the brake lights",

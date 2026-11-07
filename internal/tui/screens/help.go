@@ -133,7 +133,8 @@ var helpSections = []helpSection{
 		{"; (self-switch)", "Surface → Orbit climbing through the upper atmosphere (Earth 51 km); Orbit → Surface coming back down. ; overrides"},
 		{"; (to a target)", "Target, Port and Site are chosen by hand only; they never switch themselves"},
 		{"q (SITE)", "in SITE: re-engage Site+ after a takeover (N engages it; hold: Site+ wait); a hold key or b takes it off"},
-		{"Z / X (Site+)", "under Site+: hand over a descent rate, 1 m/s a press (alt 0.3); z / x take the raw throttle back"},
+		{"e / q (Site+)", "approach and final: e sinks 1 m/s slower, q faster; z x Z X take the throttle, steering kept"},
+		{"alt+e / alt+q", "under Site+: the same sink steps, 0.3 m/s a press"},
 	}},
 	{"NAVIGATION", [][2]string{
 		{"l", "move the body cursor next (info only, not [t] target)"},
@@ -334,7 +335,7 @@ var helpSections = []helpSection{
 		{"◉ ● ○ ◇", "STAGES pips, bottom stage first: ◉ lit (burns next; every stage of a booster group is lit), ● fuelled and waiting, ○ spent, ◇ no tank (a pod or payload)"},
 		{"speed", "in the navball frame, named (surface) / (orbit) / (target) / (port), alongside vert: and horiz:"},
 		{"(max N)", "the same figure at full throttle, when it differs from the current one"},
-		{"Site+ / ROD", "the landing autopilot's hold (q in SITE): wait for the brake, then brake, approach, final to touchdown; ROD is the descent rate Z / X hand you, held by the throttle; the arrows do nothing while it flies"},
+		{"Site+ / ROD", "the landing autopilot's hold (q in SITE): wait for the brake, then brake, approach, final to touchdown; ROD is the descent rate e / q set, held by the throttle; the arrows do nothing while it flies"},
 		{"alt rate", "LANDING chip, the landing view: how fast your altitude changes (- falling)"},
 		{"fwd vel / lat vel", "LANDING chip: your speed over the ground along the track you entered the view on, and across it, tagged R or L of that line"},
 		{"aim", "LANDING chip: where the stop is aimed against the site, along (+ long, − short) and across (R / L); 0 m until you move it"},

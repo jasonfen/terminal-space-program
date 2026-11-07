@@ -379,7 +379,7 @@ func (w *World) LandingTakeEngine() bool {
 	return true
 }
 
-// LandingROD is Z/X under the autopilot (decision 5, P66): step the descent
+// LandingROD is e/q under the autopilot (decision 5, P66): step the descent
 // rate the throttle holds, starting at the rate the vessel is falling. delta is
 // +/- RODStepMps (or RODFineStepMps); + slows the descent. Reports whether the
 // key was consumed (an engaged autopilot on the active vessel).

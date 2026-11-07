@@ -136,6 +136,10 @@ type Keymap struct {
 	// throttle +/-1 % where Z / X step 10 %. Needs the terminal to send
 	// Option as Meta/Alt on macOS (see the F1 and controls.md note).
 	ThrottleUpFine      key.Binding
+	// SinkFasterFine / SinkSlowerFine: alt+q / alt+e are the fine (0.3 m/s)
+	// descent-rate steps under an engaged Site+, beside q / e's 1 m/s.
+	SinkFasterFine key.Binding
+	SinkSlowerFine key.Binding
 	ThrottleDownFine    key.Binding
 	AttitudePrograde    key.Binding
 	AttitudeRetrograde  key.Binding
@@ -460,6 +464,8 @@ func DefaultKeymap() Keymap {
 		ThrottleDown:        key.NewBinding(key.WithKeys("X"), key.WithHelp("X", "throttle -10%")),
 		ThrottleUpFine:      key.NewBinding(key.WithKeys("alt+z", "alt+Z"), key.WithHelp("alt+z", "throttle +1%")),
 		ThrottleDownFine:    key.NewBinding(key.WithKeys("alt+x", "alt+X"), key.WithHelp("alt+x", "throttle -1%")),
+		SinkFasterFine:      key.NewBinding(key.WithKeys("alt+q"), key.WithHelp("alt+q", "Site+: sink 0.3 m/s faster")),
+		SinkSlowerFine:      key.NewBinding(key.WithKeys("alt+e"), key.WithHelp("alt+e", "Site+: sink 0.3 m/s slower")),
 		AttitudePrograde:    key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "attitude: prograde")),
 		AttitudeRetrograde:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "attitude: retrograde")),
 		AttitudeNormalPlus:  key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "attitude: normal+")),

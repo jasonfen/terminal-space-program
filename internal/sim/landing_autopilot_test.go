@@ -2,6 +2,7 @@ package sim
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -98,7 +99,7 @@ func TestLandingAutopilotFliesUnattended(t *testing.T) {
 	}
 }
 
-// ADR 0067 guard 4: Z/X hand over a descent rate; from 100 m the throttle holds
+// ADR 0067 guard 4 (playtest Q4a: the keys are e/q): e/q hand over a descent rate; from 100 m the throttle holds
 // the commanded rate within 0.2 m/s with the nose still the autopilot's.
 func TestLandingAutopilotRODHoldsTheCommandedRate(t *testing.T) {
 	w, c := deorbitWorld(t, 150, 0)
@@ -117,6 +118,9 @@ func TestLandingAutopilotRODHoldsTheCommandedRate(t *testing.T) {
 				t.Fatal("LandingROD refused an engaged autopilot")
 			}
 			cmd = ap.RODRateMps
+			if want := fmt.Sprintf("Site+ ROD \u2212%.1f m/s", -cmd); w.siteHoldLabel() != want {
+				t.Errorf("hold reads %q, want %q", w.siteHoldLabel(), want)
+			}
 			return
 		}
 		if ap.ROD && f.alt > 40 {
