@@ -250,8 +250,8 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Surface → Orbit → Target → Port → Site",
-		"q (SITE) in SITE: re-engage Site+ after a takeover (N engages it; hold: Site+ wait); a hold key or b takes it off",
-		"e / q (Site+) approach and final: e sinks 1 m/s slower, q faster; z x Z X take the throttle, steering kept",
+		"q (SITE) in SITE: nose where the landing guidance says (Site+ brake); engine, throttle, warp stay yours; N flies it all",
+		"e / q (Site+ auto) under N, approach and final: e sinks 1 m/s slower, q faster; z x Z X take the throttle",
 	} {
 		if !strings.Contains(f1, want) {
 			t.Errorf("F1 MANUAL FLIGHT page lacks %q", want)
@@ -259,15 +259,19 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Surface → Orbit → Target → Port → Site",
-		"| `q` in Site | With the main engine selected, engage the landing autopilot (`hold: Site+ (SITE)`)",
-		"| `e` / `q` under `Site+` | In approach and final, set the rate of descent:",
+		"| `q` in Site | The guidance nose hold (`hold: Site+ brake (SITE)`)",
+		"It never lights, cuts or throttles the engine, never caps warp and holds no rate of descent",
+		"| `e` / `q` under `Site+ auto` | Under `N`'s autopilot, in approach and final, set the rate of descent:",
+		"Under the `q` nose hold `e` is a plain hold key",
 		"`Z` / `X` / `z` / `x` take the throttle and keep the steering",
 		"the descent rate `e` / `q` set",
 		"(`alt+e` / `alt+q` 0.3 m/s)",
-		"| `Site+` / `ROD` | The landing autopilot's hold (`q` in SITE): `wait` for the brake",
-		"It also puts the navball on SITE and engages the landing autopilot (`hold: Site+ wait`)",
-		"`hold:` reads `Site+ wait` (amber) until the brake lights",
-		"and so does `b` (surface retrograde, the engine yours: footer `Site+ off: engine lit by hand`)",
+		"| `Site+` / `Site+ auto` / `ROD` | `q` in SITE holds the guidance nose",
+		"`N` flies everything (`Site+ auto wait` in amber until the brake lights",
+		"It also puts the navball on SITE and engages the full landing autopilot (`hold: Site+ auto wait`, amber)",
+		"engages it from the current state with no new burn (footer `Site+ auto: landing from here`)",
+		"`hold:` reads `Site+ wait` until the engine is lit",
+		"`b` (surface retrograde, the engine yours: footer `Site+ off: engine lit by hand`) switches it off",
 	} {
 		if !strings.Contains(string(doc), want) {
 			t.Errorf("docs/controls.md lacks %q", want)

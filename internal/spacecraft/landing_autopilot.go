@@ -32,7 +32,11 @@ func (p LandingPhase) Word() string {
 // the vessel (schema 22) so a booster mid-brake survives a reload.
 type LandingAutopilot struct {
 	Engaged bool
-	Phase   LandingPhase
+	// Nose (fix E, P7): q's guidance nose hold. The law points the nose for the
+	// phase and nothing else: no light, no throttle, no warp cap, no ROD. False
+	// is the full autopilot (N), which is also what an older save loads as.
+	Nose  bool
+	Phase LandingPhase
 
 	// ROD (decision 5, P66): the throttle holds RODRateMps (signed vertical
 	// rate, negative = descending) while the nose stays the autopilot's.
@@ -72,4 +76,4 @@ type LandingAutopilot struct {
 
 // Owns reports whether the autopilot has the engine: engaged and not out in
 // Coast with nothing lit. RCS pulses are blocked while it does.
-func (a *LandingAutopilot) Owns() bool { return a != nil && a.Engaged }
+func (a *LandingAutopilot) Owns() bool { return a != nil && a.Engaged && !a.Nose }

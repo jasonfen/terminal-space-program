@@ -42,8 +42,9 @@ func siteHoldApp(t *testing.T) (*App, *spacecraft.Spacecraft) {
 }
 
 // ADR 0067 decision 5: ; reaches SITE and flashes it; q there with a vessel
-// that cannot out-thrust the Moon's gravity refuses with the fact.
-func TestSiteFrameFlashAndUnderWeightRefusal(t *testing.T) {
+// that cannot out-thrust the Moon's gravity still takes the nose hold (fix E:
+// q never lights anything, so there is nothing to refuse).
+func TestSiteFrameFlashAndUnderWeightNoseHold(t *testing.T) {
 	a, c := siteHoldApp(t)
 	pressKey(a, ';')
 	if a.world.NavMode != sim.NavSite || a.statusMsg != "nav: SITE" {
@@ -51,11 +52,11 @@ func TestSiteFrameFlashAndUnderWeightRefusal(t *testing.T) {
 	}
 	c.Thrust = 1 // a thrust far under weight
 	pressKey(a, 'q')
-	if a.statusMsg != "site hold: thrust under weight" {
-		t.Errorf("q flash = %q, want %q", a.statusMsg, "site hold: thrust under weight")
+	if a.statusMsg != "nav: SITE" {
+		t.Errorf("q flash = %q, want the SITE flash untouched", a.statusMsg)
 	}
-	if c.Landing != nil && c.Landing.Engaged {
-		t.Error("q engaged an autopilot that cannot brake")
+	if c.Landing == nil || !c.Landing.Engaged || !c.Landing.Nose {
+		t.Error("q did not take the nose hold")
 	}
 }
 
@@ -64,6 +65,14 @@ func TestSiteFrameFlashAndUnderWeightRefusal(t *testing.T) {
 // hold key takes the nose.
 func TestSiteHoldKeysUnderTheAutopilot(t *testing.T) {
 	a, c := siteHoldApp(t)
+	// fix E: under the q nose hold e is a plain hold key, not a sink step
+	c.Landing = &spacecraft.LandingAutopilot{Engaged: true, Nose: true, Phase: spacecraft.PhaseFinal}
+	a.world.NavMode = sim.NavSite
+	c.AttitudeMode = spacecraft.BurnSite
+	pressKey(a, 'e')
+	if c.Landing.ROD || c.Landing.Engaged {
+		t.Errorf("e under the nose hold: ROD=%v engaged=%v, want a plain hold key that replaces the hold", c.Landing.ROD, c.Landing.Engaged)
+	}
 	c.Landing = &spacecraft.LandingAutopilot{Engaged: true, Phase: spacecraft.PhaseFinal} // Z/X latch a rate only in approach and final; z/x hand over only past the coast
 	c.Throttle = 0.5
 	a.world.NavMode = sim.NavSite // e / q are the sink keys in SITE

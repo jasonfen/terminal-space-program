@@ -485,3 +485,80 @@ func TestPlanDeorbitAndEngageLandsWithNoOtherKey(t *testing.T) {
 		t.Errorf("landed=%v %.1f m from the flag, want within 50 m", c.Landed, d)
 	}
 }
+
+// afterDeorbitBurn plants N's burn and ticks until it has fired: the vessel is
+// falling toward the flag with the engine dark and no node planted.
+func afterDeorbitBurn(t *testing.T) (*World, *spacecraft.Spacecraft) {
+	t.Helper()
+	w, c := deorbitWorld(t, 150, 0)
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2*3600*4 && (len(c.Nodes) > 0 || c.ActiveBurn != nil); i++ {
+		w.Tick()
+	}
+	if len(c.Nodes) > 0 || c.ActiveBurn != nil {
+		t.Fatal("setup: the deorbit burn never fired")
+	}
+	c.Crewed, c.Controllable = true, true // as the cue test: the burn drains the fixture's link
+	return w, c
+}
+
+// Fix E (P7): q is a nose hold. It never lights, cuts or throttles the engine
+// and never caps warp; the pilot lights the brake and the nose follows the law.
+func TestNoseHoldSteersOnlyAndNeverTouchesTheEngine(t *testing.T) {
+	w, c := afterDeorbitBurn(t)
+	if err := w.EngageLandingNoseHold(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 400; i++ {
+		w.Tick()
+	}
+	if c.ManualBurn != nil || c.Landing.Phase != spacecraft.PhaseCoast {
+		t.Errorf("engine dark: burn=%v phase=%v, want nothing lit and Coast (wait)", c.ManualBurn != nil, c.Landing.Phase)
+	}
+	if lim, capped := w.landingAutopilotWarpLimit(); capped {
+		t.Errorf("nose hold capped warp at %v", lim)
+	}
+	c.Throttle = 0.9 // the pilot lights the brake by hand
+	c.ManualBurn = &spacecraft.ManualBurn{StartTime: w.Clock.SimTime}
+	for i := 0; i < 200; i++ {
+		w.Tick()
+		if c.Throttle != 0.9 {
+			t.Fatalf("tick %d: throttle moved to %v under the nose hold, want the pilot's 0.9", i, c.Throttle)
+		}
+	}
+	if c.Landing.Phase != spacecraft.PhaseBrake {
+		t.Errorf("phase %v, want Brake once the engine is lit", c.Landing.Phase)
+	}
+	if d := c.SiteDir.Dot(apFrameOf(c).retro()); d < 0.9 || math.Abs(c.SiteDir.Norm()-1) > 1e-9 {
+		t.Errorf("nose %v dot retro %.3f, want the guidance direction near surface retrograde", c.SiteDir, d)
+	}
+	if c.AttitudeMode != spacecraft.BurnSite {
+		t.Errorf("attitude %v, want the hold kept", c.AttitudeMode)
+	}
+	if w.LandingROD(+1) || w.LandingTakeEngine() || w.LandingHandOverThrottle() {
+		t.Error("e/q, b or z/x were consumed by the nose hold; they are plain keys under it")
+	}
+}
+
+// Fix E: N from anywhere. Falling after the deorbit fired it engages the full
+// autopilot with no new node, and over a nose hold it keeps the phase.
+func TestNEngagesMidDescentWithNoNewBurn(t *testing.T) {
+	w, c := afterDeorbitBurn(t)
+	plan, err := w.PlanDeorbitAndEngage()
+	if err != nil || plan != nil {
+		t.Fatalf("N mid-descent: plan=%v err=%v, want engaged in place (nil, nil)", plan, err)
+	}
+	if len(c.Nodes) != 0 || !c.Landing.Engaged || c.Landing.Nose || w.NavMode != NavSite {
+		t.Errorf("nodes=%d engaged=%v nose=%v nav=%v, want no node, full autopilot on SITE", len(c.Nodes), c.Landing.Engaged, c.Landing.Nose, w.NavMode)
+	}
+	w2, c2 := afterDeorbitBurn(t)
+	if err := w2.EngageLandingNoseHold(); err != nil {
+		t.Fatal(err)
+	}
+	c2.Landing.Phase = spacecraft.PhaseApproach
+	if err := w2.EngageLandingAutopilot(); err != nil || c2.Landing.Nose || c2.Landing.Phase != spacecraft.PhaseApproach {
+		t.Errorf("N over the nose hold: err=%v nose=%v phase=%v, want the auto in Approach", err, c2.Landing.Nose, c2.Landing.Phase)
+	}
+}
