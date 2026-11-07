@@ -149,3 +149,28 @@ func TestGuidanceHeadingFollowsTheInertialHold(t *testing.T) {
 		t.Errorf("heading row %q, want %s (moved from %s)", row, readout.Heading(h1), readout.Heading(h0))
 	}
 }
+
+// ADR 0067 playtest P2: while Site+ is engaged the hold name (phase word
+// included) reads in the Warning colour, the theme's armed/active accent (as in
+// "armed → ..." and the active-stage line); a disengaged Site+ is plain.
+func TestGuidanceSiteHoldIsAccentedOnlyWhileEngaged(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+
+	th := plainThemeColored()
+	w, c := spawnSaturnVOnPad(t)
+	w.NavMode = sim.NavSite // hold and nav agree, so the frame word is not marked either
+	c.AttitudeMode = spacecraft.BurnSite
+	v := NewOrbitView(th)
+	row := func() string { return v.buildGuidanceBox(w)[1] }
+
+	c.Landing = &spacecraft.LandingAutopilot{Engaged: true}
+	if want := th.Warning.Render("Site+ wait"); !strings.Contains(row(), want) {
+		t.Errorf("engaged coast: want %q accented in %q", "Site+ wait", row())
+	}
+	c.Landing.Engaged = false
+	if r := row(); strings.Contains(r, th.Warning.Render("Site+")) || strings.Contains(r, "wait") {
+		t.Errorf("disengaged Site+ should be plain and phase-free: %q", r)
+	}
+}

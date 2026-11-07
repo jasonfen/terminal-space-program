@@ -1895,30 +1895,22 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleUp):
-			if a.world.LandingROD(+sim.RODStepMps) { // ADR 0067: under Site+, Z/X step a descent rate
-				return a, nil
-			}
+			a.world.LandingHandOverThrottle() // playtest Q4a: Z/X are the throttle everywhere; under Site+ they take it, steering kept
 			a.world.AdjustThrottle(0.1)
 			a.world.RecordAction(missions.ActionThrottleUp) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleDown):
-			if a.world.LandingROD(-sim.RODStepMps) {
-				return a, nil
-			}
+			a.world.LandingHandOverThrottle() // playtest Q4a: Z/X are the throttle everywhere; under Site+ they take it, steering kept
 			a.world.AdjustThrottle(-0.1)
 			a.world.RecordAction(missions.ActionThrottleDown) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleUpFine):
-			if a.world.LandingROD(+sim.RODFineStepMps) {
-				return a, nil
-			}
+			a.world.LandingHandOverThrottle() // playtest Q4a: Z/X are the throttle everywhere; under Site+ they take it, steering kept
 			a.world.AdjustThrottle(0.01)
 			a.world.RecordAction(missions.ActionThrottleUp) // ADR 0025 §7
 			return a, nil
 		case key.Matches(m, a.keys.ThrottleDownFine):
-			if a.world.LandingROD(-sim.RODFineStepMps) {
-				return a, nil
-			}
+			a.world.LandingHandOverThrottle() // playtest Q4a: Z/X are the throttle everywhere; under Site+ they take it, steering kept
 			a.world.AdjustThrottle(-0.01)
 			a.world.RecordAction(missions.ActionThrottleDown) // ADR 0025 §7
 			return a, nil
@@ -1935,14 +1927,37 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			a.handleAttitudeIntent(sim.IntentNormalMinus)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeRadialOut):
+			if a.siteSink(-sim.RODStepMps) {
+				return a, nil
+			}
 			a.handleAttitudeIntent(sim.IntentRadialOut)
 			return a, nil
 		case key.Matches(m, a.keys.AttitudeRadialIn):
+			if a.siteSink(+sim.RODStepMps) {
+				return a, nil
+			}
 			a.handleAttitudeIntent(sim.IntentRadialIn)
+			return a, nil
+		case key.Matches(m, a.keys.SinkFasterFine):
+			a.siteSink(-sim.RODFineStepMps)
+			return a, nil
+		case key.Matches(m, a.keys.SinkSlowerFine):
+			a.siteSink(+sim.RODFineStepMps)
 			return a, nil
 		case key.Matches(m, a.keys.ToggleBurn):
 			wasBurning := a.world.ActiveCraft() != nil && a.world.ActiveCraft().ManualBurn != nil
+			tookEngine := a.world.LandingTakeEngine() // playtest P1: b under Site+ switches it off
 			a.world.ToggleManualBurn()
+			if c := a.world.ActiveCraft(); tookEngine && c != nil {
+				switch {
+				case c.ManualBurn != nil:
+					a.flash("Site+ off: engine lit by hand")
+				case wasBurning:
+					a.flash("Site+ off: engine cut by hand")
+				default:
+					a.flash("Site+ off")
+				}
+			}
 			a.world.RecordAction(missions.ActionToggleBurn) // ADR 0025 §7
 			// Ignite only when the engine actually lit (not on a cut, and
 			// not when throttle/fuel/command refused it): Flight School's
@@ -3049,6 +3064,17 @@ func (a *App) maybeAutosave(now time.Time) {
 		a.flash("autosave failed: " + reason)
 	}
 	a.autosaveFailing = err != nil
+}
+
+// siteSink is e / q (alt: fine) under an engaged Site+ in SITE (playtest Q4a):
+// step the descent rate in approach and final, steering kept. delta + is a
+// slower sink. With RCS armed the keys are not ours (S5). Reports consumed.
+func (a *App) siteSink(delta float64) bool {
+	c := a.world.ActiveCraft()
+	if c == nil || a.world.NavMode != sim.NavSite || c.EngineMode == spacecraft.EngineRCS {
+		return false
+	}
+	return a.world.LandingROD(delta)
 }
 
 // siteAimHeld: an engaged Site+ autopilot owns the nose, so the arrows must not
@@ -4768,9 +4794,13 @@ func (a *App) doPlanDeorbit() {
 		a.refuse("deorbit", fmt.Sprintf("a burn is already planted (%s); clear it in [m] first", planted))
 		return
 	}
-	plan, err := a.world.PlanDeorbitOntoSite()
-	if err != nil {
+	plan, err := a.world.PlanDeorbitAndEngage() // playtest P3: N is the "land itself" key
+	if plan == nil {
 		a.refuse("deorbit", deorbitRefusal(err))
+		return
+	}
+	if err != nil { // planted, but Site+ would not engage
+		a.refuse("site hold", siteHoldRefusal(err))
 		return
 	}
 	aim := "stop"

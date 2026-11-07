@@ -59,24 +59,34 @@ func TestSiteFrameFlashAndUnderWeightRefusal(t *testing.T) {
 	}
 }
 
-// ADR 0067 decisions 5 and 10: with the autopilot engaged, Z / X step a rate
-// of descent (not 10% of throttle), z / x give the throttle back, and a hold
-// key takes the nose.
+// ADR 0067 decisions 5 and 10, playtest Q4a: with the autopilot engaged in
+// final, e / q step a rate of descent, Z / X / z / x take the throttle, and a
+// hold key takes the nose.
 func TestSiteHoldKeysUnderTheAutopilot(t *testing.T) {
 	a, c := siteHoldApp(t)
 	c.Landing = &spacecraft.LandingAutopilot{Engaged: true, Phase: spacecraft.PhaseFinal} // Z/X latch a rate only in approach and final; z/x hand over only past the coast
 	c.Throttle = 0.5
-	pressKey(a, 'X')
-	if !c.Landing.ROD || c.Landing.RODRateMps != -sim.RODStepMps || c.Throttle != 0.5 {
-		t.Errorf("X: ROD=%v rate=%v throttle=%v, want ROD at %v with the throttle untouched", c.Landing.ROD, c.Landing.RODRateMps, c.Throttle, -sim.RODStepMps)
+	a.world.NavMode = sim.NavSite // e / q are the sink keys in SITE
+	c.AttitudeMode = spacecraft.BurnSite
+	pressKey(a, 'e') // e = sink slower; from the rate the vessel is falling (zero here)
+	if !c.Landing.ROD || c.Landing.RODRateMps != 0 || c.Throttle != 0.5 {
+		t.Errorf("e: ROD=%v rate=%v throttle=%v, want ROD at 0 with the throttle untouched", c.Landing.ROD, c.Landing.RODRateMps, c.Throttle)
 	}
-	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'z'}, Alt: true})
+	pressKey(a, 'q') // q = sink faster, one way: it does not hand the sink back
+	if !c.Landing.ROD || c.Landing.RODRateMps != -sim.RODStepMps {
+		t.Errorf("q: ROD=%v rate=%v, want ROD at %v", c.Landing.ROD, c.Landing.RODRateMps, -sim.RODStepMps)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'e'}, Alt: true})
 	if got, want := c.Landing.RODRateMps, -sim.RODStepMps+sim.RODFineStepMps; got < want-1e-9 || got > want+1e-9 {
-		t.Errorf("alt+z: rate %v, want %v (a 0.3 m/s click)", got, want)
+		t.Errorf("alt+e: rate %v, want %v (a 0.3 m/s click)", got, want)
+	}
+	pressKey(a, 'Z') // Z takes the throttle (+10%), steering kept, ROD over
+	if !c.Landing.ThrottleHeld || c.Landing.ROD || !c.Landing.Engaged || c.Throttle < 0.59 || c.Throttle > 0.61 {
+		t.Errorf("Z: held=%v ROD=%v engaged=%v throttle=%v, want the throttle at 0.6 and the autopilot still steering", c.Landing.ThrottleHeld, c.Landing.ROD, c.Landing.Engaged, c.Throttle)
 	}
 	pressKey(a, 'z')
-	if !c.Landing.ThrottleHeld || c.Landing.ROD || c.Throttle != 1 {
-		t.Errorf("z: held=%v ROD=%v throttle=%v, want the raw throttle (full) and no ROD", c.Landing.ThrottleHeld, c.Landing.ROD, c.Throttle)
+	if c.Throttle != 1 {
+		t.Errorf("z: throttle %v, want full", c.Throttle)
 	}
 	pressKey(a, 's')
 	if c.Landing.Engaged {
@@ -112,5 +122,64 @@ func TestSiteHoldTextIsFacts(t *testing.T) {
 	}
 	if got := landingFlash(sim.LandingEvent{CraftName: "B", SiteName: "F", DistanceM: 20, Crashed: true, OutOfReach: true}); !strings.Contains(got, "crashed") || strings.Contains(got, "out of reach") {
 		t.Errorf("crash flash = %q, want crashed and no out-of-reach", got)
+	}
+}
+
+// ADR 0067 playtest P1: b with Site+ engaged, in any phase, switches the
+// autopilot off like a hold key: surface retrograde, then b means what it does
+// on the engine, and the footer states the fact.
+func TestBTakesTheEngineFromSitePlus(t *testing.T) {
+	cases := []struct {
+		name    string
+		phase   spacecraft.LandingPhase
+		burning bool
+		want    string
+		lit     bool
+	}{
+		{"coast, engine dark", spacecraft.PhaseCoast, false, "Site+ off: engine lit by hand", true},
+		{"brake, engine lit", spacecraft.PhaseBrake, true, "Site+ off: engine cut by hand", false},
+		{"final, engine lit", spacecraft.PhaseFinal, true, "Site+ off: engine cut by hand", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			a, c := siteHoldApp(t)
+			c.AttitudeMode = spacecraft.BurnSite
+			c.Landing = &spacecraft.LandingAutopilot{Engaged: true, Phase: tc.phase}
+			if tc.burning {
+				a.world.StartManualBurn()
+				if c.ManualBurn == nil {
+					t.Fatal("setup: engine did not light")
+				}
+			}
+			pressKey(a, 'b')
+			if c.Landing.Engaged {
+				t.Error("b left Site+ engaged")
+			}
+			if c.AttitudeMode != spacecraft.BurnSurfaceRetrograde {
+				t.Errorf("hold = %v, want surface retrograde", c.AttitudeMode)
+			}
+			if (c.ManualBurn != nil) != tc.lit {
+				t.Errorf("engine lit = %v, want %v", c.ManualBurn != nil, tc.lit)
+			}
+			if a.statusMsg != tc.want {
+				t.Errorf("footer = %q, want %q", a.statusMsg, tc.want)
+			}
+		})
+	}
+	// Site+ off: b is the plain toggle with no Site+ footer.
+	a, c := siteHoldApp(t)
+	pressKey(a, 'b')
+	if c.ManualBurn == nil || strings.Contains(a.statusMsg, "Site+") {
+		t.Errorf("plain b: lit=%v footer %q", c.ManualBurn != nil, a.statusMsg)
+	}
+}
+
+// Playtest P3: N on a site engages Site+ on SITE in one press.
+func TestNEngagesSitePlus(t *testing.T) {
+	a, c := siteHoldApp(t)
+	a.world.NavMode = sim.NavSurface
+	pressKey(a, 'N')
+	if c.Landing == nil || !c.Landing.Engaged || c.AttitudeMode != spacecraft.BurnSite || a.world.NavMode != sim.NavSite {
+		t.Errorf("after N (%q): landing=%+v hold=%v nav=%v, want Site+ engaged on SITE", a.statusMsg, c.Landing, c.AttitudeMode, a.world.NavMode)
 	}
 }

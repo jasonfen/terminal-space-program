@@ -314,6 +314,22 @@ func (w *World) EngageLandingAutopilot() error {
 	return nil
 }
 
+// PlanDeorbitAndEngage is N on a site (playtest P3): plant the deorbit burn,
+// engage Site+ and put the navball on SITE. The clock stays the player's. When
+// the plan itself is refused nothing engages (nil plan); when only the engage is
+// refused the plan stays planted and is returned with the error.
+func (w *World) PlanDeorbitAndEngage() (*DeorbitPlan, error) {
+	plan, err := w.PlanDeorbitOntoSite()
+	if err != nil {
+		return nil, err
+	}
+	if err := w.EngageLandingAutopilot(); err != nil {
+		return plan, err
+	}
+	w.setNavMode(NavSite)
+	return plan, nil
+}
+
 // apReachTest is the pre-engage test (decision 10): the reserve-throttle stop,
 // lit at the cue (or from here once braking), must land within the brake's
 // steering authority of the aim. No descent yet (a circular orbit awaiting N)
@@ -350,7 +366,20 @@ func (w *World) DisengageLandingAutopilot(c *spacecraft.Spacecraft) {
 	}
 }
 
-// LandingROD is Z/X under the autopilot (decision 5, P66): step the descent
+// LandingTakeEngine is b under an engaged Site+ (playtest P1): the pilot flies
+// the engine, so the autopilot goes off and the nose goes to surface retrograde,
+// as a hold key does. Reports whether it was engaged.
+func (w *World) LandingTakeEngine() bool {
+	c := w.ActiveCraft()
+	if c == nil || c.Landing == nil || !c.Landing.Engaged {
+		return false
+	}
+	w.DisengageLandingAutopilot(c)
+	w.SetAttitudeMode(spacecraft.BurnSurfaceRetrograde)
+	return true
+}
+
+// LandingROD is e/q under the autopilot (decision 5, P66): step the descent
 // rate the throttle holds, starting at the rate the vessel is falling. delta is
 // +/- RODStepMps (or RODFineStepMps); + slows the descent. Reports whether the
 // key was consumed (an engaged autopilot on the active vessel).

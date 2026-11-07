@@ -2,6 +2,7 @@ package sim
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -98,7 +99,7 @@ func TestLandingAutopilotFliesUnattended(t *testing.T) {
 	}
 }
 
-// ADR 0067 guard 4: Z/X hand over a descent rate; from 100 m the throttle holds
+// ADR 0067 guard 4 (playtest Q4a: the keys are e/q): e/q hand over a descent rate; from 100 m the throttle holds
 // the commanded rate within 0.2 m/s with the nose still the autopilot's.
 func TestLandingAutopilotRODHoldsTheCommandedRate(t *testing.T) {
 	w, c := deorbitWorld(t, 150, 0)
@@ -117,6 +118,9 @@ func TestLandingAutopilotRODHoldsTheCommandedRate(t *testing.T) {
 				t.Fatal("LandingROD refused an engaged autopilot")
 			}
 			cmd = ap.RODRateMps
+			if want := fmt.Sprintf("Site+ ROD \u2212%.1f m/s", -cmd); w.siteHoldLabel() != want {
+				t.Errorf("hold reads %q, want %q", w.siteHoldLabel(), want)
+			}
 			return
 		}
 		if ap.ROD && f.alt > 40 {
@@ -457,5 +461,27 @@ func TestLandingAutopilotSurvivesVesselSwitch(t *testing.T) {
 	}
 	if err := w.EngageLandingAutopilot(); err != nil || !c.Landing.Engaged || c.Landing.Phase != phase {
 		t.Errorf("q after ] [: err=%v engaged=%v phase %v -> %v", err, c.Landing.Engaged, phase, c.Landing.Phase)
+	}
+}
+
+// Playtest P3: N on a site alone (no ;, no q, no other key) lands the vessel.
+// It plants the burn, engages Site+ and puts the navball on SITE.
+func TestPlanDeorbitAndEngageLandsWithNoOtherKey(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	if _, err := w.PlanDeorbitAndEngage(); err != nil {
+		t.Fatal(err)
+	}
+	if !c.Landing.Engaged || c.AttitudeMode != spacecraft.BurnSite || w.NavMode != NavSite {
+		t.Fatalf("after N: engaged=%v hold=%v nav=%v, want Site+ on SITE", c.Landing.Engaged, c.AttitudeMode, w.NavMode)
+	}
+	if _, err := w.PlanDeorbitAndEngage(); err != nil || !c.Landing.Engaged { // N again re-solves, stays engaged
+		t.Fatalf("second N: err=%v engaged=%v", err, c.Landing.Engaged)
+	}
+	for i := 0; i < 2*3600*4 && !c.Landed && !c.Crashed; i++ {
+		w.Tick()
+	}
+	s := w.Sites[0]
+	if d := HaversineM(c.LandedLatDeg, c.LandedLonDeg, s.LatDeg, s.LonDeg, c.Primary.RadiusMeters()); !c.Landed || d > 50 {
+		t.Errorf("landed=%v %.1f m from the flag, want within 50 m", c.Landed, d)
 	}
 }

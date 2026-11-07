@@ -331,8 +331,8 @@ func (w *World) AttitudeHoldParts(mode spacecraft.BurnMode) (string, NavMode) {
 }
 
 // siteHoldLabel is the Site+ hold's name with the autopilot's phase (ADR 0067
-// decision 5): `Site+ brake`, `Site+ approach`, `Site+ final`, and under ROD
-// `Site+ ROD −1.0 m/s`. Armed and still coasting it is plain `Site+`.
+// decision 5): `Site+ wait`, `Site+ brake`, `Site+ approach`, `Site+ final`, and under ROD
+// `Site+ ROD −1.0 m/s`. Armed and still coasting it is `Site+ wait`.
 func (w *World) siteHoldLabel() string {
 	label := spacecraft.BurnSite.String()
 	c := w.ActiveCraft()
@@ -348,8 +348,6 @@ func (w *World) siteHoldLabel() string {
 			sign, rate = "+", ap.RODRateMps
 		}
 		return fmt.Sprintf("%s ROD %s%.1f m/s", label, sign, rate)
-	case ap.Phase != spacecraft.PhaseCoast:
-		return label + " " + ap.Phase.Word()
 	}
-	return label
+	return label + " " + ap.Phase.Word()
 }

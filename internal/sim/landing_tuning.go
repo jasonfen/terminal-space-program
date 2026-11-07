@@ -41,7 +41,7 @@ const (
 	FinalRateAt100mMps   = 3.0
 	FinalRateUnder30mMps = 1.0
 
-	// RODStepMps / RODFineStepMps: Z/X and alt+z/alt+x under ROD. ADR 0067
+	// RODStepMps / RODFineStepMps: e/q and alt+e/alt+q under ROD. ADR 0067
 	// row 10; Apollo ROD click 0.3 m/s.
 	RODStepMps     = 1.0
 	RODFineStepMps = 0.3
