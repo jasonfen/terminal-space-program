@@ -145,6 +145,7 @@ const SchemaVersion = 22
 // and stopping distance re-converge on the next tick.
 type LandingWire struct {
 	Engaged      bool    `json:"engaged,omitempty"`
+	Nose         bool    `json:"nose,omitempty"` // fix E: additive in v22; absent = full autopilot
 	Phase        int     `json:"phase,omitempty"`
 	ROD          bool    `json:"rod,omitempty"`
 	RODRateMps   float64 `json:"rod_rate_mps,omitempty"`

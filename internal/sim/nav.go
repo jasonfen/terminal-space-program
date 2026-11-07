@@ -349,5 +349,8 @@ func (w *World) siteHoldLabel() string {
 		}
 		return fmt.Sprintf("%s ROD %s%.1f m/s", label, sign, rate)
 	}
-	return label + " " + ap.Phase.Word()
+	if ap.Nose {
+		return label + " " + ap.Phase.Word()
+	}
+	return label + " auto " + ap.Phase.Word()
 }

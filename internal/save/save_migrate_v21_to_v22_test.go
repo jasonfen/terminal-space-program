@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/save"
@@ -25,18 +26,26 @@ func TestLandingAutopilotRoundTrips(t *testing.T) {
 		AimAlongM: 250, AimAcrossM: -25, NavAlongM: 310.5, NavAcrossM: -480, NavSeeded: true,
 	}
 	c := w.ActiveCraft()
-	c.Landing = &want
 	path := filepath.Join(t.TempDir(), "save.json")
-	if err := save.Save(w, path); err != nil {
-		t.Fatal(err)
-	}
-	got, err := save.Load(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	l := got.ActiveCraft().Landing
-	if l == nil || *l != want {
-		t.Errorf("autopilot after reload = %+v, want %+v", l, want)
+	for _, nose := range []bool{true, false} { // fix E: absent in the file = the full autopilot
+		want.Nose = nose
+		cp := want
+		c.Landing = &cp
+		if err := save.Save(w, path); err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := os.ReadFile(path)
+		if has := strings.Contains(string(raw), `"nose"`); has != nose {
+			t.Errorf("nose=%v but the file has the key: %v", nose, has)
+		}
+		got, err := save.Load(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		l := got.ActiveCraft().Landing
+		if l == nil || *l != want {
+			t.Errorf("autopilot after reload = %+v, want %+v", l, want)
+		}
 	}
 }
 

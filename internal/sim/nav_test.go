@@ -282,13 +282,20 @@ func TestSiteHoldLabelNamesEveryPhase(t *testing.T) {
 		t.Errorf("disengaged = %q, want Site+", got)
 	}
 	c.Landing.Engaged = true
-	for p, want := range map[spacecraft.LandingPhase]string{
-		spacecraft.PhaseCoast: "Site+ wait", spacecraft.PhaseBrake: "Site+ brake",
-		spacecraft.PhaseApproach: "Site+ approach", spacecraft.PhaseFinal: "Site+ final",
-	} {
-		c.Landing.Phase = p
-		if got := w.siteHoldLabel(); got != want {
-			t.Errorf("phase %v = %q, want %q", p, got, want)
+	for _, nose := range []bool{false, true} {
+		c.Landing.Nose = nose
+		tag := " auto"
+		if nose {
+			tag = ""
+		}
+		for p, word := range map[spacecraft.LandingPhase]string{
+			spacecraft.PhaseCoast: "wait", spacecraft.PhaseBrake: "brake",
+			spacecraft.PhaseApproach: "approach", spacecraft.PhaseFinal: "final",
+		} {
+			c.Landing.Phase = p
+			if want := "Site+" + tag + " " + word; w.siteHoldLabel() != want {
+				t.Errorf("nose=%v phase %v = %q, want %q", nose, p, w.siteHoldLabel(), want)
+			}
 		}
 	}
 }
