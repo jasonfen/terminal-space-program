@@ -289,7 +289,7 @@ func TestControlsDocNamesTheLandingView(t *testing.T) {
 	}
 	for _, want := range []string{
 		"opens the **landing view** instead",
-		"`range:`, `alt:`, `alt rate:`, `fwd vel:`, `lat vel:`, `lpd:`, `miss:`, `cross:`, `aim:`, `hold:`, `throttle:`, `rcs:`, `monoprop:`",
+		"`range:`, `alt:`, `alt rate:`, `stop:`, `fwd vel:`, `lat vel:`, `lpd:`, `miss:`, `cross:`, `aim:`, `hold:`, `throttle:`, `rcs:`, `monoprop:`",
 		"| `alt rate` | LANDING chip",
 		"| `fwd vel` / `lat vel` | LANDING chip",
 		"| `aim` | LANDING chip",

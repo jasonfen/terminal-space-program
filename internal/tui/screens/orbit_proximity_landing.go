@@ -116,11 +116,13 @@ func (v *OrbitView) landingChipRows(w *sim.World, st sim.ProximityState) []strin
 			aim += "  " + landCrossLabel(sim.LandBeside{MissOK: true, CrossM: c.Landing.AimAcrossM})
 		}
 	}
+	_, stop := v.navigationImpactStopCells(w, c) // NAVIGATION's own stop: cell, so the two cannot drift
 	rows := []string{
 		v.theme.Primary.Render("LANDING") + "  " + truncateCells(st.TargetName, proximityChipInnerWidth-9),
 		chipRow("range:", readout.Distance(st.RangeM)),
 		chipRow("alt:", readout.Distance(st.AltM)),
 		chipRow("alt rate:", readout.SignedSpeed(st.AltRateMS)),
+		chipRow("stop:", stop),
 		chipRow("fwd vel:", readout.Speed(st.FwdVelMS)),
 		chipRow("lat vel:", landingLatVel(st.LatVelMS)),
 		chipRow("lpd:", lpd),
