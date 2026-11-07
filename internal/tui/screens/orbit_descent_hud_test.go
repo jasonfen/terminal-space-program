@@ -102,8 +102,8 @@ func TestDescentHUDRendersVHorizAlertOnImpactorApproach(t *testing.T) {
 	if !strings.Contains(out, "fpa:") {
 		t.Errorf("expected fpa row")
 	}
-	if !strings.Contains(out, "CRASH on contact") {
-		t.Errorf("expected horiz CRASH-on-contact alert for 1.5 km/s lateral; got:\n%s", out)
+	if strings.Contains(out, "CRASH on contact") {
+		t.Errorf("horiz: must not carry the (CRASH on contact) words, only the alert colour; got:\n%s", out)
 	}
 }
 

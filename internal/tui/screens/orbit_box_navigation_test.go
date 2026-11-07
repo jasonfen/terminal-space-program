@@ -120,14 +120,14 @@ func TestNavigationQuietRows(t *testing.T) {
 			}},
 		{"no CRASH alert in a stable orbit", func(t *testing.T) *sim.World { return circularEarthOrbitCraft(t, 500_000) }, 2,
 			func(t *testing.T, _ []string, row string) {
-				if strings.Contains(row, "CRASH") {
-					t.Errorf("horiz row in a stable 500 km orbit = %q, want no CRASH alert", row)
+				if strings.Contains(row, alertMark) {
+					t.Errorf("horiz row in a stable 500 km orbit = %q, want no crash alert", row)
 				}
 			}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			v := NewOrbitView(launchThemeForTest())
+			v := NewOrbitView(alertMarkTheme())
 			lines := v.buildNavigationBox(c.world(t))
 			c.check(t, lines, lines[c.row])
 		})
@@ -508,10 +508,22 @@ func fastLowMoonDescentCraft(t *testing.T, altM, vDownMps, vHorizMps float64) *s
 	return w
 }
 
+// alertMark wraps whatever theme.Alert renders, so a test can see the alert
+// colour without forcing a terminal colour profile.
+const alertMark = "<alert>"
+
+func alertMarkTheme() Theme {
+	th := launchThemeForTest()
+	th.Alert = lipgloss.NewStyle().Transform(func(s string) string { return alertMark + s + alertMark })
+	return th
+}
+
 // TestNavigationHorizCrashAlertDuringFastLowDescent: item 1's "not
 // simply deleted" half. A genuine fast, low descent with real
-// horizontal speed must keep the CRASH-on-contact alert once the
-// descent corridor is live.
+// horizontal speed must keep the crash alert once the descent corridor
+// is live. Since 2026-11-07 (Jason) the alert is the horiz: value in the
+// Alert colour with no "(CRASH on contact)" words, and speed: keeps its
+// frame word, which used to yield its width to those words.
 func TestNavigationHorizCrashAlertDuringFastLowDescent(t *testing.T) {
 	w := fastLowMoonDescentCraft(t, 5_000, 50, 500)
 	c := w.ActiveCraft()
@@ -519,10 +531,13 @@ func TestNavigationHorizCrashAlertDuringFastLowDescent(t *testing.T) {
 	if !descending {
 		t.Skip("setup: this fixture's descent corridor isn't live, can't exercise the gate")
 	}
-	v := NewOrbitView(launchThemeForTest())
+	v := NewOrbitView(alertMarkTheme())
 	lines := v.buildNavigationBox(w)
 	horizRow := lines[2]
-	if !strings.Contains(horizRow, "CRASH") {
-		t.Errorf("horiz row during a fast low descent (500 m/s horizontal) = %q, want the CRASH-on-contact alert kept", horizRow)
+	if !strings.Contains(horizRow, alertMark) || strings.Contains(horizRow, "CRASH") {
+		t.Errorf("horiz row during a fast low descent (500 m/s horizontal) = %q, want the value in the alert colour and no CRASH words", horizRow)
+	}
+	if !strings.Contains(horizRow, "(surface)") && !strings.Contains(horizRow, "(orbit)") {
+		t.Errorf("horiz row = %q, want speed: to keep its frame word", horizRow)
 	}
 }

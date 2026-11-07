@@ -98,26 +98,14 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 	}
 	planRow := v.navigationPlanRow(w, c, predState, predPrimary, predOK)
 
-	// horiz: carries the same CRASH-on-contact alert the retired DESCENT
-	// chip's horiz: row did: a sideways speed the vertical-rate check
-	// alone says nothing about, and the one that turns a nulled descent
-	// rate into a smear across the ground. Matches descentCorridorLines'
-	// simplified wording (no threshold parenthetical) for consistency,
-	// the same row now renders in both views (decision 3). Gated on the
-	// same live-descent-corridor condition as the impact:/stop: row
-	// (C3): the retired DESCENT chip only ever rendered near the
-	// ground, so this alert never used to fire in a stable orbit; the
-	// unification onto an always-present row needs the same gate to
-	// avoid a false alert on ordinary orbital speed.
+	// horiz: turns Alert red when a sideways speed past the crash limit would
+	// smear a nulled descent across the ground. No words (Jason 2026-11-07:
+	// the "(CRASH on contact)" tag pushed the row out). Gated on the live
+	// descent corridor like impact:/stop: (C3), so orbital speed never alerts.
 	_, descending := sim.DescentCorridorFor(c, sim.DescentPredictHorizon)
 	horizLabel := readout.Speed(vHoriz)
-	speedCell := navSpeedCell(w, true)
 	if descending && vHoriz > sim.CrashVCritMps {
-		horizLabel = v.theme.Alert.Render(readout.Speed(vHoriz) + " (CRASH on contact)")
-		// The alert already spends the right tier's width pin (62 cells,
-		// pinned by TestNavigationStopNamesTheLitStage); the frame word
-		// would push the row 5 to 7 cells over, so it yields to the alert.
-		speedCell = navSpeedCell(w, false)
+		horizLabel = v.theme.Alert.Render(horizLabel)
 	}
 
 	apPeRow := chipRow2(navigationCols, readout.LabelAp, apCell, readout.LabelPe, peCell)
@@ -125,7 +113,7 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 	return []string{
 		title,
 		chipRow2(navigationCols, readout.LabelAltitude, readout.Distance(c.Altitude()), readout.LabelVert, readout.Speed(vVert)),
-		chipRow2(navigationCols, readout.LabelHoriz, horizLabel, "speed:", speedCell),
+		chipRow2(navigationCols, readout.LabelHoriz, horizLabel, "speed:", navSpeedCell(w)),
 		apPeRow,
 		chipRow2(navigationCols, readout.LabelIncl, inclCell, readout.LabelPeriod, periodCell),
 		chipRow2(navigationCols, readout.LabelDepart, departV, "e:", eV),
@@ -138,7 +126,7 @@ func (v *OrbitView) buildNavigationBox(w *sim.World) []string {
 // frame, followed by that frame's word in the navball's own vocabulary
 // (surface / orbit / target; #601, ADR 0051 13d). The word makes the
 // reference visible: 0.00 m/s (surface) on the pad, 7617 m/s (orbit) in LEO.
-func navSpeedCell(w *sim.World, withFrame bool) string {
+func navSpeedCell(w *sim.World) string {
 	v, frame := w.NavSpeed()
 	word := "orbit"
 	switch frame {
@@ -148,9 +136,6 @@ func navSpeedCell(w *sim.World, withFrame bool) string {
 		word = "target"
 	case sim.NavPort:
 		word = "port"
-	}
-	if !withFrame {
-		return readout.Speed(v)
 	}
 	return readout.Speed(v) + " (" + word + ")"
 }
