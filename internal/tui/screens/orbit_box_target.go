@@ -436,6 +436,7 @@ func landMissLabel(lb sim.LandBeside) string {
 		return "—"
 	}
 	switch {
+	case roundsToZero(lb.MissM):
 	case lb.MissM > 0:
 		return "+" + readout.Distance(lb.MissM)
 	case lb.MissM < 0:
@@ -443,6 +444,10 @@ func landMissLabel(lb sim.LandBeside) string {
 	}
 	return readout.Distance(0)
 }
+
+// roundsToZero: the value prints as 0 m, so it has no side (round first, then
+// pick the sign: no "\u22120 m").
+func roundsToZero(m float64) bool { return readout.Distance(math.Abs(m)) == readout.Distance(0) }
 
 // planTag marks miss:/cross: that read a planted burn's stop point, not yet flown.
 func planTag(lb sim.LandBeside) string {
@@ -457,6 +462,7 @@ func landCrossLabel(lb sim.LandBeside) string {
 		return "—"
 	}
 	switch {
+	case roundsToZero(lb.CrossM):
 	case lb.CrossM > 0:
 		return readout.Distance(lb.CrossM) + " R" + planTag(lb)
 	case lb.CrossM < 0:
