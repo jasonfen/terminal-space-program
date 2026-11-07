@@ -522,7 +522,7 @@ func landingToWire(a *spacecraft.LandingAutopilot) *LandingWire {
 	if a == nil {
 		return nil
 	}
-	return &LandingWire{Engaged: a.Engaged, Phase: int(a.Phase), ROD: a.ROD, RODRateMps: a.RODRateMps,
+	return &LandingWire{Engaged: a.Engaged, Nose: a.Nose, Phase: int(a.Phase), ROD: a.ROD, RODRateMps: a.RODRateMps,
 		ThrottleHeld: a.ThrottleHeld, AimAlongM: a.AimAlongM, AimAcrossM: a.AimAcrossM,
 		NavAlongM: a.NavAlongM, NavAcrossM: a.NavAcrossM, NavSeeded: a.NavSeeded}
 }
@@ -531,7 +531,7 @@ func landingFromWire(w *LandingWire) *spacecraft.LandingAutopilot {
 	if w == nil {
 		return nil
 	}
-	return &spacecraft.LandingAutopilot{Engaged: w.Engaged, Phase: spacecraft.LandingPhase(w.Phase), ROD: w.ROD,
+	return &spacecraft.LandingAutopilot{Engaged: w.Engaged, Nose: w.Nose, Phase: spacecraft.LandingPhase(w.Phase), ROD: w.ROD,
 		RODRateMps: w.RODRateMps, ThrottleHeld: w.ThrottleHeld, AimAlongM: w.AimAlongM, AimAcrossM: w.AimAcrossM,
 		NavAlongM: w.NavAlongM, NavAcrossM: w.NavAcrossM, NavSeeded: w.NavSeeded}
 }

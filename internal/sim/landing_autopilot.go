@@ -233,7 +233,7 @@ func (w *World) landingAutopilotWarpLimit() (float64, bool) {
 		}
 	}
 	for _, c := range w.Crafts {
-		if c == nil || c.Landing == nil || !c.Landing.Engaged || c.Landed || c.Crashed {
+		if c == nil || !c.Landing.Owns() || c.Landed || c.Crashed {
 			continue
 		}
 		if c.Landing.Phase != spacecraft.PhaseCoast {
@@ -272,9 +272,9 @@ func (w *World) EngageLandingAutopilot() error {
 	if c.Landed {
 		return ErrDeorbitLanded
 	}
-	if ap := c.Landing; ap != nil && ap.Engaged {
-		// q again takes the throttle back and keeps the phase, whatever the link
-		// or the target is doing: it is already flying
+	if ap := c.Landing; ap.Owns() {
+		// already flying: take the throttle back and keep the phase, whatever the
+		// link or the target is doing
 		ap.ROD, ap.ThrottleHeld = false, false
 		return nil
 	}
@@ -298,15 +298,25 @@ func (w *World) EngageLandingAutopilot() error {
 	if ap == nil {
 		ap = &spacecraft.LandingAutopilot{}
 	}
-	ap.Engaged, ap.ROD, ap.ThrottleHeld = true, false, false
-	ap.Phase = spacecraft.PhaseCoast
-	if c.ManualBurn != nil {
-		ap.Phase = spacecraft.PhaseBrake // a re-engage mid-brake takes the controls where it stands
+	wasNose := ap.Engaged && ap.Nose
+	ap.Engaged, ap.Nose, ap.ROD, ap.ThrottleHeld = true, false, false, false
+	f := apFrameOf(c)
+	switch {
+	case wasNose:
+		// N over the nose hold keeps the phase it reached
+	case f.sh < FinalPhaseGroundSpeedMps:
+		ap.Phase = spacecraft.PhaseFinal // a hover: nothing to brake
+	case c.ManualBurn != nil:
+		ap.Phase = spacecraft.PhaseBrake // an engage mid-brake takes the controls where it stands
+	default:
+		ap.Phase = spacecraft.PhaseCoast
 	}
 	c.Landing = ap
-	if err := w.apReachTest(c, lat, lon); err != nil {
-		ap.Engaged = false
-		return err
+	if ap.Phase != spacecraft.PhaseFinal {
+		if err := w.apReachTest(c, lat, lon); err != nil {
+			ap.Engaged, ap.Nose = wasNose, wasNose
+			return err
+		}
 	}
 	c.AttitudeMode = spacecraft.BurnSite
 	c.SiteDir = apFrameOf(c).retro()
@@ -314,12 +324,59 @@ func (w *World) EngageLandingAutopilot() error {
 	return nil
 }
 
-// PlanDeorbitAndEngage is N on a site (playtest P3): plant the deorbit burn,
-// engage Site+ and put the navball on SITE. The clock stays the player's. When
-// the plan itself is refused nothing engages (nil plan); when only the engage is
+// EngageLandingNoseHold is q in [SITE] (fix E, P7): the guidance nose hold.
+// The law aims the nose for the phase; the engine, throttle and warp stay the
+// pilot's. Refusals are N's target / link lines only.
+func (w *World) EngageLandingNoseHold() error {
+	c := w.ActiveCraft()
+	if c == nil {
+		return errors.New("no vessel")
+	}
+	if c.Landed {
+		return ErrDeorbitLanded
+	}
+	if ap := c.Landing; ap != nil && ap.Engaged {
+		if !ap.Nose {
+			ap.ROD, ap.ThrottleHeld = false, false // under the autopilot q is the old re-assert
+		}
+		return nil
+	}
+	if _, _, _, ok := w.apTarget(c); !ok {
+		if w.Target.Kind == TargetSite {
+			return ErrDeorbitOtherBody
+		}
+		return ErrDeorbitNoSite
+	}
+	if !w.canCommand(c) {
+		return ErrDeorbitNoSignal
+	}
+	ap := &spacecraft.LandingAutopilot{Engaged: true, Nose: true}
+	if old := c.Landing; old != nil { // keep the aim offsets
+		ap.AimAlongM, ap.AimAcrossM = old.AimAlongM, old.AimAcrossM
+		ap.NavAlongM, ap.NavAcrossM, ap.NavSeeded = old.NavAlongM, old.NavAcrossM, old.NavSeeded
+	}
+	c.Landing = ap
+	c.AttitudeMode = spacecraft.BurnSite
+	c.SiteDir = apFrameOf(c).retro()
+	return nil
+}
+
+// PlanDeorbitAndEngage is N on a site (playtest P3, fix E): in orbit, plant the
+// deorbit burn, engage Site+ and put the navball on SITE. Already descending
+// onto the site (the plan refuses as falling) it engages from here with no new
+// burn and returns a nil plan and nil error; an engage refusal then comes back
+// as the error with a nil plan. The clock stays the player's. When the plan
+// itself is refused nothing engages (nil plan); when only the engage is
 // refused the plan stays planted and is returned with the error.
 func (w *World) PlanDeorbitAndEngage() (*DeorbitPlan, error) {
 	plan, err := w.PlanDeorbitOntoSite()
+	if errors.Is(err, ErrDeorbitFalling) {
+		if err := w.EngageLandingAutopilot(); err != nil {
+			return nil, err
+		}
+		w.setNavMode(NavSite)
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -371,7 +428,7 @@ func (w *World) DisengageLandingAutopilot(c *spacecraft.Spacecraft) {
 // as a hold key does. Reports whether it was engaged.
 func (w *World) LandingTakeEngine() bool {
 	c := w.ActiveCraft()
-	if c == nil || c.Landing == nil || !c.Landing.Engaged {
+	if c == nil || !c.Landing.Owns() {
 		return false
 	}
 	w.DisengageLandingAutopilot(c)
@@ -385,7 +442,7 @@ func (w *World) LandingTakeEngine() bool {
 // key was consumed (an engaged autopilot on the active vessel).
 func (w *World) LandingROD(delta float64) bool {
 	c := w.ActiveCraft()
-	if c == nil || c.Landing == nil || !c.Landing.Engaged || c.Landed {
+	if c == nil || !c.Landing.Owns() || c.Landed {
 		return false
 	}
 	ap := c.Landing
@@ -407,7 +464,7 @@ func (w *World) LandingROD(delta float64) bool {
 // back, steering is kept. Reports whether the autopilot was engaged.
 func (w *World) LandingHandOverThrottle() bool {
 	c := w.ActiveCraft()
-	if c == nil || c.Landing == nil || !c.Landing.Engaged {
+	if c == nil || !c.Landing.Owns() {
 		return false
 	}
 	if c.Landing.Phase == spacecraft.PhaseCoast {
@@ -439,18 +496,28 @@ func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
 		}
 		c.AttitudeMode = spacecraft.BurnSite
 		c.SiteDir = f.retro()
-		in, ground, late := w.landingCueIn(c)
-		if !ground || (!late && in.Seconds() > w.lastSimDelta.Seconds()) {
-			return
+		if ap.Nose {
+			// the nose hold waits for the pilot's engine (or a hover's slow ground speed)
+			if c.EffectiveThrottle() <= 0 && f.sh >= FinalPhaseGroundSpeedMps {
+				return
+			}
+			ap.Phase = spacecraft.PhaseBrake
+			ap.TrackN, ap.StopSpanM, ap.PitchUpRad = orbital.Vec3{}, 0, 0
+			ap.TrackN = apTrackNormal(c, c.State)
+		} else {
+			in, ground, late := w.landingCueIn(c)
+			if !ground || (!late && in.Seconds() > w.lastSimDelta.Seconds()) {
+				return
+			}
+			ap.Phase = spacecraft.PhaseBrake
+			ap.TrackN, ap.StopSpanM, ap.PitchUpRad = orbital.Vec3{}, 0, 0
+			ap.TrackN = apTrackNormal(c, c.State)
+			w.apSetThrottle(c, DeorbitBrakeThrottle)
+			c.ManualBurn = &spacecraft.ManualBurn{StartTime: w.Clock.SimTime}
+			c.DryOrder = false
 		}
-		ap.Phase = spacecraft.PhaseBrake
-		ap.TrackN, ap.StopSpanM, ap.PitchUpRad = orbital.Vec3{}, 0, 0
-		ap.TrackN = apTrackNormal(c, c.State)
-		w.apSetThrottle(c, DeorbitBrakeThrottle)
-		c.ManualBurn = &spacecraft.ManualBurn{StartTime: w.Clock.SimTime}
-		c.DryOrder = false
 	}
-	if c.ManualBurn == nil && c.EffectiveThrottle() > 0 {
+	if !ap.Nose && c.ManualBurn == nil && c.EffectiveThrottle() > 0 {
 		c.ManualBurn = &spacecraft.ManualBurn{StartTime: w.Clock.SimTime}
 	}
 	c.AttitudeMode = spacecraft.BurnSite
@@ -469,6 +536,9 @@ func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
 		dir, theta = w.apBrake(c, ap, f, lat, lon)
 	}
 	c.SiteDir = dir
+	if ap.Nose {
+		return // the nose hold steers only: the engine is the pilot's
+	}
 	if ap.ROD && ap.Phase != spacecraft.PhaseFinal {
 		theta = apRodThrottle(c, ap, f, dir)
 	}
@@ -703,6 +773,10 @@ func apRodThrottle(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilot, f 
 func (w *World) landingEnded(c *spacecraft.Spacecraft) {
 	ap := c.Landing
 	rt := w.apRuntimeFor(c)
+	if ap.Nose { // no flash: the pilot flew it
+		ap.Engaged, ap.Nose, ap.Phase = false, false, spacecraft.PhaseCoast
+		return
+	}
 	ev := LandingEvent{CraftName: c.Name, Crashed: c.Crashed, OutOfReach: rt.outOfReach}
 	if lat, lon, name, ok := w.apTarget(c); ok {
 		ev.SiteName = name
@@ -711,7 +785,7 @@ func (w *World) landingEnded(c *spacecraft.Spacecraft) {
 	if ev.SiteName != "" {
 		w.PendingLandingEvents = append(w.PendingLandingEvents, ev)
 	}
-	ap.Engaged, ap.ROD, ap.ThrottleHeld = false, false, false
+	ap.Engaged, ap.Nose, ap.ROD, ap.ThrottleHeld = false, false, false, false
 	ap.Phase = spacecraft.PhaseCoast
 	rt.outOfReach = false
 	rt.checked = false

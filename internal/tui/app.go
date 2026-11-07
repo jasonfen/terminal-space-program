@@ -3118,8 +3118,8 @@ func (a *App) handleAttitudeKey(mode spacecraft.BurnMode) {
 		a.world.FireRCSPulse(mode)
 		return
 	}
-	if mode == spacecraft.BurnSite { // ADR 0067 decision 5: q in SITE engages the landing autopilot
-		if err := a.world.EngageLandingAutopilot(); err != nil {
+	if mode == spacecraft.BurnSite { // fix E (P7): q in SITE is the guidance nose hold; N flies everything
+		if err := a.world.EngageLandingNoseHold(); err != nil {
 			a.refuse("site hold", siteHoldRefusal(err))
 		}
 		return
@@ -4795,6 +4795,15 @@ func (a *App) doPlanDeorbit() {
 		return
 	}
 	plan, err := a.world.PlanDeorbitAndEngage() // playtest P3: N is the "land itself" key
+	if plan == nil && err == nil { // already descending: engaged from here, no new burn
+		a.flash("Site+ auto: landing from here")
+		return
+	}
+	var reach *sim.SiteHoldReachError
+	if plan == nil && (errors.As(err, &reach) || errors.Is(err, sim.ErrSiteHoldUnderWeight) || errors.Is(err, sim.ErrSiteHoldCannotStop)) {
+		a.refuse("site hold", siteHoldRefusal(err))
+		return
+	}
 	if plan == nil {
 		a.refuse("deorbit", deorbitRefusal(err))
 		return
