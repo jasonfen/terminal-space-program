@@ -590,6 +590,20 @@ func predictPoweredStopFromAt(state physics.StateVector, c *spacecraft.Spacecraf
 // leaned pitchUp radians from retrograde toward local up: the landing
 // autopilot's second knob beside the throttle (ADR 0067). 0 is the plain stop.
 func predictPoweredStopFromAtPitch(state physics.StateVector, c *spacecraft.Spacecraft, horizon time.Duration, throttle, pitchUp float64) (PoweredStopPrediction, bool) {
+	return predictPoweredStopTraced(state, c, horizon, throttle, pitchUp, nil)
+}
+
+// stopSample is one point of the powered stop's path: the inertial position
+// and the seconds since the integration began.
+type stopSample struct {
+	R orbital.Vec3
+	T float64
+}
+
+// predictPoweredStopTraced is predictPoweredStopFromAtPitch that also appends
+// the integrator's path to trace when it is non-nil (the landing view draws
+// it, ADR 0067 decision 8). A nil trace is the plain forecast, bit for bit.
+func predictPoweredStopTraced(state physics.StateVector, c *spacecraft.Spacecraft, horizon time.Duration, throttle, pitchUp float64, trace *[]stopSample) (PoweredStopPrediction, bool) {
 	if c == nil {
 		return PoweredStopPrediction{}, false
 	}
@@ -637,6 +651,9 @@ func predictPoweredStopFromAtPitch(state physics.StateVector, c *spacecraft.Spac
 	var impactSpeed float64
 	elapsed := 0.0
 	dvUsed := 0.0
+	if trace != nil {
+		*trace = append(*trace, stopSample{state.R, 0})
+	}
 
 	for i := 0; i < steps; i++ {
 		speedPre := physics.AirRelativeVelocity(state.R, state.V, primary).Norm()
@@ -656,6 +673,9 @@ func predictPoweredStopFromAtPitch(state physics.StateVector, c *spacecraft.Spac
 		fuelKg -= burned
 		massKg -= burned
 		dvUsed += (thrustFull / massSnap) * stepDt
+		if trace != nil {
+			*trace = append(*trace, stopSample{state.R, elapsed})
+		}
 
 		if !crossedGround && state.R.Norm() < radius {
 			crossedGround = true

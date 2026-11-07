@@ -273,3 +273,25 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 		t.Error("F1 glossary does not name Site+ and ROD")
 	}
 }
+
+// ADR 0067 decision 8: the `o` row names the landing view, the glossary names
+// its rates and the aim cell, and the map markers name the stop mark, in
+// docs/controls.md row for row (F1's wording is pinned in help_rows_test.go).
+func TestControlsDocNamesTheLandingView(t *testing.T) {
+	doc, err := os.ReadFile("../../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"opens the **landing view** instead",
+		"`range:`, `alt:`, `alt rate:`, `fwd vel:`, `lat vel:`, `lpd:`, `miss:`, `cross:`, `aim:`, `hold:`, `throttle:`, `rcs:`, `monoprop:`",
+		"| `alt rate` | LANDING chip",
+		"| `fwd vel` / `lat vel` | LANDING chip",
+		"| `aim` | LANDING chip",
+		"| `⊙` | the landing view: where the powered stop ends",
+	} {
+		if !strings.Contains(string(doc), want) {
+			t.Errorf("docs/controls.md lacks %q", want)
+		}
+	}
+}

@@ -73,6 +73,9 @@ const proximityFitFloorM = 25.0
 // owning, and the picture would never hold still enough to read drift
 // against.
 func proximityFitRadius(st sim.ProximityState) float64 {
+	if st.Surface { // ADR 0067 decision 8: the landing view's own fit
+		return math.Max(st.RangeM*sim.LandingViewFitFrac, sim.LandingViewFitFloorM)
+	}
 	// Measured from the view centre (the target's port, #822): a chaser
 	// behind a long stack's tail is farther from it than the anchor range.
 	r := math.Max(st.RangeM, st.CraftWorld.Sub(proximityGateRingCentre(st)).Norm()) * proximityFitMarginFrac
@@ -142,15 +145,19 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 		// Pan displaces the view exactly as it does on the map — the centre
 		// keeps tracking, just offset.
 		v.canvas.Center(proximityGateRingCentre(st).Add(v.panOffset))
-		v.drawProximityAxes(w, st)
-		v.drawProximityRangeRings(w, st)
-		if !st.Docked { // no gap to close: no gate ring, corridor or drift
-			v.drawProximityDockGate(w, st)
-			v.drawProximityCorridor(st)
-			v.drawProximityDriftPath(w, st)
+		if st.Surface { // ground, not a vessel to fly beside (ADR 0067 decision 8)
+			v.drawLandingScene(w, st)
+		} else {
+			v.drawProximityAxes(w, st)
+			v.drawProximityRangeRings(w, st)
+			if !st.Docked { // no gap to close: no gate ring, corridor or drift
+				v.drawProximityDockGate(w, st)
+				v.drawProximityCorridor(st)
+				v.drawProximityDriftPath(w, st)
+			}
+			v.drawProximityVessels(w, st)
+			v.drawProximityVelocityVector(st)
 		}
-		v.drawProximityVessels(w, st)
-		v.drawProximityVelocityVector(st)
 	}
 	// The no-target case draws nothing on the canvas on purpose: the
 	// explanation and both ways out ride the PROXIMITY chip, which paints
@@ -165,25 +172,32 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 	// orientation the player has to guess. This row is the one place
 	// nothing composites over.
 	label := "view: Proximity"
+	hintStrip := proximityHintStripText
 	if sceneOK {
 		who := st.TargetName
 		if st.Docked {
 			who = "docked with " + who
 		}
 		label += " — " + who + "   →+V prograde  ↓" + proximityPrimaryName(w)
+		if st.Surface {
+			label = "view: Landing — " + who + "   →track  ↑up"
+			if c := w.ActiveCraft(); c != nil && c.AttitudeMode == spacecraft.BurnSite {
+				hintStrip = landingSiteHintStripText
+			}
+		}
 	}
 	v.canvas.SetCellLabelColored(0, v.canvas.Rows()-1, label, v.theme.Primary.GetForeground())
 	// The Proximity View shares the map's last canvas row for its own
 	// label, so it carries the same Hint Strip (#425), right of whatever
 	// this row's label ended up being (the fixed "view: Proximity" form,
 	// or the longer sceneOK form with target name + axis legend).
-	v.paintHintStrip(utf8.RuneCountInString(label), proximityHintStripText)
+	v.paintHintStrip(utf8.RuneCountInString(label), hintStrip)
 	// #602: the scale bar, right-aligned on this row so the far target's
 	// picture (identical at 2 km and 360 Mm) carries its own distance. A
 	// long target name can fill the row: the bar then sits one row up at
 	// the left, which nothing in this view composites over.
 	if sceneOK {
-		v.paintScaleBar(utf8.RuneCountInString(label)+hintStripGap+utf8.RuneCountInString(proximityHintStripText), v.canvas.Rows()-2, 0)
+		v.paintScaleBar(utf8.RuneCountInString(label)+hintStripGap+utf8.RuneCountInString(hintStrip), v.canvas.Rows()-2, 0)
 	}
 
 	canvasStr := v.canvas.String()
@@ -819,6 +833,13 @@ func (v *OrbitView) drawProximityVessels(w *sim.World, st sim.ProximityState) {
 		}
 	}
 
+	v.drawProximityOwnVessel(w, st)
+}
+
+// drawProximityOwnVessel draws the active vessel at its true relative position:
+// the hull sprite once it is big enough, else its glyph; or the off-frame note.
+// Shared by the docking scene and the landing view.
+func (v *OrbitView) drawProximityOwnVessel(w *sim.World, st sim.ProximityState) {
 	activeColor := render.ColorCraftMarker
 	glyph := '▲'
 	active := w.ActiveCraft()
@@ -929,6 +950,9 @@ func (v *OrbitView) buildProximityChip(w *sim.World) []string {
 			"  " + w.ProximityRefusal(),
 			"  [t] target a vessel · [o] back to the map",
 		}
+	}
+	if st.Surface {
+		return v.landingChipRows(w, st)
 	}
 	if st.Docked {
 		return []string{
@@ -1091,6 +1115,9 @@ func (v *OrbitView) buildProximityChipCompact(w *sim.World) []string {
 			v.theme.Primary.Render("PROXIMITY") + "  " + w.ProximityRefusal(),
 			"  [t] target a vessel · [o] back to the map",
 		}
+	}
+	if st.Surface {
+		return v.landingChipCompact(w, st)
 	}
 	if st.Docked {
 		// ADR 0063 section 2: header, range: and hold: survive the shrink.

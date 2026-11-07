@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // proximityPairWorld builds two vessels sharing Earth: the active one at
@@ -171,12 +172,13 @@ func TestProximityRefusalPaths(t *testing.T) {
 	if !strings.Contains(r, "not a body") || !strings.Contains(r, "[t] target menu") || strings.Contains(r, "cycles") {
 		t.Errorf("body target refusal = %q, want 'not a body' and the target menu", r)
 	}
-	// A site is aimed at through the same menu and is not a body.
-	w.Sites = append(w.Sites, Site{ID: 1, Body: w.ActiveCraft().Primary.EnglishName, System: w.System().Name})
+	// A site on another body refuses with where it is (ADR 0067 S3: a site on
+	// this primary opens the landing view instead, pinned below).
+	w.Sites = append(w.Sites, Site{ID: 1, Body: "Luna", System: w.System().Name})
 	w.NextSiteID = 1
 	w.SetTargetSite(1)
-	if r := w.ProximityRefusal(); !strings.Contains(r, "not a site") || strings.Contains(r, "cycles") {
-		t.Errorf("site target refusal = %q, want 'not a site'", r)
+	if r := w.ProximityRefusal(); !strings.Contains(r, "site is on Luna") || strings.Contains(r, "cycles") {
+		t.Errorf("off-primary site refusal = %q, want 'site is on Luna'", r)
 	}
 	w.ClearTarget()
 	if r := w.ProximityRefusal(); !strings.Contains(r, "[t] target menu") || strings.Contains(r, "cycles") {
@@ -663,5 +665,184 @@ func TestProximityStateDockedCompositeAnchorsOnSeam(t *testing.T) {
 	w.ClearTarget()
 	if w.ProximityAvailable() {
 		t.Error("lone vessel with no target admitted")
+	}
+}
+
+// ADR 0067 S3 (decision 8): `o` on ground opens the landing view. A site, a
+// landed vessel and a landed ghost on the vessel's primary open it with the
+// horizon frame at the ground point; a body target still refuses; a site
+// on another body refuses and says where it is. Leaving returns to the map.
+func TestToggleProximityViewOpensOnGround(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	w.ViewMode = ViewOrbitFlat
+	check := func(what string) ProximityState {
+		t.Helper()
+		if r := w.ProximityRefusal(); r != "" {
+			t.Fatalf("%s: refused %q", what, r)
+		}
+		st, ok := w.ProximityState()
+		if !ok || !st.Surface {
+			t.Fatalf("%s: ok=%v Surface=%v, want the landing scene", what, ok, st.Surface)
+		}
+		rT, _, _ := w.TargetStateRelativeToActivePrimary()
+		if d := st.Frame.RadialOut.Dot(rT.Unit()); d < 1-1e-9 {
+			t.Errorf("%s: up . site radial = %g, want 1", what, d)
+		}
+		if d := math.Abs(st.Frame.AlongTrack.Dot(st.Frame.RadialOut)); d > 1e-9 {
+			t.Errorf("%s: right is not horizontal (|right . up| = %g)", what, d)
+		}
+		return st
+	}
+	check("site")
+	if entered, refusal := w.ToggleProximityView(); !entered || refusal != "" || w.ViewMode != ViewProximity {
+		t.Fatalf("enter on a site: entered=%v refusal=%q view=%s", entered, refusal, w.ViewMode)
+	}
+	if entered, _ := w.ToggleProximityView(); entered || w.ViewMode != ViewOrbitFlat {
+		t.Errorf("second press: entered=%v view=%s, want back on the map", entered, w.ViewMode)
+	}
+
+	// a landed vessel of ours
+	lat, lon := w.Sites[0].LatDeg+1, w.Sites[0].LonDeg
+	if _, err := w.SpawnCraft(SpawnSpec{Alongside: true}); err != nil {
+		t.Fatal(err)
+	}
+	w.ActiveCraftIdx = 0
+	other := w.Crafts[len(w.Crafts)-1]
+	other.Primary = c.Primary
+	other.Landed, other.LandedLatDeg, other.LandedLonDeg = true, lat, lon
+	integrateLanded(w, other, time.Second)
+	w.SetTargetCraft(len(w.Crafts) - 1)
+	check("landed vessel")
+
+	// a landed ghost of a partner
+	r, v := surfacePointState(c.Primary, lat, lon, w.Clock.SimTime)
+	w.Ghosts = []Ghost{{Owner: "fp-b", CraftID: 3, Name: "Ghost-1", PrimaryID: c.Primary.ID, Landed: true, LatDeg: lat, LonDeg: lon,
+		RelPos: r, Vel: v, Pos: w.BodyPosition(c.Primary).Add(r)}}
+	w.SetTargetGhost("fp-b", 3)
+	check("landed ghost")
+
+	// a body still refuses; a site on another body refuses with the place
+	w.SetTargetBody(1)
+	if r := w.ProximityRefusal(); !strings.Contains(r, "not a body") {
+		t.Errorf("body refusal = %q", r)
+	}
+	w.Sites[0].Body = "Earth"
+	w.SetTargetSite(w.Sites[0].ID)
+	if r := w.ProximityRefusal(); !strings.Contains(r, "site is on Earth") {
+		t.Errorf("off-primary site refusal = %q, want 'site is on Earth'", r)
+	}
+}
+
+// The landing view's readouts against a hand-placed state: 200 m up, 50 m
+// short of the flag, falling 3 m/s while moving 10 m/s along the ground and
+// 0.5 m/s to the right. alt, alt rate, fwd vel, lat vel, range and the
+// fall-in-from-the-left geometry all follow from it.
+func TestSurfaceProximityStateReadouts(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	s := w.Sites[0]
+	rT, vT := surfacePointState(c.Primary, s.LatDeg, s.LonDeg, w.Clock.SimTime)
+	up := rT.Unit()
+	north, east := siteHorizon(c.Primary, up)
+	// track runs east; right of an eastward track facing up is south. The first
+	// call latches the track (pure east); the drift is added after.
+	c.State.R = rT.Add(up.Scale(200)).Sub(east.Scale(50))
+	c.State.V = vT.Add(up.Scale(-3)).Add(east.Scale(10))
+	w.landTrack = landTrack{}
+	if _, ok := w.ProximityState(); !ok {
+		t.Fatal("no landing scene")
+	}
+	c.State.V = c.State.V.Add(north.Scale(-0.5))
+	st, ok := w.ProximityState()
+	if !ok || !st.Surface {
+		t.Fatal("no landing scene")
+	}
+	near := func(name string, got, want, tol float64) {
+		t.Helper()
+		if math.Abs(got-want) > tol {
+			t.Errorf("%s = %g, want %g +/- %g", name, got, want, tol)
+		}
+	}
+	near("alt", st.AltM, 200+(rT.Norm()-c.Primary.RadiusMeters()), 0.01) // 50 m across a sphere is 0.7 mm
+	near("alt rate", st.AltRateMS, -3, 0.01)
+	near("fwd vel", st.FwdVelMS, 10, 0.01)
+	// the latched track holds when the velocity swings: still east
+	if d := st.Frame.AlongTrack.Dot(east); d < 0.999999 {
+		t.Errorf("track moved with the velocity: right . east = %g", d)
+	}
+	near("lat vel (+ right)", st.LatVelMS, 0.5, 0.01)
+	near("range", st.RangeM, math.Hypot(200, 50), 1e-3)
+	if d := st.Frame.AlongTrack.Dot(east); d < 0.999 {
+		t.Errorf("right . east = %g, want ~1 (the track runs east)", d)
+	}
+	// short of the flag means left of centre: negative along the track
+	if x := st.RelPos.Dot(st.Frame.AlongTrack); x > -49 || x < -51 {
+		t.Errorf("vessel x = %g, want -50 (falls in from the left)", x)
+	}
+	// a hover has no track: the right-hand axis points from the vessel to the flag
+	c.State.V = vT
+	w.landTrack = landTrack{}
+	st, _ = w.ProximityState()
+	if d := st.Frame.AlongTrack.Dot(east); d < 0.999 {
+		t.Errorf("hover: right . east = %g, want ~1 (toward the flag)", d)
+	}
+}
+
+// ADR 0067 decision 8: the arc ends where the vessel would stop. The Lander
+// in orbit with the flag aimed: the arc starts at the plan's light (FromCue),
+// ends on the stop the autopilot's own forecast gives (plain, pitch 0), and
+// once the autopilot is braking it is integrated at the lean it flies.
+func TestLandingStopArc(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	// fly the planted burn, then stop on the descent before the brake lights
+	w.Clock.WarpIdx = 0
+	for i := 0; i < 2*3600*4 && (len(c.Nodes) > 0 || c.ActiveBurn != nil); i++ {
+		w.Tick()
+	}
+	if len(c.Nodes) > 0 {
+		t.Fatal("deorbit burn never fired")
+	}
+	arc, ok := w.LandingStopArc()
+	if !ok || !arc.Stopped || !arc.FromCue || arc.PitchUpRad != 0 || arc.Throttle != DeorbitBrakeThrottle {
+		t.Fatalf("coast arc: ok=%v stopped=%v fromCue=%v pitch=%g", ok, arc.Stopped, arc.FromCue, arc.PitchUpRad)
+	}
+	if n := len(arc.Points); n < 10 {
+		t.Fatalf("arc has %d points", n)
+	}
+	end := arc.Points[len(arc.Points)-1].Sub(w.BodyPosition(c.Primary))
+	// and on the miss: the TARGET box reads for the same plain stop: the arc's end,
+	// measured along the drawn track from the flag, is that miss (+ long)
+	st, _ := w.ProximityState()
+	lb, lbOK := w.LandBesideReading()
+	if !lbOK || !lb.MissOK || !lb.Stop {
+		t.Fatalf("no stop-based miss to compare: %+v", lb)
+	}
+	x := arc.Points[len(arc.Points)-1].Sub(st.TargetWorld).Dot(st.Frame.AlongTrack)
+	t.Logf("arc end %.1f m along the track from the flag; miss: %.1f m", x, lb.MissM)
+	if math.Abs(x-lb.MissM) > 25 {
+		t.Errorf("arc ends %.1f m along from the flag, miss: reads %.1f m", x, lb.MissM)
+	}
+	if h := end.Norm() - c.Primary.RadiusMeters(); h < 0 || h > 500 {
+		t.Errorf("arc ends %g m above the ground, want a hover stop inside 500 m", h)
+	}
+	// engaged and braking: the lean comes from the autopilot
+	c.Landing = &spacecraft.LandingAutopilot{Engaged: true, Phase: spacecraft.PhaseBrake, PitchUpRad: 0.2}
+	c.Throttle = 0.95 // the autopilot's trim, off the 0.90 plan
+	arc2, ok := w.LandingStopArc()
+	if !ok || arc2.FromCue || arc2.PitchUpRad != 0.2 || math.Abs(arc2.Throttle-c.EffectiveThrottle()) > 1e-9 {
+		t.Errorf("braking arc: ok=%v fromCue=%v pitch=%g throttle=%g, want the autopilot's 0.2 and %g from the vessel", ok, arc2.FromCue, arc2.PitchUpRad, arc2.Throttle, c.EffectiveThrottle())
+	}
+	// a throttle too low to stop meets the ground: the arc ends on it, never under it
+	c.Throttle = 0.3
+	arc3, ok := w.LandingStopArc()
+	if !ok || arc3.Stopped {
+		t.Fatalf("underpowered arc: ok=%v stopped=%v, want a crashing arc", ok, arc3.Stopped)
+	}
+	for i, p := range arc3.Points {
+		if h := p.Sub(w.BodyPosition(c.Primary)).Norm() - c.Primary.RadiusMeters(); h < -1e-6 {
+			t.Fatalf("arc point %d is %g m under the ground", i, h)
+		}
 	}
 }

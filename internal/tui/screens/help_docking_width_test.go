@@ -17,7 +17,7 @@ import (
 func TestHelpDockingRowsFitDesignSizeUncut(t *testing.T) {
 	h := NewHelp(chipTestTheme())
 	touched := map[string]map[string]bool{
-		"CAMERA & VIEW": {"o": true},
+		"CAMERA & VIEW": {"o": true, "o (on ground)": true},
 		"TIME & WARP":   {".": true, "warp caps": true, "ground": true},
 		"VESSEL":        {"U": true, "U (cross-player)": true},
 	}

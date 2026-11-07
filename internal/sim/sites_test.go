@@ -72,8 +72,8 @@ func TestSiteTargetNamesRefusesAndSharesPrimary(t *testing.T) {
 	if w.HasRelativeTarget() {
 		t.Error("a site is not a relative (vessel) target")
 	}
-	if w.ProximityAvailable() || w.ProximityRefusal() == "" {
-		t.Error("Proximity View must refuse a site")
+	if st, ok := w.ProximityState(); !ok || !st.Surface || st.HasPort {
+		t.Errorf("Proximity View on a site on this primary: ok=%v Surface=%v, want the landing scene with no port", ok, st.Surface)
 	}
 	if _, ok := w.launchWindowTargetNormal(); ok {
 		t.Error("a launch window must refuse a site as it refuses a landed vessel")
