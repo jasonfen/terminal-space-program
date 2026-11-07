@@ -143,6 +143,29 @@ func TestLandingLatVel(t *testing.T) {
 	}
 }
 
+// A long "short by 307.6 km (2436 m/s)" reading (28 cells) is clipped to the
+// chip's value column rather than widening the 41-cell chip.
+func TestLandingChipStopRowClipsLongReading(t *testing.T) {
+	w := fastLowMoonDescentCraft(t, 20000, 2000, 1500)
+	w.Sites = append(w.Sites, sim.Site{ID: 1, Body: w.ActiveCraft().Primary.EnglishName, System: w.System().Name, LatDeg: 1, LonDeg: 2, Name: "Test site"})
+	w.NextSiteID = 1
+	w.SetTargetSite(1)
+	if entered, refusal := w.ToggleProximityView(); !entered {
+		t.Fatalf("o refused: %q", refusal)
+	}
+	v := newProximityTestView(t, DesignWidth, DesignHeight)
+	out := ansi.Strip(v.Render(w, 0, DesignWidth, DesignHeight))
+	for _, l := range strings.Split(out, "\n") {
+		if strings.Contains(l, "stop:") {
+			if !strings.Contains(l, "short by") || !strings.Contains(l, "…│") {
+				t.Errorf("stop row = %q, want a clipped short by reading closing the chip border", l)
+			}
+			return
+		}
+	}
+	t.Fatalf("no stop: row\n%s", out)
+}
+
 // P5 (playtest 3): the LANDING chip carries NAVIGATION's stop: reading, directly
 // under alt rate:, the same cell (it calls the same builder). The 57-6 LM
 // descent gives a tight stop, a short one (NO LAND) and a dry tank; the level

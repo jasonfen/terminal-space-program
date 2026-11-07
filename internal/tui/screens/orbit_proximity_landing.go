@@ -122,7 +122,7 @@ func (v *OrbitView) landingChipRows(w *sim.World, st sim.ProximityState) []strin
 		chipRow("range:", readout.Distance(st.RangeM)),
 		chipRow("alt:", readout.Distance(st.AltM)),
 		chipRow("alt rate:", readout.SignedSpeed(st.AltRateMS)),
-		chipRow("stop:", stop),
+		chipRow("stop:", truncateCells(stop, proximityChipInnerWidth-chipValueCol)),
 		chipRow("fwd vel:", readout.Speed(st.FwdVelMS)),
 		chipRow("lat vel:", landingLatVel(st.LatVelMS)),
 		chipRow("lpd:", lpd),
