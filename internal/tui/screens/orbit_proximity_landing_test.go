@@ -207,3 +207,24 @@ func TestLandingChipStopRowMatchesNavigation(t *testing.T) {
 		})
 	}
 }
+
+// P13: inside 100 m the LANDING chip's alt rate: row ends "  (need < 10)" in the
+// Alert colour exactly when the crash rule (>= 10 m/s) would fire, and the
+// longest plausible reading still fits the 39-cell chip.
+func TestLandingChipAltRateNeedSuffix(t *testing.T) {
+	v := NewOrbitView(alertMarkTheme())
+	for _, tc := range []struct {
+		alt, vDown float64
+		want       bool
+	}{{50, 9.99, false}, {50, 10, true}, {100, 10, true}, {100.01, 50, false}} {
+		w := fastLowMoonDescentCraft(t, tc.alt, tc.vDown, 0)
+		got := v.landingSpeedNeed(w.ActiveCraft())
+		if want := alertMark + "  (need < 10)" + alertMark; tc.want != (got == want) || (!tc.want && got != "") {
+			t.Errorf("alt %v v %v: suffix %q, want present=%v", tc.alt, tc.vDown, got, tc.want)
+		}
+	}
+	row := chipRow("alt rate:", "-999.9 m/s"+strings.ReplaceAll(v.landingSpeedNeed(fastLowMoonDescentCraft(t, 50, 999.9, 0).ActiveCraft()), alertMark, ""))
+	if n := lipgloss.Width(row); n > proximityChipInnerWidth {
+		t.Errorf("alt rate row %q is %d cells, chip inner width %d", row, n, proximityChipInnerWidth)
+	}
+}

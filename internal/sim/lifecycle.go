@@ -97,6 +97,40 @@ const (
 // classifySurfaceArrival runs the surface-arrival predicate at the
 // ClampToSurface site (v0.11.4; chute route added v0.12 Slice 3 / ADR
 // 0008). preClampV is the velocity vector before the clamp zeroed it;
+// ContactZoneAltM is the altitude under which the chips remind the pilot of the
+// contact limits ("(need < 10)").
+const ContactZoneAltM = 100.0
+
+// contactSpeedMps is the speed the crash rule compares with CrashVCritMps: the
+// air-relative speed under a deployed chute, the inertial speed otherwise.
+func contactSpeedMps(c *spacecraft.Spacecraft, r, v orbital.Vec3) float64 {
+	if c.ChuteState == spacecraft.ChuteDeployed {
+		return physics.AirRelativeVelocity(r, v, c.Primary).Norm()
+	}
+	return v.Norm()
+}
+
+// ContactSpeedCrashes reports whether the vessel, inside ContactZoneAltM,
+// would crash on contact by speed: the same speed and comparison as
+// classifySurfaceArrival, so the chip can never disagree with the crash.
+func ContactSpeedCrashes(c *spacecraft.Spacecraft) bool {
+	return c.State.R.Norm()-c.Primary.RadiusMeters() <= ContactZoneAltM &&
+		contactSpeedMps(c, c.State.R, c.State.V) >= CrashVCritMps
+}
+
+// NoseOutsideContactTol reports whether, inside ContactZoneAltM, the nose is
+// past the engine route's CrashNoseTol (the same dot and comparison as
+// classifySurfaceArrival). A deployed chute waives the nose.
+func NoseOutsideContactTol(c *spacecraft.Spacecraft) bool {
+	rMag := c.State.R.Norm()
+	nose := c.CurrentAttitudeDir
+	if rMag == 0 || nose.Norm() == 0 || c.ChuteState == spacecraft.ChuteDeployed ||
+		rMag-c.Primary.RadiusMeters() > ContactZoneAltM {
+		return false
+	}
+	return nose.Scale(1/nose.Norm()).Dot(c.State.R.Scale(1/rMag)) < CrashNoseTol
+}
+
 // preClampR is the position at which contact was detected. Returns:
 //
 //   - outcomeLanded with the sub-craft (lat, lon) when the vessel
@@ -153,13 +187,12 @@ func classifySurfaceArrival(
 	switch {
 	case c.ChuteState == spacecraft.ChuteDeployed:
 		// chute route — air-relative velocity ceiling; nose waived.
-		vRel := physics.AirRelativeVelocity(preClampR, preClampV, c.Primary)
-		if vRel.Norm() >= CrashVCritMps {
+		if contactSpeedMps(c, preClampR, preClampV) >= CrashVCritMps {
 			return outcomeCrashed, lat, lon
 		}
 	case c.CanSoftLand:
 		// engine route — inertial velocity ceiling + nose alignment.
-		if preClampV.Norm() >= CrashVCritMps {
+		if contactSpeedMps(c, preClampR, preClampV) >= CrashVCritMps {
 			return outcomeCrashed, lat, lon
 		}
 		nose := c.CurrentAttitudeDir

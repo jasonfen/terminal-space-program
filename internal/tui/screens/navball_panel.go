@@ -479,3 +479,17 @@ func navballReadoutLabel(w *sim.World) string {
 	}
 	return fmt.Sprintf("pitch %+d°  hdg %s", int(math.Round(pitch)), readout.Heading(hdg))
 }
+
+// navballNoseLine is navballReadoutLabel with the pitch term in the Alert
+// colour when the nose is outside the contact tolerance (sim.NoseOutsideContactTol,
+// inside 100 m). Colour only: the row has no room for words. Not in the PORT
+// reading, whose pitch is the lean across the port face.
+func (v *OrbitView) navballNoseLine(w *sim.World) string {
+	line := navballReadoutLabel(w)
+	c := w.ActiveCraft()
+	i := strings.Index(line, "  hdg")
+	if c == nil || i < 0 || !sim.NoseOutsideContactTol(c) {
+		return line
+	}
+	return v.theme.Alert.Render(line[:i]) + line[i:]
+}

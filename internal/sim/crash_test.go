@@ -287,3 +287,49 @@ func TestCrashStoresImpactPlantsWreckAndPinsToCrater(t *testing.T) {
 		t.Errorf("wreck is %.1f m from its crater after an hour, want within 1 m", off)
 	}
 }
+
+// P13: the chips' "(need < 10)" and the red nose pitch must agree with
+// classifySurfaceArrival at the boundaries: exactly 10 m/s crashes (>=), a nose
+// exactly on CrashNoseTol lands (<), and the reminders run to 100 m inclusive.
+func TestContactReminderRulesMatchTheCrash(t *testing.T) {
+	_, c := crashTestPrimaryFor(t)
+	c.CanSoftLand = true
+	radius := c.Primary.RadiusMeters()
+	up := orbital.Vec3{X: 1}
+	at := func(alt, vDown float64, nose orbital.Vec3) {
+		c.State.R = orbital.Vec3{X: radius + alt}
+		c.State.V = orbital.Vec3{X: -vDown}
+		c.CurrentAttitudeDir = nose
+	}
+	for _, tc := range []struct {
+		alt, v float64
+		want   bool
+	}{{50, 9.99, false}, {50, CrashVCritMps, true}, {50, 10.01, true}, {ContactZoneAltM, CrashVCritMps, true}, {ContactZoneAltM + 0.01, 50, false}} {
+		at(tc.alt, tc.v, up)
+		if got := ContactSpeedCrashes(c); got != tc.want {
+			t.Errorf("alt %v v %v: ContactSpeedCrashes = %v, want %v", tc.alt, tc.v, got, tc.want)
+		}
+		if tc.alt < 100 { // the reminder and the crash read the same speed
+			out, _, _ := classifySurfaceArrival(c, c.State.R, c.State.V, time.Time{})
+			if (out == outcomeCrashed) != ContactSpeedCrashes(c) {
+				t.Errorf("v %v: chip rule %v disagrees with classify outcome %v", tc.v, ContactSpeedCrashes(c), out)
+			}
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		nose orbital.Vec3
+		alt  float64
+		want bool
+	}{
+		{"on the tolerance lands", exactNoseTolDir(t, up), 50, false},
+		{"just past it", orbital.Vec3{X: 0.5, Y: 0.7}, 50, true},
+		{"past it but above 100 m", orbital.Vec3{X: 0.1, Y: 1}, ContactZoneAltM + 0.01, false},
+		{"past it at exactly 100 m", orbital.Vec3{X: 0.1, Y: 1}, ContactZoneAltM, true},
+	} {
+		at(tc.alt, 1, tc.nose)
+		if got := NoseOutsideContactTol(c); got != tc.want {
+			t.Errorf("%s: NoseOutsideContactTol = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
