@@ -250,7 +250,8 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Surface → Orbit → Target → Port → Site",
-		"q (SITE) in SITE: nose where the landing guidance says (Site+ brake); engine, throttle, warp stay yours; N flies it all",
+		"q (SITE) in SITE: nose per landing guidance (Site+ brake), straight up in final; throttle stays yours; N flies it all",
+		"e (SITE) in SITE: hold straight up (Site−), no guidance; under N, e sinks",
 		"e / q (Site+ auto) under N, approach and final: e sinks 1 m/s slower, q faster; z x Z X take the throttle",
 	} {
 		if !strings.Contains(f1, want) {
@@ -260,6 +261,8 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 	for _, want := range []string{
 		"Surface → Orbit → Target → Port → Site",
 		"| `q` in Site | The guidance nose hold (`hold: Site+ brake (SITE)`)",
+		"final: straight up, held, no lean",
+		"| `e` in Site | Holds straight up (`hold: Site− (SITE)`)",
 		"It never lights, cuts or throttles the engine, never caps warp and holds no rate of descent",
 		"| `e` / `q` under `Site+ auto` | Under `N`'s autopilot, in approach and final, set the rate of descent:",
 		"Under the `q` nose hold `e` is a plain hold key",
