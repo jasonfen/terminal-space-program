@@ -64,15 +64,6 @@ func TestParachuteDeployOnlyFromArmed(t *testing.T) {
 	}
 }
 
-// coRotate adds the surface co-rotation velocity (ω×r, the same axis
-// the chute's air-relative frame uses) to the craft's inertial velocity,
-// so its air-relative velocity v_rel = V − ω×r equals whatever
-// setImpactState set. Models a vessel descending *with* the air (the
-// realistic chute case) rather than at rest in the inertial frame.
-func coRotate(c *spacecraft.Spacecraft) {
-	c.State.V = c.State.V.Add(physics.AtmosphereOmega(c.Primary).Cross(c.State.R))
-}
-
 // TestChuteRouteSoftLandsDespiteCoRotation — the marquee case + the
 // Slice 3 verification regression guard: a capsule with NO CanSoftLand
 // but a DEPLOYED chute, co-rotating with the ground (so its INERTIAL
@@ -85,8 +76,7 @@ func TestChuteRouteSoftLandsDespiteCoRotation(t *testing.T) {
 	w, c := crashTestPrimaryFor(t)
 	c.CanSoftLand = false
 	noseSideways := orbital.Vec3{Y: 1}
-	setImpactState(c, 3, noseSideways) // 3 m/s air-relative descent
-	coRotate(c)                        // huge inertial |V| from surface co-rotation
+	setImpactState(c, 3, noseSideways) // 3 m/s over the ground; inertial |V| carries the surface's spin
 	c.ChuteState = spacecraft.ChuteDeployed
 	// Guard the test's premise: inertial |V| must be well above V_CRIT,
 	// else the v_rel-vs-inertial distinction isn't actually exercised.
@@ -111,7 +101,6 @@ func TestChuteRouteCrashesAboveVCrit(t *testing.T) {
 	c.CanSoftLand = false
 	localUp := orbital.Vec3{X: 1}
 	setImpactState(c, 40, localUp) // 40 m/s air-relative > V_CRIT
-	coRotate(c)
 	c.ChuteState = spacecraft.ChuteDeployed
 	w.integrateOneCraft(c, w.Clock.BaseStep)
 	if !c.Crashed {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -42,7 +43,9 @@ func setImpactState(c *spacecraft.Spacecraft, vDownMps float64, nose orbital.Vec
 	r := orbital.Vec3{X: radius - 5, Y: 0, Z: 0}
 	// Velocity directed radially inward (toward planet center) at the
 	// specified magnitude.
-	v := orbital.Vec3{X: -vDownMps, Y: 0, Z: 0}
+	// vDownMps is speed over the ground: the inertial velocity carries the
+	// surface's spin (about 430 m/s here on Earth), as a real descent does.
+	v := orbital.Vec3{X: -vDownMps, Y: 0, Z: 0}.Add(physics.AtmosphereOmega(c.Primary).Cross(r))
 	c.State.R = r
 	c.State.V = v
 	c.State.M = c.TotalMass()
@@ -298,7 +301,7 @@ func TestContactReminderRulesMatchTheCrash(t *testing.T) {
 	up := orbital.Vec3{X: 1}
 	at := func(alt, vDown float64, nose orbital.Vec3) {
 		c.State.R = orbital.Vec3{X: radius + alt}
-		c.State.V = orbital.Vec3{X: -vDown}
+		c.State.V = orbital.Vec3{X: -vDown}.Add(physics.AtmosphereOmega(c.Primary).Cross(c.State.R)) // vDown over the ground
 		c.CurrentAttitudeDir = nose
 	}
 	for _, tc := range []struct {
