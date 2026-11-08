@@ -218,6 +218,7 @@ func TestAttitudeHoldPartsNamesFrame(t *testing.T) {
 		{NavOrbit, spacecraft.BurnInertial, "Inertial", NavOrbit}, // ADR 0063: tagged ORBIT
 		{NavPort, spacecraft.BurnInertial, "Inertial", NavOrbit},  // the mode's frame, not the live NavMode
 		{NavOrbit, spacecraft.BurnSite, "Site+", NavSite},         // ADR 0067: frame-locked to the site
+		{NavOrbit, spacecraft.BurnSiteOut, "Site\u2212", NavSite}, // P10: e in SITE
 	}
 	for _, tc := range cases {
 		w.NavMode = tc.nav
@@ -240,6 +241,9 @@ func TestNavSiteOfferedResolvedAndDropped(t *testing.T) {
 	if got := w.ResolveAttitudeIntent(IntentRadialOut); got != spacecraft.BurnSite {
 		t.Errorf("q in SITE = %v, want Site+", got)
 	}
+	if got := w.ResolveAttitudeIntent(IntentRadialIn); got != spacecraft.BurnSiteOut {
+		t.Errorf("e in SITE = %v, want Site- (P10), not orbit Radial-", got)
+	}
 	if got := w.NavMode.Tag(); got != "SITE" {
 		t.Errorf("tag = %q, want SITE", got)
 	}
@@ -257,6 +261,9 @@ func TestNavSiteOfferedResolvedAndDropped(t *testing.T) {
 		t.Error("; offered SITE with no surface target")
 	}
 	w.NavMode = NavSite
+	if got := w.ResolveAttitudeIntent(IntentRadialIn); got == spacecraft.BurnSiteOut {
+		t.Error("e resolved to Site- with no surface target")
+	}
 	if got := w.ResolveAttitudeIntent(IntentRadialOut); got == spacecraft.BurnSite {
 		t.Error("q resolved to Site+ with no surface target")
 	}

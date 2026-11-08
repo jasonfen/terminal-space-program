@@ -542,6 +542,34 @@ func TestNoseHoldSteersOnlyAndNeverTouchesTheEngine(t *testing.T) {
 	}
 }
 
+// P9: under the hand nose hold the final phase holds local vertical, with no
+// lean and no autopilot forecast; the N autopilot's final law is untouched.
+func TestNoseHoldFinalPhaseHoldsStraightUp(t *testing.T) {
+	w, c := afterDeorbitBurn(t)
+	if err := w.EngageLandingNoseHold(); err != nil {
+		t.Fatal(err)
+	}
+	c.Throttle = 0.9
+	c.ManualBurn = &spacecraft.ManualBurn{StartTime: w.Clock.SimTime}
+	w.Tick()
+	c.Landing.Phase = spacecraft.PhaseFinal
+	// drift sideways: apFinal would lean against it
+	f := apFrameOf(c)
+	side := f.up.Cross(c.State.V).Unit() // some horizontal
+	c.State.V = c.State.V.Sub(f.vh).Add(side.Scale(2.9))
+	w.Tick()
+	f = apFrameOf(c)
+	if c.Landing.Phase != spacecraft.PhaseFinal {
+		t.Fatalf("phase %v, want Final", c.Landing.Phase)
+	}
+	if d := c.SiteDir.Dot(f.up); d < 1-1e-9 {
+		t.Errorf("nose dot up = %v, want straight up (1)", d)
+	}
+	if c.Landing.ForecastOK {
+		t.Error("nose hold final left an autopilot forecast set")
+	}
+}
+
 // Fix E: N from anywhere. Falling after the deorbit fired it engages the full
 // autopilot with no new node, and over a nose hold it keeps the phase.
 func TestNEngagesMidDescentWithNoNewBurn(t *testing.T) {

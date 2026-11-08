@@ -225,6 +225,12 @@ const (
 	// only, not in AllBurnModes (a planted Site node has no meaning). Appended
 	// last so persisted mode ints keep their meaning.
 	BurnSite
+
+	// BurnSiteOut (P10): `Site-` in the SITE frame, the landing's back-out
+	// attitude. Holds local vertical up with no guidance (same vector as
+	// BurnRadialOut); trims apply like any plain hold. Live only, not in
+	// AllBurnModes. Appended last so persisted mode ints keep their meaning.
+	BurnSiteOut
 )
 
 // SiteHold is the direction a BurnSite hold aims at: SiteDir once the
@@ -305,6 +311,8 @@ func (m BurnMode) String() string {
 		return "Inertial"
 	case BurnSite:
 		return "Site+"
+	case BurnSiteOut:
+		return "Site\u2212"
 	}
 	return "?"
 }
@@ -362,7 +370,7 @@ func DirectionUnit(mode BurnMode, r, v orbital.Vec3) orbital.Vec3 {
 		return normal
 	case BurnNormalMinus:
 		return normal.Scale(-1)
-	case BurnRadialOut:
+	case BurnRadialOut, BurnSiteOut:
 		return radialOut
 	case BurnRadialIn:
 		return radialOut.Scale(-1)

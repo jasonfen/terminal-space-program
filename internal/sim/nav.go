@@ -102,6 +102,8 @@ func (w *World) ResolveAttitudeIntent(intent AttitudeIntent) spacecraft.BurnMode
 		switch intent {
 		case IntentRadialOut:
 			return spacecraft.BurnSite
+		case IntentRadialIn:
+			return spacecraft.BurnSiteOut // P10: e backs out, straight up
 		case IntentPrograde:
 			return spacecraft.BurnSurfacePrograde
 		case IntentRetrograde:
@@ -316,8 +318,8 @@ func (w *World) AttitudeHoldParts(mode spacecraft.BurnMode) (string, NavMode) {
 		// target's port, so they tag their OWN frame, never the live
 		// NavMode (a hold of Port+ stays "Port+ (PORT)" after ; moves on).
 		frame = NavPort
-	case spacecraft.BurnSite:
-		frame = NavSite // ADR 0067: Site+ is frame-locked to the site
+	case spacecraft.BurnSite, spacecraft.BurnSiteOut:
+		frame = NavSite // ADR 0067: Site+ / Site- are frame-locked to the site
 	}
 	// #478 A2: the bracket tag already names the frame, so a surface-
 	// framed mode drops its own redundant "Surface " word ("Surface
