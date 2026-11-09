@@ -855,7 +855,16 @@ func Load(path string) (*sim.World, error) {
 	}
 	// Identity bumps (v10, v11, v14, v16, v17) have no transform: absent keys
 	// decode to the truth, and TestIdentityBumpsLoadUnchanged pins that.
-	return worldFromPayload(f.Payload, systems)
+	w, err := worldFromPayload(f.Payload, systems)
+	if err != nil {
+		return nil, err
+	}
+	// schema v21 (#881): a wreck from before the impact point was stored has
+	// none; adopt the sub-point under it now and plant its wreck site.
+	if f.Version < 21 {
+		w.AdoptOldWrecks()
+	}
+	return w, nil
 }
 
 func payloadFromWorld(w *sim.World) Payload {
