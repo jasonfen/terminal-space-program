@@ -340,6 +340,25 @@ func connectedAt(t *testing.T, w *World, loadout string, distM float64) bool {
 	return w.CommGraph.HasConnection(c.ID)
 }
 
+// P31 (ADR 0067): the LM and CSM carried Unified S-band antennas that reached
+// Earth's 85-ft dishes from lunar distance. Apollo-TLI (LM + CSM/CM) and the
+// crewed catalog lander link at the Moon's distance; the uncrewed lander (a
+// probe core on the basic backfill) does not. Equal case: just inside reach.
+func TestApolloCommandPartsReachTheMoon(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	for _, tc := range []struct {
+		id   string
+		want bool
+	}{{"Apollo-TLI", true}, {"Apollo-Stack", true}, {"Lander-Crewed", true}, {"Lander", false}} {
+		if got := connectedAt(t, w, tc.id, 384_400e3); got != tc.want {
+			t.Errorf("%s at lunar distance: connected = %v, want %v", tc.id, got, tc.want)
+		}
+	}
+}
+
 // TestCommReachTiers (#182): the combinability model + antenna tiers give each
 // tier its intended reach against the home DSN. The Relay-Tug fulfils
 // Earth/Moon; a basic antenna stops at geostationary; deep-space reaches
@@ -757,7 +776,9 @@ func TestCrewedDragonConnectsInLowEarthOrbit(t *testing.T) {
 // against a 5e9 station is 223,600 km, short of the Moon) and that a crewed
 // craft is never command-gated, linked or not.
 func TestBackfilledAntennaCrewedVesselsReachLEONotTheMoon(t *testing.T) {
-	for _, id := range []string{"Apollo-TLI", "Capsule"} {
+	// Apollo-TLI is excluded: its LM and CSM carry the real Unified S-band
+	// antenna (P31) and do reach the Moon, see TestApolloCommandPartsReachTheMoon.
+	for _, id := range []string{"Capsule"} {
 		w := mustWorld(t)
 		w.Crafts = nil
 		w.ActiveCraftIdx = -1
