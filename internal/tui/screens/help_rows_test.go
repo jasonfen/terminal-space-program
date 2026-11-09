@@ -84,7 +84,11 @@ func helpPhraseRows() []helpPhrase {
 		{name: "glossary boosters / core names the PROPELLANT row", section: "READOUT GLOSSARY", token: "boosters / core", has: []string{"PROPELLANT's fuel row"}},
 		{name: "E ends a crashed flight", token: "E", anyFold: []string{"end flight", "crashed"}},
 		// ADR 0051: F2 hides all eight boxes and the navball.
-		{name: "F2 declutter", token: "F2", has: []string{"instrument boxes", "navball", "Centerline scope", "ENGINE", "PROPELLANT"}, not: []string{"core column", "chips"}},
+		{name: "F2 declutter", token: "F2", has: []string{"instrument boxes", "navball", "Centerline scope", "OVERHEAD inset", "ENGINE", "PROPELLANT"}, not: []string{"core column", "chips"}},
+		// ADR 0067 S4b: the landing view's inset and the chip's twr: row.
+		{name: "glossary names twr", section: "READOUT GLOSSARY", token: "twr", has: []string{"LANDING chip", "1.00 = hover"}},
+		{name: "glossary names OVERHEAD", section: "READOUT GLOSSARY", token: "OVERHEAD", has: []string{"landing view", "cross scale", "thrust pointer"}},
+		{name: "V draws the targeted flag", token: "V", has: []string{"targeted flag"}},
 		{name: "K re-solves the planner", section: "RENDEZVOUS PLANNER", token: "K", has: []string{"re-solve"}},
 		{name: "v names the screen's views", token: "v", has: []string{"cycle view (" + strings.Join(views, " / ") + ")"}},
 		// ADR 0058 decision 14: c is a throttle row on MANUAL FLIGHT; C is documented under PLAN BURNS.
@@ -282,7 +286,7 @@ func TestHelpSectionOrder(t *testing.T) {
 // retired `dir` in favour of `pro / retro` (same row, new token) and
 // added two: the frame-spelling entry and the `rcs` line ADR 0049's own
 // decision-6 comment always meant to include, for 19. G8 Q3 (#507) added
-// `heading: / hdg` (commanded vs measured), for 20, and #592 added the navball's `[MAN] / [AUT]` and `RCS` tags, for 22, and #600 the STAGES pips, for 23, and the amber hold frame word, for 24, and ADR 0057 S4 the `cargo / hold` row, for 25, and ADR 0058 S5 the `boosters / core` row, for 26, and ADR 0059 S5 the `raise / lower` row, for 27, and ADR 0065 S5 the `COVERAGE` row, for 28, and ADR 0066 S4 the `ground / miss / lpd` row, for 29, and ADR 0067 S1 the `rsv` row, for 30, and ADR 0067 S2 the `Site+ / ROD` row, for 31, and ADR 0067 S3 the `alt rate`, `fwd vel / lat vel` and `aim` rows, for 34. Tightened from
+// `heading: / hdg` (commanded vs measured), for 20, and #592 added the navball's `[MAN] / [AUT]` and `RCS` tags, for 22, and #600 the STAGES pips, for 23, and the amber hold frame word, for 24, and ADR 0057 S4 the `cargo / hold` row, for 25, and ADR 0058 S5 the `boosters / core` row, for 26, and ADR 0059 S5 the `raise / lower` row, for 27, and ADR 0065 S5 the `COVERAGE` row, for 28, and ADR 0066 S4 the `ground / miss / lpd` row, for 29, and ADR 0067 S1 the `rsv` row, for 30, and ADR 0067 S2 the `Site+ / ROD` row, for 31, and ADR 0067 S3 the `alt rate`, `fwd vel / lat vel` and `aim` rows, for 34, and ADR 0067 S4b the `twr` and `OVERHEAD` rows, for 36. Tightened from
 // the original loose "at least 7" bound to an exact count so a stray
 // addition or removal is caught rather than silently absorbed.
 func TestHelpGlossarySection(t *testing.T) {
@@ -290,7 +294,7 @@ func TestHelpGlossarySection(t *testing.T) {
 		if s.header != "READOUT GLOSSARY" {
 			continue
 		}
-		const want = 34
+		const want = 36
 		if len(s.rows) != want {
 			t.Errorf("READOUT GLOSSARY has %d rows, want exactly %d", len(s.rows), want)
 		}

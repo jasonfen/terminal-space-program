@@ -132,6 +132,7 @@ func (v *OrbitView) landingChipRows(w *sim.World, st sim.ProximityState) []strin
 		chipRow("aim:", aim),
 		proximityHoldRow(w),
 		v.landingEngineRow(w),
+		chipRow("twr:", engineTWRValue(c)), // ENGINE's figure (P36)
 		v.proximityRCSRow(w),
 		proximityMonopropRow(w),
 	}
