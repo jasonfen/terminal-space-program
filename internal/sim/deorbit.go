@@ -7,6 +7,7 @@ package sim
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"time"
 
@@ -53,6 +54,65 @@ var (
 	ErrDeorbitNoSolution = errors.New("no solution from this orbit")
 	ErrDeorbitNoEngine   = errors.New("no engine")
 )
+
+// DeorbitBrakeTooLowError is the "no solution" whose cause is the orbit: the
+// vessel's own reserve-throttle brake loses more altitude between light and
+// stop than the orbit has. NeedM is the lowest whole-km circular altitude it
+// stops above the ground from; OrbitM is the vessel's altitude now.
+type DeorbitBrakeTooLowError struct{ NeedM, OrbitM float64 }
+
+func (e *DeorbitBrakeTooLowError) Error() string {
+	return fmt.Sprintf("brake needs %d km, orbit %d km", int(math.Ceil(e.NeedM/1000)), int(math.Round(e.OrbitM/1000)))
+}
+
+// brakeStopsFrom: a minimal deorbit from a circular orbit at altitude h in c's
+// plane (retro at that point to a ground-grazing periapsis), then the
+// reserve-throttle brake lit as late as it can be. True when it stops above the
+// ground at least DeorbitAheadDeg of arc beyond the burn point: the planner
+// lights the burn with the site that far ahead, so a shorter reach can never
+// land on it. shortcut: periapsis 5 km under the surface and the body's
+// rotation ignored, so the threshold is the planner's to within a km or so.
+func brakeStopsFrom(c *spacecraft.Spacecraft, h float64) bool {
+	mu, rp := c.Primary.GravitationalParameter(), c.Primary.RadiusMeters()
+	r := rp + h
+	rPeri := rp - 5000
+	st := c.State
+	st.R = c.State.R.Unit().Scale(r)
+	st.V = c.State.R.Cross(c.State.V).Unit().Cross(st.R.Unit()).Scale(math.Sqrt(2 * mu * rPeri / (r * (r + rPeri))))
+	st.M = c.TotalMass()
+	v := *c
+	v.State = st
+	sf, _, ok := stopPointFor(&v, 2*time.Hour) // half a lap of the coast ellipse
+	return ok && math.Acos(math.Max(-1, math.Min(1, st.R.Unit().Dot(sf.R.Unit()))))/rad >= DeorbitAheadDeg
+}
+
+// brakeTooLow returns the typed refusal when the brake cannot stop above the
+// ground from c's altitude but can from a higher whole-km circular orbit (below
+// one body radius); nil for any other cause.
+func brakeTooLow(c *spacecraft.Spacecraft) *DeorbitBrakeTooLowError {
+	if c == nil || !canBrakeAtSite(c) {
+		return nil
+	}
+	h0 := c.State.R.Norm() - c.Primary.RadiusMeters()
+	if brakeStopsFrom(c, h0) {
+		return nil
+	}
+	hi := math.Max(h0, 1000)
+	for ; !brakeStopsFrom(c, hi); hi *= 2 {
+		if hi > c.Primary.RadiusMeters() {
+			return nil
+		}
+	}
+	loKm, hiKm := int(h0/1000), int(math.Ceil(hi/1000)) // loKm fails (floor of a failing h0 may stop; the bisection only needs hiKm to stop)
+	for hiKm-loKm > 1 {
+		if mid := (loKm + hiKm) / 2; brakeStopsFrom(c, float64(mid)*1000) {
+			hiKm = mid
+		} else {
+			loKm = mid
+		}
+	}
+	return &DeorbitBrakeTooLowError{NeedM: float64(hiKm) * 1000, OrbitM: h0}
+}
 
 // DeorbitOffTrackError is the off-track refusal: the angle, and either when the
 // ground brings the site under the track (Reaches) or that it never will
@@ -279,6 +339,16 @@ func wrapDeg(d float64) float64 { return math.Remainder(d, 360) }
 // on the targeted site, replacing its own previous node. Refusals are the
 // package's Err* values or a *DeorbitOffTrackError.
 func (w *World) PlanDeorbitOntoSite() (*DeorbitPlan, error) {
+	plan, err := w.planDeorbitOntoSite()
+	if err == ErrDeorbitNoSolution {
+		if low := brakeTooLow(w.ActiveCraft()); low != nil {
+			return nil, low
+		}
+	}
+	return plan, err
+}
+
+func (w *World) planDeorbitOntoSite() (*DeorbitPlan, error) {
 	c := w.ActiveCraft()
 	if c == nil || c.Crashed {
 		return nil, ErrDeorbitNoOrbit

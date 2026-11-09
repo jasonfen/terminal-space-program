@@ -326,3 +326,45 @@ func TestDeorbitOffTrackReachability(t *testing.T) {
 		t.Errorf("orbit inclined to the site's latitude: %v (%+v), want reachable", err, e)
 	}
 }
+
+// atAltitude re-seats the circular orbit of deorbitWorld at altKm.
+func atAltitude(c *spacecraft.Spacecraft, altKm float64) {
+	r := c.Primary.RadiusMeters() + altKm*1000
+	c.State.V = c.State.V.Unit().Scale(math.Sqrt(c.Primary.GravitationalParameter() / r))
+	c.State.R = c.State.R.Unit().Scale(r)
+	c.CurrentAttitudeDir = c.State.V.Unit()
+}
+
+// Fix J: a brake that loses more altitude than the orbit has says so, with the
+// altitude it needs computed for this vessel; 100 km still plans; another
+// cause of "no solution" keeps the plain line.
+func TestDeorbitRefusalSaysBrakeNeedsAltitude(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatalf("100 km Lander must still plan: %v", err)
+	}
+	w, c = deorbitWorld(t, 150, 0)
+	atAltitude(c, 50)
+	_, err := w.PlanDeorbitOntoSite()
+	var low *DeorbitBrakeTooLowError
+	if !errors.As(err, &low) {
+		t.Fatalf("50 km err = %v, want brake-too-low", err)
+	}
+	if math.Abs(low.OrbitM-50000) > 100 || low.NeedM <= 50000 || low.NeedM > 100000 {
+		t.Errorf("need %.0f orbit %.0f m", low.NeedM, low.OrbitM)
+	}
+	// The equal case: the stated altitude really stops, a km below it does not.
+	if !brakeStopsFrom(c, low.NeedM) || brakeStopsFrom(c, low.NeedM-1000) {
+		t.Errorf("need %.0f m is not the stop threshold", low.NeedM)
+	}
+	t.Logf("50 km Lander: %v", err)
+	// Another cause (dry before it stops) keeps the old line.
+	w, c = deorbitWorld(t, 150, 0)
+	atAltitude(c, 50)
+	c.Stages[0].FuelMass = 5
+	c.SyncFields()
+	c.Crewed, c.Controllable = true, true
+	if _, err := w.PlanDeorbitOntoSite(); err != ErrDeorbitNoSolution {
+		t.Errorf("fuel-starved err = %v, want the plain no solution", err)
+	}
+}
