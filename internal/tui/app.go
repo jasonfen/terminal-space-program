@@ -736,6 +736,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					TargetGhostOwner: m.TargetGhostOwner,
 				}
 			}
+			verb := "planted"
+			if editedID != 0 {
+				verb = "edited"
+			}
+			a.world.RecordEvent(fmt.Sprintf("node %s: \u0394v %.0f m/s %s", verb, m.DV, m.Mode))
 			if overBudget {
 				// Same flash mechanism as every other planner outcome
 				// (ADR 0048 §1 — the one announcement helper).
@@ -1030,6 +1035,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case tea.KeyMsg:
+		// Flight Recording: one row per press that moved a trim, the aim or the
+		// descent rate, with the resulting value (a.world may be replaced by a
+		// load, so the closure reads it at return).
+		in := a.world.InputSnapshot()
+		defer func() { a.world.RecordInputChanges(in) }()
 		// A key on the map clears any stale menu-opener (backToOpener).
 		if a.active == screenOrbit {
 			a.fromMenu = false
@@ -2351,6 +2361,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.PitchTrimReset):
 			// ADR 0049 decision 9 widened this to reset both trims.
+			a.world.NoteTrimReset()
 			if c := a.world.ActiveCraft(); c != nil {
 				c.PitchTrim = 0
 				c.HeadingTrim = 0

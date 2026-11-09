@@ -664,7 +664,8 @@ func (w *World) RecordInputChanges(before InputSnap) {
 	case c.PitchTrim != before.pitch || c.HeadingTrim != before.head:
 		t := fmt.Sprintf("%s: pitch %s hdg %s", label("trim"), recDeg(c.PitchTrim), recDeg(c.HeadingTrim))
 		var marks []string
-		if before.head == 0 && c.HeadingTrim != 0 {
+		if h := math.Abs(c.HeadingTrim); before.head == 0 && h != 0 && // a plain step is not a seed
+			math.Abs(h-spacecraft.HeadingTrimStepRad) > 1e-9 && math.Abs(h-spacecraft.HeadingTrimFineStepRad) > 1e-9 {
 			marks = append(marks, "heading seeded")
 			if before.pitch*c.PitchTrim < 0 {
 				marks = append(marks, "pitch sign flipped")

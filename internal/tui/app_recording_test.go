@@ -439,3 +439,24 @@ func TestRecordingFaultIsFlashed(t *testing.T) {
 		t.Errorf("fault not drained: %q", a.world.RecordingFault)
 	}
 }
+
+// Fix H: a trim key and the reset key reach the file as rows with the
+// resulting values (plain, alt, and |).
+func TestTrimKeysWriteRowsWithResult(t *testing.T) {
+	a, dir := recApp(t)
+	a.active = screenOrbit
+	f := fileOfVessel(t, dir, a.world.ActiveCraft().ID)
+	last := func() string { r := recRows(t, f); return r[len(r)-1] }
+	a.Update(tea.KeyMsg{Type: tea.KeyLeft})
+	if got := last(); !strings.HasSuffix(got, "trim: pitch −5° hdg 0°") {
+		t.Errorf("after left: %q", got)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyLeft, Alt: true})
+	if got := last(); !strings.HasSuffix(got, "trim: pitch −6° hdg 0°") {
+		t.Errorf("after alt+left: %q", got)
+	}
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("|")})
+	if got := last(); !strings.HasSuffix(got, "trim reset: pitch 0° hdg 0°") {
+		t.Errorf("after |: %q", got)
+	}
+}
