@@ -448,6 +448,11 @@ type Spacecraft struct {
 	// currently-active craft. Zero value (TargetNone) is the safe
 	// default for fresh / loaded crafts.
 	Target Target
+
+	// NavFrame (schema v23, ADR 0067 P22) is this craft's navball frame, the
+	// int value of sim.NavMode. Checkpointed from World.NavMode when the
+	// player switches away (and on save), restored when they switch back.
+	NavFrame int
 }
 
 // DockedComponent is a snapshot of one pre-dock craft identity

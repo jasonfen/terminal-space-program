@@ -203,6 +203,7 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 	// ADR 0059 (schema v17): batch tag and raise order.
 	wc.BatchID, wc.BatchLead, wc.Raise = c.BatchID, c.BatchLead, raiseToWire(c.Raise)
 	wc.Landing = landingToWire(c.Landing) // schema v22 (ADR 0067)
+	wc.NavMode = c.NavFrame               // schema v23 (ADR 0067 P22)
 	wc.BatchClampExemptUntilNano = timeToNano(c.BatchClampExemptUntil)
 	wc.LiftoffSimTimeNano = timeToNano(c.LiftoffSimTime) // schema v18
 	return wc
@@ -489,6 +490,7 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 	}
 	c.BatchID, c.BatchLead, c.Raise = wc.BatchID, wc.BatchLead, raiseFromWire(wc.Raise)
 	c.Landing = landingFromWire(wc.Landing)
+	c.NavFrame = wc.NavMode
 	c.BatchClampExemptUntil = timeFromNano(wc.BatchClampExemptUntilNano)
 	c.LiftoffSimTime = timeFromNano(wc.LiftoffSimTimeNano) // schema v18
 	return c, nil

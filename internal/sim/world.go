@@ -750,9 +750,10 @@ func (w *World) SwitchToCraftIdx(idx int) bool {
 // per-craft Target so each vessel keeps its own target binding
 // across switches (v0.9.3 polish). Outgoing's live `w.Target`
 // is checkpointed onto the outgoing craft, then `w.Target` is
-// reloaded from the incoming craft's stored Target. NavMode is
-// not yet per-craft (acceptable scope cap; revisit if NavMode
-// drift across switches becomes friction).
+// reloaded from the incoming craft's stored Target. NavMode follows
+// the same rule through Spacecraft.NavFrame (ADR 0067 P22): World.NavMode
+// is the active vessel's live frame, stored on switch-away and restored
+// (then reconciled) on switch-to.
 //
 // Caller is responsible for bounds-checking idx against
 // len(Crafts); out-of-range idx is treated as "no checkpoint, no
@@ -766,6 +767,7 @@ func (w *World) SetActiveCraftIdx(idx int) {
 	if w.ActiveCraftIdx >= 0 && w.ActiveCraftIdx < len(w.Crafts) {
 		if outgoing := w.Crafts[w.ActiveCraftIdx]; outgoing != nil {
 			outgoing.Target = w.Target
+			outgoing.NavFrame = int(w.NavMode)
 			// Review LOW 59: the standing dry-throttle order belongs to the
 			// vessel being flown; walking away drops it (nothing on screen
 			// shows it on a non-active vessel, and a later space press
@@ -790,11 +792,8 @@ func (w *World) SetActiveCraftIdx(idx int) {
 				w.ResetFocus()
 			}
 			w.Target = incoming.Target
+			w.NavMode = NavMode(incoming.NavFrame)
 			w.reconcileNavMode()
-			// An engaged landing autopilot keeps q: back on its vessel the frame is SITE again.
-			if incoming.Landing != nil && incoming.Landing.Engaged && w.SiteFrameOffered() {
-				w.setNavMode(NavSite)
-			}
 			return
 		}
 	}

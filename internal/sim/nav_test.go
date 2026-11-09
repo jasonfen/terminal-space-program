@@ -306,3 +306,62 @@ func TestSiteHoldLabelNamesEveryPhase(t *testing.T) {
 		}
 	}
 }
+
+// twoVessels returns a world with two crafts; craft 0 is active.
+func twoVessels(t *testing.T) *World {
+	t.Helper()
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.SpawnSisterCraft(); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.Crafts) < 2 {
+		t.Fatalf("setup: %d crafts", len(w.Crafts))
+	}
+	w.SetActiveCraftIdx(0)
+	w.NavMode = NavOrbit
+	w.Crafts[1].NavFrame = int(NavOrbit)
+	return w
+}
+
+// ADR 0067 P22: the frame travels with the vessel. SURFACE on A survives a
+// trip to B (ORBIT) and back, and `;` on B never changes A.
+func TestNavFrameIsPerVessel(t *testing.T) {
+	w := twoVessels(t)
+	w.NavMode = NavSurface // A
+	w.SetActiveCraftIdx(1)
+	if w.NavMode != NavOrbit {
+		t.Fatalf("B arrives on %v, want ORBIT (A's frame leaked)", w.NavMode)
+	}
+	w.CycleNavMode() // `;` on B
+	bFrame := w.NavMode
+	w.SetActiveCraftIdx(0)
+	if w.NavMode != NavSurface {
+		t.Errorf("A reads %v after the round trip, want SURFACE", w.NavMode)
+	}
+	w.SetActiveCraftIdx(1)
+	if w.NavMode != bFrame {
+		t.Errorf("B reads %v, want its own %v", w.NavMode, bFrame)
+	}
+}
+
+// A stored frame the vessel cannot offer drops to ORBIT on arrival, and the
+// equal case (a frame it can offer) is kept.
+func TestNavFrameUnofferedDropsOnSwitch(t *testing.T) {
+	w := twoVessels(t)
+	for _, f := range []NavMode{NavTarget, NavPort, NavSite} {
+		w.Crafts[1].NavFrame = int(f)
+		w.SetActiveCraftIdx(1)
+		if w.NavMode != NavOrbit {
+			t.Errorf("stored %v with nothing to aim at: arrives on %v, want ORBIT", f, w.NavMode)
+		}
+		w.SetActiveCraftIdx(0)
+	}
+	w.Crafts[1].NavFrame = int(NavSurface)
+	w.SetActiveCraftIdx(1)
+	if w.NavMode != NavSurface {
+		t.Errorf("stored SURFACE arrives on %v", w.NavMode)
+	}
+}
