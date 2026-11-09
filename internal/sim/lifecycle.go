@@ -97,6 +97,41 @@ const (
 // classifySurfaceArrival runs the surface-arrival predicate at the
 // ClampToSurface site (v0.11.4; chute route added v0.12 Slice 3 / ADR
 // 0008). preClampV is the velocity vector before the clamp zeroed it;
+// ContactZoneAltM is the altitude under which the chips remind the pilot of the
+// contact limits ("(need < 10)").
+const ContactZoneAltM = 100.0
+
+// contactSpeedMps is the speed the crash rule compares with CrashVCritMps: the
+// speed over the spinning ground (v - omega x r), on both routes. It is what the
+// descent readouts and the recorded impact show; the inertial speed carried the
+// surface's spin into the test (4.6 m/s at the Moon's equator, ~465 m/s at
+// Earth's), so a Moon landing at 8 m/s over the ground crashed (playtest
+// 2026-11-08).
+func contactSpeedMps(c *spacecraft.Spacecraft, r, v orbital.Vec3) float64 {
+	return physics.AirRelativeVelocity(r, v, c.Primary).Norm()
+}
+
+// ContactSpeedCrashes reports whether the vessel, inside ContactZoneAltM,
+// would crash on contact by speed: the same speed and comparison as
+// classifySurfaceArrival, so the chip can never disagree with the crash.
+func ContactSpeedCrashes(c *spacecraft.Spacecraft) bool {
+	return c.State.R.Norm()-c.Primary.RadiusMeters() <= ContactZoneAltM &&
+		contactSpeedMps(c, c.State.R, c.State.V) >= CrashVCritMps
+}
+
+// NoseOutsideContactTol reports whether, inside ContactZoneAltM, the nose is
+// past the engine route's CrashNoseTol (the same dot and comparison as
+// classifySurfaceArrival). A deployed chute waives the nose.
+func NoseOutsideContactTol(c *spacecraft.Spacecraft) bool {
+	rMag := c.State.R.Norm()
+	nose := c.CurrentAttitudeDir
+	if rMag == 0 || nose.Norm() == 0 || c.ChuteState == spacecraft.ChuteDeployed ||
+		rMag-c.Primary.RadiusMeters() > ContactZoneAltM {
+		return false
+	}
+	return nose.Scale(1/nose.Norm()).Dot(c.State.R.Scale(1/rMag)) < CrashNoseTol
+}
+
 // preClampR is the position at which contact was detected. Returns:
 //
 //   - outcomeLanded with the sub-craft (lat, lon) when the vessel
@@ -130,7 +165,7 @@ func classifySurfaceArrival(
 	// differ on the capability gate, the nose-alignment requirement, AND
 	// the reference frame of the velocity ceiling:
 	//
-	//   engine route:  CanSoftLand   && |V_inertial| < V_CRIT && cosNose > NOSE_TOL
+	//   engine route:  CanSoftLand   && |v_rel| < V_CRIT && cosNose > NOSE_TOL
 	//   chute route:   ChuteDeployed && |v_rel| < V_CRIT                  (nose waived)
 	//
 	// The chute route measures *air-relative* speed v_rel = V − ω×r, not
@@ -141,9 +176,10 @@ func classifySurfaceArrival(
 	// inertial frame. Testing inertial |V| would crash every Earth
 	// splashdown despite an ideal canopy descent; v_rel is what the chute
 	// actually controls (ADR 0008 — amended after Slice 3 verification).
-	// The engine route keeps inertial |V| (its tests + shipped behaviour
-	// pin that, and a powered lander on the slow-rotating Moon sees a
-	// negligible ω×r anyway).
+	// The engine route measures v_rel too (2026-11-08): it used to keep
+	// inertial |V| on the theory that the Moon's ω×r is negligible, but
+	// 4.6 m/s at the equator is half the 10 m/s margin, and on Earth the
+	// spin alone (~465 m/s) crashed every powered landing.
 	//
 	// The chute route also waives NOSE_TOL: under a canopy the chute is
 	// the stabiliser, the player isn't flying attitude, and demanding a
@@ -153,13 +189,12 @@ func classifySurfaceArrival(
 	switch {
 	case c.ChuteState == spacecraft.ChuteDeployed:
 		// chute route — air-relative velocity ceiling; nose waived.
-		vRel := physics.AirRelativeVelocity(preClampR, preClampV, c.Primary)
-		if vRel.Norm() >= CrashVCritMps {
+		if contactSpeedMps(c, preClampR, preClampV) >= CrashVCritMps {
 			return outcomeCrashed, lat, lon
 		}
 	case c.CanSoftLand:
-		// engine route — inertial velocity ceiling + nose alignment.
-		if preClampV.Norm() >= CrashVCritMps {
+		// engine route — ground-relative velocity ceiling + nose alignment.
+		if contactSpeedMps(c, preClampR, preClampV) >= CrashVCritMps {
 			return outcomeCrashed, lat, lon
 		}
 		nose := c.CurrentAttitudeDir

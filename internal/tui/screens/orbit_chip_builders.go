@@ -1256,8 +1256,7 @@ func (v *OrbitView) buildChuteChip(w *sim.World) []string {
 	}
 	rateLabel := readout.Speed(descentRate)
 	if vRel.Norm() >= sim.CrashVCritMps {
-		rateLabel = v.theme.Alert.Render(
-			fmt.Sprintf("%s (rel speed > %s = CRASH on contact)", readout.Speed(descentRate), readout.Speed(sim.CrashVCritMps)))
+		rateLabel += v.theme.Alert.Render(fmt.Sprintf("  (need < %.0f)", sim.CrashVCritMps))
 	}
 	lines := []string{
 		v.theme.Primary.Render("CHUTE"),

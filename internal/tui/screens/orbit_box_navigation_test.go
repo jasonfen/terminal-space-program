@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -503,7 +504,8 @@ func fastLowMoonDescentCraft(t *testing.T, altM, vDownMps, vHorizMps float64) *s
 	c.Landed = false
 	c.Crashed = false
 	c.State.R = orbital.Vec3{X: c.Primary.RadiusMeters() + altM}
-	c.State.V = orbital.Vec3{X: -vDownMps, Y: vHorizMps}
+	// vDown / vHoriz are over the ground: the inertial velocity carries the Moon's spin.
+	c.State.V = orbital.Vec3{X: -vDownMps, Y: vHorizMps}.Add(physics.AtmosphereOmega(c.Primary).Cross(c.State.R))
 	c.State.M = c.TotalMass()
 	return w
 }

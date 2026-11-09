@@ -103,7 +103,7 @@ func TestChuteHUDAlertsAboveVCrit(t *testing.T) {
 	if !strings.Contains(out, "ARMED") {
 		t.Errorf("expected ARMED state word; got:\n%s", out)
 	}
-	if !strings.Contains(out, "CRASH on contact") {
-		t.Errorf("expected crash-on-contact alert above V_CRIT; got:\n%s", out)
+	if !strings.Contains(out, "(need < 10)") || strings.Contains(out, "CRASH on contact") {
+		t.Errorf("expected the (need < 10) reminder above V_CRIT, not the CRASH sentence; got:\n%s", out)
 	}
 }

@@ -530,7 +530,9 @@ func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
 	}
 	var dir orbital.Vec3
 	var theta float64
-	if ap.Phase == spacecraft.PhaseFinal {
+	if ap.Phase == spacecraft.PhaseFinal && ap.Nose {
+		dir = f.up // P9: the hand nose holds straight up in final; no lean, no forecast
+	} else if ap.Phase == spacecraft.PhaseFinal {
 		dir, theta = w.apFinal(c, ap, f, lat, lon)
 	} else {
 		dir, theta = w.apBrake(c, ap, f, lat, lon)

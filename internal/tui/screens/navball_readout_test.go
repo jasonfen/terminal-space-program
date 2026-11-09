@@ -133,3 +133,27 @@ func TestNavballPadRoseFollowsHeadingTrim(t *testing.T) {
 		t.Errorf("rose did not move after a 40 degree heading trim: E stayed at row %d col %d", r0, c0)
 	}
 }
+
+// P13: inside 100 m the pitch term alone turns Alert when the nose is outside
+// the contact tolerance (45.57 deg off vertical, nose.up < 0.7); the hdg term
+// and the words stay plain.
+func TestNavballNoseLineAlertsOutsideContactTol(t *testing.T) {
+	v := NewOrbitView(alertMarkTheme())
+	w, _ := spawnSaturnVOnPad(t) // on the pad: inside 100 m
+	for _, tc := range []struct {
+		pitch float64
+		want  bool
+	}{{80, false}, {46, false}, {44, true}, {0, true}} {
+		setNose(w, tc.pitch, 90)
+		got := v.navballNoseLine(w)
+		if has := strings.Contains(got, alertMark); has != tc.want {
+			t.Errorf("pitch %v: line %q, alert=%v want %v", tc.pitch, got, has, tc.want)
+		}
+		if tc.want && !strings.HasPrefix(got, alertMark+"pitch ") {
+			t.Errorf("pitch %v: alert should wrap the pitch term only: %q", tc.pitch, got)
+		}
+		if tc.want && strings.Index(got, "hdg") < strings.LastIndex(got, alertMark) {
+			t.Errorf("pitch %v: hdg inside the alert: %q", tc.pitch, got)
+		}
+	}
+}

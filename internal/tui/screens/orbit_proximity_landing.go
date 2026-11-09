@@ -11,6 +11,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
@@ -121,7 +122,7 @@ func (v *OrbitView) landingChipRows(w *sim.World, st sim.ProximityState) []strin
 		v.theme.Primary.Render("LANDING") + "  " + truncateCells(st.TargetName, proximityChipInnerWidth-9),
 		chipRow("range:", readout.Distance(st.RangeM)),
 		chipRow("alt:", readout.Distance(st.AltM)),
-		chipRow("alt rate:", readout.SignedSpeed(st.AltRateMS)),
+		chipRow("alt rate:", readout.SignedSpeed(st.AltRateMS)+v.landingSpeedNeed(c)),
 		chipRow("stop:", truncateCells(stop, proximityChipInnerWidth-chipValueCol)),
 		chipRow("fwd vel:", readout.Speed(st.FwdVelMS)),
 		chipRow("lat vel:", landingLatVel(st.LatVelMS)),
@@ -135,6 +136,16 @@ func (v *OrbitView) landingChipRows(w *sim.World, st sim.ProximityState) []strin
 		proximityMonopropRow(w),
 	}
 	return rows
+}
+
+// landingSpeedNeed is "  (need < 10)" in the Alert colour when the vessel,
+// inside 100 m, would crash on contact by speed (sim.ContactSpeedCrashes, the
+// crash's own test); empty otherwise.
+func (v *OrbitView) landingSpeedNeed(c *spacecraft.Spacecraft) string {
+	if c == nil || !sim.ContactSpeedCrashes(c) {
+		return ""
+	}
+	return v.theme.Alert.Render(fmt.Sprintf("  (need < %.0f)", sim.CrashVCritMps))
 }
 
 // landingEngineRow is proximityEngineRow in the cells a landing leaves it: a
