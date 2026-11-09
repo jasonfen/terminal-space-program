@@ -58,14 +58,20 @@ func (w *World) OpenActiveRecording() error {
 		return err
 	}
 	w.Recording, w.rec = r, st
-	if w.recMarker != "" && !w.recMarked[c.ID] {
-		if w.recMarked == nil {
-			w.recMarked = map[uint64]bool{}
-		}
-		w.recMarked[c.ID] = true
-		w.recordRow(w.recMarker)
-	}
+	w.recMark(c)
 	return nil
+}
+
+// recMark writes the session marker into c's file the first time it is seen.
+func (w *World) recMark(c *spacecraft.Spacecraft) {
+	if w.recMarker == "" || w.recMarked[c.ID] {
+		return
+	}
+	if w.recMarked == nil {
+		w.recMarked = map[uint64]bool{}
+	}
+	w.recMarked[c.ID] = true
+	w.recordRowFor(c, w.recMarker)
 }
 
 // openRecordingFor opens c's file and returns it with its fresh bookkeeping.
@@ -147,6 +153,7 @@ func (w *World) recSlotFor(c *spacecraft.Spacecraft) (*recorder.Recording, *recS
 	}
 	s := &recSlot{r, st}
 	w.recBg[c.ID] = s
+	w.recMark(c)
 	return s.r, &s.st
 }
 
@@ -615,11 +622,13 @@ func (w *World) swapRecording() {
 		delete(w.recBg, c.ID)
 		w.Recording, w.rec = s.r, s.st
 		w.syncLiftoffHeader(c, s.r)
+		w.recMark(c)
 		w.recordRow("active vessel → " + c.Name)
 		return
 	}
 	if r, st, err := w.openRecordingFor(c); err == nil {
 		w.Recording, w.rec = r, st
+		w.recMark(c)
 		w.recordRow("active vessel → " + c.Name)
 	}
 }
