@@ -231,7 +231,22 @@ const (
 	// BurnRadialOut); trims apply like any plain hold. Live only, not in
 	// AllBurnModes. Appended last so persisted mode ints keep their meaning.
 	BurnSiteOut
+
+	// The six SITE-frame RCS translations (ADR 0067 decision 9). Pulse
+	// directions only, never holds: with RCS armed in SITE the letters
+	// q e w s a d fire along the track, up and across it, resolved from the
+	// vessel's own horizon and the landing view's track (aT). Appended last
+	// so persisted mode ints keep their meaning.
+	BurnSiteFwd
+	BurnSiteBack
+	BurnSiteUp
+	BurnSiteDown
+	BurnSiteLeft
+	BurnSiteRight
 )
+
+// IsSitePulse reports the six SITE-frame RCS translation modes.
+func (m BurnMode) IsSitePulse() bool { return m >= BurnSiteFwd && m <= BurnSiteRight }
 
 // SiteHold is the direction a BurnSite hold aims at: SiteDir once the
 // autopilot has written one, else the current nose.
@@ -313,6 +328,18 @@ func (m BurnMode) String() string {
 		return "Site+"
 	case BurnSiteOut:
 		return "Site\u2212"
+	case BurnSiteFwd:
+		return "Site fwd"
+	case BurnSiteBack:
+		return "Site back"
+	case BurnSiteUp:
+		return "Site up"
+	case BurnSiteDown:
+		return "Site down"
+	case BurnSiteLeft:
+		return "Site left"
+	case BurnSiteRight:
+		return "Site right"
 	}
 	return "?"
 }
@@ -494,6 +521,8 @@ func DirectionUnitTargetAtt(mode BurnMode, rA, vA, rT, vT, aT orbital.Vec3) orbi
 	switch mode {
 	case BurnPortIn, BurnPortOut, BurnPortUp, BurnPortDown, BurnPortLeft, BurnPortRight:
 		return portDirection(mode, rT, vT, aT)
+	case BurnSiteFwd, BurnSiteBack, BurnSiteUp, BurnSiteDown, BurnSiteLeft, BurnSiteRight:
+		return siteDirection(mode, rA, aT)
 
 	case BurnTargetPrograde:
 		// KSP convention: target-prograde = direction of v_active
@@ -518,6 +547,33 @@ func DirectionUnitTargetAtt(mode BurnMode, rA, vA, rT, vT, aT orbital.Vec3) orbi
 		return orbital.Vec3{}
 	}
 	return d.Scale(1 / n)
+}
+
+// siteDirection resolves a SITE-frame RCS mode in the vessel's own horizon
+// (the one fwd vel / lat vel read): up is the vessel's radial, fwd the landing
+// view's track (aT, the zero vector when there is none) flattened onto that
+// horizon, left = up x fwd as the landing view draws it.
+func siteDirection(mode BurnMode, rA, aT orbital.Vec3) orbital.Vec3 {
+	up := rA.Unit()
+	fwd := aT.Sub(up.Scale(aT.Dot(up)))
+	if up.Norm() == 0 || fwd.Norm() < 1e-9 {
+		return orbital.Vec3{}
+	}
+	fwd = fwd.Unit()
+	left := up.Cross(fwd)
+	switch mode {
+	case BurnSiteFwd:
+		return fwd
+	case BurnSiteBack:
+		return fwd.Scale(-1)
+	case BurnSiteUp:
+		return up
+	case BurnSiteDown:
+		return up.Scale(-1)
+	case BurnSiteLeft:
+		return left
+	}
+	return left.Scale(-1)
 }
 
 // portDirection resolves a PORT-frame mode against the target's snapshot

@@ -604,3 +604,46 @@ func TestNewFromStages(t *testing.T) {
 		t.Error("NewFromStages aliased the caller's stage slice")
 	}
 }
+
+// ADR 0067 decision 9 / S5: the LM-derived stages carry the LM's RCS figures,
+// 890 N on the lit stage and 287 kg of monoprop in total across the pair,
+// with no change to the published dry mass; Kern and Socket keep the
+// dry-mass scaling. Both build paths (loadout and picker module) agree.
+func TestLMDerivedStagesCarryLMRCS(t *testing.T) {
+	const wantN, wantKg = 890.0, 287.0
+	check := func(what string, d, a Stage) {
+		t.Helper()
+		if d.RCSThrust != wantN || a.RCSThrust != wantN {
+			t.Errorf("%s: RCS thrust %.0f / %.0f N, want %.0f", what, d.RCSThrust, a.RCSThrust, wantN)
+		}
+		if got := d.MonopropMass + a.MonopropMass; math.Abs(got-wantKg) > 0.05 {
+			t.Errorf("%s: monoprop %.2f kg across the pair, want %.0f", what, got, wantKg)
+		}
+		if d.MonopropCap != d.MonopropMass || a.MonopropCap != a.MonopropMass {
+			t.Errorf("%s: tanks not full", what)
+		}
+		if d.DryMass != 2500 || a.DryMass != 1200 {
+			t.Errorf("%s: dry mass %.0f / %.0f, want 2500 / 1200 (zero added)", what, d.DryMass, a.DryMass)
+		}
+	}
+	for _, id := range []string{LoadoutLanderID, "Lander-Crewed"} {
+		l := Loadouts[id]
+		check(id, l.Stages[0], l.Stages[1])
+	}
+	l := Loadouts[LoadoutApolloStackID]
+	check(LoadoutApolloStackID, l.Stages[3], l.Stages[4])
+	l = Loadouts["Apollo-TLI"]
+	check("Apollo-TLI", l.Stages[1], l.Stages[2])
+	m, _ := BuildModule(StageModuleLanderID)
+	check("lander module", m[0], m[1])
+	m, _ = BuildModule(StageModuleApolloCSMLMID)
+	check("csm-lm module", m[2], m[3])
+
+	// Kern: scaling unchanged.
+	for _, st := range Loadouts[LoadoutKernStackID].Stages {
+		_, _, thr, _ := DefaultRCSLoadout(st.DryMass)
+		if st.RCSThrust != thr {
+			t.Errorf("Kern %s: RCS thrust %.1f, want the scaled %.1f", st.Name, st.RCSThrust, thr)
+		}
+	}
+}

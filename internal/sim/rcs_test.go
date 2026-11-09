@@ -141,3 +141,113 @@ func TestStartManualBurnGatesOnEngineMode(t *testing.T) {
 		t.Error("StartManualBurn failed to engage in main mode")
 	}
 }
+
+// siteRCSWorld is the Lander 50 m up and 50 m short of the flag with the track
+// latched east and RCS armed in SITE (ADR 0067 decision 9). The nose points
+// somewhere else, so a pulse that followed the nose would show.
+func siteRCSWorld(t *testing.T) (*World, *spacecraft.Spacecraft, ProximityState) {
+	t.Helper()
+	w, c := deorbitWorld(t, 150, 0)
+	s := w.Sites[0]
+	rT, vT := surfacePointState(c.Primary, s.LatDeg, s.LonDeg, w.Clock.SimTime)
+	up := rT.Unit()
+	_, east := siteHorizon(c.Primary, up)
+	c.State.R = rT.Add(up.Scale(50)).Sub(east.Scale(50))
+	c.State.V = vT
+	w.landTrack = landTrack{}
+	st, ok := w.ProximityState()
+	if !ok || !st.Surface {
+		t.Fatal("no landing scene")
+	}
+	c.CurrentAttitudeDir = st.Frame.CrossTrack.Add(st.Frame.RadialOut).Unit()
+	w.NavMode = NavSite
+	w.CycleEngineMode()
+	return w, c, st
+}
+
+// The six letters in SITE with RCS armed push along the site axes by one
+// RCSPulseDV, never along the nose, and burn monoprop (not main fuel).
+func TestSiteRCSPulsesAlongSiteAxes(t *testing.T) {
+	cases := []struct {
+		name   string
+		intent AttitudeIntent
+		axis   func(ProximityState) (x, y, z float64) // want: (fwd, left, up) components of dv
+	}{
+		{"q fwd", IntentRadialOut, func(ProximityState) (float64, float64, float64) { return 1, 0, 0 }},
+		{"e back", IntentRadialIn, func(ProximityState) (float64, float64, float64) { return -1, 0, 0 }},
+		{"w up", IntentPrograde, func(ProximityState) (float64, float64, float64) { return 0, 0, 1 }},
+		{"s down", IntentRetrograde, func(ProximityState) (float64, float64, float64) { return 0, 0, -1 }},
+		{"a left", IntentNormalPlus, func(ProximityState) (float64, float64, float64) { return 0, 1, 0 }},
+		{"d right", IntentNormalMinus, func(ProximityState) (float64, float64, float64) { return 0, -1, 0 }},
+	}
+	for _, tc := range cases {
+		w, c, st := siteRCSWorld(t)
+		c.PitchTrim, c.HeadingTrim, c.PortPitchTrim, c.PortYawTrim = 0.3, 0.4, 0.2, 0.2 // trims turn holds, never a site pulse
+		v0, hold, nose, mono0, fuel0 := c.State.V, c.AttitudeMode, c.CurrentAttitudeDir, c.Monoprop, c.Fuel
+		if !w.FireRCSPulse(w.ResolveKeyIntent(tc.intent)) {
+			t.Errorf("%s: pulse refused", tc.name)
+			continue
+		}
+		dv := c.State.V.Sub(v0)
+		fwd, left, up := dv.Dot(st.Frame.AlongTrack), dv.Dot(st.Frame.CrossTrack), dv.Dot(st.Frame.RadialOut)
+		wx, wy, wz := tc.axis(st)
+		q := c.RCSPulseDV()
+		if math.Abs(fwd-wx*q) > 1e-4 || math.Abs(left-wy*q) > 1e-4 || math.Abs(up-wz*q) > 1e-4 {
+			t.Errorf("%s: dv (fwd, left, up) = (%.4f, %.4f, %.4f), want %.1f x (%g, %g, %g)", tc.name, fwd, left, up, q, wx, wy, wz)
+		}
+		if c.AttitudeMode != hold || c.CurrentAttitudeDir != nose {
+			t.Errorf("%s: a pulse moved the hold or the nose", tc.name)
+		}
+		if c.Monoprop >= mono0 || c.Fuel != fuel0 {
+			t.Errorf("%s: monoprop %.4f -> %.4f, fuel %.1f -> %.1f; want monoprop down, fuel untouched", tc.name, mono0, c.Monoprop, fuel0, c.Fuel)
+		}
+	}
+}
+
+// Letters keep their meaning outside the one exception: unarmed in SITE they
+// select holds (q is Site+), armed in ORBIT they fire the orbit frame.
+func TestSiteRCSLettersOnlyWithRCSArmedInSite(t *testing.T) {
+	w, c, _ := siteRCSWorld(t)
+	w.CycleEngineMode() // back to main
+	if m := w.ResolveKeyIntent(IntentRadialOut); m != spacecraft.BurnSite {
+		t.Errorf("q unarmed in SITE = %v, want Site+", m)
+	}
+	w.CycleEngineMode()
+	w.NavMode = NavOrbit
+	if m := w.ResolveKeyIntent(IntentRadialOut); m != spacecraft.BurnRadialOut {
+		t.Errorf("q armed in ORBIT = %v, want Radial+", m)
+	}
+	_ = c
+}
+
+// Site+ auto (N) owns the engine and refuses a pulse; the q nose hold does not
+// (Owns is Engaged and not Nose), so the hand procedure may pulse under it.
+func TestSiteRCSRefusedWhileSitePlusOwnsEngine(t *testing.T) {
+	w, c, _ := siteRCSWorld(t)
+	c.Landing = &spacecraft.LandingAutopilot{Engaged: true}
+	v0 := c.State.V
+	if w.FireRCSPulse(w.ResolveKeyIntent(IntentNormalPlus)) || c.State.V != v0 {
+		t.Error("pulse fired while Site+ auto owned the engine")
+	}
+	c.Landing.Nose = true // the q hold
+	if !w.FireRCSPulse(w.ResolveKeyIntent(IntentNormalPlus)) || c.State.V == v0 {
+		t.Error("pulse refused under the q nose hold")
+	}
+}
+
+// A pulse is a Δv quantum: RCSThrust only gates "has RCS" and is never a force
+// (ADR 0067 decision 9: no thrust-based RCS in this ADR).
+func TestSiteRCSPulseIgnoresRCSThrust(t *testing.T) {
+	dv := func(thrust float64) float64 {
+		w, c, _ := siteRCSWorld(t)
+		c.Stages[c.LitStage()].RCSThrust, c.RCSThrust = thrust, thrust // not SyncFields: it would drop the fixture's command
+		v0 := c.State.V
+		if !w.FireRCSPulse(w.ResolveKeyIntent(IntentNormalPlus)) {
+			t.Fatalf("pulse refused at RCSThrust %g", thrust)
+		}
+		return c.State.V.Sub(v0).Norm()
+	}
+	if a, b := dv(890), dv(1); math.Abs(a-b) > 1e-12 {
+		t.Errorf("pulse dv %.9f at 890 N vs %.9f at 1 N, want equal", a, b)
+	}
+}

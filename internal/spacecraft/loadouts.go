@@ -246,6 +246,21 @@ func stageRCS(dryMass float64) (mp, monoCap, rcsThrust, rcsIsp float64) {
 	return DefaultRCSLoadout(dryMass)
 }
 
+// stageRCSFor is stageRCS with the part's own published figures laid over the
+// dry-mass scaling: a part that states rcs_thrust_n and monoprop_mass_kg
+// (ADR 0067 decision 9, the LM-derived stages) carries them, full tank, and
+// none of it is added to the dry mass (published masses are inclusive).
+func stageRCSFor(dryMass, partThrustN, partMonopropKg float64) (mp, monoCap, rcsThrust, rcsIsp float64) {
+	mp, monoCap, rcsThrust, rcsIsp = stageRCS(dryMass)
+	if partThrustN > 0 {
+		rcsThrust = partThrustN
+	}
+	if partMonopropKg > 0 {
+		mp, monoCap = partMonopropKg, partMonopropKg
+	}
+	return
+}
+
 // buildLoadouts loads the embedded loadout catalog (data/loadouts.json +
 // data/parts.json) and resolves each LoadoutDef into a runtime Loadout,
 // returning the by-ID map and the embedded display order. Runs once at
@@ -298,7 +313,7 @@ func resolveLoadout(d LoadoutDef, parts map[string]Part) Loadout {
 		}
 		// RCS pool scales with dry mass (DefaultRCSLoadout) at build time,
 		// exactly as the pre-migration stage()/stageWithBC helpers did.
-		mp, monoCap, rcsThrust, rcsIsp := stageRCS(st.DryMass)
+		mp, monoCap, rcsThrust, rcsIsp := stageRCSFor(st.DryMass, p.RCSThrustN, p.MonopropMassKg)
 		st.MonopropMass, st.MonopropCap, st.RCSThrust, st.RCSIsp = mp, monoCap, rcsThrust, rcsIsp
 		stages = append(stages, st)
 	}

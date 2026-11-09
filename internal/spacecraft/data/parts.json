@@ -196,6 +196,8 @@
     },
     {
       "id": "lander-descent",
+      "rcs_thrust_n": 890,
+      "monoprop_mass_kg": 193.9,
       "name": "Descent",
       "glyph": "➤",
       "color": "#5FFF87",
@@ -215,6 +217,8 @@
     },
     {
       "id": "lander-ascent",
+      "rcs_thrust_n": 890,
+      "monoprop_mass_kg": 93.1,
       "antenna": {"kind": "direct", "range_m": 100000000},
       "ports": [{"end": "top"}],
       "name": "Ascent",
@@ -235,6 +239,8 @@
     },
     {
       "id": "lander-ascent-crewed",
+      "rcs_thrust_n": 890,
+      "monoprop_mass_kg": 93.1,
       "nav_sigma_m": [2000, 1000],
       "ports": [{"end": "top"}],
       "name": "Ascent",
@@ -519,6 +525,8 @@
     },
     {
       "id": "apollo-descent",
+      "rcs_thrust_n": 890,
+      "monoprop_mass_kg": 193.9,
       "name": "Descent",
       "tier": "payload",
       "glyph": "➤",
@@ -538,6 +546,8 @@
     },
     {
       "id": "apollo-ascent",
+      "rcs_thrust_n": 890,
+      "monoprop_mass_kg": 93.1,
       "nav_sigma_m": [2000, 1000],
       "antenna": {"kind": "direct", "range_m": 100000000},
       "ports": [{"end": "top"}],

@@ -135,6 +135,7 @@ var helpSections = []helpSection{
 		{"q (SITE)", "in SITE: guidance nose (Site+ brake), up in final; throttle stays yours; arrows trim; N flies it all"},
 		{"e (SITE)", "in SITE: hold straight up (Site\u2212), no guidance; under N, e sinks"},
 		{"e / q (Site+ auto)", "under N, approach and final: e sinks 1 m/s slower, q faster; z x Z X take the throttle"},
+		{"q e w s a d (rcs)", "in SITE with RCS armed: pulse fwd / back, up / down, left / right; refused under N, free under q"},
 		{"alt+e / alt+q", "under Site+: the same sink steps, 0.3 m/s a press"},
 		{"arrows (Site+ auto)", "under N: ←/→ aim short/long, ↑/↓ left/right; 1 km, 250 m inside 50 km, 25 m inside 5 km; alt ≤10 m; | clears"},
 	}},
