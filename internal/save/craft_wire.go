@@ -369,6 +369,7 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 	// (no per-stage CommandSource) so old saves stay controllable; the Role
 	// resolved above decides crewed vs probe. No-op for post-comms saves
 	// whose stages already carry the attribute.
+	restoreCatalogAntennas(c)
 	spacecraft.EnsureCommandSource(c)
 	c.SyncFields()
 	c.NewestSeam = wc.NewestSeam
@@ -564,4 +565,38 @@ func modeFromWire(i *int) *spacecraft.BurnMode {
 	}
 	m := spacecraft.BurnMode(*i)
 	return &m
+}
+
+// restoreCatalogAntennas (ADR 0067 P31) derives, on load, the antenna a saved
+// stage never stored from its catalog loadout, so vessels saved before the
+// Apollo parts gained their Unified S-band antenna keep what they really had.
+// A saved stack can be a decoupled slice of its loadout (the LM is stages 1-2
+// of Apollo-TLI), so the stages are matched as a contiguous run of names; any
+// mismatch (a custom or edited stack) leaves the craft untouched. A stage that
+// already carries an antenna, and debris, are never changed. No schema bump.
+func restoreCatalogAntennas(c *spacecraft.Spacecraft) {
+	if c.Role == spacecraft.RoleJettisonedStage || c.LoadoutID == "" || len(c.Stages) == 0 {
+		return
+	}
+	l, ok := spacecraft.Loadouts[c.LoadoutID] // not LookupLoadout: its fallback would match an unknown id against the default stack
+	cat := l.Stages
+	if !ok || len(cat) == 0 {
+		return
+	}
+	for k := 0; k+len(c.Stages) <= len(cat); k++ {
+		match := true
+		for i := range c.Stages {
+			match = match && cat[k+i].Name == c.Stages[i].Name
+		}
+		if !match {
+			continue
+		}
+		for i := range c.Stages {
+			if c.Stages[i].AntennaKind == spacecraft.AntennaNone && cat[k+i].AntennaKind != spacecraft.AntennaNone {
+				c.Stages[i].AntennaKind = cat[k+i].AntennaKind
+				c.Stages[i].AntennaRangeM = cat[k+i].AntennaRangeM
+			}
+		}
+		return
+	}
 }
