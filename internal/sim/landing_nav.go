@@ -149,8 +149,18 @@ func siteShiftRung(groundM float64) float64 {
 	return SiteShiftRungNearM
 }
 
+// siteShiftStep is one aim press at groundM: the rung, or with alt
+// SiteShiftFineM or a tenth of the rung when that is smaller.
+func siteShiftStep(groundM float64, fine bool) float64 {
+	step := siteShiftRung(groundM)
+	if fine {
+		step = math.Min(SiteShiftFineM, step/10)
+	}
+	return step
+}
+
 // NudgeLandingAim is an arrow under Site+ auto (decision 6): along +1 long, -1
-// short; across +1 right, -1 left; fine is a tenth. Reports whether the
+// short; across +1 right, -1 left. Reports whether the
 // autopilot owned the nose (so the key is consumed).
 func (w *World) NudgeLandingAim(along, across int, fine bool) bool {
 	c := w.ActiveCraft()
@@ -163,10 +173,7 @@ func (w *World) NudgeLandingAim(along, across int, fine bool) bool {
 	}
 	csLat, csLon := w.computerSiteLatLon(c, lat, lon)
 	subLat, subLon := render.WorldToBodyFixed(c.Primary, unitV(c.State.R), w.Clock.SimTime)
-	step := siteShiftRung(HaversineM(subLat, subLon, csLat, csLon, c.Primary.RadiusMeters()))
-	if fine {
-		step /= 10
-	}
+	step := siteShiftStep(HaversineM(subLat, subLon, csLat, csLon, c.Primary.RadiusMeters()), fine)
 	c.Landing.AimAlongM += float64(along) * step
 	c.Landing.AimAcrossM += float64(across) * step
 	return true

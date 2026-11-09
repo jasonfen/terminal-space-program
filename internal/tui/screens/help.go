@@ -136,7 +136,7 @@ var helpSections = []helpSection{
 		{"e (SITE)", "in SITE: hold straight up (Site\u2212), no guidance; under N, e sinks"},
 		{"e / q (Site+ auto)", "under N, approach and final: e sinks 1 m/s slower, q faster; z x Z X take the throttle"},
 		{"alt+e / alt+q", "under Site+: the same sink steps, 0.3 m/s a press"},
-		{"arrows (Site+ auto)", "under N: ←/→ aim short/long, ↑/↓ left/right; 1 km, 250 m inside 50 km, 25 m inside 5 km; alt a tenth; | clears"},
+		{"arrows (Site+ auto)", "under N: ←/→ aim short/long, ↑/↓ left/right; 1 km, 250 m inside 50 km, 25 m inside 5 km; alt ≤10 m; | clears"},
 	}},
 	{"NAVIGATION", [][2]string{
 		{"l", "move the body cursor next (info only, not [t] target)"},

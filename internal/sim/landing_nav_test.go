@@ -167,7 +167,8 @@ func TestMissReadsTheComputersSiteLpdReadsTheFlag(t *testing.T) {
 }
 
 // Guard 9: the aim rungs change at 50 km and 5 km exactly (the boundary takes
-// the nearer rung); an arrow moves the aim by the rung, alt a tenth.
+// the nearer rung); an arrow moves the aim by the rung, alt 10 m (P42) or a
+// tenth of the rung when smaller.
 func TestSiteShiftRungsAndNudge(t *testing.T) {
 	for _, tc := range []struct {
 		g, want float64
@@ -177,6 +178,13 @@ func TestSiteShiftRungsAndNudge(t *testing.T) {
 	} {
 		if got := siteShiftRung(tc.g); got != tc.want {
 			t.Errorf("rung at %.0f m = %v, want %v", tc.g, got, tc.want)
+		}
+	}
+	for _, tc := range []struct{ g, want float64 }{
+		{SiteShiftFarRangeM + 1, 10}, {SiteShiftMidRangeM + 1, 10}, {SiteShiftMidRangeM, 2.5},
+	} {
+		if got := siteShiftStep(tc.g, true); got != tc.want {
+			t.Errorf("alt press at %.0f m = %v m, want %v m (P42)", tc.g, got, tc.want)
 		}
 	}
 	w, c := afterDeorbitBurn(t)
@@ -193,7 +201,7 @@ func TestSiteShiftRungsAndNudge(t *testing.T) {
 		t.Errorf("aim %v / %v, want one rung short and one right", c.Landing.AimAlongM, c.Landing.AimAcrossM)
 	}
 	w.NudgeLandingAim(1, -1, true)
-	if got, want := c.Landing.AimAlongM, -rung+rung/10; math.Abs(got-want) > 1e-9 {
+	if got, want := c.Landing.AimAlongM, -rung+math.Min(SiteShiftFineM, rung/10); math.Abs(got-want) > 1e-9 {
 		t.Errorf("alt arrow: aim along %v, want %v", got, want)
 	}
 	w.ClearLandingAim()
@@ -202,7 +210,7 @@ func TestSiteShiftRungsAndNudge(t *testing.T) {
 	}
 }
 
-// walkAim presses the arrows, one axis at a time and alt (a tenth) once the rest
+// walkAim presses the arrows, one axis at a time and alt once the rest
 // is under 600 m, until the computer's site is within 25 m of the real flag;
 // it reports the presses.
 func walkAim(w *World, ap *spacecraft.LandingAutopilot) (presses int) {

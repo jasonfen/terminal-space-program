@@ -19,11 +19,14 @@ const (
 	// (ground range to the computer's site). ADR 0067 row 2; Q6.
 	SiteShiftFarRangeM = 50000.0
 	SiteShiftMidRangeM = 5000.0
-	// SiteShiftRungFarM / MidM / NearM: one arrow press at each rung (alt a
-	// tenth). ADR 0067 row 3; Q6.
+	// SiteShiftRungFarM / MidM / NearM: one arrow press at each rung. ADR 0067
+	// row 3; Q6.
 	SiteShiftRungFarM  = 1000.0
 	SiteShiftRungMidM  = 250.0
 	SiteShiftRungNearM = 25.0
+	// SiteShiftFineM: one alt+arrow press, or a tenth of the rung when that is
+	// smaller (2.5 m inside 5 km). Trial P42 (was a tenth everywhere).
+	SiteShiftFineM = 10.0
 
 	// NavSigma*M: 1-sigma (along, across) navigation error by era. ADR 0067
 	// rows 4-6; Apollo 11 PDI, SLIM. A link at the draw or the ground update

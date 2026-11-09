@@ -220,7 +220,7 @@ func TestBPlantsDeorbitAndEngagesNothing(t *testing.T) {
 
 // P33 and ADR 0067 decision 6: under the q nose hold the arrows trim as on s and
 // | clears both trims; under Site+ auto (N) they move the aim by the range rung
-// (alt a tenth) and | clears the aim, writing no trim.
+// (alt 10 m at this range) and | clears the aim, writing no trim.
 func TestArrowsTrimUnderNoseHoldAndMoveAimUnderAuto(t *testing.T) {
 	a, c := siteHoldApp(t)
 	a.world.NavMode = sim.NavSite
@@ -244,8 +244,8 @@ func TestArrowsTrimUnderNoseHoldAndMoveAimUnderAuto(t *testing.T) {
 	a.Update(keyType(tea.KeyRight))
 	a.Update(keyType(tea.KeyDown))
 	a.Update(tea.KeyMsg{Type: tea.KeyRight, Alt: true})
-	if got, want := c.Landing.AimAlongM, sim.SiteShiftRungFarM*1.1; math.Abs(got-want) > 1e-9 {
-		t.Errorf("auto: aim along %v, want %v (→ one far rung, alt+→ a tenth)", got, want)
+	if got, want := c.Landing.AimAlongM, sim.SiteShiftRungFarM+sim.SiteShiftFineM; math.Abs(got-want) > 1e-9 {
+		t.Errorf("auto: aim along %v, want %v (→ one far rung, alt+→ 10 m)", got, want)
 	}
 	if got := c.Landing.AimAcrossM; math.Abs(got-sim.SiteShiftRungFarM) > 1e-9 {
 		t.Errorf("auto: aim across %v, want %v (↓ right)", got, sim.SiteShiftRungFarM)
