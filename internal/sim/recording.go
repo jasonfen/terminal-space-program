@@ -759,6 +759,10 @@ func (w *World) recordAutopilotChange(c *spacecraft.Spacecraft) {
 	}
 }
 
+// RecordDeorbitRefusal writes one row for a refused B or N press (no row for a
+// refusal otherwise: the footer is the only trace).
+func (w *World) RecordDeorbitRefusal(reason string) { w.recordRow("deorbit refused: " + reason) }
+
 // recordDeorbit writes the plan line N and B plant.
 func (w *World) recordDeorbit(p *DeorbitPlan) {
 	aim, side, long := "stop", "long", p.LongM
