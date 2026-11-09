@@ -199,6 +199,7 @@ func (w *World) SiteCoverage(primaryID string, latDeg, lonDeg, lapS, sampleS flo
 				forwards: true,
 				bodyID:   primaryID,
 				nearHome: stationBodies[primaryID] && r.Norm() <= nearHomeRadiiFactor*R,
+				landed:   c.landed,
 			})
 		}
 		dir := render.BodyFixedToWorld(*body, latDeg, lonDeg, t)
@@ -208,6 +209,7 @@ func (w *World) SiteCoverage(primaryID string, latDeg, lonDeg, lapS, sampleS flo
 			probe:   true,
 			craftID: siteProbeID,
 			bodyID:  primaryID,
+			landed:  true, // a point on the ground (a lander parked at the flag)
 		})
 		memo.Covered[i] = connectivityFull(nodes, occ).connected[siteProbeID]
 	}

@@ -1,6 +1,10 @@
 package physics
 
-import "github.com/jasonfen/terminal-space-program/internal/orbital"
+import (
+	"math"
+
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+)
 
 // Line-of-sight occlusion (v0.23 / ADR 0027, CommNet cycle 2). The one
 // net-new physics primitive the comms subsystem needs: does a straight
@@ -81,4 +85,33 @@ func SegmentOccludedByBody(a, b orbital.Vec3, occluders []OccluderBody) bool {
 		}
 	}
 	return false
+}
+
+// AntennaHeightM is how far above the ground a landed vessel's antenna sits.
+// Two surface points have a chord that dips under the sphere by about d²/8R,
+// so with both antennas at ground level no two landed vessels ever see each
+// other (#880). 5 m is a lander's mast: the Apollo LM's steerable S-band dish
+// stood ~4 m above the surface, a roof-mounted whip a little over that.
+const AntennaHeightM = 5.0
+
+// RaiseOffSurface lifts a landed antenna at p AntennaHeightM straight up from
+// the occluder whose surface it sits on (the one p is nearest the surface of),
+// so the sightline test sees the mast, not the ground. p is returned
+// unchanged with no occluders or a point at a body's centre.
+func RaiseOffSurface(p orbital.Vec3, occluders []OccluderBody) orbital.Vec3 {
+	best, bestGap := -1, 0.0
+	for i, o := range occluders {
+		if gap := math.Abs(p.Sub(o.Center).Norm() - o.Radius); best < 0 || gap < bestGap {
+			best, bestGap = i, gap
+		}
+	}
+	if best < 0 {
+		return p
+	}
+	d := p.Sub(occluders[best].Center)
+	n := d.Norm()
+	if n == 0 {
+		return p
+	}
+	return p.Add(d.Scale(AntennaHeightM / n))
 }
