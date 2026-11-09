@@ -186,7 +186,7 @@ func TestActiveVesselSwitchRowsOnBothSides(t *testing.T) {
 		t.Errorf("incoming first row = %q, want active vessel → %s", bEv, b.Name)
 	}
 	w.RecordAction(missions.ActionThrottleDown)
-	if _, bEv = recRead(t, bFile); bEv[len(bEv)-1] != "throttle_down" {
+	if _, bEv = recRead(t, bFile); !strings.HasPrefix(bEv[len(bEv)-1], "throttle_down") {
 		t.Errorf("rows after the switch went elsewhere: B events = %q", bEv)
 	}
 }
@@ -865,5 +865,236 @@ func TestTargetColumnsReadTheRendezvous(t *testing.T) {
 	r = w.rowFor(c, "")
 	if math.IsNaN(r.RangeM) || !math.IsNaN(r.CloseM) || !math.IsNaN(r.DInclDeg) || !math.IsNaN(r.LeadDeg) {
 		t.Errorf("landed: range %v close %v dincl %v lead %v, want range only", r.RangeM, r.CloseM, r.DInclDeg, r.LeadDeg)
+	}
+}
+
+// ---- fix H: trajectory inputs are rows ----
+
+// lastEv is the newest event text in the file ("" when none).
+func lastEv(t *testing.T, path string) string {
+	t.Helper()
+	_, ev := recRead(t, path)
+	if len(ev) == 0 {
+		return ""
+	}
+	return ev[len(ev)-1]
+}
+
+// press runs fn as one key press: snapshot, act, diff.
+func press(w *World, fn func()) {
+	in := w.InputSnapshot()
+	fn()
+	w.RecordInputChanges(in)
+}
+
+// siteRecWorld is the post-deorbit lander with its recording open and the
+// SITE frame up.
+func siteRecWorld(t *testing.T) (*World, *spacecraft.Spacecraft, string) {
+	t.Helper()
+	w, c := afterDeorbitBurn(t)
+	path := recFile(t, recAttach(t, w))
+	w.NavMode = NavSite
+	w.rec.nav, w.rec.ap = "SITE", w.apLabel(c)
+	return w, c, path
+}
+
+// Guard H1: a trim press writes its row with the resulting trims; no change,
+// no row (equal case).
+func TestTrimPressRowCarriesResultAndNoChangeNoRow(t *testing.T) {
+	w, path := recWorld(t)
+	c := w.ActiveCraft()
+	press(w, func() { c.PitchTrim -= spacecraft.PitchTrimStepRad })
+	if got, want := lastEv(t, path), "trim: pitch −5° hdg 0°"; got != want {
+		t.Errorf("trim row = %q, want %q", got, want)
+	}
+	_, before := recRead(t, path)
+	press(w, func() {})
+	if _, after := recRead(t, path); len(after) != len(before) {
+		t.Errorf("a press that changed nothing wrote %q", after[len(before):])
+	}
+}
+
+// Guard H2: the first heading press seeds the heading trim and flips the pitch
+// sign; the row says so.
+func TestTrimRowMarksSeedAndPitchFlip(t *testing.T) {
+	w, path := recWorld(t)
+	c := w.ActiveCraft()
+	c.Landed = false
+	c.PitchTrim = -5 * math.Pi / 180
+	c.CurrentAttitudeDir = orbital.Vec3{X: 1}
+	press(w, func() {
+		c.PitchTrim, c.HeadingTrim = 5*math.Pi/180, 100*math.Pi/180 // what SeedHeadingTrim + a step does west of north
+	})
+	got := lastEv(t, path)
+	for _, want := range []string{"trim: pitch 5° hdg 100°", "heading seeded", "pitch sign flipped"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("trim row %q lacks %q", got, want)
+		}
+	}
+	// a plain step from zero heading (pad: no seed) is not a seed
+	c.HeadingTrim = 0
+	press(w, func() { c.HeadingTrim = spacecraft.HeadingTrimStepRad })
+	if got := lastEv(t, path); strings.Contains(got, "seeded") {
+		t.Errorf("a plain heading step is marked seeded: %q", got)
+	}
+}
+
+// Guard H3: under [SITE] the trim row carries the readout the pilot flies by.
+func TestSiteTrimRowCarriesMissAndCross(t *testing.T) {
+	w, c, path := siteRecWorld(t)
+	press(w, func() { c.PitchTrim += spacecraft.PitchTrimFineStepRad })
+	w.Tick() // the row waits for the first tick after the press
+	lb, ok := w.LandBesideReading()
+	if !ok || !lb.MissOK {
+		t.Fatalf("setup: no miss reading: %+v", lb)
+	}
+	got := lastEv(t, path)
+	if want := " · " + landReadText(lb); !strings.HasSuffix(got, want) {
+		t.Errorf("trim row %q does not end with %q", got, want)
+	}
+	if !strings.Contains(got, "miss ") || !strings.Contains(got, " cross ") {
+		t.Errorf("trim row %q lacks miss and cross", got)
+	}
+}
+
+// Guard H4: under Site+ auto the aim nudge writes aim: and miss:.
+func TestAimNudgeRowCarriesAimAndMiss(t *testing.T) {
+	w, c, path := siteRecWorld(t)
+	c.Landing.Engaged, c.Landing.Nose = true, false
+	c.AttitudeMode = spacecraft.BurnSite
+	press(w, func() { w.NudgeLandingAim(+1, 0, false) })
+	w.Tick()
+	got := lastEv(t, path)
+	if !strings.HasPrefix(got, "aim: +") || !strings.Contains(got, " miss ") {
+		t.Errorf("aim row = %q, want aim: +... and miss", got)
+	}
+	_, before := recRead(t, path)
+	press(w, func() {})
+	if _, after := recRead(t, path); len(after) != len(before) {
+		t.Errorf("an idle press wrote a row")
+	}
+}
+
+// Guard H5: | writes a reset row with the zeros; nothing to reset, no row.
+func TestTrimResetRow(t *testing.T) {
+	w, path := recWorld(t)
+	c := w.ActiveCraft()
+	c.PitchTrim, c.HeadingTrim = 0.2, 0.3
+	press(w, func() { w.NoteTrimReset(); c.PitchTrim, c.HeadingTrim = 0, 0 })
+	if got, want := lastEv(t, path), "trim reset: pitch 0° hdg 0°"; got != want {
+		t.Errorf("reset row = %q, want %q", got, want)
+	}
+	_, before := recRead(t, path)
+	press(w, func() { w.NoteTrimReset() })
+	if _, after := recRead(t, path); len(after) != len(before) {
+		t.Errorf("a reset of zero trims wrote %q", after[len(before):])
+	}
+}
+
+// Guard H6: the nav frame and the autopilot are rows, whoever changed them.
+func TestNavFrameAndAutopilotRows(t *testing.T) {
+	w, c, path := siteRecWorld(t)
+	w.NavMode = NavOrbit
+	w.Tick()
+	if got, want := lastEv(t, path), "nav: ORBIT"; got != want {
+		t.Errorf("nav row = %q, want %q", got, want)
+	}
+	if err := w.EngageLandingNoseHold(); err != nil {
+		t.Fatal(err)
+	}
+	w.Tick()
+	if got, want := lastEv(t, path), "autopilot: Site+ nose hold"; !strings.Contains(strings.Join(allEv(t, path), "|"), want) {
+		t.Errorf("events %q lack %q (last %q)", allEv(t, path), want, got)
+	}
+	w.DisengageLandingAutopilot(c)
+	w.Tick()
+	if !strings.Contains(strings.Join(allEv(t, path), "|"), "autopilot: off") {
+		t.Errorf("events %q lack autopilot: off", allEv(t, path))
+	}
+}
+
+func allEv(t *testing.T, path string) []string {
+	t.Helper()
+	_, ev := recRead(t, path)
+	return ev
+}
+
+// Guard H7: throttle and engine verbs carry the result; ROD clicks write the rate.
+func TestThrottleEngineAndRODRows(t *testing.T) {
+	w, path := recWorld(t)
+	c := w.ActiveCraft()
+	c.Throttle = 0.7
+	w.RecordAction(missions.ActionThrottleUp)
+	if got, want := lastEv(t, path), "throttle_up: 70%"; got != want {
+		t.Errorf("throttle row = %q, want %q", got, want)
+	}
+	w.RecordAction(missions.ActionToggleBurn)
+	if got := lastEv(t, path); got != "toggle_burn: cut" {
+		t.Errorf("engine row = %q, want toggle_burn: cut", got)
+	}
+	c.ManualBurn = &spacecraft.ManualBurn{}
+	w.RecordAction(missions.ActionToggleBurn)
+	if got := lastEv(t, path); got != "toggle_burn: lit" {
+		t.Errorf("engine row = %q, want toggle_burn: lit", got)
+	}
+	w2, c2, path2 := siteRecWorld(t)
+	c2.Landing.Engaged, c2.Landing.Nose, c2.Landing.Phase = true, false, spacecraft.PhaseApproach
+	press(w2, func() { w2.LandingROD(+RODStepMps) })
+	if got := lastEv(t, path2); !strings.HasPrefix(got, "rod: ") || !strings.HasSuffix(got, " m/s") {
+		t.Errorf("rod row = %q, want rod: <rate> m/s", got)
+	}
+}
+
+// Guard H8: B and N write the deorbit plan line; the ground update writes its row.
+func TestDeorbitPlantAndGroundUpdateRows(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	path := recFile(t, recAttach(t, w))
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	if got := lastEv(t, path); !strings.HasPrefix(got, "deorbit: ") || !strings.Contains(got, "retro in") {
+		t.Errorf("deorbit row = %q, want deorbit: ... retro in ...", got)
+	}
+	c.Landing = &spacecraft.LandingAutopilot{Engaged: true, Phase: spacecraft.PhaseCoast, NavSeeded: true}
+	c.Crewed, c.Controllable = true, true
+	w.updateNavOnLink(c)
+	if got := lastEv(t, path); !strings.HasPrefix(got, "ground update: ") {
+		t.Errorf("ground-update row = %q, want ground update: ...", got)
+	}
+}
+
+// Guard H9: under q in the brake the SITE tail is the readout after the press
+// took effect (first tick later), not the previous press's value; a press that
+// changes nothing writes no row.
+func TestSiteTrimRowReadsAfterThePressTakesEffect(t *testing.T) {
+	w, c, path := siteRecWorld(t)
+	if err := w.EngageLandingNoseHold(); err != nil {
+		t.Fatal(err)
+	}
+	w.SetThrottle(0.9)
+	w.ToggleManualBurn()
+	ticks(w, 40)
+	if c.ManualBurn == nil {
+		t.Fatal("setup: brake not lit")
+	}
+	pre, ok := w.LandBesideReading()
+	if !ok || !pre.MissOK || pre.Planned {
+		t.Fatalf("setup: no live miss: %+v", pre)
+	}
+	press(w, func() { c.PitchTrim += 5 * math.Pi / 180 })
+	w.Tick()
+	post, _ := w.LandBesideReading()
+	if math.Abs(post.MissM-pre.MissM) < 1 {
+		t.Fatalf("setup: the press did not move miss (%v -> %v)", pre.MissM, post.MissM)
+	}
+	got := lastEv(t, path)
+	if want := " · " + landReadText(post); !strings.HasSuffix(got, want) {
+		t.Errorf("trim row %q does not end with the post-press reading %q (pre-press was %q)", got, want, landReadText(pre))
+	}
+	_, before := recRead(t, path)
+	press(w, func() {})
+	w.Tick()
+	if _, after := recRead(t, path); len(after) != len(before) {
+		t.Errorf("a press that changed nothing wrote %q", after[len(before):])
 	}
 }

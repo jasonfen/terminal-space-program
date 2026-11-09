@@ -2991,6 +2991,7 @@ func (w *World) DeleteNode(idx int) *ActiveBurn {
 		return nil
 	}
 	c.Nodes = append(c.Nodes[:idx], c.Nodes[idx+1:]...)
+	w.recordRowFor(c, fmt.Sprintf("node deleted: %d, %d left", idx+1, len(c.Nodes)))
 	if len(c.Nodes) == 0 {
 		return w.stopFiringBurn(c)
 	}
