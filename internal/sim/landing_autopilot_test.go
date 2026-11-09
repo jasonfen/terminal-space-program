@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -588,5 +589,43 @@ func TestNEngagesMidDescentWithNoNewBurn(t *testing.T) {
 	c2.Landing.Phase = spacecraft.PhaseApproach
 	if err := w2.EngageLandingAutopilot(); err != nil || c2.Landing.Nose || c2.Landing.Phase != spacecraft.PhaseApproach {
 		t.Errorf("N over the nose hold: err=%v nose=%v phase=%v, want the auto in Approach", err, c2.Landing.Nose, c2.Landing.Phase)
+	}
+}
+
+// P33: under the q nose hold the arrows' trims lean the nose and the brake
+// forecast behind miss: includes them; | (zeroing both) gives both back.
+func TestNoseHoldTrimsMoveMissAndPitch(t *testing.T) {
+	w, c := afterDeorbitBurn(t)
+	if err := w.EngageLandingNoseHold(); err != nil {
+		t.Fatal(err)
+	}
+	c.Throttle = 0.9
+	c.ManualBurn = &spacecraft.ManualBurn{StartTime: w.Clock.SimTime}
+	read := func() (missM, elevDeg float64) {
+		w.Tick()
+		lb, ok := w.LandBesideReading()
+		if !ok || !lb.MissOK {
+			t.Fatal("no miss reading in the brake")
+		}
+		dir := c.BurnDirectionWithTarget(spacecraft.BurnSite, orbital.Vec3{}, orbital.Vec3{})
+		return lb.MissM, math.Asin(dir.Dot(apFrameOf(c).up)) / rad
+	}
+	for i := 0; i < 30; i++ {
+		read()
+	}
+	miss0, el0 := read()
+	c.PitchTrim = -2 * spacecraft.PitchTrimStepRad // two left arrows
+	miss1, el1 := read()
+	t.Logf("trim 0: miss %.0f m, nose %.1f deg; two lefts: miss %.0f m, nose %.1f deg", miss0, el0, miss1, el1)
+	if math.Abs(miss1-miss0) < 100 {
+		t.Errorf("two lean presses moved miss: by %.0f m, want it to follow the trimmed brake", miss1-miss0)
+	}
+	if d := math.Abs(el1 - el0); d < 1 { // the lean rotates in the east-up plane, so an off-axis track shows part of the 10 degrees
+		t.Errorf("two lean presses moved the nose %.1f deg, want at least 1", d)
+	}
+	c.PitchTrim, c.HeadingTrim = 0, 0
+	miss2, el2 := read()
+	if math.Abs(miss2-miss0) > math.Abs(miss1-miss0)/4 || math.Abs(el2-el0) > 1 {
+		t.Errorf("after | miss %.0f (was %.0f), nose %.1f (was %.1f): want both back", miss2, miss0, el2, el0)
 	}
 }

@@ -2190,7 +2190,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.active != screenOrbit {
 				return a, nil
 			}
-			if a.siteAimHeld() { // ADR 0067 S4 moves the aim here; until then the press is consumed
+			if a.siteAimHeld() { // ADR 0067 decision 6: under Site+ auto the arrows move the aim
+				a.world.NudgeLandingAim(+1, 0, false)
 				return a, nil
 			}
 			if a.world.NudgeInertialHold(-spacecraft.HeadingTrimStepRad, 0) { // ADR 0063: under Inertial → turns the held nose right
@@ -2210,7 +2211,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.active != screenOrbit {
 				return a, nil
 			}
-			if a.siteAimHeld() { // ADR 0067 S4 moves the aim here; until then the press is consumed
+			if a.siteAimHeld() { // ADR 0067 decision 6: under Site+ auto the arrows move the aim
+				a.world.NudgeLandingAim(-1, 0, false)
 				return a, nil
 			}
 			if a.world.NudgeInertialHold(+spacecraft.HeadingTrimStepRad, 0) {
@@ -2227,7 +2229,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.active != screenOrbit { // see PitchTrimEast above
 				return a, nil
 			}
-			if a.siteAimHeld() { // ADR 0067 S4 moves the aim here; until then the press is consumed
+			if a.siteAimHeld() { // ADR 0067 decision 6: under Site+ auto the arrows move the aim
+				a.world.NudgeLandingAim(0, -1, false)
 				return a, nil
 			}
 			// ADR 0049 decision 9 (key moved to ↑ by ADR 0052): offsetRad IS
@@ -2256,7 +2259,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.active != screenOrbit {
 				return a, nil
 			}
-			if a.siteAimHeld() { // ADR 0067 S4 moves the aim here; until then the press is consumed
+			if a.siteAimHeld() { // ADR 0067 decision 6: under Site+ auto the arrows move the aim
+				a.world.NudgeLandingAim(0, +1, false)
 				return a, nil
 			}
 			if a.world.NudgeInertialHold(0, -spacecraft.PitchTrimStepRad) {
@@ -2278,7 +2282,19 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if a.active != screenOrbit {
 				return a, nil
 			}
-			if a.siteAimHeld() { // ADR 0067 S4 moves the aim here; until then the press is consumed
+			if a.siteAimHeld() { // alt: a tenth of the rung
+				var al, ac int
+				switch {
+				case key.Matches(m, a.keys.PitchTrimEastFine):
+					al = +1
+				case key.Matches(m, a.keys.PitchTrimWestFine):
+					al = -1
+				case key.Matches(m, a.keys.HeadingTrimNorthFine):
+					ac = -1
+				default:
+					ac = +1
+				}
+				a.world.NudgeLandingAim(al, ac, true)
 				return a, nil
 			}
 			// ADR 0055: in PORT alt is 0.25° across the port face. Only the
@@ -2340,6 +2356,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				c.HeadingTrim = 0
 				c.PortPitchTrim = 0 // ADR 0055: | clears whichever pair is live
 				c.PortYawTrim = 0
+			}
+			if a.siteAimHeld() { // under Site+ auto | re-aims the computer's site
+				a.world.ClearLandingAim()
 			}
 			return a, nil
 		case key.Matches(m, a.keys.Stage):
@@ -3084,11 +3103,12 @@ func (a *App) siteSink(delta float64) bool {
 	return a.world.LandingROD(delta)
 }
 
-// siteAimHeld: an engaged Site+ autopilot owns the nose, so the arrows must not
-// pile surface trims the next hand-flown hold would inherit.
+// siteAimHeld: the Site+ autopilot (N) owns the nose, so the arrows move its aim
+// (ADR 0067 decision 6) and never pile surface trims. Under the q nose hold
+// (P33) this is false and the arrows trim as on s.
 func (a *App) siteAimHeld() bool {
 	c := a.world.ActiveCraft()
-	return c != nil && c.AttitudeMode == spacecraft.BurnSite && c.Landing != nil && c.Landing.Engaged
+	return c != nil && c.AttitudeMode == spacecraft.BurnSite && c.Landing.Owns()
 }
 
 // portTrim is the arrow keys' PORT branch (ADR 0055 decision 4): with

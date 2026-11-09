@@ -579,7 +579,7 @@ type apForecast struct {
 }
 
 func (w *World) apForecast(c *spacecraft.Spacecraft, lat, lon, theta, pitchUp float64) apForecast {
-	pred, ok := predictPoweredStopFromAtPitch(c.State, c, apStopHorizon, theta, pitchUp)
+	pred, ok := predictPoweredStopTraced(c.State, c, apStopHorizon, theta, pitchUp, landingStopTrim(c), nil)
 	if !ok || pred.StopR.Norm() == 0 || (pred.Outcome != StopStopped && pred.Outcome != StopCrashed) {
 		return apForecast{}
 	}
@@ -662,7 +662,7 @@ func (w *World) apBrake(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilo
 	w.apRuntimeFor(c).outOfReach = ap.OutOfReach // the last brake tick's reading is the landing's
 	dir = apPitched(dir, f.up, newPsi)
 	// crossrange: tilt the thrust away from the error, within the steering authority
-	if f.sh > 1 {
+	if f.sh > 1 && !(ap.Nose && c.HeadingTrim != 0) { // P33: the first up/down arrow takes the cross axis until |
 		phi := clampF(-apCrossGain*f0.cross/f0.span, -apMaxCrossTiltRad, apMaxCrossTiltRad)
 		rHat := f.vh.Unit().Cross(f.up)
 		lateral := rHat.Sub(dir.Scale(rHat.Dot(dir))).Unit()

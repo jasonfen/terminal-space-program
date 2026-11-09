@@ -810,7 +810,7 @@ func (w *World) LandingStopArc() (LandingArc, bool) {
 		start, lead, fromCue = cue.State, cue.InSec, true
 	}
 	var trace []stopSample
-	pred, ok := predictPoweredStopTraced(start, c, deorbitHorizon-time.Duration(lead*float64(time.Second)), throttle, pitch, &trace)
+	pred, ok := predictPoweredStopTraced(start, c, deorbitHorizon-time.Duration(lead*float64(time.Second)), throttle, pitch, landingStopTrim(c), &trace)
 	if !ok || len(trace) < 2 {
 		return LandingArc{}, false
 	}

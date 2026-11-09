@@ -38,6 +38,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -510,7 +511,7 @@ func stopStepSizeSeconds(dt, fuelTimeLeftSec, speedPre, aAvail float64) float64 
 // massKg is non-positive — no fuel, no thrust). Surface-relative, not
 // inertial (issue #377 §1): the goal is zero speed OVER THE GROUND, so
 // this uses physics.AirRelativeVelocity, matching descentKinematics.
-func poweredStopAccel(r, v orbital.Vec3, mu float64, primary bodies.CelestialBody, bc, thrustN, massKg, pitchUp float64) orbital.Vec3 {
+func poweredStopAccel(r, v orbital.Vec3, mu float64, primary bodies.CelestialBody, bc, thrustN, massKg, pitchUp float64, trim *stopTrim) orbital.Vec3 {
 	accel := physics.Accel(r, mu).Add(physics.DragAccel(r, v, primary, bc))
 	if thrustN <= 0 || massKg <= 0 {
 		return accel
@@ -529,7 +530,29 @@ func poweredStopAccel(r, v orbital.Vec3, mu float64, primary bodies.CelestialBod
 			dir = dir.Scale(math.Cos(pitchUp)).Add(perp.Unit().Scale(math.Sin(pitchUp)))
 		}
 	}
+	if trim != nil {
+		dir = spacecraft.ApplyTrims(dir, r, trim.spin, trim.pitchRad, trim.headingRad).Unit()
+	}
 	return accel.Add(dir.Scale(thrustN / massKg))
+}
+
+// stopTrim is the pilot's lean on the q nose hold folded into the stop forecast
+// (ADR 0067 P33): the same ApplyTrims the nose takes, so miss: reads the trimmed
+// brake. nil is no trim.
+type stopTrim struct {
+	pitchRad, headingRad float64
+	spin                 orbital.Vec3
+}
+
+// landingStopTrim is c's trims when they steer the forecast: the q hold is
+// engaged without the autopilot owning the nose and a trim is set.
+func landingStopTrim(c *spacecraft.Spacecraft) *stopTrim {
+	ap := c.Landing
+	if ap == nil || !ap.Engaged || ap.Owns() || (c.PitchTrim == 0 && c.HeadingTrim == 0) {
+		return nil
+	}
+	axis := render.BodyRotationAxisWorld(c.Primary)
+	return &stopTrim{c.PitchTrim, c.HeadingTrim, orbital.Vec3{X: axis.X, Y: axis.Y, Z: axis.Z}}
 }
 
 // bisectPoweredCrossing refines exactly when, within (0, dt], a powered
@@ -590,7 +613,7 @@ func predictPoweredStopFromAt(state physics.StateVector, c *spacecraft.Spacecraf
 // leaned pitchUp radians from retrograde toward local up: the landing
 // autopilot's second knob beside the throttle (ADR 0067). 0 is the plain stop.
 func predictPoweredStopFromAtPitch(state physics.StateVector, c *spacecraft.Spacecraft, horizon time.Duration, throttle, pitchUp float64) (PoweredStopPrediction, bool) {
-	return predictPoweredStopTraced(state, c, horizon, throttle, pitchUp, nil)
+	return predictPoweredStopTraced(state, c, horizon, throttle, pitchUp, nil, nil)
 }
 
 // stopSample is one point of the powered stop's path: the inertial position
@@ -603,7 +626,7 @@ type stopSample struct {
 // predictPoweredStopTraced is predictPoweredStopFromAtPitch that also appends
 // the integrator's path to trace when it is non-nil (the landing view draws
 // it, ADR 0067 decision 8). A nil trace is the plain forecast, bit for bit.
-func predictPoweredStopTraced(state physics.StateVector, c *spacecraft.Spacecraft, horizon time.Duration, throttle, pitchUp float64, trace *[]stopSample) (PoweredStopPrediction, bool) {
+func predictPoweredStopTraced(state physics.StateVector, c *spacecraft.Spacecraft, horizon time.Duration, throttle, pitchUp float64, trim *stopTrim, trace *[]stopSample) (PoweredStopPrediction, bool) {
 	if c == nil {
 		return PoweredStopPrediction{}, false
 	}
@@ -661,7 +684,7 @@ func predictPoweredStopTraced(state physics.StateVector, c *spacecraft.Spacecraf
 		stepDt := stopStepSizeSeconds(dt, fuelKg/mdot, speedPre, aAvail)
 		massSnap := massKg
 		accelFn := func(r, v orbital.Vec3, _ float64) orbital.Vec3 {
-			return poweredStopAccel(r, v, mu, primary, bc, thrustFull, massSnap, pitchUp)
+			return poweredStopAccel(r, v, mu, primary, bc, thrustFull, massSnap, pitchUp, trim)
 		}
 		pre := state
 		state = physics.StepRK4(state, stepDt, accelFn, 0)
