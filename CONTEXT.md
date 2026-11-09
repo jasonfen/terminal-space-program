@@ -907,9 +907,9 @@ docking attitude. Reaching PORT turns nothing on any vessel; the flash reads
 `nav: PORT`. In PORT the navball's text row reads `pitch` / `yaw` to the port
 axis (see **Misalign**) instead of the surface `pitch` / `hdg`, and the arrow
 keys trim the nose across the port face (see **Pitch Trim**).
-Unlike Focus and Target, NavMode lives on `World`, not on the Vessel — it's
-a known scope cap (each Vessel does not yet remember its own NavMode across
-active-Vessel switches); revisit if that asymmetry starts to bite.
+Like Target, each Vessel remembers its own NavMode (ADR 0067 P22): `;` on one
+never changes another's, and on switching to a Vessel its frame comes back,
+dropping to ORBIT if it can no longer offer it (no target, port or site).
 
 **NAVIGATION's `speed:` follows NavMode and names it** (#601, ADR 0051 13d):
 `0.00 m/s (surface)` on the pad (speed over the turning ground),

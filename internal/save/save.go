@@ -138,7 +138,13 @@ import (
 // every earlier save; migrateV21PayloadToV22 drops any autopilot a v21 envelope
 // carries (none can). The bump makes a v21 binary refuse a v22 envelope instead
 // of dropping a booster's mid-brake state.
-const SchemaVersion = 22
+//
+// ADR 0067 P22 bumps to v23 - Craft.nav_mode, each vessel's own navball frame.
+// Absent decodes to ORBIT; migrateV22PayloadToV23 copies the old envelope
+// nav_mode onto the active vessel (the others start on ORBIT). The envelope
+// key is read for that and no longer written. The bump makes a v22 binary
+// refuse a v23 envelope instead of dropping every vessel's frame.
+const SchemaVersion = 23
 
 // LandingWire is spacecraft.LandingAutopilot on the wire (schema v22). Only
 // state that cannot be re-derived is saved: the brake's pitch-up, track plane
@@ -412,6 +418,7 @@ type Craft struct {
 	BatchClampExemptUntilNano int64        `json:"batch_clamp_exempt_until_unix_nano,omitempty"`
 	Raise                     *RaiseWire   `json:"raise,omitempty"`
 	Landing                   *LandingWire `json:"landing,omitempty"` // schema v22 (ADR 0067)
+	NavMode                   int          `json:"nav_mode,omitempty"` // schema v23 (ADR 0067 P22): this vessel's navball frame; ORBIT=0 omitted
 
 	// Crashed / CanSoftLand / OnPad / LandedLatDeg / LandedLonDeg
 	// (v0.11.4+, schema v6 additive — no bump, per ADR 0004). All
@@ -841,6 +848,11 @@ func Load(path string) (*sim.World, error) {
 	if f.Version < 22 {
 		migrateV21PayloadToV22(&f.Payload)
 	}
+	// schema v23 (ADR 0067 P22): the frame moves from the envelope onto the
+	// active vessel.
+	if f.Version < 23 {
+		migrateV22PayloadToV23(&f.Payload)
+	}
 	// Identity bumps (v10, v11, v14, v16, v17) have no transform: absent keys
 	// decode to the truth, and TestIdentityBumpsLoadUnchanged pins that.
 	return worldFromPayload(f.Payload, systems)
@@ -866,7 +878,8 @@ func payloadFromWorld(w *sim.World) Payload {
 	// v0.9.3+: persist NavMode. NavOrbit=0 round-trips as omitempty so
 	// pre-v0.9.3 saves (which never carried the field) load with the
 	// default-frame behaviour they were written under.
-	p.NavMode = int(w.NavMode)
+	// Schema v23: the frame is per vessel (Craft.nav_mode, written below); the
+	// envelope key is read-only, for the v22 migration.
 	// v0.8.1+: Crafts becomes the wire form. Each craft carries its
 	// own Nodes / ActiveBurn / AttitudeMode / EngineMode (per-craft
 	// burn state). Pre-v5 saves had these on the Payload; the load
@@ -878,7 +891,11 @@ func payloadFromWorld(w *sim.World) Payload {
 		}
 		// The per-craft projection lives in craft_wire.go so ONE craft can be
 		// persisted on its own (ADR 0040's durable dock payloads).
-		p.Crafts = append(p.Crafts, CraftToWire(c))
+		wc := CraftToWire(c)
+		if c == w.ActiveCraft() {
+			wc.NavMode = int(w.NavMode) // the live frame is the active vessel's; switch-away stored the rest
+		}
+		p.Crafts = append(p.Crafts, wc)
 	}
 	p.ActiveCraftIdx = w.ActiveCraftIdx
 	p.NextCraftID = w.NextCraftID
@@ -946,9 +963,6 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 	// The payload-level field is read here only for backwards-compat
 	// — assigned to the active craft after Crafts are loaded (see the
 	// reconcile block past the loop).
-	// v0.9.3+: restore NavMode. Absent field → zero → NavOrbit (the
-	// pre-v0.9.3 default frame).
-	w.NavMode = sim.NavMode(p.NavMode)
 	w.Calculator = orbital.ForSystem(w.System())
 
 	// v0.8.1+: load path translates the pre-v5 singular Craft field
@@ -1010,6 +1024,7 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 	// see the right binding immediately after load.
 	if active := w.ActiveCraft(); active != nil {
 		w.Target = active.Target
+		w.NavMode = sim.NavMode(active.NavFrame) // schema v23; reconciled on the first tick
 	}
 	// Pre-v5 payload-level Nodes / ActiveBurn → active craft's
 	// fields. The migration assumes pre-v5 saves had a single craft
