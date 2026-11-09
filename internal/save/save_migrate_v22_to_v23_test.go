@@ -9,6 +9,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // One-line reason for a new file: one migration per test file, as v21 -> v22.
@@ -66,18 +67,23 @@ func TestNavFramePerVesselRoundTrips(t *testing.T) {
 // ORBIT. A v22 save with no nav_mode (ORBIT, omitted) stays ORBIT everywhere.
 func TestV22NavModeMigratesToActiveVessel(t *testing.T) {
 	for _, tc := range []struct {
-		name   string
-		env    int // envelope nav_mode in the v22 file; 0 = key omitted
-		active int
-		want   sim.NavMode
+		name    string
+		env     int // envelope nav_mode in the v22 file; 0 = key omitted
+		active  int
+		want    sim.NavMode
+		engaged bool // the OTHER vessel carries an engaged landing autopilot
 	}{
-		{"surface on active 1", int(sim.NavSurface), 1, sim.NavSurface},
-		{"omitted", 0, 1, sim.NavOrbit},
-		{"surface on active 0 (boundary)", int(sim.NavSurface), 0, sim.NavSurface},
+		{"surface on active 1", int(sim.NavSurface), 1, sim.NavSurface, false},
+		{"omitted", 0, 1, sim.NavOrbit, false},
+		{"surface on active 0 (boundary)", int(sim.NavSurface), 0, sim.NavSurface, false},
+		{"other vessel's engaged landing starts on SITE", 0, 1, sim.NavOrbit, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			w := twoCraftWorld(t)
 			w.SetActiveCraftIdx(tc.active)
+			if tc.engaged { // the old switch-time snap, now applied once by the migration
+				w.Crafts[1-tc.active].Landing = &spacecraft.LandingAutopilot{Engaged: true}
+			}
 			path := filepath.Join(t.TempDir(), "save.json")
 			if err := save.Save(w, path); err != nil {
 				t.Fatal(err)
@@ -111,6 +117,13 @@ func TestV22NavModeMigratesToActiveVessel(t *testing.T) {
 				t.Errorf("active %d frame %v, want %d / %v", got.ActiveCraftIdx, got.NavMode, tc.active, tc.want)
 			}
 			other := 1 - tc.active
+			wantStored := int(sim.NavOrbit)
+			if tc.engaged {
+				wantStored = int(sim.NavSite)
+			}
+			if got.Crafts[other].NavFrame != wantStored {
+				t.Errorf("other vessel stored frame %d, want %d", got.Crafts[other].NavFrame, wantStored)
+			}
 			got.SetActiveCraftIdx(other)
 			if got.NavMode != sim.NavOrbit {
 				t.Errorf("other vessel on %v, want ORBIT", got.NavMode)

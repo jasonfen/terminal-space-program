@@ -6,7 +6,17 @@
 
 package save
 
+import "github.com/jasonfen/terminal-space-program/internal/sim"
+
 func migrateV22PayloadToV23(p *Payload) {
+	// The switch-time snap this replaces: back on a vessel whose landing
+	// autopilot is engaged, the frame was SITE. Store it; the sim reconciles
+	// on arrival if the site is no longer offered.
+	for i := range p.Crafts {
+		if l := p.Crafts[i].Landing; l != nil && l.Engaged {
+			p.Crafts[i].NavMode = int(sim.NavSite)
+		}
+	}
 	if i := p.ActiveCraftIdx; i >= 0 && i < len(p.Crafts) {
 		p.Crafts[i].NavMode = p.NavMode
 	}
