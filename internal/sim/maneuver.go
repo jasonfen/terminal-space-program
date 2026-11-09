@@ -3537,12 +3537,25 @@ func (w *World) NodeInertialPosition(n ManeuverNode) orbital.Vec3 {
 	if w.ActiveCraft() == nil {
 		return orbital.Vec3{}
 	}
+	r, primary := w.NodePrimaryRelativePosition(n)
+	return w.BodyPosition(primary).Add(r)
+}
+
+// NodePrimaryRelativePosition is the burn point relative to the body that
+// owns it at trigger time, plus that body. Constant while the orbit is
+// Keplerian, so a cache can hold it and add the body's live position at
+// draw time (#911). Zero values when there is no active craft.
+func (w *World) NodePrimaryRelativePosition(n ManeuverNode) (orbital.Vec3, bodies.CelestialBody) {
+	c := w.ActiveCraft()
+	if c == nil {
+		return orbital.Vec3{}, bodies.CelestialBody{}
+	}
 	dt := n.TriggerTime.Sub(w.Clock.SimTime).Seconds()
 	if dt <= 0 {
-		return w.CraftInertial()
+		return c.State.R, c.Primary
 	}
 	state, primary := w.propagateCraftWithPrimary(dt)
-	return w.BodyPosition(primary).Add(state.R)
+	return state.R, primary
 }
 
 // PostBurnState returns the craft's primary-relative state vector

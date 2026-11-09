@@ -2143,7 +2143,10 @@ type predictRenderData struct {
 }
 
 type predictMarker struct {
-	pos orbital.Vec3
+	// rel is the burn point relative to primary; the draw adds primary's
+	// live position so the cached marker rides the body (#911).
+	rel     orbital.Vec3
+	primary bodies.CelestialBody
 	tag widgets.CellTag
 }
 
@@ -2285,8 +2288,10 @@ func (v *OrbitView) computePredictedRender(w *sim.World) predictRenderData {
 		// orbit leg, so the glyph and the post-burn dashed orbit read as a
 		// matched pair. ADR 0020: a single Δ glyph, drawn at plot time;
 		// the per-leg colour rides on the tag.
+		rel, primary := w.NodePrimaryRelativePosition(n)
 		data.markers = append(data.markers, predictMarker{
-			pos: w.NodeInertialPosition(n),
+			rel:     rel,
+			primary: primary,
 			tag: widgets.CellTag{
 				Color:   render.ManeuverSegmentColor(i),
 				NodeIdx: i + 1, // 0 = none; planted node i is 1+i in the tag.
@@ -2368,6 +2373,7 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 	data := v.cachedPredictedRender(w)
 
 	for _, m := range data.markers {
+		pos := w.BodyPosition(m.primary).Add(m.rel)
 		// Unified marker (ADR 0020): a single Δ glyph in the node's
 		// per-leg colour (the documented positional-colour exception),
 		// over a tagged pixel that carries NodeIdx so a click still
@@ -2382,18 +2388,18 @@ func (v *OrbitView) drawNodes(w *sim.World) {
 		nodeRef := InspectRef{Kind: InspectNode, NodeIdx: tag.NodeIdx}
 		if tag.NodeIdx > 0 {
 			tag.Owner = nodeRef.OwnerKey()
-			if _, _, onCanvas := v.canvas.Project(m.pos); onCanvas {
+			if _, _, onCanvas := v.canvas.Project(pos); onCanvas {
 				// A node is a plan, not a place to aim at — the Target
 				// slot has no node kind, so Enter refuses rather than
 				// pretending.
-				v.addInspectable(nodeRef, inspectNodeName(tag.NodeIdx), m.pos, false)
+				v.addInspectable(nodeRef, inspectNodeName(tag.NodeIdx), pos, false)
 			}
 		}
 		markerColor := tag.Color
 		if v.isInspected(nodeRef) {
 			markerColor = render.ColorInspect
 		}
-		v.drawMarkerClear(m.pos, render.MarkerManeuver, render.MarkerNominal, markerColor, tag)
+		v.drawMarkerClear(pos, render.MarkerManeuver, render.MarkerNominal, markerColor, tag)
 	}
 	v.plotPredictedLegs(w, data.legs)
 	// Snapshot the dashed legs so an imminent ignition can keep them visible
