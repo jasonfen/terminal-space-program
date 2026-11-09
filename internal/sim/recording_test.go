@@ -931,6 +931,12 @@ func TestTrimRowMarksSeedAndPitchFlip(t *testing.T) {
 			t.Errorf("trim row %q lacks %q", got, want)
 		}
 	}
+	// a plain step from zero heading (pad: no seed) is not a seed
+	c.HeadingTrim = 0
+	press(w, func() { c.HeadingTrim = spacecraft.HeadingTrimStepRad })
+	if got := lastEv(t, path); strings.Contains(got, "seeded") {
+		t.Errorf("a plain heading step is marked seeded: %q", got)
+	}
 }
 
 // Guard H3: under [SITE] the trim row carries the readout the pilot flies by.
