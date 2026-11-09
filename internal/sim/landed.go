@@ -90,6 +90,28 @@ func (w *World) pinCrashed(c *spacecraft.Spacecraft) {
 	c.State.R, _ = surfacePointState(c.Primary, c.LandedLatDeg, c.LandedLonDeg, w.Clock.SimTime)
 }
 
+// AdoptOldWrecks gives each wreck from a pre-v21 save (no stored crater, no
+// wreck site) a crater at the sub-point under its frozen position now, and
+// the wreck site that went with it (#881). Idempotent: a wreck that already
+// has a wreck site is left alone.
+func (w *World) AdoptOldWrecks() {
+	for _, c := range w.Crafts {
+		if !c.Crashed || (c.LandedLatDeg != 0 || c.LandedLonDeg != 0) || c.State.R.Norm() == 0 {
+			continue
+		}
+		have := false
+		for _, s := range w.Sites {
+			have = have || (s.Kind == SiteWreck && s.CraftID == c.ID)
+		}
+		if have {
+			continue
+		}
+		lat, lon := render.WorldToBodyFixed(c.Primary, unitV(c.State.R), w.Clock.SimTime)
+		c.LandedLatDeg, c.LandedLonDeg = lat, lon
+		w.plantSite(c, SiteWreck, "wreck", lat, lon)
+	}
+}
+
 // seatedThrottle is the core throttle the craft's running burn fires at, and a
 // func that undoes any override. A planted node fires at its captured throttle
 // with the player's booster throttle ignored, exactly as stepThrust runs it

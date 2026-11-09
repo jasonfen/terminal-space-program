@@ -3,6 +3,7 @@ package save_test
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -14,6 +15,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
@@ -1603,5 +1605,67 @@ func TestOldFalcon9SecondStageSurvivesLoad(t *testing.T) {
 	s2 := got.ActiveCraft().Stages[1]
 	if s2.Name != "F9-S2" || s2.DryMass != 3900 || s2.Thrust != 934000 {
 		t.Errorf("F9-S2 after load = %s dry %g thrust %g, want 3900 / 934000", s2.Name, s2.DryMass, s2.Thrust)
+	}
+}
+
+// #881: a v20 save with a crashed vessel (no stored crater, no wreck site)
+// loads to a pinned wreck and exactly one wreck site, and a second Save/Load
+// of the migrated world adds no second site.
+func TestV20WreckLoadsPinnedWithSite(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := w.ActiveCraft()
+	c.Crashed = true
+	c.State.R = orbital.Vec3{X: 5e6, Y: 3e6, Z: 2e6} // frozen inertial point
+	c.State.R = c.State.R.Scale(c.Primary.RadiusMeters() / c.State.R.Norm())
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := save.Save(w, path); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(path)
+	var f save.File
+	if err := json.Unmarshal(data, &f); err != nil {
+		t.Fatal(err)
+	}
+	f.Version = 20
+	f.Payload.Sites, f.Payload.NextSiteID = nil, 0
+	for i := range f.Payload.Crafts {
+		f.Payload.Crafts[i].LandedLatDeg, f.Payload.Crafts[i].LandedLonDeg = 0, 0
+	}
+	out, _ := json.Marshal(f)
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := save.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := got.ActiveCraft()
+	wrecks := 0
+	for _, s := range got.Sites {
+		if s.Kind == sim.SiteWreck && s.CraftID == g.ID {
+			wrecks++
+		}
+	}
+	if wrecks != 1 {
+		t.Fatalf("wreck sites = %d, want 1", wrecks)
+	}
+	if g.LandedLatDeg == 0 && g.LandedLonDeg == 0 {
+		t.Fatal("wreck has no crater point")
+	}
+	r0 := g.State.R
+	for i := 0; i < 50; i++ {
+		got.Clock.SimTime = got.Clock.SimTime.Add(time.Hour)
+		got.Tick()
+	}
+	lat, lon := render.WorldToBodyFixed(g.Primary, render.Vec3{X: g.State.R.X / g.State.R.Norm(), Y: g.State.R.Y / g.State.R.Norm(), Z: g.State.R.Z / g.State.R.Norm()}, got.Clock.SimTime)
+	if math.Abs(lat-g.LandedLatDeg) > 1e-6 || math.Abs(lon-g.LandedLonDeg) > 1e-6 {
+		t.Errorf("wreck drifted: (%.4f, %.4f) vs crater (%.4f, %.4f); R moved %.0f m", lat, lon, g.LandedLatDeg, g.LandedLonDeg, g.State.R.Sub(r0).Norm())
+	}
+	got.AdoptOldWrecks() // equal case: already has a site
+	if len(got.Sites) != 1 {
+		t.Errorf("second adopt left %d sites, want 1", len(got.Sites))
 	}
 }
