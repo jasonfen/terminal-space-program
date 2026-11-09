@@ -17,8 +17,22 @@ permissions:
 
 jobs:
   test:
-    name: go test
+    name: go test (${{ matrix.suite }})
     runs-on: ubuntu-latest
+    # The two suites ran serially (~4 + ~3 min); as parallel jobs the wall
+    # time is the longer one.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # internal/sim has no goroutines or sync in production code, so -race
+          # finds nothing there and costs ~8x; every other package keeps it.
+          - suite: race
+            flags: -race
+            pkgs: $(go list ./... | grep -v '/internal/sim$')
+          - suite: sim
+            flags: ''
+            pkgs: ./internal/sim
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -31,22 +45,16 @@ jobs:
           cache: true
 
       - name: go vet
+        if: matrix.suite == 'race'
         run: go vet ./...
 
-      # internal/sim has no goroutines or sync in production code, so -race
-      # finds nothing there and costs ~8x; every other package keeps it.
       # -json output is tee'd for the skip gate below and rendered back to
       # the usual quiet text by jq (RUN/PASS lines dropped; failures, skips and
       # package results stay).
-      - name: go test (race)
+      - name: go test
         shell: bash
         run: |
-          go test -race -count=1 -json $(go list ./... | grep -v '/internal/sim$') | tee test-race.json | jq -Rrj 'fromjson? | .Output // empty | select(test("^(=== |\\s*--- PASS|PASS$)") | not)'
-
-      - name: go test (internal/sim)
-        shell: bash
-        run: |
-          go test -count=1 -json ./internal/sim | tee test-sim.json | jq -Rrj 'fromjson? | .Output // empty | select(test("^(=== |\\s*--- PASS|PASS$)") | not)'
+          go test ${{ matrix.flags }} -count=1 -json ${{ matrix.pkgs }} | tee test.json | jq -Rrj 'fromjson? | .Output // empty | select(test("^(=== |\\s*--- PASS|PASS$)") | not)'
 
       # A skip is not a pass: a test that skips (or a subtest that does)
       # reads green while checking nothing. The only skips allowed are the
@@ -56,7 +64,7 @@ jobs:
         run: |
           bad=$(jq -Rr 'fromjson? | select(.Action == "skip" and .Test != null)
             | select((.Test | split("/")[0]) | IN("TestDiagFastSweep", "TestSOIEntryPredictionEval") | not)
-            | "\(.Package) \(.Test)"' test-race.json test-sim.json)
+            | "\(.Package) \(.Test)"' test.json)
           if [ -n "$bad" ]; then
             echo "::error::tests skipped unexpectedly (fix the fixture or delete the test):"
             echo "$bad"
