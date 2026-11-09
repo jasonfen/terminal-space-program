@@ -46,10 +46,13 @@ const (
 	// DescentPredictHorizon is how far ahead the surface view looks for
 	// ground contact. Past it the forecast reports "no impact" and the
 	// corridor instruments stand down — a craft whose trajectory clears
-	// the surface for the next half hour is not on a descent, whatever
+	// the surface for the next 45 minutes is not on a descent, whatever
 	// its instantaneous radial rate says (the routine case: an eccentric
-	// parking orbit falling toward periapsis).
-	DescentPredictHorizon = 30 * time.Minute
+	// parking orbit falling toward periapsis). One horizon for every
+	// descent readout and decision (the deorbit planner, the autopilot cue
+	// and auto-warp use it too), so a readout never blanks while G has a
+	// target (fix L).
+	DescentPredictHorizon = 45 * time.Minute
 
 	// impactSubStepCap bounds the forecast's integrator sub-step in
 	// seconds. predictMaxSubStep alone (period/100, capped at 120 s) is

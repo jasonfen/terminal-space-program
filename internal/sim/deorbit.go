@@ -28,8 +28,9 @@ const (
 	// DeorbitBrakeThrottle: the braking burn the aim assumes, leaving the pilot
 	// throttle authority both ways.
 	DeorbitBrakeThrottle = 1 - BrakeReserveFrac
-	// deorbitHorizon covers the longest fall the solver aims (coast plus brake).
-	deorbitHorizon = 45 * time.Minute
+	// deorbitHorizon covers the longest fall the solver aims (coast plus
+	// brake). It is the readout horizon, one constant (fix L).
+	deorbitHorizon = DescentPredictHorizon
 	// deorbitRefineIters resolves the burn-at cue to ~0.1 s (it moves the stop
 	// point 1.5 km per second).
 	deorbitRefineIters = 8
