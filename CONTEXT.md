@@ -735,6 +735,7 @@ second recorded exception to the whole-metre rule after `port:`. The launch/surf
 (`V`) is the same shape — its own toggling jump key, altitude-derived
 entry scale, also outside the `v` cycle — and the two can stack (jumping
 to Proximity from inside the chase-cam and back).
+On a surface target (a **Site** or landed vessel) `o` opens the **Landing View** instead.
 _Avoid_: Docking view, RPO screen.
 
 **Centerline scope** (ADR 0055, amended 2026-10-23; was **Centerline view**):
@@ -878,8 +879,67 @@ landed integrator's own formula, so Δincl and plane nodes read against it
 as against a parked Vessel (the launch window and the Rendezvous Planner
 refuse a Site). A partner's Site comes from the **Site Ledger** and sits
 under PARTNERS. Only the owner renames or deletes.
+Landing aim (ADR 0067): a Site has a real position and, for the vessel
+landing on it, a **Computer's Site**; the real `⚑` is drawn only inside
+`SiteRevealRangeM` (10 km of ground range) when the two differ, and `lpd:`
+keeps reading the real Site.
 _Avoid_: Waypoint, Marker (a Site is state, a marker is ink), Landing
 site (one kind of Site), Flag (the glyph, not the noun).
+
+**Landing Autopilot** (ADR 0067; `Site+`):
+The vessel flies its own landing on the targeted **Site**: `N` plants the
+deorbit burn, puts the navball on `[SITE]` and engages it; it coasts to the
+brake cue, then **brake**, **approach** (path steeper than 45 degrees) and
+**final** (ground speed under 3 m/s: 3 m/s sink at 100 m, 1 m/s under 30 m),
+to touchdown, on any vessel that can brake, active or not. The hold row reads
+`Site+ auto <phase> (SITE)`, `wait` before the light, in amber. `q` in
+`[SITE]` is a different thing: a guidance **nose hold** (retrograde through the
+brake, straight up in final) that leaves engine and throttle to the pilot.
+`e` is `Site−`, straight up. `Z`/`X` or `z`/`x` hand the throttle to the pilot;
+`b` or any hold key takes the autopilot off; `q` flies the nose hold again.
+Under `N`, `e`/`q` click the descent rate (**ROD**, 1 m/s, `alt` 0.3). A reach
+test refuses a site it cannot make (`OutOfReachAuthorityFrac`, 0.10 of the
+stopping distance); while it flies, `miss:` and `cross:` read its own
+forecast, and warp is capped at 10x while it burns. Real terms: Apollo
+P64 to P66 (ROD is P66).
+_Avoid_: Auto-land.
+
+**Reserve** (ADR 0067; `rsv`):
+The share of throttle the brake plan keeps in hand: the cue, `stop:`, `N` and
+the autopilot all plan the brake at `1 - BrakeReserveFrac` (90%) for every
+vessel, and the ENGINE row says so, `▸ brake at 73.2 km  T-16m44s  rsv 10%`.
+Before it, the cue assumed 100% and a pilot lighting at the cue ended 43 km
+short on the Lander.
+
+**Computer's Site** (ADR 0067):
+Where the vessel's guidance thinks the **Site** is: the real Site plus an
+offset drawn once when the deorbit burn is planted, from a hash of the vessel,
+the Site and the burn tick, so every peer draws the same. By era: a vessel
+with a `nav_sigma_m` on its command part (Apollo-era crewed) and no COMMS link
+at the burn draws 2 km along and 1 km across (1 sigma); with a link, or on a
+modern or uncrewed vessel, 3 m. TARGET's `miss:` / `cross:` read it; the
+landing view draws it as `⌖` beside the real `⚑`. The first link between the
+burn and the brake corrects it once (the ground update, footer
+`⚑ update: site moved <d>`). Real term: Apollo 12's landing-site update (Noun 69).
+_Avoid_: Nav error (the mechanism, not the thing the pilot sees).
+
+**Aim Point** (ADR 0067):
+The landing aim the pilot has moved off the Computer's Site, in metres along
+and across the track. Under `N`, arrows move it by ground range to the site
+(1 km beyond 50 km, 250 m to 5 km, 25 m inside; `alt` 10 m, 2.5 m inside
+5 km) and `|` clears it; read as `aim:` on the LANDING chip and, while set,
+as the third cell of TARGET's `miss:` row. Under the `q` nose hold the same
+arrows trim the nose instead (**Pitch Trim**).
+
+**Landing View** (ADR 0067):
+`o` with a **Site** or landed vessel targeted: the **Proximity View**'s
+horizon-frame sibling, a side picture through the track plane at the site
+(ground arc, the stop arc ending at `⊙`, `⚑` / `⌖`, the vessel sprite), the
+LANDING chip (`alt rate:`, `fwd vel:`, `lat vel:`, `stop:`, `twr:`,
+`throttle:`, `hold:`, `aim:`) and the OVERHEAD inset in the top-right corner
+(along-track true scale, cross axis on its own bar; `F2` hides it). The track
+axis is latched at entry so the picture holds still. `V` draws the targeted
+`⚑` too. Fitted from straight-line range, 2.25 x, 50 m at least.
 
 **Inertial** (hold, ADR 0063):
 The attitude hold that keeps the nose where it points now, chosen with `A`.
@@ -894,7 +954,7 @@ drops. Real term: Shuttle DAP `INRTL`. Not a planted-node mode.
 _Avoid_: Free drift, SAS off (TSP models no spin, so they would look the same).
 
 **NavMode**:
-The orientation the navball displays directions in. Four values:
+The orientation the navball displays directions in. Five values:
 **NavOrbit** (frame of the active Vessel's current orbit), **NavSurface**
 (rotating frame of the Primary's surface — local up / horizon), **NavTarget**
 (target-relative frame, only meaningful when a TargetCraft Target is bound),
@@ -902,7 +962,10 @@ The orientation the navball displays directions in. Four values:
 up/down and left/right across its face; `;` offers it only when the Target
 has a port, the self-switch never enters it, and it drops to NavOrbit when
 the Target changes or loses its port, and a `Port` hold resets to **Inertial**
-when it does). `Port+` is the hold that puts your nose on the port axis, the
+when it does), **NavSite** (`SITE`, ADR 0067: the surface target's horizon frame,
+up, along the track and across it; `;` offers it only with a Site or landed
+vessel aimed and the vessel off the ground, and it drops when that stops being
+true). `Port+` is the hold that puts your nose on the port axis, the
 docking attitude. Reaching PORT turns nothing on any vessel; the flash reads
 `nav: PORT`. In PORT the navball's text row reads `pitch` / `yaw` to the port
 axis (see **Misalign**) instead of the surface `pitch` / `hdg`, and the arrow
@@ -1327,6 +1390,12 @@ _Avoid_: East / west (true only at a due-east heading; Jason trimmed to a
 7-cell value and moved the left boxes), prograde / retrograde (those name
 holds, and `→` moves the nose *away* from a prograde marker), a signed
 `+15°` (read as contradicting the navball's `pitch -15°`, #548).
+
+**Pitch Trim in SITE** (ADR 0067 P33; amends the entry above):
+Under the `q` nose hold `←` / `→` lean the guidance nose 5° (`alt` 1°) as on
+any hold, and the first `↑` / `↓` takes the cross axis from the guidance
+until `|` hands both back; `miss:` / `cross:` include the trim. Under `N`
+(`Site+ auto`) the arrows move the **Aim Point** instead.
 
 **Pitch Trim in PORT** (ADR 0055 slice 3; amends the entry above):
 With NavMode PORT the arrows are port-face trims instead: `PortPitchTrim` /

@@ -2,6 +2,25 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.67.0
+
+Landing autopilot (ADR 0067; PRs `#896` to `#907`, `#912` to `#918`, `#920` to `#929`; closes `#880`, `#882`, `#886`; tag `v0.67.0`). Save schema 23 (each vessel keeps its own navball frame; older saves migrate).
+
+- **`N` lands itself.** On a targeted site `N` plants the deorbit burn, switches the navball to `[SITE]` and engages `Site+ auto`: coast, brake, approach, final, touchdown, with another vessel active if you like. `Z`/`X` hand the throttle back; `b` or any hold key takes it off. `Site+ auto <phase>` reads amber in GUIDANCE.
+- **`q` in `[SITE]` is a nose hold.** Retrograde through the brake, straight up in final; the throttle stays yours and the arrows trim the nose. `e` holds straight up (`Site−`). `B` plants the deorbit burn onto the site and engages nothing.
+- **The cue plans a 10% reserve.** Every vessel's `▸ brake at ...` and `stop:` read `rsv 10%` and agree with the point the plan lights.
+- **Landing view.** `o` on a flag or a landed vessel opens a site-centred side picture: ground, flag, the stop arc, a LANDING chip (`alt rate:`, `fwd vel:`, `lat vel:`, `stop:`, `twr:`, `aim:`) and an OVERHEAD inset top-right that `F2` hides. `V` draws the targeted flag.
+- **The computer's site.** An Apollo-era vessel with no link at the burn reads a site 2 km along and 1 km across (1σ) off the flag, `⌖` beside `⚑`; a link fixes it to 3 m, and the first link before the brake corrects it once (`⚑ update: site moved ...`). Modern vessels read 3 m.
+- **Aim arrows under `N`.** Arrows move the aim by range (1 km, 250 m, 25 m; `alt` 10 m), `|` re-aims, TARGET shows `aim:`. Under the `q` hold the arrows trim instead.
+- **Rate of descent.** Under `N`, in approach and final, `e`/`q` click the sink rate 1 m/s (`alt` 0.3).
+- **RCS in `[SITE]`.** With RCS armed `q`/`e` pulse along the track, `a`/`d` across it, `w`/`s` up and down; refused while `N` flies. The Lander and LM carry 890 N and 287 kg of monoprop.
+- **`G` warps to the brake.** With no node planted, `G` warps to 30 s before the brake cue. A deorbit refused for a low orbit says `brake needs 67 km, orbit 50 km`.
+- **Landers.** Crewed Lander and Uncrewed Lander in the spawn form; the LM, CSM and both landers reach Earth from the Moon (near side).
+- **Readouts.** Descent readouts look 45 min ahead; `miss:` no longer steps ~85 m on a steady brake; touchdown reads `(need < 10)`; NAVIGATION `horiz:` goes red without the CRASH words; crash speed is ground-relative.
+- **Flight Recording.** Logs every key that changes trim, aim, rate, nav frame or hold, and writes burns, touchdowns, crashes and docks for every vessel, not only the active one.
+- **Fixes.** A targeted flag keeps its cell when the closest-approach X falls on it (`#882`); landed vessels link out to the horizon of a 5 m antenna, 8.3 km on the Moon (`#880`); TARGET `Δincl:` no longer pushes `lead:` right.
+- **Known issues.** Wrecks from older saves still drift over the ground (`#881`). Joining a session from a different save brings back that save's old flags, and flag 1 collides (`#891`). Older saves keep their stored lander monoprop (242 kg) until the vessel is respawned. VAB-composed landers do not take the LM RCS figures.
+
 ### v0.66.1
 
 The COVERAGE notice says what it measures (PR `#895`, closes `#894`; tag `v0.66.1`). Save schema unchanged.
