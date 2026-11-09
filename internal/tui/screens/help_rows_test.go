@@ -138,6 +138,8 @@ func helpPhraseRows() []helpPhrase {
 		{name: "gloss max N", token: "(max N)", hasFold: []string{"full throttle"}},
 		{name: "gloss rsv", token: "rsv", hasFold: []string{"90% throttle", "reserve", "stop:"}},
 		{name: "N plans the same 90% brake as the cue", token: "N", has: []string{"90% brake", "rsv 10%"}, not: []string{"full throttle"}},
+		{name: "N and B name the brake-too-low refusal and the recording row", token: "N", has: []string{"deorbit: brake needs 66 km, orbit 50 km"}},
+		{name: "B names the refusal row", token: "B", has: []string{"deorbit refused:"}},
 		{name: "N engages Site+", token: "N", has: []string{"engage Site+ on [SITE]", "the clock stays yours"}},
 		{name: "gloss ORBIT READY", token: "● ORBIT READY [C]", hasFold: []string{"orbit floor"}},
 		// Wave C review: which heading figure is commanded and which measured.

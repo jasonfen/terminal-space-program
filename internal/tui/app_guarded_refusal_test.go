@@ -2,6 +2,8 @@ package tui
 
 import (
 	"math"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -472,12 +474,32 @@ func TestDeorbitKeyFlashAndRefusals(t *testing.T) {
 	w.Sites = append(w.Sites, sim.Site{ID: 1, Body: c.Primary.EnglishName, System: w.System().Name, LatDeg: lat, LonDeg: lon, Name: "Lander-1 site"})
 	w.NextSiteID = 1
 
+	w.RecordingsDir = t.TempDir()
+	if err := w.OpenActiveRecording(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(w.CloseRecording)
+	refusedRows := func() int { // Fix J: one recording row per refused press, none for a plant
+		n := 0
+		files, _ := filepath.Glob(filepath.Join(w.RecordingsDir, "*.txt"))
+		for _, f := range files {
+			b, _ := os.ReadFile(f)
+			n += strings.Count(string(b), "deorbit refused: ")
+		}
+		return n
+	}
 	pressKey(a, 'N')
 	if a.statusMsg != "deorbit: no site targeted, press t" {
 		t.Errorf("no target: %q", a.statusMsg)
 	}
+	if n := refusedRows(); n != 1 {
+		t.Errorf("refused rows after a refusal = %d, want 1", n)
+	}
 	w.SetTargetSite(1)
 	pressKey(a, 'N')
+	if n := refusedRows(); n != 1 {
+		t.Errorf("a plant wrote a refusal row: %d", n)
+	}
 	if !strings.HasPrefix(a.statusMsg, "deorbit onto Lander-1 site → ") || !strings.Contains(a.statusMsg, " m/s retro in ") || !strings.Contains(a.statusMsg, ", stop ") {
 		t.Errorf("flash = %q, want deorbit onto <site> → N m/s retro in T, stop D long|short", a.statusMsg)
 	}
@@ -492,6 +514,9 @@ func TestDeorbitKeyFlashAndRefusals(t *testing.T) {
 	pressKey(a, 'N')
 	if !strings.HasPrefix(a.statusMsg, "deorbit: a burn is already planted (") || !strings.HasSuffix(a.statusMsg, "); clear it in [m] first") {
 		t.Errorf("with another burn: %q", a.statusMsg)
+	}
+	if n := refusedRows(); n != 2 {
+		t.Errorf("refused rows after the second refusal = %d, want 2", n)
 	}
 }
 

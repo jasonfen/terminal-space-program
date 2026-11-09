@@ -281,6 +281,8 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 		"`N` flies everything (`Site+ auto wait` in amber until the brake lights",
 		"It also puts the navball on SITE and engages the full landing autopilot (`hold: Site+ auto wait`, amber)",
 		"engages it from the current state with no new burn (footer `Site+ auto: landing from here`)",
+		"the orbit is too low for your brake (`deorbit: brake needs 66 km, orbit 50 km`",
+		"Each refused `N` or `B` press also writes a `deorbit refused:` row to the recording",
 		"`hold:` reads `Site+ wait` until the engine is lit",
 		"`b` (surface retrograde, the engine yours: footer `Site+ off: engine lit by hand`) switches it off",
 	} {

@@ -4828,11 +4828,11 @@ func (a *App) doPlanTransfer() {
 // by the map binding and the planner's QUICK PLANS block.
 func (a *App) doPlanDeorbit() {
 	if !a.world.CraftVisibleHere() {
-		a.refuse("deorbit", "vessel not in this system")
+		a.refuseDeorbit("vessel not in this system")
 		return
 	}
 	if planted := a.plantedBurnSummaryExcept(sim.AdvisoryKeyDeorbit); planted != "" {
-		a.refuse("deorbit", fmt.Sprintf("a burn is already planted (%s); clear it in [m] first", planted))
+		a.refuseDeorbit(fmt.Sprintf("a burn is already planted (%s); clear it in [m] first", planted))
 		return
 	}
 	plan, err := a.world.PlanDeorbitAndEngage() // playtest P3: N is the "land itself" key
@@ -4846,7 +4846,7 @@ func (a *App) doPlanDeorbit() {
 		return
 	}
 	if plan == nil {
-		a.refuse("deorbit", deorbitRefusal(err))
+		a.refuseDeorbit(deorbitRefusal(err))
 		return
 	}
 	if err != nil { // planted, but Site+ would not engage
@@ -4860,19 +4860,25 @@ func (a *App) doPlanDeorbit() {
 // refusals as `N`, but nothing is engaged and the hold is left as it was.
 func (a *App) doPlanDeorbitOnly() {
 	if !a.world.CraftVisibleHere() {
-		a.refuse("deorbit", "vessel not in this system")
+		a.refuseDeorbit("vessel not in this system")
 		return
 	}
 	if planted := a.plantedBurnSummaryExcept(sim.AdvisoryKeyDeorbit); planted != "" {
-		a.refuse("deorbit", fmt.Sprintf("a burn is already planted (%s); clear it in [m] first", planted))
+		a.refuseDeorbit(fmt.Sprintf("a burn is already planted (%s); clear it in [m] first", planted))
 		return
 	}
 	plan, err := a.world.PlanDeorbitOntoSite()
 	if err != nil {
-		a.refuse("deorbit", deorbitRefusal(err))
+		a.refuseDeorbit(deorbitRefusal(err))
 		return
 	}
 	a.flash(deorbitFlash(plan))
+}
+
+// refuseDeorbit is the footer line for a refused B or N, and its recording row.
+func (a *App) refuseDeorbit(reason string) {
+	a.refuse("deorbit", reason)
+	a.world.RecordDeorbitRefusal(reason)
 }
 
 // deorbitFlash is the footer line for a planted deorbit (`N` and `B`).
