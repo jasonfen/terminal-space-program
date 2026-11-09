@@ -271,6 +271,7 @@ type SiteLink struct {
 	CraftID       uint64  `json:"craft_id,omitempty"`
 	PlantedAtNano int64   `json:"planted_at_nano"`
 	UpdatedAtNano int64   `json:"updated_at_nano"`
+	SaveID        string  `json:"save_id,omitempty"` // #891: the owner's save this site came from; empty = pre-#891
 }
 
 // Store owns one session directory. All mutations re-read

@@ -226,6 +226,7 @@ type Payload struct {
 	GameFolder     string             `json:"game_folder,omitempty"`   // schema v19: Flight Recording folder of this game.
 	Sites          []Site             `json:"sites,omitempty"`         // schema v21 (ADR 0066): your own flags and wrecks.
 	NextSiteID     uint64             `json:"next_site_id,omitempty"`  // schema v21: monotonic site-id counter.
+	SaveID         string             `json:"save_id,omitempty"`       // #891: identity of this game for the session site ledger. Additive omitempty, no schema bump; an older save gets one on load.
 	NextNodeID     uint64             `json:"next_node_id,omitempty"`  // v0.16: monotonic node-ID counter (ADR 0016). Additive omitempty, no schema bump; EnsureNodeIDs reprimes on load.
 	Nodes          []Node             `json:"nodes,omitempty"`
 	ActiveBurn     *ActiveBurn        `json:"active_burn,omitempty"`
@@ -916,6 +917,7 @@ func payloadFromWorld(w *sim.World) Payload {
 			PlantedAtNano: st.PlantedAtNano, UpdatedAtNano: st.UpdatedAtNano})
 	}
 	p.NextSiteID = w.NextSiteID
+	p.SaveID = w.SaveID
 	p.NextNodeID = w.NextNodeID
 	p.Missions = missions.Clone(w.Missions)
 	return p
@@ -1000,6 +1002,9 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 			PlantedAtNano: st.PlantedAtNano, UpdatedAtNano: st.UpdatedAtNano})
 	}
 	w.NextSiteID = p.NextSiteID
+	if w.SaveID = p.SaveID; w.SaveID == "" {
+		w.SaveID = sim.NewSaveID()
+	}
 	w.NextNodeID = p.NextNodeID
 	if p.ActiveCraftIdx >= 0 && p.ActiveCraftIdx < len(w.Crafts) {
 		w.ActiveCraftIdx = p.ActiveCraftIdx

@@ -121,3 +121,60 @@ func TestSiteLedgerDropSitesOfAndPartnerSitesFor(t *testing.T) {
 		t.Errorf("DropSitesOf(B) = %d, ledger %d, want 1 and 1", n, len(l.Snapshot()))
 	}
 }
+
+// #891: ids are per save. A different save joining must not get the old save's
+// flags back, and its own flag 1 must not collide with the old flag 1; the same
+// save (or a pre-#891 record with no SaveID) still gets its flags back.
+func TestSyncSitesConnectFromDifferentSave(t *testing.T) {
+	old := ledgerWorld(t)
+	old.SaveID = "save-a"
+	l := NewSiteLedger()
+	for _, s := range []sim.Site{moonSite(1, "old one", 10), moonSite(2, "old two", 10)} {
+		r, _ := SiteRecordOf(old, s, "A", "ann")
+		l.Plant(r)
+	}
+	legacy, _ := SiteRecordOf(old, moonSite(3, "legacy", 10), "A", "ann")
+	legacy.SaveID = ""
+	l.Plant(legacy)
+
+	cases := []struct {
+		name, save string
+		wantNames  []string
+	}{
+		{"different save", "save-b", []string{"new one", "legacy"}},
+		{"same save rejoins", "save-a", []string{"old one", "old two", "legacy"}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ll := NewSiteLedger()
+			ll.Seed(l.Snapshot())
+			w := ledgerWorld(t)
+			w.SaveID = c.save
+			if c.save == "save-b" {
+				w.Sites = []sim.Site{moonSite(1, "new one", 99)} // newer stamp than the old flag 1
+				w.NextSiteID = 1
+			}
+			ll.SyncSites(w, "A", "ann", map[uint64]int64{}, true)
+			var got []string
+			for _, s := range w.Sites {
+				got = append(got, s.Name)
+			}
+			if len(got) != len(c.wantNames) {
+				t.Fatalf("world sites = %v, want %v", got, c.wantNames)
+			}
+			for i, n := range c.wantNames {
+				if got[i] != n {
+					t.Errorf("world sites = %v, want %v", got, c.wantNames)
+				}
+			}
+			if c.save == "save-b" {
+				if r, _ := ll.get("A", 1); r.Name != "new one" || r.SaveID != "save-b" {
+					t.Errorf("ledger flag 1 = %+v, want the new save's", r)
+				}
+				if _, ok := ll.get("A", 2); ok {
+					t.Error("old save's flag 2 still in the ledger")
+				}
+			}
+		})
+	}
+}
