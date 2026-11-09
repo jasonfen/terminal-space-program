@@ -23,7 +23,7 @@ func TestLandingAutopilotRoundTrips(t *testing.T) {
 	}
 	want := spacecraft.LandingAutopilot{
 		Engaged: true, Phase: spacecraft.PhaseApproach, ROD: true, RODRateMps: -2.5, ThrottleHeld: true,
-		AimAlongM: 250, AimAcrossM: -25, NavAlongM: 310.5, NavAcrossM: -480, NavSeeded: true,
+		AimAlongM: 250, AimAcrossM: -25, NavAlongM: 310.5, NavAcrossM: -480, NavSeeded: true, NavFixed: true,
 	}
 	c := w.ActiveCraft()
 	path := filepath.Join(t.TempDir(), "save.json")

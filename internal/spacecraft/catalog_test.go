@@ -509,3 +509,35 @@ func TestOverlayPartWithoutDiameterReadsZero(t *testing.T) {
 		t.Errorf("overlay part with no diameter_m: Stage.DiameterM = %v, want 0", got)
 	}
 }
+
+// ADR 0067 decision 3: the landing computer's era is the command part's
+// nav_sigma_m. The crewed Lander and the Apollo stacks are Apollo-era; the
+// Uncrewed Lander and a Capsule are modern; and a loaded vessel whose stages
+// stored no sigma (the LM, stages 1-2 of Apollo-TLI) reads it from its catalog
+// run.
+func TestNavSigmaEraFollowsTheCommandPart(t *testing.T) {
+	for id, want := range map[string]bool{"Apollo-TLI": true, "Apollo-Stack": true, "Lander-Crewed": true, "Lander": false, "Capsule": false} {
+		along, across, ok := NewFromLoadout(id).NavSigma()
+		if ok != want {
+			t.Errorf("%s: Apollo-era = %v, want %v", id, ok, want)
+		}
+		if ok && (along != 2000 || across != 1000) {
+			t.Errorf("%s: sigma %v / %v, want 2000 / 1000", id, along, across)
+		}
+	}
+	c := NewFromLoadout("Apollo-TLI")
+	var lm []Stage
+	for _, st := range c.Stages {
+		if st.Name == "Descent" || st.Name == "Ascent" {
+			st.NavSigmaAlongM, st.NavSigmaAcrossM = 0, 0 // as a save stores it
+			lm = append(lm, st)
+		}
+	}
+	if len(lm) != 2 {
+		t.Fatalf("setup: %d LM stages", len(lm))
+	}
+	c.Stages = lm
+	if _, _, ok := c.NavSigma(); !ok {
+		t.Error("a loaded LM lost its Apollo era: the catalog run did not restore it")
+	}
+}
