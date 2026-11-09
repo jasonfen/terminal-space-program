@@ -357,6 +357,18 @@ func TestDeorbitRefusalSaysBrakeNeedsAltitude(t *testing.T) {
 	if !brakeStopsFrom(c, low.NeedM) || brakeStopsFrom(c, low.NeedM-1000) {
 		t.Errorf("need %.0f m is not the stop threshold", low.NeedM)
 	}
+	// The planner agrees with the stated altitude to 2 km (measured 65 fails, 66 plans; the
+	// probe grazes 5 km under the surface and ignores rotation).
+	for _, tc := range []struct {
+		km   float64
+		plan bool
+	}{{low.NeedM / 1000, true}, {low.NeedM/1000 - 2, false}} {
+		w2, c2 := deorbitWorld(t, 150, 0)
+		atAltitude(c2, tc.km)
+		if _, err := w2.PlanDeorbitOntoSite(); (err == nil) != tc.plan {
+			t.Errorf("at %.0f km (need %.0f) plans=%v, err = %v", tc.km, low.NeedM/1000, tc.plan, err)
+		}
+	}
 	t.Logf("50 km Lander: %v", err)
 	// Another cause (dry before it stops) keeps the old line.
 	w, c = deorbitWorld(t, 150, 0)
