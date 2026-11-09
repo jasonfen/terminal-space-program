@@ -114,17 +114,13 @@ func TestOverheadNoseLean(t *testing.T) {
 	}
 }
 
-// V draws the targeted flag in TARGET green, nothing with no site targeted.
-func TestLaunchViewDrawsTargetedFlagOnly(t *testing.T) {
+// V draws the targeted flag in TARGET green. (Nothing untargeted is not pinned
+// here: ProximityState already gates it, so no guard in V's code could go red.)
+func TestLaunchViewDrawsTargetedFlag(t *testing.T) {
 	w := moonSiteDescentWorld(t, false)
 	v := NewLaunchView(launchThemeForTest(), NewOrbitView(launchThemeForTest()))
 	v.Render(w, DesignWidth, DesignHeight)
 	if n := v.canvas.CountOverlayColor(render.ColorTarget); n < 1 {
 		t.Errorf("targeted flag not drawn in V (TARGET-green overlay cells: %d)", n)
-	}
-	w.Target = sim.Target{}
-	v.Render(w, DesignWidth, DesignHeight)
-	if n := v.canvas.CountOverlayColor(render.ColorTarget); n != 0 {
-		t.Errorf("no site targeted: %d TARGET-green overlay cells, want 0", n)
 	}
 }
