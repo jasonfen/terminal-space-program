@@ -603,7 +603,7 @@ func bracketRoot(f func(float64) float64, hint, tol float64) (float64, bool) {
 			side = -1
 		}
 		if hi-lo < 1e-4 {
-			return x, !math.IsInf(fx, 0)
+			return x, math.Abs(fx) <= tol // a collapse onto a jump is no root unless it is within tolerance
 		}
 	}
 	return 0, false
