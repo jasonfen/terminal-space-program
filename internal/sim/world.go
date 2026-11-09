@@ -600,6 +600,7 @@ type World struct {
 	rec            recState
 	recMarker      string          // row written first time each vessel's file opens
 	recMarked      map[uint64]bool // vessels whose file already got the marker
+	recReset       bool            // the next RecordInputChanges is a `|` reset
 }
 
 // trailSample captures the craft's position in its primary's frame at

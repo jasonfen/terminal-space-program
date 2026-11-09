@@ -15,6 +15,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 // vesselLinked reports the vessel's own CommNet connection, the one COMMS shows
@@ -99,6 +100,7 @@ func (w *World) updateNavOnLink(c *spacecraft.Spacecraft) {
 	w.PendingLandingEvents = append(w.PendingLandingEvents, LandingEvent{
 		CraftName: c.Name, Update: true, DistanceM: math.Hypot(ap.NavAlongM-oldA, ap.NavAcrossM-oldC),
 	})
+	w.recordRowFor(c, "ground update: site moved "+readout.Distance(math.Hypot(ap.NavAlongM-oldA, ap.NavAcrossM-oldC)))
 }
 
 // computerOffset is where the computer is flying to, from the real site: its

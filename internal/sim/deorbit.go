@@ -428,10 +428,12 @@ func (w *World) PlanDeorbitOntoSite() (*DeorbitPlan, error) {
 	n := nodeFor(c, st0, tS, dv, tilt)
 	w.replaceAdvisoryNode(c, AdvisoryKeyDeorbit)
 	w.PlanNode(n)
-	return &DeorbitPlan{
+	plan := &DeorbitPlan{
 		Site: name, DV: dv, In: tS.Sub(now), LongM: lastOff.long, CrossM: lastOff.cross,
 		Impact: !stop, TiltDeg: tilt / rad,
-	}, nil
+	}
+	w.recordDeorbit(plan)
+	return plan, nil
 }
 
 // deorbitOffTrack builds the off-track refusal: when the rotating ground

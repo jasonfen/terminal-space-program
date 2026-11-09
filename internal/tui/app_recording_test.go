@@ -150,7 +150,7 @@ func TestLoadSwapsRecordingFile(t *testing.T) {
 	fa, fb := fileOfVessel(t, dir, first.ID), fileOfVessel(t, dir, b.ID)
 	nb := len(recRows(t, fb))
 	a.world.RecordAction(missions.ActionThrottleDown)
-	if rows := recRows(t, fa); len(rows) == 0 || !strings.HasSuffix(rows[len(rows)-1], "throttle_down") {
+	if rows := recRows(t, fa); len(rows) == 0 || !strings.Contains(rows[len(rows)-1], "throttle_down") {
 		t.Fatalf("loaded vessel's file rows = %q, want to end throttle_down", rows)
 	}
 	if got := len(recRows(t, fb)); got != nb {

@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/recorder"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
 const (
@@ -36,6 +38,8 @@ type recState struct {
 	hold     string        // the hold last on file ("" = not yet seen)
 	warp     int           // Clock.WarpIdx+1 last on file (0 = not yet seen)
 	chute    string        // chute state last on file ("" = not yet seen)
+	nav      string        // nav frame last on file ("" = not yet seen)
+	ap       string        // autopilot state last on file ("" = not yet seen)
 }
 
 // OpenActiveRecording closes any open recording and opens the Active Vessel's
@@ -75,7 +79,8 @@ func (w *World) OpenActiveRecording() error {
 		}
 	}
 	w.Recording = r
-	w.rec = recState{vesselID: c.ID, t0: r.T0(), hold: w.holdText(c), warp: w.Clock.WarpIdx + 1, chute: strings.ToLower(c.ChuteState.String())}
+	w.rec = recState{vesselID: c.ID, t0: r.T0(), hold: w.holdText(c), warp: w.Clock.WarpIdx + 1, chute: strings.ToLower(c.ChuteState.String()),
+		nav: w.NavMode.Tag(), ap: w.apLabel(c)}
 	if w.recMarker != "" && !w.recMarked[c.ID] {
 		if w.recMarked == nil {
 			w.recMarked = map[uint64]bool{}
@@ -292,6 +297,8 @@ func (w *World) recordRowFor(c *spacecraft.Spacecraft, event string) {
 func (w *World) recordHoldChange(c *spacecraft.Spacecraft) {
 	w.recordWarpChange(c)
 	w.recordChuteChange(c)
+	w.recordNavChange(c)
+	w.recordAutopilotChange(c)
 	h := w.holdText(c)
 	if h == w.rec.hold {
 		return
@@ -398,6 +405,13 @@ func (w *World) recordAction(a missions.Action) {
 		}
 	case missions.ActionCycleTarget, missions.ActionClearTarget:
 		detail = w.TargetName()
+	case missions.ActionThrottleUp, missions.ActionThrottleDown:
+		detail = fmt.Sprintf("%d%%", int(math.Round(c.Throttle*100)))
+	case missions.ActionToggleBurn:
+		detail = "cut"
+		if c.ManualBurn != nil {
+			detail = "lit"
+		}
 	}
 	if detail != "" {
 		text += ": " + detail
@@ -529,4 +543,203 @@ func (w *World) recordBump(c *spacecraft.Spacecraft, partner string, speedMS flo
 		t += ", re-arm latched"
 	}
 	w.recordRowFor(c, t)
+}
+
+// InputSnap is the Active Vessel's trajectory inputs at one moment, taken
+// before a key is handled; RecordInputChanges diffs against it.
+type InputSnap struct {
+	w                   *World
+	c                   *spacecraft.Spacecraft
+	pitch, head         float64
+	portPitch, portYaw  float64
+	aimAlong, aimAcross float64
+	rodOn               bool
+	rodRate             float64
+	inertial            orbital.Vec3
+}
+
+// InputSnapshot reads the Active Vessel's trajectory inputs.
+func (w *World) InputSnapshot() InputSnap {
+	c := w.ActiveCraft()
+	if c == nil {
+		return InputSnap{}
+	}
+	s := InputSnap{w: w, c: c, pitch: c.PitchTrim, head: c.HeadingTrim,
+		portPitch: c.PortPitchTrim, portYaw: c.PortYawTrim, inertial: c.InertialDir}
+	if ap := c.Landing; ap != nil {
+		s.aimAlong, s.aimAcross, s.rodOn, s.rodRate = ap.AimAlongM, ap.AimAcrossM, ap.ROD, ap.RODRateMps
+	}
+	return s
+}
+
+// NoteTrimReset labels the next RecordInputChanges rows as a `|` reset.
+func (w *World) NoteTrimReset() { w.recReset = true }
+
+// recDeg is a trim in degrees as the file prints it: no trailing zeros, U+2212
+// for minus, no "\u22120".
+func recDeg(rad float64) string {
+	d := math.Round(rad*180/math.Pi*100) / 100
+	return recSigned(d, "") + "\u00b0"
+}
+
+// recSigned prints v with U+2212 for minus and no sign on zero; plus adds "+" to positives.
+func recSigned(v float64, plus string) string {
+	s := strconv.FormatFloat(math.Abs(v), 'f', -1, 64)
+	switch {
+	case s == "0":
+		return s
+	case v < 0:
+		return "\u2212" + s
+	}
+	return plus + s
+}
+
+// recDist is a distance the way the HUD's miss: signs it: + long, U+2212 short.
+func recDist(m float64) string {
+	switch {
+	case readout.Distance(math.Abs(m)) == readout.Distance(0):
+		return readout.Distance(0)
+	case m > 0:
+		return "+" + readout.Distance(m)
+	}
+	return "\u2212" + readout.Distance(-m)
+}
+
+// recCross is the HUD's cross: spelling: the distance, then R or L.
+func recCross(m float64) string {
+	switch {
+	case readout.Distance(math.Abs(m)) == readout.Distance(0):
+		return readout.Distance(0)
+	case m > 0:
+		return readout.Distance(m) + " R"
+	}
+	return readout.Distance(-m) + " L"
+}
+
+// landReadText is the readout the pilot flies by under [SITE], as the
+// TARGET box signs it.
+func landReadText(lb LandBeside) string {
+	if !lb.MissOK {
+		return ""
+	}
+	t := "miss " + recDist(lb.MissM) + " cross " + recCross(lb.CrossM)
+	if lb.Planned {
+		t += " (plan)"
+	}
+	return t
+}
+
+// siteTail is " \u00b7 miss ... cross ..." while the SITE frame is up and the
+// reading exists, else "".
+func (w *World) siteTail() string {
+	if w.NavMode != NavSite {
+		return ""
+	}
+	if lb, ok := w.LandBesideReading(); ok && lb.MissOK {
+		return " \u00b7 " + landReadText(lb)
+	}
+	return ""
+}
+
+// RecordInputChanges writes one row per input family the key just handled
+// changed (trims, aim, descent rate, inertial nudge); a key that changed
+// nothing writes nothing. Called once per key press, never per tick.
+func (w *World) RecordInputChanges(before InputSnap) {
+	c := w.ActiveCraft()
+	reset := w.recReset
+	w.recReset = false
+	if before.w != w || before.c != c || !w.recFor(c) {
+		return
+	}
+	w.recordHoldChange(c) // a frame or autopilot change the key made lands before its trim row
+	label := func(l string) string {
+		if reset {
+			return l + " reset"
+		}
+		return l
+	}
+	switch {
+	case c.PortPitchTrim != before.portPitch || c.PortYawTrim != before.portYaw:
+		w.recordRowFor(c, fmt.Sprintf("%s: port pitch %s yaw %s", label("trim"), recDeg(c.PortPitchTrim), recDeg(c.PortYawTrim)))
+	case c.PitchTrim != before.pitch || c.HeadingTrim != before.head:
+		t := fmt.Sprintf("%s: pitch %s hdg %s", label("trim"), recDeg(c.PitchTrim), recDeg(c.HeadingTrim))
+		var marks []string
+		if before.head == 0 && c.HeadingTrim != 0 {
+			marks = append(marks, "heading seeded")
+			if before.pitch*c.PitchTrim < 0 {
+				marks = append(marks, "pitch sign flipped")
+			}
+		}
+		if len(marks) > 0 {
+			t += " (" + strings.Join(marks, ", ") + ")"
+		}
+		w.recordRowFor(c, t+w.siteTail())
+	}
+	if c.InertialDir != before.inertial && before.inertial.Norm() > 0 {
+		a := math.Acos(math.Max(-1, math.Min(1, c.InertialDir.Unit().Dot(before.inertial.Unit())))) * 180 / math.Pi
+		w.recordRowFor(c, fmt.Sprintf("trim: inertial nudged %s", recDeg(a*math.Pi/180)))
+	}
+	if ap := c.Landing; ap != nil {
+		if ap.AimAlongM != before.aimAlong || ap.AimAcrossM != before.aimAcross {
+			w.recordRowFor(c, fmt.Sprintf("%s: %s cross %s%s", label("aim"), recDist(ap.AimAlongM), recCross(ap.AimAcrossM), w.siteTail()))
+		}
+		switch {
+		case ap.ROD && (!before.rodOn || ap.RODRateMps != before.rodRate):
+			w.recordRowFor(c, "rod: "+recSigned(ap.RODRateMps, "+")+" m/s")
+		case !ap.ROD && before.rodOn:
+			w.recordRowFor(c, "rod: off")
+		}
+	}
+}
+
+// apLabel names the landing autopilot's state for the file.
+func (w *World) apLabel(c *spacecraft.Spacecraft) string {
+	switch ap := c.Landing; {
+	case ap == nil || !ap.Engaged:
+		return "off"
+	case ap.Nose:
+		return "Site+ nose hold"
+	}
+	return "Site+ auto"
+}
+
+// recordNavChange writes `nav: <frame>` when the nav frame differs from the
+// last one on file, whether `;` or the automatic switch moved it.
+func (w *World) recordNavChange(c *spacecraft.Spacecraft) {
+	n := w.NavMode.Tag()
+	if n == w.rec.nav {
+		return
+	}
+	seen := w.rec.nav != ""
+	w.rec.nav = n
+	if seen {
+		w.noteRecordingError(w.Recording.Write(w.rowFor(c, "nav: "+n)))
+	}
+}
+
+// recordAutopilotChange writes `autopilot: <state>` on engage, disengage and
+// the nose hold, whatever changed it (keys, landing end, link loss).
+func (w *World) recordAutopilotChange(c *spacecraft.Spacecraft) {
+	a := w.apLabel(c)
+	if a == w.rec.ap {
+		return
+	}
+	seen := w.rec.ap != ""
+	w.rec.ap = a
+	if seen {
+		w.noteRecordingError(w.Recording.Write(w.rowFor(c, "autopilot: "+a)))
+	}
+}
+
+// recordDeorbit writes the plan line N and B plant.
+func (w *World) recordDeorbit(p *DeorbitPlan) {
+	aim, side, long := "stop", "long", p.LongM
+	if p.Impact {
+		aim = "impact"
+	}
+	if long < 0 {
+		side, long = "short", -long
+	}
+	w.recordRow(fmt.Sprintf("deorbit: %s, \u0394v %s m/s retro in %s, %s %s %s", p.Site, recorder.Grouped(p.DV),
+		recorder.TPlus(p.In), aim, readout.Distance(long), side))
 }
