@@ -30,7 +30,7 @@ const (
 	// overheadFlagFrac is how far from the left edge the flag sits, so the
 	// approach has room behind it and the stop a little ahead.
 	overheadFlagFrac = 0.7
-	// overheadCrossFloorM is the smallest cross half-extent the inset ranges to.
+	// overheadCrossFloorM is the smallest cross bar the inset ranges to.
 	overheadCrossFloorM = 50.0
 	// overheadStubPx is the ground-velocity stub's length in dots.
 	overheadStubPx = 8.0
@@ -81,6 +81,16 @@ func overheadPick(prev int, ranged bool, need, per float64) int {
 		prev--
 	}
 	return prev
+}
+
+// overheadFloorRung is the first ladder rung at or over m.
+func overheadFloorRung(m float64) int {
+	for i, r := range overheadLadder {
+		if r >= m {
+			return i
+		}
+	}
+	return len(overheadLadder) - 1
 }
 
 // overheadPoint is a ground point (metres along the track and to the left of
@@ -144,9 +154,8 @@ func (v *OrbitView) drawOverhead(w *sim.World, st sim.ProximityState) (alongBarM
 	// Across: the larger of cross: and the aim's cross component, floor 50 m;
 	// the vessel's own and the computer's site's offsets join them so nothing
 	// the inset draws runs off its edge.
-	ext := overheadCrossFloorM
 	lb, _ := w.LandBesideReading()
-	ext = math.Max(ext, math.Abs(lb.CrossM))
+	ext := math.Abs(lb.CrossM)
 	if cr := w.ActiveCraft(); cr != nil && cr.Landing != nil {
 		ext = math.Max(ext, math.Abs(cr.Landing.AimAcrossM))
 	}
@@ -155,7 +164,7 @@ func (v *OrbitView) drawOverhead(w *sim.World, st sim.ProximityState) (alongBarM
 		ext = math.Max(ext, math.Abs(m.stop[1]))
 	}
 	crossPer := float64(overheadDiscRows) / overheadBarRows
-	v.ovAcross = overheadPick(v.ovAcross, v.ovRanged, 2*ext, crossPer)
+	v.ovAcross = max(overheadPick(v.ovAcross, v.ovRanged, 2*ext, crossPer), overheadFloorRung(overheadCrossFloorM))
 	v.ovRanged = true
 	alongBarM, crossBarM = overheadLadder[v.ovAlong], overheadLadder[v.ovAcross]
 

@@ -574,6 +574,7 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft, cor
 
 	// Pad marker at the active craft's launch site, depth-culled.
 	v.drawPadMarker(w, craft, bodyCentre, camFromBody)
+	v.drawTargetSiteMarks(w, bodyCentre, camFromBody)
 
 	// Launch tower (Slice 2): body-fixed multi-cell sprite at the pad.
 	v.drawLaunchTower(w, craft, bodyCentre, camFromBody, scale)
@@ -1721,4 +1722,30 @@ func overlayHUDStrip(canvasStr, hud string) string {
 		hud = string(hudRunes[:tailWidth])
 	}
 	return canvasStr[:idx+1] + hud
+}
+
+// drawTargetSiteMarks draws the targeted site in the chase view (ADR 0067 P26):
+// the landing view's ⚑ (and ⌖ where the computer's site differs), in TARGET
+// green, depth-culled like the pad. Nothing with no site targeted; other
+// flags stay on the map.
+func (v *LaunchView) drawTargetSiteMarks(w *sim.World, bodyPos, camFromBody orbital.Vec3) {
+	if w.Target.Kind != sim.TargetSite {
+		return
+	}
+	st, ok := w.ProximityState()
+	if !ok || !st.Surface {
+		return
+	}
+	primaryPos := w.BodyPosition(w.ActiveCraft().Primary)
+	flag, cs := st.TargetWorld.Sub(primaryPos), computerSiteWorld(st).Sub(primaryPos)
+	if !isNearHemisphere(flag, camFromBody) {
+		return
+	}
+	differs := cs.Sub(flag).Norm() > 0.5
+	if differs {
+		v.canvas.SetCellOverlayColored(bodyPos.Add(cs), computerSiteGlyph, render.ColorTarget)
+	}
+	if !differs || st.RangeM <= sim.SiteRevealRangeM { // the landing view's reveal rule
+		v.canvas.SetCellOverlayColored(bodyPos.Add(flag), flagGlyph, render.ColorTarget)
+	}
 }
