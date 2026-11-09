@@ -98,7 +98,7 @@ var helpSections = []helpSection{
 	{"TIME & WARP", [][2]string{
 		{".", "warp up (1× … 100000×; inert during a rendezvous coast; held to 10× within 50 m of another vessel)"},
 		{",", "warp down (inert during a rendezvous coast; [/] cancels)"},
-		{"G", "auto-warp to 30 s before the next burn (on the pad: the launch window, and sets the heading it wants; inside the last 30 s it only turns the heading), then 1× (inert during a rendezvous coast; it chases burns, not a raise)"},
+		{"G", "auto-warp to 30 s before the next burn (on the pad: the launch window, and sets the heading it wants; inside the last 30 s it only turns the heading; on a descent with no burn planted: the brake cue, the ENGINE row's 'brake at'), then 1× (inert during a rendezvous coast; it chases burns, not a raise)"},
 		{"alt+g", "warp to 30 s before the nearer apsis (Ap / Pe), then 1×; again: the other apsis; a third time: off"},
 		{"y", "join a pending rendezvous warp: you fly copilot, they set the pair's warp"},
 		{". / ,", "as rendezvous copilot: release toward following / brake the pair down"},

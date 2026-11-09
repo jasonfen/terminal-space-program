@@ -363,3 +363,63 @@ func TestApsisWarpSkipsAnApsisPastTheGround(t *testing.T) {
 		}
 	}
 }
+
+// Fix I: with no node, G on a descent warps to the brake cue less the lead
+// and hands off at 1x with the cue about 30 s ahead.
+func TestAutoWarpToBrakeCue(t *testing.T) {
+	w, c := afterDeorbitBurn(t)
+	in, ground, late := w.landingCueIn(c)
+	if !ground || late || in < 2*autoWarpLeadTime {
+		t.Fatalf("setup: cue in %v ground=%v late=%v, want a cue well ahead", in, ground, late)
+	}
+	if !w.AutoWarpEligible() || !w.EngageAutoWarp() || !w.AutoWarp.BrakeCue {
+		t.Fatal("G with no node on a descent did not engage on the brake cue")
+	}
+	if got, want := w.AutoWarp.T.Sub(w.Clock.SimTime), in-autoWarpLeadTime; got < want-time.Second || got > want+time.Second {
+		t.Errorf("target %v ahead, want cue - lead = %v", got, want)
+	}
+	for i := 0; i < 2_000_000 && w.AutoWarp != nil; i++ {
+		w.Tick()
+	}
+	if w.AutoWarp != nil || w.Clock.WarpIdx != 0 {
+		t.Fatalf("still engaged=%v at WarpIdx %d", w.AutoWarp != nil, w.Clock.WarpIdx)
+	}
+	if left, _, late := w.landingCueIn(c); late || left < autoWarpLeadTime-5*time.Second || left > autoWarpLeadTime+2*time.Second {
+		t.Errorf("released with the cue %v ahead (late=%v), want about %v", left, late, autoWarpLeadTime)
+	}
+}
+
+// A planted node wins over the cue; no cue (circular orbit) refuses as before.
+func TestAutoWarpBrakeCueYieldsToNodeAndNeedsACue(t *testing.T) {
+	w, c := afterDeorbitBurn(t)
+	plantOn(t, w, 0, 24*time.Hour)
+	if !w.EngageAutoWarp() || w.AutoWarp.BrakeCue || w.AutoWarp.NodeID == 0 {
+		t.Errorf("with a node planted G did not chase it: %+v", w.AutoWarp)
+	}
+	w2 := mustWorld(t)
+	if w2.AutoWarpEligible() || w2.EngageAutoWarp() {
+		t.Error("G engaged on a circular orbit with no node")
+	}
+	_ = c
+}
+
+// Under N the autopilot's own cap and G's approach ramp both apply: the
+// effective rate is the lower of the two, G never lifts the autopilot cap.
+func TestAutoWarpBrakeCueUnderAutopilotCap(t *testing.T) {
+	w, c := afterDeorbitBurn(t)
+	if err := w.EngageLandingAutopilot(); err != nil {
+		t.Fatal(err)
+	}
+	if !w.EngageAutoWarp() {
+		t.Fatal("G refused under N on a coast to the cue")
+	}
+	w.Clock.WarpIdx = len(WarpFactors) - 1
+	lim, capped := w.landingAutopilotWarpLimit()
+	for i := 0; i < 50; i++ {
+		w.Tick()
+		if got := w.clampedWarp(); capped && got > lim+1e-9 {
+			t.Fatalf("tick %d: warp %v above the autopilot cap %v", i, got, lim)
+		}
+	}
+	_ = c
+}

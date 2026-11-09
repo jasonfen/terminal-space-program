@@ -68,6 +68,12 @@ type AutoWarpTarget struct {
 	// SOI change mid-warp moves it, and an orbit that loses the apsis
 	// disengages.
 	Apsis string
+
+	// BrakeCue (Jason, 2026-11-09): with no burn to chase, on a descent the
+	// driver chases the brake's cue (the ENGINE row's "brake at") less the
+	// usual lead. T re-freezes from the cue each tick, so the orbit moving
+	// moves it; a cue that vanishes or has passed disengages.
+	BrakeCue bool
 }
 
 // autoWarpEngaged reports whether the driver is active.
@@ -82,8 +88,33 @@ func (w *World) AutoWarpEligible() bool {
 	if _, ok := w.launchWindowWarpTarget(); ok {
 		return true
 	}
-	_, _, _, ok := w.soonestEligibleBurn()
+	if _, _, _, ok := w.soonestEligibleBurn(); ok {
+		return true
+	}
+	_, ok := w.brakeCueWarpTarget()
 	return ok
+}
+
+// brakeCueWarpTarget is the release point for Auto-Warp to the active
+// vessel's brake cue: the cue landingCueIn reads (the one the ENGINE row
+// shows) less autoWarpLeadTime, while that point is still ahead. ok=false
+// when the coast never meets the ground, the cue has passed, or the vessel
+// is landed, crashed, already burning, or has a node planted (even one
+// inside the lead: the node's burn is the next event, not the cue).
+func (w *World) brakeCueWarpTarget() (time.Time, bool) {
+	c := w.ActiveCraft()
+	if c == nil || c.Landed || c.Crashed || c.ActiveBurn != nil || c.ManualBurn != nil || len(c.Nodes) > 0 {
+		return time.Time{}, false
+	}
+	in, ground, late := w.landingCueIn(c)
+	if !ground || late {
+		return time.Time{}, false
+	}
+	t := w.Clock.SimTime.Add(in - autoWarpLeadTime)
+	if !t.After(w.Clock.SimTime) {
+		return time.Time{}, false
+	}
+	return t, true
 }
 
 // launchWindowWarpTarget is the release point for Auto-Warp to the pad's
@@ -269,6 +300,11 @@ func (w *World) EngageAutoWarp() bool {
 	}
 	craftID, nodeID, burnStart, ok := w.soonestEligibleBurn()
 	if !ok {
+		if t, ok := w.brakeCueWarpTarget(); ok {
+			w.AutoWarp = &AutoWarpTarget{CraftID: w.ActiveCraft().ID, BrakeCue: true, T: t}
+			w.Clock.Paused = false
+			return true
+		}
 		return false
 	}
 	w.AutoWarp = &AutoWarpTarget{
@@ -1207,6 +1243,21 @@ func (w *World) resolveAutoWarp() {
 			return
 		}
 		w.AutoWarp.T = t
+		return
+	}
+	if aw := w.AutoWarp; aw.BrakeCue {
+		if !w.Clock.SimTime.Before(aw.T) {
+			w.Clock.WarpIdx = 0 // hand off to 1x ahead of the brake
+			w.DisengageAutoWarp()
+			return
+		}
+		c := w.ActiveCraft()
+		t, ok := w.brakeCueWarpTarget()
+		if c == nil || c.ID != aw.CraftID || !ok {
+			w.DisengageAutoWarp()
+			return
+		}
+		aw.T = t
 		return
 	}
 	if aw := w.AutoWarp; aw.Apsis != "" {

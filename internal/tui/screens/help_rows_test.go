@@ -79,6 +79,7 @@ func helpPhraseRows() []helpPhrase {
 		{name: "L on a released batch spreads it", section: "VESSEL", token: "L", has: []string{"released batch", "spreads every satellite evenly", "stop the spread"}},
 		{name: "a raise never caps warp", section: "TIME & WARP", token: "warp caps", has: []string{"a raise never caps"}},
 		{name: "G chases burns, not a raise", token: "G", section: "TIME & WARP", has: []string{"not a raise"}},
+		{name: "G warps to the brake cue", token: "G", section: "TIME & WARP", has: []string{"brake cue", "brake at"}},
 		{name: "glossary names raise / lower", section: "READOUT GLOSSARY", token: "raise / lower", has: []string{"node row", "T-", "RAISE"}},
 		{name: "glossary names COVERAGE", section: "READOUT GLOSSARY", token: "COVERAGE", has: []string{"covered", "gap in", "gap now", "no gap this lap", "relays at that body", "tinted green"}},
 		{name: "glossary boosters / core names the PROPELLANT row", section: "READOUT GLOSSARY", token: "boosters / core", has: []string{"PROPELLANT's fuel row"}},
