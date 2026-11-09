@@ -116,3 +116,15 @@ func TestControlsDocNamesApsisWarpButton(t *testing.T) {
 		}
 	}
 }
+
+// TestControlsDocNamesBrakeCueWarp (fix I): the G row says it warps to the
+// brake cue on a descent. New function: no existing controls.md pin covers G.
+func TestControlsDocNamesBrakeCueWarp(t *testing.T) {
+	doc, err := os.ReadFile("../../docs/controls.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "warps to 30 s before the brake cue"; !strings.Contains(string(doc), want) {
+		t.Errorf("docs/controls.md lacks %q", want)
+	}
+}

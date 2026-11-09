@@ -435,7 +435,7 @@ func DefaultKeymap() Keymap {
 		WarpUp:     key.NewBinding(key.WithKeys("."), key.WithHelp(".", "warp up")),
 		WarpDown:   key.NewBinding(key.WithKeys(","), key.WithHelp(",", "warp down")),
 		ApsisWarp:  key.NewBinding(key.WithKeys("alt+g"), key.WithHelp("alt+g", "warp to 30 s before the nearer apsis, then the other, then off")),
-		AutoWarp:   key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "auto-warp to next burn or launch window (30s lead; sets the window heading)")),
+		AutoWarp:   key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "auto-warp to next burn, launch window or descent brake cue (30s lead; sets the window heading)")),
 		CancelWarp: key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "cancel warp — drop to 1× (cancels auto-warp)")),
 		// v0.9.1: dropped `space` from Pause; space is now Stage. `0`
 		// alone retains the pause binding (it never collided).
