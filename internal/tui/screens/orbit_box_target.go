@@ -99,7 +99,7 @@ func (v *OrbitView) buildTargetBox(w *sim.World) []string {
 				chipRow3(targetCols, "range:", cells.rangeV, "close:", cells.closingV, "rel:", cells.relV),
 				chipRow2(targetCols, "ground:", readout.Distance(lb.GroundM), "bearing:", landBearingLabel(lb)),
 				landBesideLeadRow(cells, lb),
-				landMissRow(lb),
+				landMissRow(lb, c),
 			}
 		}
 	}
@@ -424,8 +424,12 @@ func landBearingLabel(lb sim.LandBeside) string {
 	return fmt.Sprintf("%.0f°", lb.BearingDeg)
 }
 
-func landMissRow(lb sim.LandBeside) string {
-	return chipRow2(targetCols, "miss:", landMissLabel(lb), "cross:", landCrossLabel(lb))
+func landMissRow(lb sim.LandBeside, c *spacecraft.Spacecraft) string {
+	aimLabel, aim := "", ""
+	if c != nil && c.Landing != nil && (c.Landing.AimAlongM != 0 || c.Landing.AimAcrossM != 0) {
+		aimLabel, aim = "aim:", targetAimLabel(c.Landing.AimAlongM, c.Landing.AimAcrossM)
+	}
+	return chipRow3(targetCols, "miss:", landMissLabel(lb), "cross:", landCrossLabel(lb), aimLabel, aim)
 }
 
 // landMissLabel reads the impact point along the track: + beyond the site
@@ -443,6 +447,35 @@ func landMissLabel(lb sim.LandBeside) string {
 		return "\u2212" + readout.Distance(-lb.MissM)
 	}
 	return readout.Distance(0)
+}
+
+// landAimLabel spells the landing aim offset: along (+ long, − short), then
+// across when set. The LANDING chip's aim: row and TARGET's share it.
+func landAimLabel(alongM, acrossM float64) string {
+	aim := landMissLabel(sim.LandBeside{MissOK: true, MissM: alongM})
+	if acrossM != 0 {
+		aim += "  " + landCrossLabel(sim.LandBeside{MissOK: true, CrossM: acrossM})
+	}
+	return aim
+}
+
+// targetAimRoom is the cells left on TARGET's third column for the aim value
+// (tier content width less where the value starts). A wider row would grow the
+// box (tierPad) and shift its left edge, which ADR 0051 forbids.
+var targetAimRoom = tierRightWidth - 2 - targetCols.label3 - targetCols.gap3
+
+// targetAimLabel is landAimLabel when it fits the third cell; both axes set and
+// too wide, it shows the along value, or the across value when along is 0
+// (measured at 140x40: "−10 m  10 m R" widens the box).
+func targetAimLabel(alongM, acrossM float64) string {
+	full := landAimLabel(alongM, acrossM)
+	if lipgloss.Width(full) <= targetAimRoom {
+		return full
+	}
+	if alongM != 0 {
+		return landAimLabel(alongM, 0)
+	}
+	return landCrossLabel(sim.LandBeside{MissOK: true, CrossM: acrossM})
 }
 
 // roundsToZero: the value prints as 0 m, so it has no side (round first, then
