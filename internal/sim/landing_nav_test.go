@@ -49,6 +49,9 @@ func rmsDraw(w *World, c *spacecraft.Spacecraft, n int) (along, across float64) 
 // the vessel's own link (a crewed vessel with no link is NOT linked), and a
 // vessel with no nav_sigma_m is modern either way.
 func TestNavErrorSpreadByEraAndLink(t *testing.T) {
+	if a, x, ok := spacecraft.NewFromLoadout("Lander-Crewed").NavSigma(); !ok || a != NavSigmaApolloNoLinkAlongM || x != NavSigmaApolloNoLinkAcrossM {
+		t.Errorf("catalog nav_sigma_m = %v / %v (ok=%v), want the tuning table's %v / %v", a, x, ok, NavSigmaApolloNoLinkAlongM, NavSigmaApolloNoLinkAcrossM)
+	}
 	w, c := apolloLander(t)
 	linkUp(w, c, false)
 	a, x := rmsDraw(w, c, 300)
