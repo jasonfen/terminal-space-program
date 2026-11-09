@@ -587,6 +587,7 @@ type World struct {
 	// RecordingWindowDays are set by the caller (tui/serve) before
 	// OpenActiveRecording; SetActiveCraftIdx swaps the file under the dir.
 	Recording           *recorder.Recording
+	recBg               map[uint64]*recSlot // fix K: background vessels' open files, by vessel ID
 	RecordingsDir       string
 	RecordingWindowDays int
 	// GameFolder names this game's folder under the recordings dir (v0.63.3;

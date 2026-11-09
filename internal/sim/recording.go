@@ -1,5 +1,7 @@
-// Package sim: the Flight Recording hooks (ADR 0062). Rows go to the Active
-// Vessel's file only, written as things happen. Every entry point is nil-safe:
+// Package sim: the Flight Recording hooks (ADR 0062). Pilot inputs go to the
+// Active Vessel's file; things that happen to a vessel (burns, autopilot,
+// touchdown, SOI, stage, dock) go to that vessel's own file whether or not it
+// is Active (fix K), written as they happen. Every entry point is nil-safe:
 // with World.Recording == nil nothing is read or written.
 package sim
 
@@ -51,6 +53,29 @@ func (w *World) OpenActiveRecording() error {
 	if w.RecordingsDir == "" || c == nil || w.Clock == nil {
 		return nil
 	}
+	r, st, err := w.openRecordingFor(c)
+	if err != nil {
+		return err
+	}
+	w.Recording, w.rec = r, st
+	w.recMark(c)
+	return nil
+}
+
+// recMark writes the session marker into c's file the first time it is seen.
+func (w *World) recMark(c *spacecraft.Spacecraft) {
+	if w.recMarker == "" || w.recMarked[c.ID] {
+		return
+	}
+	if w.recMarked == nil {
+		w.recMarked = map[uint64]bool{}
+	}
+	w.recMarked[c.ID] = true
+	w.recordRowFor(c, w.recMarker)
+}
+
+// openRecordingFor opens c's file and returns it with its fresh bookkeeping.
+func (w *World) openRecordingFor(c *spacecraft.Spacecraft) (*recorder.Recording, recState, error) {
 	// A staged vessel is renamed mid-flight; its file keeps the name it was
 	// created under, so look the ID up before minting a new slug.
 	prefix := fmt.Sprintf("%04d-", c.ID)
@@ -69,26 +94,67 @@ func (w *World) OpenActiveRecording() error {
 	r, err := recorder.Open(path, h, w.RecordingWindowDays, time.Now, w.Clock.SimTime)
 	if err != nil {
 		w.noteRecordingError(err)
-		return err
+		return nil, recState{}, err
 	}
 	// A vessel that lifted off while another was Active was stamped without a
 	// recordLiftoff; its header still says "no liftoff on record" (#817).
-	if h.LiftoffKnown && !r.T0().Equal(h.Liftoff) {
-		if err := r.SetLiftoff(h.Liftoff); err != nil {
-			w.noteRecordingError(err)
-		}
+	w.syncLiftoffHeader(c, r)
+	return r, recState{vesselID: c.ID, t0: r.T0(), hold: w.holdText(c), warp: w.Clock.WarpIdx + 1, chute: strings.ToLower(c.ChuteState.String()),
+		nav: w.NavMode.Tag(), ap: w.apLabel(c)}, nil
+}
+
+func (w *World) syncLiftoffHeader(c *spacecraft.Spacecraft, r *recorder.Recording) {
+	if !c.LiftoffSimTime.IsZero() && !r.T0().Equal(c.LiftoffSimTime) {
+		w.noteRecordingError(r.SetLiftoff(c.LiftoffSimTime))
 	}
-	w.Recording = r
-	w.rec = recState{vesselID: c.ID, t0: r.T0(), hold: w.holdText(c), warp: w.Clock.WarpIdx + 1, chute: strings.ToLower(c.ChuteState.String()),
-		nav: w.NavMode.Tag(), ap: w.apLabel(c)}
-	if w.recMarker != "" && !w.recMarked[c.ID] {
-		if w.recMarked == nil {
-			w.recMarked = map[uint64]bool{}
-		}
-		w.recMarked[c.ID] = true
-		w.recordRow(w.recMarker)
+}
+
+// recSlot is a background vessel's open file and bookkeeping (fix K: events
+// that happen to a vessel are written whether or not it is the Active Vessel).
+type recSlot struct {
+	r  *recorder.Recording
+	st recState
+}
+
+// recSlotGet is c's open file and state, nil when c has none open. It never
+// opens a file.
+func (w *World) recSlotGet(c *spacecraft.Spacecraft) (*recorder.Recording, *recState) {
+	if c == nil || w.Clock == nil {
+		return nil, nil
 	}
-	return nil
+	if c == w.ActiveCraft() {
+		if w.Recording == nil {
+			return nil, nil
+		}
+		return w.Recording, &w.rec
+	}
+	if s := w.recBg[c.ID]; s != nil {
+		return s.r, &s.st
+	}
+	return nil, nil
+}
+
+// recSlotFor is recSlotGet, opening a controllable background vessel's file on
+// its first event. Debris (not Controllable) never gets one. Multiplayer
+// ghosts are not in Crafts, so they never reach here.
+func (w *World) recSlotFor(c *spacecraft.Spacecraft) (*recorder.Recording, *recState) {
+	if r, st := w.recSlotGet(c); r != nil || c == nil || w.Clock == nil {
+		return r, st
+	}
+	if c == w.ActiveCraft() || w.Recording == nil || w.RecordingsDir == "" || !c.Controllable {
+		return nil, nil
+	}
+	r, st, err := w.openRecordingFor(c)
+	if err != nil {
+		return nil, nil
+	}
+	if w.recBg == nil {
+		w.recBg = map[uint64]*recSlot{}
+	}
+	s := &recSlot{r, st}
+	w.recBg[c.ID] = s
+	w.recMark(c)
+	return s.r, &s.st
 }
 
 // NoteRecordingError records the first recording failure (a full disk, a
@@ -164,6 +230,10 @@ func RemoveAbandonedGameFolder(dir, folder string) {
 
 // CloseRecording closes the open file, if any.
 func (w *World) CloseRecording() {
+	for id, s := range w.recBg {
+		_ = s.r.Close()
+		delete(w.recBg, id)
+	}
 	if w.Recording != nil {
 		_ = w.Recording.Close()
 		w.Recording = nil
@@ -177,9 +247,16 @@ func lonStr(d float64) string {
 	return fmt.Sprintf("%.1f%s", math.Abs(d), map[bool]string{true: "E", false: "W"}[d >= 0])
 }
 
-// recFor is the guard every hook goes through: the row's vessel must be the
-// Active Vessel and a recording must be open.
+// recFor is the guard for things that happen to a vessel (burns, autopilot,
+// touchdown, SOI): any controllable vessel in the slate gets the row once
+// recording is on. recActive is the guard for pilot inputs, which only the
+// Active Vessel receives.
 func (w *World) recFor(c *spacecraft.Spacecraft) bool {
+	r, _ := w.recSlotFor(c)
+	return r != nil
+}
+
+func (w *World) recActive(c *spacecraft.Spacecraft) bool {
 	return w.Recording != nil && w.Clock != nil && c != nil && c == w.ActiveCraft()
 }
 
@@ -190,10 +267,14 @@ func (w *World) recTPlus(c *spacecraft.Spacecraft, sim time.Time) (time.Duration
 	if c.OnPad {
 		return 0, false
 	}
-	if w.rec.t0.IsZero() {
-		w.rec.t0 = sim
+	st := &w.rec
+	if _, s := w.recSlotGet(c); s != nil {
+		st = s
 	}
-	return sim.Sub(w.rec.t0), true
+	if st.t0.IsZero() {
+		st.t0 = sim
+	}
+	return sim.Sub(st.t0), true
 }
 
 // holdText is the GUIDANCE box's hold cell: name and frame tag.
@@ -287,7 +368,8 @@ func (w *World) recordTarget(c *spacecraft.Spacecraft, row *recorder.Row) {
 func (w *World) recordRowFor(c *spacecraft.Spacecraft, event string) {
 	if w.recFor(c) {
 		w.recordHoldChange(c)
-		w.noteRecordingError(w.Recording.Write(w.rowFor(c, event)))
+		r, _ := w.recSlotGet(c)
+		w.noteRecordingError(r.Write(w.rowFor(c, event)))
 	}
 }
 
@@ -295,18 +377,24 @@ func (w *World) recordRowFor(c *spacecraft.Spacecraft, event string) {
 // label differs from the last one on file, whatever changed it (key, nav-mode
 // remap, dangling-port reset, undock). Called before every row and each tick.
 func (w *World) recordHoldChange(c *spacecraft.Spacecraft) {
-	w.recordWarpChange(c)
-	w.recordChuteChange(c)
-	w.recordNavChange(c)
-	w.recordAutopilotChange(c)
-	h := w.holdText(c)
-	if h == w.rec.hold {
+	r, st := w.recSlotGet(c)
+	if r == nil {
 		return
 	}
-	seen := w.rec.hold != ""
-	w.rec.hold = h
+	if c == w.ActiveCraft() { // the clock and the nav frame are the pilot's, not the vessel's
+		w.recordWarpChange(c)
+		w.recordNavChange(c)
+	}
+	w.recordChuteChange(c, r, st)
+	w.recordAutopilotChange(c, r, st)
+	h := w.holdText(c)
+	if h == st.hold {
+		return
+	}
+	seen := st.hold != ""
+	st.hold = h
 	if seen {
-		w.noteRecordingError(w.Recording.Write(w.rowFor(c, "hold: "+h)))
+		w.noteRecordingError(r.Write(w.rowFor(c, "hold: "+h)))
 	}
 }
 
@@ -328,15 +416,15 @@ func (w *World) recordWarpChange(c *spacecraft.Spacecraft) {
 // recordChuteChange writes `chute: armed` / `chute: deployed` when the chute
 // state differs from the last one on file. Arming is a key in the tui and
 // deploying happens mid-integration, so both are caught here, once a tick.
-func (w *World) recordChuteChange(c *spacecraft.Spacecraft) {
+func (w *World) recordChuteChange(c *spacecraft.Spacecraft, r *recorder.Recording, rs *recState) {
 	st := strings.ToLower(c.ChuteState.String())
-	if st == w.rec.chute {
+	if st == rs.chute {
 		return
 	}
-	seen := w.rec.chute != ""
-	w.rec.chute = st
+	seen := rs.chute != ""
+	rs.chute = st
 	if seen && c.ChuteState != spacecraft.ChuteStowed {
-		w.noteRecordingError(w.Recording.Write(w.rowFor(c, "chute: "+st)))
+		w.noteRecordingError(r.Write(w.rowFor(c, "chute: "+st)))
 	}
 }
 
@@ -351,8 +439,9 @@ func (w *World) recordRow(event string) { w.recordRowFor(w.ActiveCraft(), event)
 // recordSample is the tick hook: a numbers row every second while the Active
 // Vessel thrusts, every 60 s otherwise, never more than one per recWallCap ticks.
 func (w *World) recordSample(simDelta time.Duration) {
+	w.recordBackgroundSamples(simDelta)
 	c := w.ActiveCraft()
-	if !w.recFor(c) {
+	if !w.recActive(c) {
 		w.recPending = nil
 		return
 	}
@@ -370,6 +459,33 @@ func (w *World) recordSample(simDelta time.Duration) {
 	}
 }
 
+// recordBackgroundSamples is the tick hook for vessels that are not Active and
+// already have a file: hold/autopilot/chute changes write their rows, and a
+// vessel under power (a burn, a landing) gets numbers rows at the burn cadence
+// (1 s, 20-tick wall cap), same as the Active Vessel. A coasting background
+// vessel writes no periodic rows; only events.
+func (w *World) recordBackgroundSamples(simDelta time.Duration) {
+	for id, s := range w.recBg {
+		c, _, ok := w.craftByID(id)
+		if !ok {
+			_ = s.r.Close()
+			delete(w.recBg, id)
+			continue
+		}
+		w.recordHoldChange(c)
+		if c.ActiveBurn == nil && c.ManualBurn == nil {
+			s.st.accrued, s.st.ticks = 0, 0
+			continue
+		}
+		s.st.accrued += simDelta
+		s.st.ticks++
+		if s.st.accrued >= recBurnSample && s.st.ticks >= recWallCap {
+			s.st.accrued, s.st.ticks = 0, 0
+			w.recordRowFor(c, "")
+		}
+	}
+}
+
 // orbitText is "orbit 250 x 250 km, incl 28.6", or "" when not a bound orbit.
 func orbitText(c *spacecraft.Spacecraft) string {
 	apo, peri, inc, ok := recApsides(c)
@@ -384,7 +500,7 @@ func orbitText(c *spacecraft.Spacecraft) string {
 // lifecycle rows carry the vessel names.
 func (w *World) recordAction(a missions.Action) {
 	c := w.ActiveCraft()
-	if !w.recFor(c) {
+	if !w.recActive(c) {
 		return
 	}
 	text := string(a)
@@ -446,7 +562,8 @@ func (w *World) recordLiftoff(c *spacecraft.Spacecraft) {
 	if !w.recFor(c) {
 		return
 	}
-	w.noteRecordingError(w.Recording.SetLiftoff(c.LiftoffSimTime))
+	r, _ := w.recSlotGet(c)
+	w.noteRecordingError(r.SetLiftoff(c.LiftoffSimTime))
 	w.recordRowFor(c, "liftoff")
 }
 
@@ -466,10 +583,14 @@ func (w *World) recordBurnComplete(c *spacecraft.Spacecraft) {
 // recordBurnStalled writes the fuel-out row once per burn.
 func (w *World) recordBurnStalled(c *spacecraft.Spacecraft) {
 	ab := c.ActiveBurn
-	if !w.recFor(c) || ab == nil || w.rec.stalled == ab {
+	if !w.recFor(c) || ab == nil {
 		return
 	}
-	w.rec.stalled = ab
+	_, st := w.recSlotGet(c)
+	if st.stalled == ab {
+		return
+	}
+	st.stalled = ab
 	w.recordRowFor(c, fmt.Sprintf("burn stalled: fuel out, %s of %s m/s", recorder.Grouped(ab.PlannedDV-ab.DVRemaining), recorder.Grouped(ab.PlannedDV)))
 }
 
@@ -489,7 +610,25 @@ func (w *World) swapRecording() {
 	if w.RecordingsDir == "" || c == nil || (w.Recording != nil && w.rec.vesselID == c.ID) {
 		return
 	}
-	if w.OpenActiveRecording() == nil {
+	// The outgoing vessel keeps its file open as a background slot (fix K).
+	if w.Recording != nil && w.rec.vesselID != 0 {
+		if w.recBg == nil {
+			w.recBg = map[uint64]*recSlot{}
+		}
+		w.recBg[w.rec.vesselID] = &recSlot{w.Recording, w.rec}
+	}
+	w.Recording, w.rec = nil, recState{}
+	if s := w.recBg[c.ID]; s != nil {
+		delete(w.recBg, c.ID)
+		w.Recording, w.rec = s.r, s.st
+		w.syncLiftoffHeader(c, s.r)
+		w.recMark(c)
+		w.recordRow("active vessel → " + c.Name)
+		return
+	}
+	if r, st, err := w.openRecordingFor(c); err == nil {
+		w.Recording, w.rec = r, st
+		w.recMark(c)
 		w.recordRow("active vessel → " + c.Name)
 	}
 }
@@ -655,7 +794,7 @@ func (w *World) RecordInputChanges(before InputSnap) {
 	c := w.ActiveCraft()
 	reset := w.recReset
 	w.recReset = false
-	if before.w != w || before.c != c || !w.recFor(c) {
+	if before.w != w || before.c != c || !w.recActive(c) {
 		return
 	}
 	w.recordHoldChange(c) // a frame or autopilot change the key made lands before its trim row
@@ -747,15 +886,15 @@ func (w *World) recordNavChange(c *spacecraft.Spacecraft) {
 
 // recordAutopilotChange writes `autopilot: <state>` on engage, disengage and
 // the nose hold, whatever changed it (keys, landing end, link loss).
-func (w *World) recordAutopilotChange(c *spacecraft.Spacecraft) {
+func (w *World) recordAutopilotChange(c *spacecraft.Spacecraft, r *recorder.Recording, rs *recState) {
 	a := w.apLabel(c)
-	if a == w.rec.ap {
+	if a == rs.ap {
 		return
 	}
-	seen := w.rec.ap != ""
-	w.rec.ap = a
+	seen := rs.ap != ""
+	rs.ap = a
 	if seen {
-		w.noteRecordingError(w.Recording.Write(w.rowFor(c, "autopilot: "+a)))
+		w.noteRecordingError(r.Write(w.rowFor(c, "autopilot: "+a)))
 	}
 }
 

@@ -191,27 +191,29 @@ func TestActiveVesselSwitchRowsOnBothSides(t *testing.T) {
 	}
 }
 
-// F7 (review): rows go to the Active Vessel's file only. A lifecycle event on
-// the other vessel writes to neither file; the same event on the Active
-// Vessel does (positive control).
-func TestEventsOnNonActiveVesselWriteNothing(t *testing.T) {
+// F7 (review), amended by fix K: events on a non-active vessel go to its own
+// file; pilot inputs go only to the Active Vessel's.
+func TestEventsOnNonActiveVesselGoToItsOwnFile(t *testing.T) {
 	w := mustWorld(t)
 	a := w.ActiveCraft()
+	crewTend(a)
 	b, err := w.SpawnCraft(SpawnSpec{AltitudeM: 600e3})
 	if err != nil || w.ActiveCraft() != b {
 		t.Fatalf("setup: %v", err)
 	}
 	dir := recAttach(t, w)
 	before := allEvents(t, dir)
+	// fix K: things that happen TO a vessel are written whatever vessel is Active.
 	w.recordSOI(a, "Earth")
 	w.recordSurface(a, 3, 0, 0)
 	w.recordRowFor(a, "stage 1 dropped")
-	if after := allEvents(t, dir); len(after) != len(before) {
-		t.Fatalf("non-active vessel wrote rows: %q -> %q", before, after)
+	if after := allEvents(t, dir); len(after) != len(before)+3 {
+		t.Fatalf("non-active vessel's rows missing: %q -> %q", before, after)
 	}
-	w.recordSOI(b, "Earth")
-	if after := allEvents(t, dir); len(after) != len(before)+1 {
-		t.Fatalf("active vessel's soi row missing: %q -> %q", before, after)
+	// Pilot inputs stay on the Active Vessel: a verb goes to b's file only.
+	w.RecordAction(missions.ActionThrottleDown)
+	if _, ev := recRead(t, fileOf(t, dir, a)); strings.Contains(strings.Join(ev, "|"), "throttle_down") {
+		t.Errorf("a pilot verb reached the non-active vessel's file: %q", ev)
 	}
 }
 
@@ -1096,5 +1098,129 @@ func TestSiteTrimRowReadsAfterThePressTakesEffect(t *testing.T) {
 	w.Tick()
 	if _, after := recRead(t, path); len(after) != len(before) {
 		t.Errorf("a press that changed nothing wrote %q", after[len(before):])
+	}
+}
+
+// Bare-bones helpers for the fix K guards: a lander that is recorded while
+// Active and then left flying with another vessel Active.
+func bgLander(t *testing.T) (w *World, c *spacecraft.Spacecraft, dir string) {
+	t.Helper()
+	w, c = deorbitWorld(t, 150, 0)
+	dir = recAttach(t, w)
+	return
+}
+
+func awayFrom(t *testing.T, w *World) {
+	t.Helper()
+	if _, err := w.SpawnCraft(SpawnSpec{Alongside: true}); err != nil {
+		t.Fatal(err)
+	}
+	w.SetActiveCraftIdx(len(w.Crafts) - 1)
+}
+
+func fileOf(t *testing.T, dir string, c *spacecraft.Spacecraft) string {
+	t.Helper()
+	m, _ := filepath.Glob(filepath.Join(dir, padID(c.ID)+"*.txt"))
+	if len(m) != 1 {
+		t.Fatalf("files for %s = %v, want one", c.Name, m)
+	}
+	return m[0]
+}
+
+// fix K guard 1: a planted burn on a vessel that is not Active writes burn
+// start and burn complete into its own file.
+func TestBackgroundVesselBurnWritesItsOwnRows(t *testing.T) {
+	w, c, dir := bgLander(t)
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	awayFrom(t, w)
+	if w.ActiveCraft() == c {
+		t.Fatal("setup: lander still active")
+	}
+	for i := 0; i < 2*3600*4 && (len(c.Nodes) > 0 || c.ActiveBurn != nil); i++ {
+		w.Tick()
+	}
+	ev := strings.Join(allEv(t, fileOf(t, dir, c)), "|")
+	for _, want := range []string{"burn start: node 1", "burn complete:"} {
+		if !strings.Contains(ev, want) {
+			t.Errorf("background lander file lacks %q: %s", want, ev)
+		}
+	}
+}
+
+// fix K guard 2: a background autopilot landing writes its hold rows and the
+// touchdown, powered numbers rows exist, and the Active Vessel's file never
+// gets the lander's touchdown. Equal case: a coasting background vessel
+// writes no numbers rows over a span where the Active Vessel writes one.
+func TestBackgroundAutopilotLandingIsRecorded(t *testing.T) {
+	w, c, dir := bgLander(t)
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.EngageLandingAutopilot(); err != nil {
+		t.Fatal(err)
+	}
+	awayFrom(t, w)
+	active := w.ActiveCraft()
+	for i := 0; i < 2*3600*4 && !c.Landed && !c.Crashed; i++ {
+		w.Tick()
+	}
+	if !c.Landed {
+		t.Fatalf("setup: landed=%v crashed=%v", c.Landed, c.Crashed)
+	}
+	nums, ev := recRead(t, fileOf(t, dir, c))
+	joined := strings.Join(ev, "|")
+	for _, want := range []string{"hold: ", "touchdown: "} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("landing file lacks %q: %s", want, joined)
+		}
+	}
+	if nums == 0 {
+		t.Error("powered background vessel wrote no numbers rows")
+	}
+	if strings.Contains(strings.Join(allEv(t, fileOf(t, dir, active)), "|"), "touchdown") {
+		t.Error("the Active Vessel's file got the lander's touchdown")
+	}
+}
+
+func TestBackgroundCoastWritesNoPeriodicRows(t *testing.T) {
+	w, c, dir := bgLander(t)
+	awayFrom(t, w)
+	a := w.ActiveCraft()
+	crewTend(a)
+	w.RecordEvent("mark") // gives the Active Vessel's file its slot state
+	ticks(w, 1300)        // past one 60 s coast sample at BaseStep 50 ms x 1x? use the clock's own step
+	nBg, _ := recRead(t, fileOf(t, dir, c))
+	nAct, _ := recRead(t, fileOf(t, dir, a))
+	if nAct < 1 {
+		t.Fatalf("positive control: Active Vessel wrote %d numbers rows over 1300 coasting ticks", nAct)
+	}
+	if nBg != 0 {
+		t.Errorf("coasting background vessel wrote %d numbers rows, want 0", nBg)
+	}
+}
+
+// fix K guard 4: a ghost is not this player's vessel; it opens no file, and
+// debris (not Controllable) never gets one either.
+func TestGhostAndDebrisGetNoRecording(t *testing.T) {
+	w, _, dir := bgLander(t)
+	w.Ghosts = append(w.Ghosts, Ghost{Owner: "peer", CraftID: 99, Name: "Peer Lander", PrimaryID: w.ActiveCraft().Primary.ID})
+	awayFrom(t, w)
+	debris := w.ActiveCraft()
+	debris.Controllable = false
+	w.SetActiveCraftIdx(0)
+	before, _ := filepath.Glob(filepath.Join(dir, "*.txt"))
+	w.recordSOI(debris, "Earth")
+	w.recordSurface(debris, 3, 0, 0)
+	ticks(w, 40)
+	after, _ := filepath.Glob(filepath.Join(dir, "*.txt"))
+	if len(after) != len(before) {
+		t.Errorf("files %v -> %v: a ghost or debris opened a recording", before, after)
+	}
+	for _, f := range after {
+		if strings.Contains(f, "peer") {
+			t.Errorf("ghost file %s", f)
+		}
 	}
 }
