@@ -353,8 +353,10 @@ func (w *World) recordRow(event string) { w.recordRowFor(w.ActiveCraft(), event)
 func (w *World) recordSample(simDelta time.Duration) {
 	c := w.ActiveCraft()
 	if !w.recFor(c) {
+		w.recPending = nil
 		return
 	}
+	w.flushPendingRows()
 	w.recordHoldChange(c)
 	w.rec.accrued += simDelta
 	w.rec.ticks++
@@ -545,6 +547,11 @@ func (w *World) recordBump(c *spacecraft.Spacecraft, partner string, speedMS flo
 	w.recordRowFor(c, t)
 }
 
+type pendingRow struct {
+	c    *spacecraft.Spacecraft
+	text string
+}
+
 // InputSnap is the Active Vessel's trajectory inputs at one moment, taken
 // before a key is handled; RecordInputChanges diffs against it.
 type InputSnap struct {
@@ -674,7 +681,7 @@ func (w *World) RecordInputChanges(before InputSnap) {
 		if len(marks) > 0 {
 			t += " (" + strings.Join(marks, ", ") + ")"
 		}
-		w.recordRowFor(c, t+w.siteTail())
+		w.recordRowOrDefer(c, t)
 	}
 	if c.InertialDir != before.inertial && before.inertial.Norm() > 0 {
 		a := math.Acos(math.Max(-1, math.Min(1, c.InertialDir.Unit().Dot(before.inertial.Unit())))) * 180 / math.Pi
@@ -682,7 +689,7 @@ func (w *World) RecordInputChanges(before InputSnap) {
 	}
 	if ap := c.Landing; ap != nil {
 		if ap.AimAlongM != before.aimAlong || ap.AimAcrossM != before.aimAcross {
-			w.recordRowFor(c, fmt.Sprintf("%s: %s cross %s%s", label("aim"), recDist(ap.AimAlongM), recCross(ap.AimAcrossM), w.siteTail()))
+			w.recordRowOrDefer(c, fmt.Sprintf("%s: %s cross %s", label("aim"), recDist(ap.AimAlongM), recCross(ap.AimAcrossM)))
 		}
 		switch {
 		case ap.ROD && (!before.rodOn || ap.RODRateMps != before.rodRate):
@@ -691,6 +698,26 @@ func (w *World) RecordInputChanges(before InputSnap) {
 			w.recordRowFor(c, "rod: off")
 		}
 	}
+}
+
+// recordRowOrDefer writes a trim/aim row. Under [SITE] the miss: tail has to be
+// the readout after the press took effect, and the forecast behind it is
+// recomputed in the tick, so the row waits for the first tick after the press
+// (one row per press, in press order, each with that tick's reading).
+func (w *World) recordRowOrDefer(c *spacecraft.Spacecraft, text string) {
+	if w.NavMode != NavSite {
+		w.recordRowFor(c, text)
+		return
+	}
+	w.recPending = append(w.recPending, pendingRow{c, text})
+}
+
+// flushPendingRows writes the deferred rows with the current SITE readout.
+func (w *World) flushPendingRows() {
+	for _, p := range w.recPending {
+		w.recordRowFor(p.c, p.text+w.siteTail())
+	}
+	w.recPending = nil
 }
 
 // apLabel names the landing autopilot's state for the file.

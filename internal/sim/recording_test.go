@@ -943,6 +943,7 @@ func TestTrimRowMarksSeedAndPitchFlip(t *testing.T) {
 func TestSiteTrimRowCarriesMissAndCross(t *testing.T) {
 	w, c, path := siteRecWorld(t)
 	press(w, func() { c.PitchTrim += spacecraft.PitchTrimFineStepRad })
+	w.Tick() // the row waits for the first tick after the press
 	lb, ok := w.LandBesideReading()
 	if !ok || !lb.MissOK {
 		t.Fatalf("setup: no miss reading: %+v", lb)
@@ -962,6 +963,7 @@ func TestAimNudgeRowCarriesAimAndMiss(t *testing.T) {
 	c.Landing.Engaged, c.Landing.Nose = true, false
 	c.AttitudeMode = spacecraft.BurnSite
 	press(w, func() { w.NudgeLandingAim(+1, 0, false) })
+	w.Tick()
 	got := lastEv(t, path)
 	if !strings.HasPrefix(got, "aim: +") || !strings.Contains(got, " miss ") {
 		t.Errorf("aim row = %q, want aim: +... and miss", got)
@@ -1058,5 +1060,41 @@ func TestDeorbitPlantAndGroundUpdateRows(t *testing.T) {
 	w.updateNavOnLink(c)
 	if got := lastEv(t, path); !strings.HasPrefix(got, "ground update: ") {
 		t.Errorf("ground-update row = %q, want ground update: ...", got)
+	}
+}
+
+// Guard H9: under q in the brake the SITE tail is the readout after the press
+// took effect (first tick later), not the previous press's value; a press that
+// changes nothing writes no row.
+func TestSiteTrimRowReadsAfterThePressTakesEffect(t *testing.T) {
+	w, c, path := siteRecWorld(t)
+	if err := w.EngageLandingNoseHold(); err != nil {
+		t.Fatal(err)
+	}
+	w.SetThrottle(0.9)
+	w.ToggleManualBurn()
+	ticks(w, 40)
+	if c.ManualBurn == nil {
+		t.Fatal("setup: brake not lit")
+	}
+	pre, ok := w.LandBesideReading()
+	if !ok || !pre.MissOK || pre.Planned {
+		t.Fatalf("setup: no live miss: %+v", pre)
+	}
+	press(w, func() { c.PitchTrim += 5 * math.Pi / 180 })
+	w.Tick()
+	post, _ := w.LandBesideReading()
+	if math.Abs(post.MissM-pre.MissM) < 1 {
+		t.Fatalf("setup: the press did not move miss (%v -> %v)", pre.MissM, post.MissM)
+	}
+	got := lastEv(t, path)
+	if want := " · " + landReadText(post); !strings.HasSuffix(got, want) {
+		t.Errorf("trim row %q does not end with the post-press reading %q (pre-press was %q)", got, want, landReadText(pre))
+	}
+	_, before := recRead(t, path)
+	press(w, func() {})
+	w.Tick()
+	if _, after := recRead(t, path); len(after) != len(before) {
+		t.Errorf("a press that changed nothing wrote %q", after[len(before):])
 	}
 }
