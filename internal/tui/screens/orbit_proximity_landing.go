@@ -127,10 +127,7 @@ func (v *OrbitView) landingChipRows(w *sim.World, st sim.ProximityState) []strin
 	}
 	aim := readout.Distance(0)
 	if c != nil && c.Landing != nil {
-		aim = landMissLabel(sim.LandBeside{MissOK: true, MissM: c.Landing.AimAlongM})
-		if c.Landing.AimAcrossM != 0 {
-			aim += "  " + landCrossLabel(sim.LandBeside{MissOK: true, CrossM: c.Landing.AimAcrossM})
-		}
+		aim = landAimLabel(c.Landing.AimAlongM, c.Landing.AimAcrossM)
 	}
 	_, stop := v.navigationImpactStopCells(w, c) // NAVIGATION's own stop: cell, so the two cannot drift
 	rows := []string{

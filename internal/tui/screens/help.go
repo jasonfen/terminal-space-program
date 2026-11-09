@@ -341,7 +341,7 @@ var helpSections = []helpSection{
 		{"Site+ / auto / ROD", "q in SITE holds the guidance nose (Site+ brake, approach, final); N flies everything (Site+ auto wait, brake, approach, final to touchdown); ROD is the descent rate e / q set under N, held by the throttle; under N the arrows move the aim, under q they trim"},
 		{"alt rate", "LANDING chip, the landing view: how fast your altitude changes (- falling)"},
 		{"fwd vel / lat vel", "LANDING chip: your speed over the ground along the track you entered the view on, and across it, tagged R or L of that line"},
-		{"aim", "LANDING chip: where the stop is aimed against the site, along (+ long, − short) and across (R / L); 0 m until you move it"},
+		{"aim", "LANDING chip: where the stop is aimed against the site, along (+ long, − short) and across (R / L); 0 m until you move it. Also the last cell of TARGET's miss row, only once it is set (both axes too wide: along, or across when along is 0)"},
 		{"twr", "LANDING chip: thrust over weight at the current throttle, (max) at full; 1.00 = hover"},
 		{"OVERHEAD", "landing view, top-right: looking down, track right, left of track up; ➤ you with a dotted ground-velocity stub and a solid thrust pointer, ⊙ the stop and its dashed ground trace, ⚑ the flag; the bottom bar is along-track scale, the left bar is cross scale (cross is stretched)"},
 		{"rsv", "ENGINE's brake at row, the cue for a descent: the brake is planned at 90% throttle, so rsv 10% is the reserve left for you to add. stop: and the N plan read the same brake"},

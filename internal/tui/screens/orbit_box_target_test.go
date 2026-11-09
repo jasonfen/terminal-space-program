@@ -338,7 +338,7 @@ func TestLandMissRowSignAndAlignment(t *testing.T) {
 		{0, "miss:  0 m"}, {-0.4, "miss:  0 m"}, {0.4, "miss:  0 m"}, // a value that rounds to 0 m has no side
 	} {
 		for _, planned := range []bool{false, true} {
-			row := ansi.Strip(landMissRow(sim.LandBeside{MissOK: true, MissM: tc.missM, CrossM: 30310, Planned: planned}))
+			row := ansi.Strip(landMissRow(sim.LandBeside{MissOK: true, MissM: tc.missM, CrossM: 30310, Planned: planned}, nil))
 			if !strings.Contains(row, tc.want) || strings.Contains(row, "long") || strings.Contains(row, "short") {
 				t.Errorf("miss %g plan=%v: row %q, want %q and no long/short word", tc.missM, planned, row, tc.want)
 			}
@@ -371,4 +371,45 @@ func TestHelpGlossaryMissSign(t *testing.T) {
 		}
 	}
 	t.Fatal("F1 has no ground / miss row")
+}
+
+// The landing aim shows as aim: on TARGET's miss/cross row, only while it is
+// set, spelled as the LANDING chip spells it when that fits the third cell,
+// else along (or across when along is 0). ADR 0051: the box keeps 5 lines and
+// no row grows past the tier (a wider row widens the box and shifts its edge).
+func TestTargetBoxAimCell(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		along, across float64
+		want          string // "" = no aim cell
+	}{
+		{"none", 0, 0, ""},
+		{"along only", -10, 0, "aim:   −10 m"},
+		{"across only", 0, 10, "aim:   10 m R"},
+		{"across only left", 0, -10, "aim:   10 m L"},
+		{"both too wide: along", -10, 10, "aim:   −10 m"},
+		{"worst case both: along", -1250, 250, "aim:   −1.250 km"},
+		{"tiny across", 0, 0.4, "aim:   0 m"}, // set but rounds to 0 m: the cell still says so
+	} {
+		v := NewOrbitView(launchThemeForTest())
+		w := moonSiteDescentWorld(t, false)
+		w.ActiveCraft().Landing = &spacecraft.LandingAutopilot{AimAlongM: tc.along, AimAcrossM: tc.across}
+		rows := v.buildTargetBox(w)
+		if len(rows) != targetBoxMaxLines {
+			t.Fatalf("%s: %d rows, want %d", tc.name, len(rows), targetBoxMaxLines)
+		}
+		last := ansi.Strip(rows[len(rows)-1])
+		if tc.want == "" && strings.Contains(last, "aim:") {
+			t.Errorf("%s: unexpected aim cell in %q", tc.name, last)
+		}
+		if tc.want != "" && !strings.Contains(last, tc.want) {
+			t.Errorf("%s: row %q lacks %q", tc.name, last, tc.want)
+		}
+		if got := lipgloss.Width(last); got > tierRightWidth-2 {
+			t.Errorf("%s: row is %d cells, wider than the tier's %d: it would widen the box", tc.name, got, tierRightWidth-2)
+		}
+	}
+	if full := landAimLabel(-10, 10); full != "−10 m  10 m R" {
+		t.Errorf("shared spelling = %q", full)
+	}
 }
