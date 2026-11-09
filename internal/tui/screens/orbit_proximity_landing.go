@@ -37,9 +37,15 @@ func landingSiteMark(w *sim.World) rune {
 	return '◆'
 }
 
-// computerSiteWorld is where the computer believes the site is. Zero nav error
-// until S4 writes the offset: it is the real point, so the ⌖ sits under the ⚑.
-func computerSiteWorld(st sim.ProximityState) orbital.Vec3 { return st.TargetWorld }
+// computerSiteWorld is where the computer is flying to: the real point shifted
+// by its navigation error and the pilot's aim (a modern vessel's ⌖ sits under
+// the ⚑).
+func computerSiteWorld(st sim.ProximityState) orbital.Vec3 {
+	if st.ComputerWorld.Norm() == 0 {
+		return st.TargetWorld
+	}
+	return st.ComputerWorld
+}
 
 // drawLandingScene draws the ground, the powered-stop arc, the marks and the
 // vessel. The canvas basis is (track, up) with the site at the centre.
@@ -72,8 +78,7 @@ func (v *OrbitView) drawLandingScene(w *sim.World, st sim.ProximityState) {
 		}
 	}
 	// ⌖ first, ⚑ over it: with no nav error they share a cell and only ⚑ shows.
-	// The reveal rule (⚑ only inside SiteRevealRangeM when the two differ) is
-	// inert until S4 gives them a reason to differ.
+	// When the two differ the ⚑ is drawn only inside SiteRevealRangeM.
 	cs := computerSiteWorld(st)
 	differs := cs.Sub(st.TargetWorld).Norm() > 0.5
 	if w.Target.Kind == sim.TargetSite {

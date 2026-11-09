@@ -525,7 +525,7 @@ func landingToWire(a *spacecraft.LandingAutopilot) *LandingWire {
 	}
 	return &LandingWire{Engaged: a.Engaged, Nose: a.Nose, Phase: int(a.Phase), ROD: a.ROD, RODRateMps: a.RODRateMps,
 		ThrottleHeld: a.ThrottleHeld, AimAlongM: a.AimAlongM, AimAcrossM: a.AimAcrossM,
-		NavAlongM: a.NavAlongM, NavAcrossM: a.NavAcrossM, NavSeeded: a.NavSeeded}
+		NavAlongM: a.NavAlongM, NavAcrossM: a.NavAcrossM, NavSeeded: a.NavSeeded, NavFixed: a.NavFixed}
 }
 
 func landingFromWire(w *LandingWire) *spacecraft.LandingAutopilot {
@@ -534,7 +534,7 @@ func landingFromWire(w *LandingWire) *spacecraft.LandingAutopilot {
 	}
 	return &spacecraft.LandingAutopilot{Engaged: w.Engaged, Nose: w.Nose, Phase: spacecraft.LandingPhase(w.Phase), ROD: w.ROD,
 		RODRateMps: w.RODRateMps, ThrottleHeld: w.ThrottleHeld, AimAlongM: w.AimAlongM, AimAcrossM: w.AimAcrossM,
-		NavAlongM: w.NavAlongM, NavAcrossM: w.NavAcrossM, NavSeeded: w.NavSeeded}
+		NavAlongM: w.NavAlongM, NavAcrossM: w.NavAcrossM, NavSeeded: w.NavSeeded, NavFixed: w.NavFixed}
 }
 
 func raiseToWire(r *spacecraft.RaiseOrder) *RaiseWire {
@@ -575,28 +575,11 @@ func modeFromWire(i *int) *spacecraft.BurnMode {
 // mismatch (a custom or edited stack) leaves the craft untouched. A stage that
 // already carries an antenna, and debris, are never changed. No schema bump.
 func restoreCatalogAntennas(c *spacecraft.Spacecraft) {
-	if c.Role == spacecraft.RoleJettisonedStage || c.LoadoutID == "" || len(c.Stages) == 0 {
-		return
-	}
-	l, ok := spacecraft.Loadouts[c.LoadoutID] // not LookupLoadout: its fallback would match an unknown id against the default stack
-	cat := l.Stages
-	if !ok || len(cat) == 0 {
-		return
-	}
-	for k := 0; k+len(c.Stages) <= len(cat); k++ {
-		match := true
-		for i := range c.Stages {
-			match = match && cat[k+i].Name == c.Stages[i].Name
+	cat := spacecraft.CatalogRun(c)
+	for i := range cat {
+		if c.Stages[i].AntennaKind == spacecraft.AntennaNone && cat[i].AntennaKind != spacecraft.AntennaNone {
+			c.Stages[i].AntennaKind = cat[i].AntennaKind
+			c.Stages[i].AntennaRangeM = cat[i].AntennaRangeM
 		}
-		if !match {
-			continue
-		}
-		for i := range c.Stages {
-			if c.Stages[i].AntennaKind == spacecraft.AntennaNone && cat[k+i].AntennaKind != spacecraft.AntennaNone {
-				c.Stages[i].AntennaKind = cat[k+i].AntennaKind
-				c.Stages[i].AntennaRangeM = cat[k+i].AntennaRangeM
-			}
-		}
-		return
 	}
 }

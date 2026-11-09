@@ -3163,6 +3163,9 @@ func signedDistance(m float64) string {
 // landingFlash is the Event Flash for the landing autopilot's contact (ADR
 // 0067 decision 5): the true distance from the real site.
 func landingFlash(e sim.LandingEvent) string {
+	if e.Update { // P20: the ground moved the computer's site
+		return fmt.Sprintf("⚑ update: site moved %s", readout.Distance(e.DistanceM))
+	}
 	verb := "landed"
 	if e.Crashed {
 		verb = "crashed"

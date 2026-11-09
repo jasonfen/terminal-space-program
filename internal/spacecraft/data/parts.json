@@ -215,6 +215,7 @@
     },
     {
       "id": "lander-ascent",
+      "antenna": {"kind": "direct", "range_m": 100000000},
       "ports": [{"end": "top"}],
       "name": "Ascent",
       "glyph": "➤",
@@ -234,6 +235,7 @@
     },
     {
       "id": "lander-ascent-crewed",
+      "nav_sigma_m": [2000, 1000],
       "ports": [{"end": "top"}],
       "name": "Ascent",
       "command_source": "crewed",
@@ -536,6 +538,7 @@
     },
     {
       "id": "apollo-ascent",
+      "nav_sigma_m": [2000, 1000],
       "antenna": {"kind": "direct", "range_m": 100000000},
       "ports": [{"end": "top"}],
       "name": "Ascent",
@@ -630,6 +633,7 @@
     },
     {
       "id": "kern-pod",
+      "nav_sigma_m": [2000, 1000],
       "ports": [{"end": "top"}],
       "name": "Pod",
       "tier": "payload",
@@ -997,6 +1001,7 @@
     },
     {
       "id": "socket-ascent",
+      "nav_sigma_m": [2000, 1000],
       "ports": [{"end": "top"}],
       "name": "Ascent",
       "glyph": "➤",

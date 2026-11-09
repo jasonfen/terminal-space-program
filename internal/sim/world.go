@@ -177,6 +177,7 @@ type World struct {
 	// apRT: the landing autopilot's transient per-vessel cue cache (ADR 0067);
 	// lastSimDelta is the sim step of the tick in progress, for its light test.
 	apRT         map[uint64]*apRuntime
+	navErrorOff  bool // test seam: no computer's-site error, so geometry guards read the site itself
 	lastSimDelta time.Duration
 	impactSolves int // forecasts actually run, for the hit-count test
 

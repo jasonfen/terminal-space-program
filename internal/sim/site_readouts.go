@@ -129,6 +129,7 @@ func (w *World) LandBesideReading() (LandBeside, bool) {
 		return LandBeside{}, false
 	}
 	radius := c.Primary.RadiusMeters()
+	csLat, csLon := w.computerSiteLatLon(c, siteLat, siteLon) // miss:/cross: read the computer's site (decision 4); lpd: the real one
 	subLat, subLon := render.WorldToBodyFixed(c.Primary, unitV(c.State.R), w.Clock.SimTime)
 	lb := LandBeside{GroundM: HaversineM(subLat, subLon, siteLat, siteLon, radius)}
 	// Under half a metre there is no direction worth reading; exact zero is
@@ -143,7 +144,7 @@ func (w *World) LandBesideReading() (LandBeside, bool) {
 		if pt, ok := w.plannedAim(c, n); ok {
 			oLat, oLon := render.WorldToBodyFixed(c.Primary, unitV(pt.originR), pt.origin)
 			aLat, aLon := render.WorldToBodyFixed(c.Primary, unitV(pt.R), pt.at)
-			lb.MissM, lb.CrossM, lb.MissOK = ImpactOffsetM(oLat, oLon, aLat, aLon, siteLat, siteLon, radius)
+			lb.MissM, lb.CrossM, lb.MissOK = ImpactOffsetM(oLat, oLon, aLat, aLon, csLat, csLon, radius)
 			lb.Planned, lb.Stop = true, true
 			return lb, true
 		}
@@ -169,7 +170,7 @@ func (w *World) LandBesideReading() (LandBeside, bool) {
 		}
 	}
 	impLat, impLon := render.WorldToBodyFixed(c.Primary, unitV(aim), at)
-	lb.MissM, lb.CrossM, lb.MissOK = ImpactOffsetM(subLat, subLon, impLat, impLon, siteLat, siteLon, radius)
+	lb.MissM, lb.CrossM, lb.MissOK = ImpactOffsetM(subLat, subLon, impLat, impLon, csLat, csLon, radius)
 	rSite, _ := surfacePointState(c.Primary, siteLat, siteLon, w.Clock.SimTime)
 	lb.LPDDeg, lb.LPDOK = LookDownDeg(c.State.R, rSite, c.CurrentAttitudeDir.Unit())
 	return lb, true

@@ -304,6 +304,10 @@ func (w *World) PlanDeorbitOntoSite() (*DeorbitPlan, error) {
 	if _, found := PredictImpact(c, DescentPredictHorizon); found {
 		return nil, ErrDeorbitFalling
 	}
+	// ADR 0067 decision 3: the computer draws its own picture of the site here,
+	// and the burn is planned onto that picture, not the real flag.
+	w.drawNavError(c, true)
+	lat, lon = w.computerSiteLatLon(c, lat, lon)
 	now := w.Clock.SimTime
 	hHat := c.State.R.Cross(c.State.V).Unit()
 	period := 2 * math.Pi * math.Sqrt(el.A*el.A*el.A/mu)
