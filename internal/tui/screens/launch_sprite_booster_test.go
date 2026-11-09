@@ -64,9 +64,10 @@ func unmarkedLoadoutIDs() []string {
 // loadouts again; the 38 without Orion still hashed to the old value, so only Orion moved the digest.
 // Lunar-Relay-Carrier-3 (ADR 0065 S1) joined the same way (2026-11-04): re-captured at 41 loadouts.
 // Falcon-9-Starlink-24 (ADR 0059 S1) joined the same way: without it the set still hashes to 88d7faf4012794fa.
+// Lander-Crewed (ADR 0067 S4c) joined the same way: without it the set still hashes to 57950846505cb07e.
 const (
 	goldenSaturnV   = "e3388b974dc8bb1c"
-	goldenAllSerial = "57950846505cb07e"
+	goldenAllSerial = "cc27e363f7b0a563"
 )
 
 func TestSerialSpritesByteIdentical(t *testing.T) {

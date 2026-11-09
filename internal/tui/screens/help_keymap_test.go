@@ -266,6 +266,7 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 		"It never lights, cuts or throttles the engine, never caps warp and holds no rate of descent",
 		"| `e` / `q` under `Site+ auto` | Under `N`'s autopilot, in approach and final, set the rate of descent:",
 		"Under the `q` nose hold `e` is a plain hold key",
+		"| `B` | Plant the deorbit burn only: the same one retro node, footer line and refusals as `N`",
 		"`Z` / `X` / `z` / `x` take the throttle and keep the steering",
 		"the descent rate `e` / `q` set",
 		"(`alt+e` / `alt+q` 0.3 m/s)",
