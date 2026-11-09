@@ -1745,7 +1745,7 @@ func (v *LaunchView) drawTargetSiteMarks(w *sim.World, bodyPos, camFromBody orbi
 	if differs {
 		v.canvas.SetCellOverlayColored(bodyPos.Add(cs), computerSiteGlyph, render.ColorTarget)
 	}
-	if !differs || st.RangeM <= sim.SiteRevealRangeM { // the landing view's reveal rule
+	if flagRevealed(differs, st.RangeM) { // the landing view's reveal rule
 		v.canvas.SetCellOverlayColored(bodyPos.Add(flag), flagGlyph, render.ColorTarget)
 	}
 }

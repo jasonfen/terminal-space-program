@@ -17,9 +17,12 @@ import (
 )
 
 const (
-	// landingSiteHintStripText is the strip under the Site+ hold: no arrow
-	// legend until ADR 0067 S4 gives the arrows the aim.
+	// landingSiteHintStripText is the strip under the Site+ hold (the q nose
+	// hold: the arrows trim there, as on s, so no aim legend).
 	landingSiteHintStripText = "[o] map · [F1] help · [t] target · [./,] warp"
+	// landingAimHintStripText is the strip under Site+ auto (N): the arrows move
+	// the aim (ADR 0067 decision 6).
+	landingAimHintStripText = "[←→↑↓] move aim · [|] re-aim · [o] map · [F1] help · [./,] warp"
 	// landingStopGlyph is where the powered stop ends on the ground.
 	landingStopGlyph = '⊙'
 	// computerSiteGlyph is the computer's landing site (ADR 0067 decision 4).
@@ -45,6 +48,13 @@ func computerSiteWorld(st sim.ProximityState) orbital.Vec3 {
 		return st.TargetWorld
 	}
 	return st.ComputerWorld
+}
+
+// flagRevealed is the reveal rule (ADR 0067 decision 4): when the computer's site
+// differs from the flag, the ⚑ is drawn only inside SiteRevealRangeM (the
+// boundary included); when they agree it is always drawn.
+func flagRevealed(differs bool, rangeM float64) bool {
+	return !differs || rangeM <= sim.SiteRevealRangeM
 }
 
 // drawLandingScene draws the ground, the powered-stop arc, the marks and the
@@ -84,7 +94,7 @@ func (v *OrbitView) drawLandingScene(w *sim.World, st sim.ProximityState) {
 	if w.Target.Kind == sim.TargetSite {
 		v.canvas.SetCellOverlayColored(cs, computerSiteGlyph, render.ColorTarget)
 	}
-	if !differs || st.RangeM <= sim.SiteRevealRangeM {
+	if flagRevealed(differs, st.RangeM) {
 		v.canvas.SetCellOverlayColored(st.TargetWorld, landingSiteMark(w), render.ColorTarget)
 	}
 	v.drawProximityOwnVessel(w, st)

@@ -184,6 +184,9 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 			label = "view: Landing — " + who + "   →track  ↑up"
 			if c := w.ActiveCraft(); c != nil && c.AttitudeMode == spacecraft.BurnSite {
 				hintStrip = landingSiteHintStripText
+				if c.Landing.Owns() {
+					hintStrip = landingAimHintStripText
+				}
 			}
 		}
 	}

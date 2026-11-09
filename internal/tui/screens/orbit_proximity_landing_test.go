@@ -84,13 +84,29 @@ func landingChipCase(t *testing.T, firing bool) {
 	}
 }
 
-// The computer's site is the real one until the nav error exists (S4), so the
-// ⌖ sits under the ⚑.
-func TestLandingViewComputerSiteIsRealSite(t *testing.T) {
+// The computer's site is the real one with no error, so the ⌖ sits under the ⚑;
+// with an error it moves by it (a modern vessel's 3 m is under the cell, an
+// Apollo-era 2 km is not), and the ⚑ is revealed at 10 km exactly and not at
+// 10 km + 1 m (guard 8, the equal case).
+func TestLandingViewComputerSiteAndReveal(t *testing.T) {
 	_, w, _ := landingFrame(t, nil)
 	st, _ := w.ProximityState()
 	if got := computerSiteWorld(st); got != st.TargetWorld {
 		t.Errorf("computer's site = %v, want the real site %v while the nav error is zero", got, st.TargetWorld)
+	}
+	w.ActiveCraft().Landing = &spacecraft.LandingAutopilot{NavSeeded: true, NavAlongM: 2000, AimAcrossM: 300}
+	st, _ = w.ProximityState()
+	if d := computerSiteWorld(st).Sub(st.TargetWorld).Norm(); d < 2000 || d > 2100 {
+		t.Errorf("computer's site is %.0f m from the flag, want hypot(2000, 300) = 2022", d)
+	}
+	for _, tc := range []struct {
+		differs bool
+		rangeM  float64
+		want    bool
+	}{{true, sim.SiteRevealRangeM, true}, {true, sim.SiteRevealRangeM + 1, false}, {false, 400e3, true}} {
+		if got := flagRevealed(tc.differs, tc.rangeM); got != tc.want {
+			t.Errorf("flagRevealed(differs=%v, %v m) = %v, want %v", tc.differs, tc.rangeM, got, tc.want)
+		}
 	}
 }
 
@@ -112,7 +128,8 @@ func TestProximityFitRadiusSurface(t *testing.T) {
 	}
 }
 
-// Hint strip: an arrow-free legend under the Site+ hold, today's text otherwise.
+// Hint strip: an arrow-free legend under the Site+ hold (the arrows trim under
+// q), the move-aim legend under Site+ auto, today's text otherwise.
 func TestLandingViewHintStrip(t *testing.T) {
 	_, _, plain := landingFrame(t, nil)
 	if !strings.Contains(plain, proximityHintStripText) {
@@ -128,7 +145,15 @@ func TestLandingViewHintStrip(t *testing.T) {
 		t.Errorf("Site+ hold: the strip should read the arrow-free legend\n%s", site)
 	}
 	if strings.Contains(site, "move aim") || strings.Contains(site, "[←→↑↓]") {
-		t.Errorf("Site+ hold: no arrow legend until S4\n%s", site)
+		t.Errorf("Site+ hold without N: no aim legend, the arrows trim\n%s", site)
+	}
+	_, _, auto := landingFrame(t, func(w *sim.World) {
+		c := w.ActiveCraft()
+		c.AttitudeMode = spacecraft.BurnSite
+		c.Landing = &spacecraft.LandingAutopilot{Engaged: true}
+	})
+	if !strings.Contains(auto, landingAimHintStripText) {
+		t.Errorf("Site+ auto: the strip should read the move-aim legend\n%s", auto)
 	}
 }
 
