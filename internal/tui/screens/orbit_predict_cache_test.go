@@ -135,3 +135,37 @@ func TestPredictClockBucketTolerance(t *testing.T) {
 		t.Errorf("a two-bucket clock advance stayed in the same bucket (%d) — cache would go stale", b0)
 	}
 }
+
+// TestCachedNodeMarkerRidesPrimary pins #911: a cache hit inside one clock
+// bucket must still draw the Δ marker at NodeInertialPosition, i.e. the
+// primary's live position plus the cached relative offset, not a frozen
+// heliocentric point that lags the primary (~30 km/s for Earth). Tick
+// counts include 0 (equal case); computes==1 proves the cache still hits.
+func TestCachedNodeMarkerRidesPrimary(t *testing.T) {
+	for _, ticks := range []int{0, 1, 10} {
+		v := NewOrbitView(Theme{HUDBox: lipgloss.NewStyle()})
+		w, err := sim.NewWorld()
+		if err != nil {
+			t.Fatalf("NewWorld: %v", err)
+		}
+		c := w.ActiveCraft()
+		c.Nodes = append(c.Nodes, spacecraft.ManeuverNode{DV: 100, TriggerTime: w.Clock.SimTime.Add(15 * time.Minute)})
+		v.Render(w, 0, 180, 48)
+
+		t0 := w.Clock.SimTime
+		for i := 0; i < ticks; i++ {
+			w.Tick()
+		}
+		v.Render(w, 0, 180, 48)
+		if v.predictCacheComputes != 1 {
+			t.Fatalf("ticks %d: want a cache hit (computes=1), got %d", ticks, v.predictCacheComputes)
+		}
+		m := v.predictCache.data.markers[0]
+		got := w.BodyPosition(m.primary).Add(m.rel)
+		// Verlet vs cached Kepler-free offset: the offset itself is constant
+		// to well under a km; the bug was ~30 km per second of primary motion.
+		if d := got.Sub(w.NodeInertialPosition(c.Nodes[0])).Norm(); d > 1000 {
+			t.Errorf("ticks %d (%v): cached marker is %.0f m from the true burn point", ticks, w.Clock.SimTime.Sub(t0), d)
+		}
+	}
+}
