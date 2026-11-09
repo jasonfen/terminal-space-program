@@ -322,6 +322,13 @@ func (w *World) resetDanglingPortHold() {
 // held in (the frame of the MODE, never the live NavMode; see the tui
 // attitudeHoldLabel comment for the rules).
 func (w *World) AttitudeHoldParts(mode spacecraft.BurnMode) (string, NavMode) {
+	return w.attitudeHoldPartsFor(w.ActiveCraft(), mode)
+}
+
+// attitudeHoldPartsFor is AttitudeHoldParts for a named vessel: the Site+
+// phase word is that vessel's own, so a background row never reads the
+// Active Vessel's autopilot.
+func (w *World) attitudeHoldPartsFor(c *spacecraft.Spacecraft, mode spacecraft.BurnMode) (string, NavMode) {
 	if w.NavMode == NavTarget && w.HasRelativeTarget() {
 		switch mode {
 		case spacecraft.BurnPrograde:
@@ -355,7 +362,7 @@ func (w *World) AttitudeHoldParts(mode spacecraft.BurnMode) (string, NavMode) {
 	// named three times on the row otherwise: here, the tag, and (before
 	// NavMode.String()'s own A2 fix) the nav: cell beside it.
 	if mode == spacecraft.BurnSite {
-		return w.siteHoldLabel(), frame
+		return w.siteHoldLabel(c), frame
 	}
 	return strings.TrimPrefix(mode.String(), "Surface "), frame
 }
@@ -363,9 +370,8 @@ func (w *World) AttitudeHoldParts(mode spacecraft.BurnMode) (string, NavMode) {
 // siteHoldLabel is the Site+ hold's name with the autopilot's phase (ADR 0067
 // decision 5): `Site+ wait`, `Site+ brake`, `Site+ approach`, `Site+ final`, and under ROD
 // `Site+ ROD −1.0 m/s`. Armed and still coasting it is `Site+ wait`.
-func (w *World) siteHoldLabel() string {
+func (w *World) siteHoldLabel(c *spacecraft.Spacecraft) string {
 	label := spacecraft.BurnSite.String()
-	c := w.ActiveCraft()
 	if c == nil || c.Landing == nil || !c.Landing.Engaged {
 		return label
 	}

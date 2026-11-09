@@ -1163,17 +1163,35 @@ func TestBackgroundAutopilotLandingIsRecorded(t *testing.T) {
 	}
 	awayFrom(t, w)
 	active := w.ActiveCraft()
+	// The Active Vessel holds Site+ in ROD: no row in the lander's file may
+	// carry that word (F1: the label used to read the Active Vessel).
+	active.AttitudeMode = spacecraft.BurnSite
+	active.Landing = &spacecraft.LandingAutopilot{Engaged: true, ROD: true, RODRateMps: -2}
 	for i := 0; i < 2*3600*4 && !c.Landed && !c.Crashed; i++ {
 		w.Tick()
 	}
 	if !c.Landed {
 		t.Fatalf("setup: landed=%v crashed=%v", c.Landed, c.Crashed)
 	}
+	// Background rows read the vessel's own site aim: the flag's range shows,
+	// and the Active Vessel (no site aim) stays "-".
+	if row := w.rowFor(c, ""); row.Target == "" || row.RangeM <= 0 || row.RangeM > 5000 {
+		t.Errorf("background touchdown row target %q range %.0f m, want the flag within 5 km", row.Target, row.RangeM)
+	}
+	if row := w.rowFor(active, ""); row.Target != "" {
+		t.Errorf("the Active Vessel's row took the lander's target %q", row.Target)
+	}
 	nums, ev := recRead(t, fileOf(t, dir, c))
 	joined := strings.Join(ev, "|")
-	for _, want := range []string{"hold: ", "touchdown: "} {
+	for _, want := range []string{"hold: Site+ auto brake (SITE)", "hold: Site+ auto approach (SITE)",
+		"hold: Site+ auto final (SITE)", "touchdown: "} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("landing file lacks %q: %s", want, joined)
+		}
+	}
+	for _, e := range ev {
+		if strings.HasPrefix(e, "hold: ") && strings.Contains(e, "ROD") {
+			t.Errorf("lander's file carries the Active Vessel's phase: %q", e)
 		}
 	}
 	if nums == 0 {
@@ -1181,6 +1199,43 @@ func TestBackgroundAutopilotLandingIsRecorded(t *testing.T) {
 	}
 	if strings.Contains(strings.Join(allEv(t, fileOf(t, dir, active)), "|"), "touchdown") {
 		t.Error("the Active Vessel's file got the lander's touchdown")
+	}
+}
+
+// F1: switching the Active Vessel writes no hold row into a background
+// vessel's file when that vessel's own hold did not change.
+func TestVesselSwitchWritesNoHoldRowInBackgroundFile(t *testing.T) {
+	w, c, dir := bgLander(t)
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.EngageLandingAutopilot(); err != nil {
+		t.Fatal(err)
+	}
+	awayFrom(t, w)
+	other := w.ActiveCraft()
+	ticks(w, 5)
+	holds := func() int {
+		n := 0
+		for _, e := range allEv(t, fileOf(t, dir, c)) {
+			if strings.HasPrefix(e, "hold: ") {
+				n++
+			}
+		}
+		return n
+	}
+	before := holds()
+	if before == 0 {
+		t.Fatal("setup: the lander wrote no hold row")
+	}
+	other.AttitudeMode = spacecraft.BurnSite
+	other.Landing = &spacecraft.LandingAutopilot{Engaged: true, ROD: true, RODRateMps: -2}
+	w.SetActiveCraftIdx(0)
+	ticks(w, 2)
+	w.SetActiveCraftIdx(len(w.Crafts) - 1)
+	ticks(w, 2)
+	if after := holds(); after != before {
+		t.Errorf("vessel switches wrote %d hold rows into the lander's file", after-before)
 	}
 }
 
