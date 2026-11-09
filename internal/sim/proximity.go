@@ -39,6 +39,9 @@ type ProximityState struct {
 	// and the one other thing this slice draws.
 	TargetWorld orbital.Vec3
 	CraftWorld  orbital.Vec3
+	// ComputerWorld is the landing view's computer's site (ADR 0067 decision 4):
+	// the target shifted by the vessel's navigation error and aim. Zero when unset.
+	ComputerWorld orbital.Vec3
 
 	// RelPos / RelVel are the ACTIVE VESSEL relative to the TARGET, in
 	// world axes. Sign convention: positive along Frame.AlongTrack means
@@ -298,19 +301,20 @@ func (w *World) surfaceProximityState(c *spacecraft.Spacecraft) (ProximityState,
 	primaryPos := w.BodyPosition(c.Primary)
 	rel, relV := c.State.R.Sub(rT), c.State.V.Sub(vT)
 	st := ProximityState{
-		Frame:       orbital.LVLHFrame{AlongTrack: fwd, RadialOut: up, CrossTrack: left},
-		TargetWorld: primaryPos.Add(rT),
-		CraftWorld:  primaryPos.Add(c.State.R),
-		RelPos:      rel,
-		RelVel:      relV,
-		RangeM:      rel.Norm(),
-		VRelMS:      relV.Norm(),
-		TargetName:  w.TargetName(),
-		Surface:     true,
-		AltM:        c.State.R.Norm() - c.Primary.RadiusMeters(),
-		AltRateMS:   c.State.V.Dot(c.State.R.Unit()),
-		FwdVelMS:    vGround.Dot(fwdV),
-		LatVelMS:    -vGround.Dot(leftV),
+		Frame:         orbital.LVLHFrame{AlongTrack: fwd, RadialOut: up, CrossTrack: left},
+		TargetWorld:   primaryPos.Add(rT),
+		ComputerWorld: primaryPos.Add(computerSitePoint(c, rT)),
+		CraftWorld:    primaryPos.Add(c.State.R),
+		RelPos:        rel,
+		RelVel:        relV,
+		RangeM:        rel.Norm(),
+		VRelMS:        relV.Norm(),
+		TargetName:    w.TargetName(),
+		Surface:       true,
+		AltM:          c.State.R.Norm() - c.Primary.RadiusMeters(),
+		AltRateMS:     c.State.V.Dot(c.State.R.Unit()),
+		FwdVelMS:      vGround.Dot(fwdV),
+		LatVelMS:      -vGround.Dot(leftV),
 	}
 	st.HullGapM = st.RangeM
 	if st.RangeM > 0 {
@@ -806,7 +810,7 @@ func (w *World) LandingStopArc() (LandingArc, bool) {
 		start, lead, fromCue = cue.State, cue.InSec, true
 	}
 	var trace []stopSample
-	pred, ok := predictPoweredStopTraced(start, c, deorbitHorizon-time.Duration(lead*float64(time.Second)), throttle, pitch, &trace)
+	pred, ok := predictPoweredStopTraced(start, c, deorbitHorizon-time.Duration(lead*float64(time.Second)), throttle, pitch, landingStopTrim(c), &trace)
 	if !ok || len(trace) < 2 {
 		return LandingArc{}, false
 	}

@@ -281,6 +281,12 @@ type Stage struct {
 	CargoKg   float64 `json:",omitempty"`
 	HoldKg    float64 `json:",omitempty"`
 	CargoHold bool    `json:",omitempty"`
+
+	// NavSigmaAlongM / NavSigmaAcrossM (ADR 0067 decision 3): the landing
+	// computer's 1-sigma site error with no link, set on the command part of an
+	// Apollo-shaped vessel; zero is modern. Catalog-derived, not saved: see
+	// Spacecraft.NavSigma.
+	NavSigmaAlongM, NavSigmaAcrossM float64
 }
 
 // SumDryMass returns the total dry mass across every stage in kg.

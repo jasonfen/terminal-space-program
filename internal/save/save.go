@@ -152,9 +152,10 @@ type LandingWire struct {
 	ThrottleHeld bool    `json:"throttle_held,omitempty"`
 	AimAlongM    float64 `json:"aim_along_m,omitempty"`
 	AimAcrossM   float64 `json:"aim_across_m,omitempty"`
-	NavAlongM    float64 `json:"nav_along_m,omitempty"` // reserved: slice 4 fills it
+	NavAlongM    float64 `json:"nav_along_m,omitempty"`
 	NavAcrossM   float64 `json:"nav_across_m,omitempty"`
 	NavSeeded    bool    `json:"nav_seeded,omitempty"`
+	NavFixed     bool    `json:"nav_fixed,omitempty"` // additive in v22 (ADR 0004: omitempty, no bump); absent = an update may still fire
 }
 
 // RaiseWire is spacecraft.RaiseOrder on the wire (StartAt as UnixNano).

@@ -821,6 +821,7 @@ func (s *Spacecraft) ThrustAccelFnAtWithTargetAtt(mode BurnMode, mu, throttle fl
 	portPitch, portYaw := s.PortPitchTrim, s.PortYawTrim
 	nose := s.InertialHold() // BurnInertial's direction
 	siteNose := s.SiteHold() // BurnSite's direction
+	siteOwned := s.Landing.Owns() // the autopilot's nose takes no trims; under the q hold the arrows trim it (P33)
 	return func(r, v orbital.Vec3, _ float64) orbital.Vec3 {
 		gravity := physics.Accel(r, mu)
 		if thrust == 0 || mass == 0 {
@@ -848,7 +849,7 @@ func (s *Spacecraft) ThrustAccelFnAtWithTargetAtt(mode BurnMode, mu, throttle fl
 		default:
 			dir = DirectionUnit(mode, r, v)
 		}
-		if mode != BurnInertial && mode != BurnSite {
+		if mode != BurnInertial && !(mode == BurnSite && siteOwned) {
 			dir = ApplyTrims(dir, r, spinAxis, pitchTrim, headingTrim)
 			dir = PortLean(dir, rT, vT, aT, portPitch, portYaw) // ADR 0055: after the hold, like BurnDirection
 		}

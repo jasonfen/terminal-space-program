@@ -68,6 +68,7 @@ type LandingEvent struct {
 	DistanceM  float64
 	Crashed    bool
 	OutOfReach bool
+	Update     bool // P20: the ground moved the computer's site; DistanceM is how far
 }
 
 // apRuntime is the autopilot's transient cue cache for one vessel.
@@ -79,6 +80,10 @@ type apRuntime struct {
 	cueAt      time.Time
 	nextCheck  time.Time
 	outOfReach bool // the last brake tick saturated: remembered for the event
+	// navSite is the site key the computer's-site error was drawn for (transient:
+	// a reload keeps the saved offset).
+	navSite  uint64
+	navKnown bool
 }
 
 func (w *World) apRuntimeFor(c *spacecraft.Spacecraft) *apRuntime {
@@ -160,7 +165,7 @@ func (f apFrame) retro() orbital.Vec3 {
 // apStopErr is where a stop at stopR lands against the aim at tStop: signed
 // metres along the track (+ long) and across it (+ right), with the track the
 // ground-relative orbit plane through the start state. The aim is the real
-// site plus the vessel's aim offsets (the computer's site, zero in S2).
+// site plus the computer's navigation error and the pilot's aim offsets.
 func (w *World) apStopErr(c *spacecraft.Spacecraft, lat, lon float64, start physics.StateVector, stopR orbital.Vec3, tStop time.Time) (along, cross float64) {
 	n := apTrackNormal(c, start)
 	if n.Norm() == 0 {
@@ -294,6 +299,7 @@ func (w *World) EngageLandingAutopilot() error {
 	if !canBrakeAtSite(c) {
 		return ErrSiteHoldUnderWeight
 	}
+	w.drawNavError(c, false) // a vessel that never pressed N draws at q
 	ap := c.Landing
 	if ap == nil {
 		ap = &spacecraft.LandingAutopilot{}
@@ -350,10 +356,11 @@ func (w *World) EngageLandingNoseHold() error {
 	if !w.canCommand(c) {
 		return ErrDeorbitNoSignal
 	}
+	w.drawNavError(c, false)
 	ap := &spacecraft.LandingAutopilot{Engaged: true, Nose: true}
-	if old := c.Landing; old != nil { // keep the aim offsets
+	if old := c.Landing; old != nil { // keep the aim and the computer's-site error
 		ap.AimAlongM, ap.AimAcrossM = old.AimAlongM, old.AimAcrossM
-		ap.NavAlongM, ap.NavAcrossM, ap.NavSeeded = old.NavAlongM, old.NavAcrossM, old.NavSeeded
+		ap.NavAlongM, ap.NavAcrossM, ap.NavSeeded, ap.NavFixed = old.NavAlongM, old.NavAcrossM, old.NavSeeded, old.NavFixed
 	}
 	c.Landing = ap
 	c.AttitudeMode = spacecraft.BurnSite
@@ -489,6 +496,7 @@ func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
 		return // nothing to fly to, or nothing to fly with: keep the state, do nothing
 	}
 	ap.Reserve, ap.OutOfReach, ap.ForecastOK = false, false, false
+	w.updateNavOnLink(c)
 	f := apFrameOf(c)
 	if ap.Phase == spacecraft.PhaseCoast {
 		if c.ActiveBurn != nil {
@@ -571,7 +579,7 @@ type apForecast struct {
 }
 
 func (w *World) apForecast(c *spacecraft.Spacecraft, lat, lon, theta, pitchUp float64) apForecast {
-	pred, ok := predictPoweredStopFromAtPitch(c.State, c, apStopHorizon, theta, pitchUp)
+	pred, ok := predictPoweredStopTraced(c.State, c, apStopHorizon, theta, pitchUp, landingStopTrim(c), nil)
 	if !ok || pred.StopR.Norm() == 0 || (pred.Outcome != StopStopped && pred.Outcome != StopCrashed) {
 		return apForecast{}
 	}
@@ -654,7 +662,7 @@ func (w *World) apBrake(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilo
 	w.apRuntimeFor(c).outOfReach = ap.OutOfReach // the last brake tick's reading is the landing's
 	dir = apPitched(dir, f.up, newPsi)
 	// crossrange: tilt the thrust away from the error, within the steering authority
-	if f.sh > 1 {
+	if f.sh > 1 && !(ap.Nose && c.HeadingTrim != 0) { // P33: the first up/down arrow takes the cross axis until |
 		phi := clampF(-apCrossGain*f0.cross/f0.span, -apMaxCrossTiltRad, apMaxCrossTiltRad)
 		rHat := f.vh.Unit().Cross(f.up)
 		lateral := rHat.Sub(dir.Scale(rHat.Dot(dir))).Unit()
@@ -775,6 +783,8 @@ func apRodThrottle(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilot, f 
 func (w *World) landingEnded(c *spacecraft.Spacecraft) {
 	ap := c.Landing
 	rt := w.apRuntimeFor(c)
+	defer ap.ClearAttempt() // one offset per landing attempt
+
 	if ap.Nose { // no flash: the pilot flew it
 		ap.Engaged, ap.Nose, ap.Phase = false, false, spacecraft.PhaseCoast
 		return

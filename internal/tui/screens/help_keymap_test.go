@@ -250,7 +250,9 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Surface → Orbit → Target → Port → Site",
-		"q (SITE) in SITE: nose per landing guidance (Site+ brake), straight up in final; throttle stays yours; N flies it all",
+		"q (SITE) in SITE: guidance nose (Site+ brake), up in final; throttle stays yours; arrows trim; N flies it all",
+		"arrows (Site+ auto) under N: ←/→ aim short/long, ↑/↓ left/right; 1 km, 250 m inside 50 km, 25 m inside 5 km; alt a tenth; | clears",
+		"reset pitch trim and heading trim to 0 (in PORT, the port-face trims; Site+ auto: the aim)",
 		"e (SITE) in SITE: hold straight up (Site−), no guidance; under N, e sinks",
 		"e / q (Site+ auto) under N, approach and final: e sinks 1 m/s slower, q faster; z x Z X take the throttle",
 	} {
@@ -262,6 +264,11 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 		"Surface → Orbit → Target → Port → Site",
 		"| `q` in Site | The guidance nose hold (`hold: Site+ brake (SITE)`)",
 		"final: straight up, held, no lean",
+		"the arrows trim the nose as on `s`: `←` / `→` lean it 5° (`alt` 1°), the first `↑` / `↓` takes the cross axis from the guidance until `|`",
+		"| `←` `→` `↑` `↓` under `Site+ auto` | Under `N`'s autopilot the arrows move the aim, not the nose:",
+		"1 km a press beyond 50 km, 250 m inside that, 25 m inside 5 km (`alt` a tenth)",
+		"| `⌖` | the landing view: where the computer is flying to; when it differs from the flag the `⚑` shows only inside 10 km |",
+		"under `N` the arrows move the aim, under `q` they trim |",
 		"| `e` in Site | Holds straight up (`hold: Site− (SITE)`)",
 		"It never lights, cuts or throttles the engine, never caps warp and holds no rate of descent",
 		"| `e` / `q` under `Site+ auto` | Under `N`'s autopilot, in approach and final, set the rate of descent:",

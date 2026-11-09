@@ -88,8 +88,12 @@ type Part struct {
 	// Declared in the schema now so it stays stable; C1 ignores them.
 	// CommandSource is "crewed" | "probe" | "none" (empty == none);
 	// Antenna declares the part's antenna {kind, power}.
-	CommandSource string   `json:"command_source,omitempty"`
-	Antenna       *Antenna `json:"antenna,omitempty"`
+	CommandSource string `json:"command_source,omitempty"`
+	// NavSigmaM (ADR 0067 decision 3) is the (along, across) 1-sigma of the
+	// landing computer's site error with no link, on the command part. Absent
+	// means modern. Hash-free and overlay-moddable like the rest of the part.
+	NavSigmaM []float64 `json:"nav_sigma_m,omitempty"`
+	Antenna   *Antenna  `json:"antenna,omitempty"`
 
 	// Ports (ADR 0053 §2-3) lists the docking ports this part carries.
 	// Today at most one entry, the top end (`"ports": [{"end": "top"}]`); a
@@ -269,6 +273,9 @@ func (p Part) ToStage() Stage {
 		PartPorts:            topPorts(p.Ports),
 		CargoKg:              p.CargoKg,
 		CargoHold:            p.CargoHold,
+	}
+	if len(p.NavSigmaM) == 2 {
+		st.NavSigmaAlongM, st.NavSigmaAcrossM = p.NavSigmaM[0], p.NavSigmaM[1]
 	}
 	if p.Antenna != nil {
 		st.AntennaKind = p.Antenna.Kind

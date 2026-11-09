@@ -196,7 +196,7 @@ func (v *OrbitView) drawOverhead(w *sim.World, st sim.ProximityState) (alongBarM
 	if w.Target.Kind == sim.TargetSite {
 		c.SetCellOverlayColored(pt(m.cs[0], m.cs[1]), computerSiteGlyph, render.ColorTarget)
 	}
-	if !differs || st.RangeM <= sim.SiteRevealRangeM {
+	if flagRevealed(differs, st.RangeM) {
 		c.SetCellOverlayColored(pt(0, 0), landingSiteMark(w), render.ColorTarget)
 	}
 

@@ -228,7 +228,13 @@ func TestDeorbitRefusalsVerbatim(t *testing.T) {
 		{"no site", ErrDeorbitNoSite, func(w *World, c *spacecraft.Spacecraft) { w.ClearTarget() }},
 		{"other body", ErrDeorbitOtherBody, func(w *World, c *spacecraft.Spacecraft) { w.Sites[0].Body = "Earth" }},
 		{"on the ground", ErrDeorbitLanded, func(w *World, c *spacecraft.Spacecraft) { c.Landed = true }},
-		{"no signal", ErrDeorbitNoSignal, func(w *World, c *spacecraft.Spacecraft) { c.Crewed = false }},
+		{"no signal", ErrDeorbitNoSignal, func(w *World, c *spacecraft.Spacecraft) {
+			c.Crewed = false
+			for i := range c.Stages { // P37: the Lander carries a 1e8 antenna that reaches Earth from the Moon
+				c.Stages[i].AntennaKind, c.Stages[i].AntennaRangeM = spacecraft.AntennaNone, 0
+			}
+			c.SyncFields()
+		}},
 		{"no orbit", ErrDeorbitNoOrbit, func(w *World, c *spacecraft.Spacecraft) { c.State.V = c.State.V.Scale(1.6) }},
 		{"already falling", ErrDeorbitFalling, func(w *World, c *spacecraft.Spacecraft) { c.State.V = c.State.V.Scale(0.8) }},
 		{"no engine", ErrDeorbitNoEngine, func(w *World, c *spacecraft.Spacecraft) {

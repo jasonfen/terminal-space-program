@@ -100,6 +100,8 @@ type StageModule struct {
 	// cargoKg / cargoHold (ADR 0057 5.1-5.2) ride to the Stage via BuildStage.
 	cargoKg   float64
 	cargoHold bool
+	// navSigma* ride to the Stage (ADR 0067 decision 3).
+	navSigmaAlongM, navSigmaAcrossM float64
 	// VabSeed (v0.25 / ADR 0032 §6) is the part's optional crack-open seed
 	// — the component-ID list the VAB expands this atomic block into when the
 	// player presses enter on its stage header. Carried through from
@@ -235,7 +237,17 @@ func (p Part) toStageModule() StageModule {
 		ports:               topPorts(p.Ports),
 		cargoKg:             p.CargoKg,
 		cargoHold:           p.CargoHold,
+		navSigmaAlongM:      navSigmaOf(p, 0),
+		navSigmaAcrossM:     navSigmaOf(p, 1),
 	}
+}
+
+// navSigmaOf is the i-th entry of the part's nav_sigma_m pair, 0 when absent.
+func navSigmaOf(p Part, i int) float64 {
+	if len(p.NavSigmaM) != 2 {
+		return 0
+	}
+	return p.NavSigmaM[i]
 }
 
 // antennaKindOf / antennaRangeOf read a Part's optional antenna safely.
@@ -323,6 +335,8 @@ func BuildStage(id string) (Stage, bool) {
 		PartPorts:            append([]PartPort(nil), m.ports...),
 		CargoKg:              m.cargoKg,
 		CargoHold:            m.cargoHold,
+		NavSigmaAlongM:       m.navSigmaAlongM,
+		NavSigmaAcrossM:      m.navSigmaAcrossM,
 	}, true
 }
 

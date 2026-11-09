@@ -16,6 +16,7 @@ func siteWorld(t *testing.T) (w *World, lander *spacecraft.Spacecraft, siteID ui
 	if err != nil {
 		t.Fatal(err)
 	}
+	w.navErrorOff = true
 	lander = w.ActiveCraft()
 	for _, b := range w.System().Bodies {
 		if b.ID == "moon" {

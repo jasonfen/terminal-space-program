@@ -342,8 +342,8 @@ func connectedAt(t *testing.T, w *World, loadout string, distM float64) bool {
 
 // P31 (ADR 0067): the LM and CSM carried Unified S-band antennas that reached
 // Earth's 85-ft dishes from lunar distance. Apollo-TLI (LM + CSM/CM) and the
-// crewed catalog lander link at the Moon's distance; the uncrewed lander (a
-// probe core on the basic backfill) does not. Equal case: just inside reach.
+// crewed catalog lander link at the Moon's distance, and (P37) so does the
+// uncrewed Lander on the 1e8 direct tier.
 func TestApolloCommandPartsReachTheMoon(t *testing.T) {
 	w, err := NewWorld()
 	if err != nil {
@@ -352,7 +352,7 @@ func TestApolloCommandPartsReachTheMoon(t *testing.T) {
 	for _, tc := range []struct {
 		id   string
 		want bool
-	}{{"Apollo-TLI", true}, {"Apollo-Stack", true}, {"Lander-Crewed", true}, {"Lander", false}} {
+	}{{"Apollo-TLI", true}, {"Apollo-Stack", true}, {"Lander-Crewed", true}, {"Lander", true}} {
 		if got := connectedAt(t, w, tc.id, 384_400e3); got != tc.want {
 			t.Errorf("%s at lunar distance: connected = %v, want %v", tc.id, got, tc.want)
 		}

@@ -26,9 +26,10 @@ const (
 	SiteShiftRungNearM = 25.0
 
 	// NavSigma*M: 1-sigma (along, across) navigation error by era. ADR 0067
-	// rows 4-6; Apollo 12 budget, Apollo 11 PDI, SLIM.
-	NavSigmaApolloLinkAlongM    = 300.0
-	NavSigmaApolloLinkAcrossM   = 500.0
+	// rows 4-6; Apollo 11 PDI, SLIM. A link at the draw or the ground update
+	// makes an Apollo-era vessel modern-grade (P21), so Apollo 12's linked pair
+	// (300, 500) is gone. The Apollo no-link pair mirrors the catalog's
+	// nav_sigma_m on the command parts (a test pins them equal).
 	NavSigmaApolloNoLinkAlongM  = 2000.0
 	NavSigmaApolloNoLinkAcrossM = 1000.0
 	NavSigmaModernAlongM        = 3.0

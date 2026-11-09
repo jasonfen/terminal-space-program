@@ -58,8 +58,8 @@ func (s *Spacecraft) BurnDirectionWithTarget(mode BurnMode, rT, vT orbital.Vec3)
 // decision 7). aT is ignored by every other mode.
 func (s *Spacecraft) BurnDirectionWithTargetAtt(mode BurnMode, rT, vT, aT orbital.Vec3) orbital.Vec3 {
 	dir := s.BurnDirectionUntrimmedWithTargetAtt(mode, rT, vT, aT)
-	if dir.Norm() == 0 || mode == BurnInertial || mode == BurnSite {
-		return dir // Inertial: the nose itself, a trim would turn it every tick
+	if dir.Norm() == 0 || mode == BurnInertial || (mode == BurnSite && s.Landing.Owns()) {
+		return dir // Inertial: the nose itself, a trim would turn it every tick; Site+ auto: the autopilot's (the q hold takes trims, P33)
 	}
 	return s.PortLean(s.applyTrims(dir), rT, vT, aT)
 }
