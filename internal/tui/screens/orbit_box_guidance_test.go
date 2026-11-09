@@ -179,3 +179,32 @@ func TestGuidanceSiteHoldIsAccentedOnlyWhileEngaged(t *testing.T) {
 		t.Errorf("disengaged Site+ should be plain and phase-free: %q", r)
 	}
 }
+
+// P34 (ADR 0067): heading: reads in the Warning colour while the heading trim
+// is non-zero, like trim: does for the pitch trim, and plain at zero.
+func TestGuidanceHeadingIsMarkedWhileHeadingTrimIsSet(t *testing.T) {
+	prev := lipgloss.ColorProfile()
+	lipgloss.SetColorProfile(termenv.TrueColor)
+	t.Cleanup(func() { lipgloss.SetColorProfile(prev) })
+
+	th := plainThemeColored()
+	w, c := spawnSaturnVOnPad(t)
+	c.AttitudeMode = spacecraft.BurnSurfacePrograde
+	v := NewOrbitView(th)
+	row := func() string { return v.buildGuidanceBox(w)[2] }
+	plain := row()
+	if !strings.Contains(plain, "heading:") {
+		t.Fatalf("setup: no heading: cell in %q", plain)
+	}
+	if strings.Contains(plain, "\x1b[") {
+		t.Errorf("heading: is marked with no trim: %q", plain)
+	}
+	c.HeadingTrim = 0.1 // rad, well over the 0.05 deg floor
+	if got := row(); got == plain || !strings.Contains(got, "\x1b[") {
+		t.Errorf("heading: not marked with a heading trim: %q", got)
+	}
+	c.HeadingTrim = 0
+	if got := row(); got != plain {
+		t.Errorf("heading: stays marked after the trim clears: %q vs %q", got, plain)
+	}
+}
