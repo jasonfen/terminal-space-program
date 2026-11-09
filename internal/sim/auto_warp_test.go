@@ -423,3 +423,31 @@ func TestAutoWarpBrakeCueUnderAutopilotCap(t *testing.T) {
 	}
 	_ = c
 }
+
+// Boundary: a cue exactly autoWarpLeadTime ahead leaves nothing to warp (refuse);
+// one nanosecond more engages. Cue pinned through landingCueIn's cache.
+func TestAutoWarpBrakeCueLeadBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		extra time.Duration
+		want  bool
+	}{{0, false}, {time.Nanosecond, true}} {
+		w, c := afterDeorbitBurn(t)
+		w.landingCueIn(c) // fill the cache, then pin it
+		rt := w.apRuntimeFor(c)
+		rt.ground, rt.late = true, false
+		rt.cueAt = w.Clock.SimTime.Add(autoWarpLeadTime + tc.extra)
+		rt.nextCheck = w.Clock.SimTime.Add(time.Hour)
+		if got := w.EngageAutoWarp(); got != tc.want {
+			t.Errorf("cue lead+%v: engaged=%v, want %v", tc.extra, got, tc.want)
+		}
+	}
+}
+
+// A planted node on the active vessel keeps the cue path out, even one inside the lead.
+func TestAutoWarpBrakeCueRefusedWithNodeInLead(t *testing.T) {
+	w, _ := afterDeorbitBurn(t)
+	plantOn(t, w, 0, autoWarpLeadTime/2)
+	if w.EngageAutoWarp() {
+		t.Errorf("G engaged with a node inside the lead: %+v", w.AutoWarp)
+	}
+}
