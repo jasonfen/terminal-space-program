@@ -4,7 +4,7 @@ Newest first. One headline per release, then the concrete changes and the issues
 
 ### v0.67.0
 
-Landing autopilot (ADR 0067; PRs `#896` to `#907`, `#912` to `#918`, `#920` to `#929`; closes `#880`, `#882`, `#886`; tag `v0.67.0`). Save schema 23 (each vessel keeps its own navball frame; older saves migrate).
+Landing autopilot (ADR 0067; PRs `#896` to `#907`, `#912` to `#918`, `#920` to `#931`; closes `#880`, `#882`, `#886`; tag `v0.67.0`). Save schema 23 (each vessel keeps its own navball frame; older saves migrate).
 
 - **`N` lands itself.** On a targeted site `N` plants the deorbit burn, switches the navball to `[SITE]` and engages `Site+ auto`: coast, brake, approach, final, touchdown, with another vessel active if you like. `Z`/`X` hand the throttle back; `b` or any hold key takes it off. `Site+ auto <phase>` reads amber in GUIDANCE.
 - **`q` in `[SITE]` is a nose hold.** Retrograde through the brake, straight up in final; the throttle stays yours and the arrows trim the nose. `e` holds straight up (`Site−`). `B` plants the deorbit burn onto the site and engages nothing.
