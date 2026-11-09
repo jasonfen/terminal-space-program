@@ -3216,7 +3216,7 @@ func landingFlash(e sim.LandingEvent) string {
 // velocity, and radial± to BurnTarget / BurnAntiTarget (toward / away
 // from the bound craft target). v0.9.3+.
 func (a *App) handleAttitudeIntent(intent sim.AttitudeIntent) {
-	a.handleAttitudeKey(a.world.ResolveAttitudeIntent(intent))
+	a.handleAttitudeKey(a.world.ResolveKeyIntent(intent))
 }
 
 // sasModeLabel maps the World.InstantSAS opt-out to the player-facing

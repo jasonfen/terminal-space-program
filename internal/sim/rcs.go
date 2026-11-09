@@ -85,6 +85,13 @@ func (w *World) FireRCSPulse(mode spacecraft.BurnMode) bool {
 	rT, vT, _ := w.TargetStateRelativeToActivePrimary()
 	// ADR 0053 slice C: the PORT-frame pulses also need the target's nose.
 	aT, _ := w.TargetPortAxis()
+	if mode.IsSitePulse() { // ADR 0067 decision 9: the landing view's track is the SITE frame's fwd
+		st, ok := w.surfaceProximityState(w.ActiveCraft())
+		if !ok {
+			return false
+		}
+		aT = st.Frame.AlongTrack
+	}
 	dir := w.ActiveCraft().BurnDirectionWithTargetAtt(mode, rT, vT, aT)
 	if dir.Norm() == 0 {
 		return false

@@ -258,3 +258,28 @@ func TestArrowsTrimUnderNoseHoldAndMoveAimUnderAuto(t *testing.T) {
 		t.Errorf("| under auto: aim %v / %v, want cleared", c.Landing.AimAlongM, c.Landing.AimAcrossM)
 	}
 }
+
+// ADR 0067 decision 9: the one RCS-armed exception to "hold keys are never
+// shortcuts". With RCS armed in SITE the letters pulse (q fwd, a left) and
+// leave the hold alone; unarmed, q is still the Site+ hold; under N a pulse is
+// refused.
+func TestSiteLettersPulseOnlyWithRCSArmed(t *testing.T) {
+	a, c := siteHoldApp(t)
+	a.world.NavMode = sim.NavSite
+	a.world.CycleEngineMode() // RCS armed
+	v0, hold := c.State.V, c.AttitudeMode
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if dv := c.State.V.Sub(v0).Norm(); math.Abs(dv-math.Sqrt2*c.RCSPulseDV()) > 1e-6 { // left and fwd are orthogonal
+		t.Errorf("a then q with RCS armed moved dv %.4f, want two orthogonal pulses of %.2f", dv, c.RCSPulseDV())
+	}
+	if c.AttitudeMode != hold || c.Landing != nil && c.Landing.Engaged {
+		t.Errorf("RCS letters changed the hold to %v / engaged the autopilot", c.AttitudeMode)
+	}
+	c.Landing = &spacecraft.LandingAutopilot{Engaged: true}
+	v1 := c.State.V
+	a.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'d'}})
+	if c.State.V != v1 {
+		t.Error("pulse fired under Site+ auto")
+	}
+}

@@ -64,6 +64,34 @@ func (n NavMode) Tag() string {
 	return "ORBIT"
 }
 
+// SiteRCSMode is the SITE-frame RCS translation a letter fires (ADR 0067
+// decision 9): q / e along the track, w / s up / down, a / d left / right.
+func SiteRCSMode(intent AttitudeIntent) spacecraft.BurnMode {
+	switch intent {
+	case IntentRadialOut:
+		return spacecraft.BurnSiteFwd
+	case IntentRadialIn:
+		return spacecraft.BurnSiteBack
+	case IntentPrograde:
+		return spacecraft.BurnSiteUp
+	case IntentRetrograde:
+		return spacecraft.BurnSiteDown
+	case IntentNormalPlus:
+		return spacecraft.BurnSiteLeft
+	}
+	return spacecraft.BurnSiteRight
+}
+
+// ResolveKeyIntent is ResolveAttitudeIntent for a keypress: with RCS armed in
+// a SITE frame the six letters pulse along the site axes instead of selecting
+// holds (the one RCS-armed exception to "hold keys are never shortcuts").
+func (w *World) ResolveKeyIntent(intent AttitudeIntent) spacecraft.BurnMode {
+	if w.NavMode == NavSite && w.SiteFrameOffered() && w.RCSActive() {
+		return SiteRCSMode(intent)
+	}
+	return w.ResolveAttitudeIntent(intent)
+}
+
 // AttitudeIntent is the input intent — which SAS axis the player
 // pressed — independent of NavMode. The TUI maps w/s/a/d/q/e to the
 // six intents; ResolveAttitudeIntent translates intent + NavMode to

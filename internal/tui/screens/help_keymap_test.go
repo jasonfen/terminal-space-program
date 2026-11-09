@@ -255,6 +255,7 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 		"reset pitch trim and heading trim to 0 (in PORT, the port-face trims; Site+ auto: the aim)",
 		"e (SITE) in SITE: hold straight up (Site−), no guidance; under N, e sinks",
 		"e / q (Site+ auto) under N, approach and final: e sinks 1 m/s slower, q faster; z x Z X take the throttle",
+		"q e w s a d (rcs) in SITE with RCS armed: pulse fwd / back, up / down, left / right; refused under N, free under q",
 	} {
 		if !strings.Contains(f1, want) {
 			t.Errorf("F1 MANUAL FLIGHT page lacks %q", want)
@@ -272,6 +273,8 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 		"| `e` in Site | Holds straight up (`hold: Site− (SITE)`)",
 		"It never lights, cuts or throttles the engine, never caps warp and holds no rate of descent",
 		"| `e` / `q` under `Site+ auto` | Under `N`'s autopilot, in approach and final, set the rate of descent:",
+		"| `q` `e` `w` `s` `a` `d` in Site with RCS armed | The six letters pulse along the site axes instead of selecting holds",
+		"Refused under `N` (`Site+ auto` owns the engine); free under the `q` nose hold and by hand",
 		"Under the `q` nose hold `e` is a plain hold key",
 		"| `B` | Plant the deorbit burn only: the same one retro node, footer line and refusals as `N`",
 		"`Z` / `X` / `z` / `x` take the throttle and keep the steering",

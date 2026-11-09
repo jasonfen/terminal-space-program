@@ -102,6 +102,7 @@ type StageModule struct {
 	cargoHold bool
 	// navSigma* ride to the Stage (ADR 0067 decision 3).
 	navSigmaAlongM, navSigmaAcrossM float64
+	rcsThrustN, monopropKg          float64 // published RCS figures (0: the dry-mass scaling)
 	// VabSeed (v0.25 / ADR 0032 §6) is the part's optional crack-open seed
 	// — the component-ID list the VAB expands this atomic block into when the
 	// player presses enter on its stage header. Carried through from
@@ -239,6 +240,8 @@ func (p Part) toStageModule() StageModule {
 		cargoHold:           p.CargoHold,
 		navSigmaAlongM:      navSigmaOf(p, 0),
 		navSigmaAcrossM:     navSigmaOf(p, 1),
+		rcsThrustN:          p.RCSThrustN,
+		monopropKg:          p.MonopropMassKg,
 	}
 }
 
@@ -302,7 +305,7 @@ func BuildStage(id string) (Stage, bool) {
 	if !present {
 		return Stage{}, false
 	}
-	mp, monoCap, rcsThrust, rcsIsp := stageRCS(m.dry)
+	mp, monoCap, rcsThrust, rcsIsp := stageRCSFor(m.dry, m.rcsThrustN, m.monopropKg)
 	return Stage{
 		// LoadoutID intentionally empty — a catalog part is not from
 		// a Loadout. Glyph/Color/Name below keep jettison + HUD
