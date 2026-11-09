@@ -2,11 +2,14 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
 )
 
 // rawFlags holds the parsed command-line values that shape the starting
@@ -194,4 +197,46 @@ func launchSiteKeys() []string {
 		keys[i] = s.Key
 	}
 	return keys
+}
+
+// validateLoad refuses --load beside the spawn flags or --reset-fleet: a save
+// already fixes the start, so the other flags would be silently ignored.
+func validateLoad(load string, hasScenario, resetFleet bool) error {
+	if load == "" {
+		return nil
+	}
+	if hasScenario {
+		return fmt.Errorf("--load can't be combined with the spawn flags (--system/--orbit/--altitude/--inclination/--retrograde/--launchpad/--launch-site/--lat/--lon/--loadout)")
+	}
+	if resetFleet {
+		return fmt.Errorf("--load can't be combined with --reset-fleet")
+	}
+	return nil
+}
+
+// resolveLoad maps a --load argument to a saves-directory id or a file path.
+// A save's display name (as the Load menu shows it) wins over a path; an
+// ambiguous or unknown argument errors, listing what matched or what exists.
+func resolveLoad(arg string, infos []save.SaveInfo) (id, path string, err error) {
+	names := screens.SaveDisplayNames(infos)
+	var hits []string
+	for i, n := range names {
+		if n == arg {
+			hits = append(hits, fmt.Sprintf("%s (%s, %s)", n, infos[i].ID, infos[i].Meta.SavedAt.Local().Format("Jan 2 15:04")))
+			id = infos[i].ID
+		}
+	}
+	if len(hits) > 1 {
+		return "", "", fmt.Errorf("--load %q matches %d saves, pass a file path to pick one:\n  %s", arg, len(hits), strings.Join(hits, "\n  "))
+	}
+	if len(hits) == 1 {
+		return id, "", nil
+	}
+	if st, e := os.Stat(arg); e == nil && !st.IsDir() {
+		return "", arg, nil
+	}
+	if len(names) == 0 {
+		return "", "", fmt.Errorf("--load %q: no such save or file, and there are no saves", arg)
+	}
+	return "", "", fmt.Errorf("--load %q: no such save or file; saves are:\n  %s", arg, strings.Join(names, "\n  "))
 }

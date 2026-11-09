@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -100,5 +103,50 @@ func TestPlainRestartAfterResetFleetResumesTheFreshHost(t *testing.T) {
 	resumeHostAutosave(restarted, true, false) // the plain restart
 	if got := restarted.World().Clock.SimTime; !got.Equal(epoch) {
 		t.Errorf("the restart resumed the pre-reset host at %v, want the reset epoch %v", got, epoch)
+	}
+}
+
+// --load starts the host on the named save or file path, and a file the Load
+// menu would refuse (schema too new) refuses with the loader's own error.
+func TestLoadStartSave(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	saved, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved.Clock.SimTime = saved.Clock.SimTime.Add(7 * time.Hour)
+	info, err := save.WriteNamed(saved, "Dock test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir, _ := save.SavesDir()
+
+	for _, arg := range []string{"Dock test", filepath.Join(dir, info.ID)} {
+		app, err := tui.New(nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := loadStartSave(app, arg); err != nil {
+			t.Fatalf("%q: %v", arg, err)
+		}
+		if got := app.World().Clock.SimTime; !got.Equal(saved.Clock.SimTime) {
+			t.Errorf("%q: World at %v, want the save's %v", arg, got, saved.Clock.SimTime)
+		}
+		if !app.ResumedFromSave() {
+			t.Errorf("%q: not marked resumed", arg)
+		}
+	}
+
+	app, _ := tui.New(nil)
+	if err := loadStartSave(app, "No such"); err == nil || !strings.Contains(err.Error(), "Dock test") {
+		t.Errorf("unknown name: err = %v, want a list naming the existing save", err)
+	}
+	newer := filepath.Join(t.TempDir(), "newer.json")
+	if err := os.WriteFile(newer, []byte(`{"schema_version":999}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := loadStartSave(app, newer); err == nil || !strings.HasPrefix(err.Error(), "load failed: ") {
+		t.Errorf("too-new file: err = %v, want the Load menu's \"load failed\" line", err)
 	}
 }

@@ -521,3 +521,23 @@ func TestAutosaveBadgeOrderMatchesSort(t *testing.T) {
 		t.Errorf("newest autosave badge = %q, want [AUTOSAVE 1]", got)
 	}
 }
+
+// SaveDisplayNames (the --load matcher) must name entries exactly as the
+// browser draws them, including the autosave badge numbered by list position.
+func TestSaveDisplayNamesMatchBrowser(t *testing.T) {
+	infos := []save.SaveInfo{
+		{ID: "autosave-2.json", Lane: save.LaneAutosave},
+		{ID: "n.json", Lane: save.LaneNamed, Meta: save.Meta{Name: "Landing"}},
+		{ID: "autosave-1.json", Lane: save.LaneAutosave},
+		{ID: "q.json", Lane: save.LaneQuicksave},
+	}
+	sc := &SavesScreen{entries: infos}
+	for i, got := range SaveDisplayNames(infos) {
+		if want := sc.displayName(infos[i]); got != want {
+			t.Errorf("entry %d: %q, browser says %q", i, got, want)
+		}
+	}
+	if got := SaveDisplayNames(infos)[2]; got != "[AUTOSAVE 2]" {
+		t.Errorf("second autosave = %q", got)
+	}
+}
