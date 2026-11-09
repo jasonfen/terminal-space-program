@@ -179,22 +179,24 @@ func (v *OrbitView) engineBoosterBadge(c *spacecraft.Spacecraft) string {
 // it there (nothing new to say when current equals max), a reversible
 // call, not a measured one.
 func (v *OrbitView) engineTWRCell(c *spacecraft.Spacecraft) string {
+	return chipRowAt(readout.LabelTWR, engineTWRValue(c), engineCols.value1)
+}
+
+// engineTWRValue is the TWR figure's text, shared with the LANDING chip's
+// twr: row so the two cannot drift.
+func engineTWRValue(c *spacecraft.Spacecraft) string {
 	if c == nil || c.Thrust <= 0 || c.TotalMass() <= 0 {
-		return chipRowAt(readout.LabelTWR, "—", engineCols.value1)
+		return "—"
 	}
 	g := c.Primary.GravitationalParameter() / (c.Primary.RadiusMeters() * c.Primary.RadiusMeters())
 	cur := c.Thrust * c.LitThrottle(c.EffectiveThrottle()) / (c.TotalMass() * g)
 	max := c.Thrust / (c.TotalMass() * g)
 	curLabel := fmt.Sprintf("%.2f", cur)
 	maxLabel := fmt.Sprintf("%.2f", max)
-	var value string
-	switch {
-	case curLabel == maxLabel:
-		value = curLabel
-	default:
-		value = fmt.Sprintf("%s (max %s)", curLabel, maxLabel)
+	if curLabel == maxLabel {
+		return curLabel
 	}
-	return chipRowAt(readout.LabelTWR, value, engineCols.value1)
+	return fmt.Sprintf("%s (max %s)", curLabel, maxLabel)
 }
 
 // engineNodeLine picks ENGINE's node row per its three-way precedence

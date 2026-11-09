@@ -66,6 +66,12 @@ type OrbitView struct {
 	cl      *widgets.Canvas
 	clStepM float64
 
+	// The landing view's OVERHEAD inset (ADR 0067 P17): ov is its canvas, ovAlong
+	// / ovAcross the ladder indexes it ranged to (-1 = re-range on the next frame).
+	ov                *widgets.Canvas
+	ovAlong, ovAcross int
+	ovRanged          bool
+
 	// baseScale is the auto-fit pixels-per-meter the Framing-Event fit
 	// last computed (FocusZoomRadius). userZoom is the player's manual
 	// `+`/`-` multiplier on top of it: the on-screen scale is

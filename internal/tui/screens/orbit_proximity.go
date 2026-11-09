@@ -120,6 +120,7 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 			v.canvas.FitTo(proximityFitRadius(st))
 			v.baseScale = v.canvas.Scale()
 			v.clStepM = 0 // the scope re-ranges on entry (ADR 0055 A4)
+			v.ovRanged = false
 		}
 		if contextChanged {
 			v.userZoom = v.zoomMemoryFor(slot)
@@ -210,6 +211,7 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 	if !v.declutter {
 		canvasStr = v.composeNavballOverlay(w, canvasStr, cCols, cRows, true)
 		canvasStr = v.composeCenterlineScope(w, canvasStr, cCols, cRows)
+		canvasStr = v.composeOverheadInset(w, canvasStr, cCols, cRows)
 	}
 	navballReserved := v.navballReservedRows(w, cCols, cRows)
 	canvasStr = v.composeChips(canvasStr, cCols, cRows, navballReserved, 1, 2, v.assembleChips(w))

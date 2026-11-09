@@ -55,7 +55,8 @@ func landingChipCase(t *testing.T, firing bool) {
 		if strings.Contains(l, "LANDING") && top < 0 {
 			top = i - 1
 		}
-		if top >= 0 && bottom < 0 && strings.Contains(l, "╰") && i > top+1 && strings.Contains(l, "╯") {
+		// the chip's own bottom corner: the OVERHEAD inset (top-right) has one too
+		if top >= 0 && bottom < 0 && i > top+1 && strings.HasPrefix(l, "│╰") {
 			bottom = i
 		}
 	}
@@ -74,7 +75,7 @@ func landingChipCase(t *testing.T, firing bool) {
 	}
 	body := strings.Join(lines[top:bottom+1], "\n")
 	last := -1
-	for _, label := range []string{"LANDING", "range:", "alt:", "alt rate:", "stop:", "fwd vel:", "lat vel:", "lpd:", "miss:", "cross:", "aim:", "hold:", "throttle:", "rcs:", "monoprop:"} {
+	for _, label := range []string{"LANDING", "range:", "alt:", "alt rate:", "stop:", "fwd vel:", "lat vel:", "lpd:", "miss:", "cross:", "aim:", "hold:", "throttle:", "twr:", "rcs:", "monoprop:"} {
 		at := strings.Index(body, label)
 		if at < 0 || at < last {
 			t.Errorf("chip row %q missing or out of order (at %d after %d)\n%s", label, at, last, body)
