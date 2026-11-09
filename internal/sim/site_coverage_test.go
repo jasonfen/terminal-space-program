@@ -328,3 +328,47 @@ func TestTargetCoveragePartnerSiteIDCollidesWithOwn(t *testing.T) {
 		t.Errorf("partner subject = %+v ok=%v", sub, ok)
 	}
 }
+
+// #880: a landed relay 100 m from a spot links it (the sampler) and a landed
+// vessel 100 m from the relay reads connected (the live CommNet); the Moon
+// between them still blocks both.
+func TestLandedBesideRelayLinks(t *testing.T) {
+	w, dirE, nLat, nLon, fLat, fLon := moonSiteWorld(t)
+	moon := siteBody(w, "moon")
+	wall := time.Unix(1000, 0)
+	siteCovWallNow = func() time.Time { wall = wall.Add(time.Hour); return wall }
+	defer func() { siteCovWallNow = time.Now }()
+	cov := func(lat, lon float64) float64 {
+		c, _ := w.SiteCoverage("moon", lat, lon, siteTestLap, siteTestStep)
+		return c.Fraction()
+	}
+	lander := addMoonCraft(w, spacecraft.AntennaRelay, spacecraft.AntennaRangeRelayCislunar, dirE, moon.RadiusMeters())
+	lander.Landed = true
+	m100 := 100 / moon.RadiusMeters() * 180 / math.Pi // degrees of longitude at the equator-ish sub-Earth point
+	if f := cov(nLat, nLon); f != 1 {
+		t.Fatalf("control, relay at the site: %v, want 1", f)
+	}
+	if f := cov(nLat, nLon+m100/math.Cos(nLat*math.Pi/180)); f != 1 {
+		t.Errorf("sampler: site 100 m from the landed relay reads %v, want 1", f)
+	}
+	if f := cov(fLat, fLon); f != 0 {
+		t.Errorf("sampler: far-side site reads %v, want 0 (the Moon between)", f)
+	}
+	// Live: a landed direct-antenna vessel 100 m away, then on the far side.
+	landedProbe := func(lat, lon float64) bool {
+		dir := render.BodyFixedToWorld(moon, lat, lon, w.Clock.SimTime)
+		p := addMoonCraft(w, spacecraft.AntennaDirect, spacecraft.AntennaRangeDirectBasic,
+			orbital.Vec3{X: dir.X, Y: dir.Y, Z: dir.Z}, moon.RadiusMeters())
+		p.Landed = true
+		w.RecomputeCommGraph()
+		got := w.CommGraph.HasConnection(p.ID)
+		w.Crafts = w.Crafts[:len(w.Crafts)-1]
+		return got
+	}
+	if !landedProbe(nLat, nLon+m100/math.Cos(nLat*math.Pi/180)) {
+		t.Error("live: landed vessel 100 m from the landed relay reads disconnected, want connected")
+	}
+	if landedProbe(fLat, fLon) {
+		t.Error("live: far-side landed vessel reads connected, want blocked by the Moon")
+	}
+}

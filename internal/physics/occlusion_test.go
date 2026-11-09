@@ -1,6 +1,7 @@
 package physics
 
 import (
+	"math"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -93,5 +94,44 @@ func TestRaySphereSurfaceTolerance(t *testing.T) {
 	deep := orbital.Vec3{X: r - 10}
 	if !RaySphereIntersect(deep, up, c, r) {
 		t.Error("a point well below the surface must be occluded")
+	}
+}
+
+// #880: two landed antennas AntennaHeightM up see each other out to
+// 2R·acos(R/(R+h)) of ground (the Moon: ~8.3 km, Earth: ~16 km) and not past
+// it; at ground level the chord dips under the sphere at any distance.
+func TestRaiseOffSurfaceHorizon(t *testing.T) {
+	for _, body := range []struct {
+		name string
+		r    float64
+	}{{"moon", 1737.4e3}, {"earth", 6371e3}} {
+		occ := []OccluderBody{{Center: orbital.Vec3{Z: 1e9}, Radius: 1}, {Center: orbital.Vec3{}, Radius: body.r}}
+		// Second occluder is far away and tiny: the nearest surface must be picked.
+		at := func(arcM float64) orbital.Vec3 {
+			th := arcM / body.r
+			return orbital.Vec3{X: body.r * math.Sin(th), Z: body.r * math.Cos(th)}
+		}
+		o := orbital.Vec3{Z: body.r}
+		if up := RaiseOffSurface(o, occ); math.Abs(up.Norm()-body.r-AntennaHeightM) > 1e-6 {
+			t.Fatalf("%s: raised to %v m, want +%v", body.name, up.Norm()-body.r, AntennaHeightM)
+		}
+		max := 2 * body.r * math.Acos(body.r/(body.r+AntennaHeightM))
+		t.Logf("%s: two landed antennas link out to %.0f m of ground", body.name, max)
+		for _, tc := range []struct {
+			arc  float64
+			want bool // occluded
+		}{{100, false}, {0.99 * max, false}, {1.01 * max, true}, {max * 20, true}} {
+			p, q := at(0), at(tc.arc)
+			if got := SegmentOccludedByBody(RaiseOffSurface(p, occ), RaiseOffSurface(q, occ), occ[1:]); got != tc.want {
+				t.Errorf("%s: %.0f m apart: occluded=%v, want %v", body.name, tc.arc, got, tc.want)
+			}
+		}
+		// Control: at ground level even 100 m apart reads blocked (the #880 bug).
+		if !SegmentOccludedByBody(at(0), at(100), occ[1:]) {
+			t.Errorf("%s: control: a ground-level 100 m pair should read blocked", body.name)
+		}
+	}
+	if p := (orbital.Vec3{X: 3}); RaiseOffSurface(p, nil) != p {
+		t.Error("no occluders must leave the point alone")
 	}
 }

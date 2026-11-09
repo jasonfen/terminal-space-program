@@ -121,6 +121,7 @@ type commNode struct {
 	// the home-telemetry blanket of its primary — see nearHomeRadiiFactor.
 	bodyID   string
 	nearHome bool
+	landed   bool // a vessel on the ground: its antenna stands physics.AntennaHeightM above pos for the sightline test (#880)
 }
 
 // connectivityResult is the full output of the connectivity solve: which
@@ -260,7 +261,14 @@ func commLinked(a, b commNode, occ []physics.OccluderBody) bool {
 	if a.pos.Sub(b.pos).Norm() > commLinkRangeM(a.rangeM, b.rangeM) {
 		return false
 	}
-	return !physics.SegmentOccludedByBody(a.pos, b.pos, occ)
+	pa, pb := a.pos, b.pos
+	if a.landed {
+		pa = physics.RaiseOffSurface(pa, occ)
+	}
+	if b.landed {
+		pb = physics.RaiseOffSurface(pb, occ)
+	}
+	return !physics.SegmentOccludedByBody(pa, pb, occ)
 }
 
 // nearHomeLink reports whether probe p, inside the near-home zone of its
@@ -370,6 +378,7 @@ func (w *World) RecomputeCommGraph() {
 			craftID:  c.ID,
 			bodyID:   c.Primary.ID,
 			nearHome: nearHome,
+			landed:   c.Landed,
 		})
 	}
 
@@ -390,6 +399,7 @@ func (w *World) RecomputeCommGraph() {
 			rangeM:   g.AntennaRangeM,
 			forwards: true,
 			bodyID:   g.PrimaryID,
+			landed:   g.Landed,
 			nearHome: stationBodies[g.PrimaryID] &&
 				g.RelPos.Norm() <= nearHomeRadiiFactor*primary.RadiusMeters(),
 		})
