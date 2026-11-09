@@ -36,7 +36,7 @@ import (
 )
 
 // AscentPredictHorizon bounds how far ahead the ascent arc forecasts.
-// Shorter than DescentPredictHorizon (30 min): the ascent arc's job is
+// Shorter than DescentPredictHorizon (45 min): the ascent arc's job is
 // "what does the immediate flight path look like from here", drawn close
 // enough to the sprite to stay legible on the chase-cam canvas — not a
 // full orbital-period lookahead. A craft still governed by atmosphere or

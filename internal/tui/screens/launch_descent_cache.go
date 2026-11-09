@@ -91,7 +91,7 @@ const (
 	// descentStopClockBucket is the staleness ceiling during an unpowered
 	// coast, matching the spirit of orbit.go's predictClockBucketNanos
 	// but fixed rather than period-scaled: the descent corridor's horizon
-	// is bounded (DescentPredictHorizon, 30 min) regardless of the live
+	// is bounded (DescentPredictHorizon, 45 min) regardless of the live
 	// orbit's own period, so there's no orbital timescale to derive a
 	// bucket from the way the node-leg predictor has one.
 	descentStopClockBucket = time.Second

@@ -409,3 +409,45 @@ func TestBracketRootCollapseNeedsTolerance(t *testing.T) {
 		}
 	}
 }
+
+// Fix L: the descent readouts look as far ahead as the deorbit planner. After
+// the deorbit burn from a 70 km Moon orbit the fall is ~38 min long, past the
+// old 30 min readout horizon, so the ENGINE cue (DescentCorridorFor + burn-at)
+// read empty while G already had a target. The horizon is one constant, and
+// the equal case (impact exactly at the horizon) is found: the forecast loop
+// stops only once elapsed time passes the horizon.
+func TestDescentReadoutsSeeTheWholeDeorbitFall(t *testing.T) {
+	if DescentPredictHorizon != deorbitHorizon {
+		t.Errorf("DescentPredictHorizon %v != deorbitHorizon %v", DescentPredictHorizon, deorbitHorizon)
+	}
+	w, c := deorbitWorld(t, 150, 0)
+	atAltitude(c, 70)
+	if _, err := w.PlanDeorbitAndEngage(); err != nil {
+		t.Fatal(err)
+	}
+	w.DisengageLandingAutopilot(c)
+	burned := false
+	for i := 0; i < 200000 && !burned; i++ {
+		w.Tick()
+		burned = i > 10 && len(c.Nodes) == 0 && c.ActiveBurn == nil
+	}
+	if !burned {
+		t.Fatal("deorbit burn never completed")
+	}
+	imp, ok := PredictImpact(c, 2*time.Hour)
+	if !ok || imp.TimeToImpact < 31*time.Minute {
+		t.Fatalf("setup: impact %v ok=%v, want a fall longer than the old 30 min horizon", imp.TimeToImpact, ok)
+	}
+	if _, ok := DescentCorridorFor(c, DescentPredictHorizon); !ok {
+		t.Errorf("no descent corridor %v out (impact %v): ENGINE node: reads empty", DescentPredictHorizon, imp.TimeToImpact)
+	}
+	if _, ok := PredictBurnAt(c, DescentPredictHorizon); !ok {
+		t.Errorf("no burn-at cue %v out (impact %v)", DescentPredictHorizon, imp.TimeToImpact)
+	}
+	if _, ok := PredictImpact(c, imp.TimeToImpact); !ok {
+		t.Errorf("impact exactly at the horizon (%v) not found, want found", imp.TimeToImpact)
+	}
+	if _, ok := PredictImpact(c, imp.TimeToImpact-5*time.Second); ok {
+		t.Errorf("impact 5 s past the horizon found, want not found")
+	}
+}
