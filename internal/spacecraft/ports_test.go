@@ -11,7 +11,7 @@ import (
 // than read back from parts.json so the test can disagree with the data.
 var adr0053PortedParts = []string{
 	"command-module", "csm", "csm-lm", "capsule", "kern-pod",
-	"apollo-ascent", "lander-ascent", "socket-ascent",
+	"apollo-ascent", "lander-ascent", "lander-ascent-crewed", "socket-ascent",
 	"rcs-tug", "nudge-tug", "ntr-tug", "ion-keeper",
 	"deep-space-relay", "thread-relay", "heartbeat-keeper", "uplink-relay",
 	"endpoint-station", "probe-sat-stage",
@@ -67,7 +67,7 @@ func TestPartsJSONPortsReachStageLookup(t *testing.T) {
 // count.
 func TestLoadoutTopStagePortsMatchADR(t *testing.T) {
 	ported := []string{
-		"Lander", "Apollo-Stack", "Apollo-TLI", "Capsule", "Kern-Stack",
+		"Lander", "Lander-Crewed", "Apollo-Stack", "Apollo-TLI", "Capsule", "Kern-Stack",
 		"RCS-tug", "Relay-Tug", "Station-Keeper", "Deep-Space-Relay",
 		"Thread-Relay", "Heartbeat-Keeper", "Uplink-Relay", "Nudge-Tug",
 		"Endpoint-Station", "Socket-Lander", "Token-Pod", "Probe-Sat",

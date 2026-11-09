@@ -106,6 +106,9 @@ type Keymap struct {
 	// PlanDeorbit (ADR 0066 decision 21) plants the retro node that stops the
 	// vessel on the targeted site.
 	PlanDeorbit key.Binding
+	// PlanDeorbitOnly (`B`, ADR 0067 P35) plants the same node as `N` and
+	// engages nothing: the hold is left alone and the burn fires itself.
+	PlanDeorbitOnly key.Binding
 	// PlanRendezvous (v0.10.2+) plants the recommended single-burn
 	// nudge that improves closest approach to the current craft
 	// target. Mirrors the H/I/C capital-letter plant-burn family;
@@ -444,12 +447,13 @@ func DefaultKeymap() Keymap {
 		FocusPrev:       key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "prev focus")),
 		FocusReset:      key.NewBinding(key.WithKeys("alt+s"), key.WithHelp("alt+s", "focus: system")),
 		PanReset:        key.NewBinding(key.WithKeys("g"), key.WithHelp("g", "pan: back onto your focus")),
-		SpawnCraft:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "spawn vessel (sister copy of active)")),
+		SpawnCraft:      key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "open the spawn form (loadout / position / inclination)")),
 		ClearNodes:      key.NewBinding(), // v0.8.6: dropped — see ClearNodes field comment.
 		PlanTransfer:    key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "plant transfer to selected body (plane-aware)")),
 		PlanIncl:        key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "plant plane match (body / vessel / equatorial)")),
 		PlanCircularize: key.NewBinding(key.WithKeys("C"), key.WithHelp("C", "plant circularize burn at next apoapsis")),
 		PlanDeorbit:     key.NewBinding(key.WithKeys("N"), key.WithHelp("N", "plant deorbit burn onto the targeted site")),
+		PlanDeorbitOnly: key.NewBinding(key.WithKeys("B"), key.WithHelp("B", "plant deorbit burn only (no hold, no autopilot)")),
 		PlanRendezvous:  key.NewBinding(key.WithKeys("K"), key.WithHelp("K", "plant rendezvous nudge to target vessel")),
 		Porkchop:        key.NewBinding(key.WithKeys("P"), key.WithHelp("P", "porkchop plot to target planet")),
 		Save:            key.NewBinding(key.WithKeys("f5"), key.WithHelp("F5", "quicksave")),

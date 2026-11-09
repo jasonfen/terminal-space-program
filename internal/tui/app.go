@@ -1317,6 +1317,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					a.doPlanDeorbit()
 					a.closeManeuverToOrbit()
 					return a, nil
+				case key.Matches(m, a.keys.PlanDeorbitOnly):
+					a.doPlanDeorbitOnly()
+					a.closeManeuverToOrbit()
+					return a, nil
 				case key.Matches(m, a.keys.PlanRendezvous):
 					// handlePlanRendezvousKey may itself route to the
 					// Rendezvous Planner picker (a.active = screenOrbit
@@ -1712,6 +1716,9 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a, nil
 		case key.Matches(m, a.keys.PlanDeorbit):
 			a.doPlanDeorbit()
+			return a, nil
+		case key.Matches(m, a.keys.PlanDeorbitOnly):
+			a.doPlanDeorbitOnly()
 			return a, nil
 		case key.Matches(m, a.keys.PlanRendezvous):
 			// v0.10.2+: `K` plants the recommended single-burn nudge
@@ -4812,6 +4819,30 @@ func (a *App) doPlanDeorbit() {
 		a.refuse("site hold", siteHoldRefusal(err))
 		return
 	}
+	a.flash(deorbitFlash(plan))
+}
+
+// doPlanDeorbitOnly executes `B` (ADR 0067 P35): the same node, footer and
+// refusals as `N`, but nothing is engaged and the hold is left as it was.
+func (a *App) doPlanDeorbitOnly() {
+	if !a.world.CraftVisibleHere() {
+		a.refuse("deorbit", "vessel not in this system")
+		return
+	}
+	if planted := a.plantedBurnSummaryExcept(sim.AdvisoryKeyDeorbit); planted != "" {
+		a.refuse("deorbit", fmt.Sprintf("a burn is already planted (%s); clear it in [m] first", planted))
+		return
+	}
+	plan, err := a.world.PlanDeorbitOntoSite()
+	if err != nil {
+		a.refuse("deorbit", deorbitRefusal(err))
+		return
+	}
+	a.flash(deorbitFlash(plan))
+}
+
+// deorbitFlash is the footer line for a planted deorbit (`N` and `B`).
+func deorbitFlash(plan *sim.DeorbitPlan) string {
 	aim := "stop"
 	if plan.Impact {
 		aim = "impact"
@@ -4821,8 +4852,8 @@ func (a *App) doPlanDeorbit() {
 	if long < 0 {
 		side, long = "short", -long
 	}
-	a.flash(fmt.Sprintf("deorbit onto %s → %s retro in %s, %s %s %s",
-		plan.Site, readout.DeltaV(plan.DV), readout.Duration(plan.In), aim, readout.Distance(long), side))
+	return fmt.Sprintf("deorbit onto %s → %s retro in %s, %s %s %s",
+		plan.Site, readout.DeltaV(plan.DV), readout.Duration(plan.In), aim, readout.Distance(long), side)
 }
 
 // shortAngle is readout.Angle without trailing zeros ("4.2°", "78°").

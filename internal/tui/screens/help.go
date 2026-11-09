@@ -158,6 +158,7 @@ var helpSections = []helpSection{
 		{"I", "plant plane match ([t] target body / vessel / equatorial); also works inside the planner"},
 		{"C", "plant circularize burn at next apoapsis; also works inside the planner"},
 		{"N", "deorbit onto the targeted site: plant one retro burn that puts your 90% brake's stop point on the flag (the brake cue plans the same 90%, rsv 10%); and engage Site+ on [SITE] as auto (the clock stays yours); N again re-solves, or engages from here mid-descent; also works inside the planner"},
+		{"B", "plant the deorbit burn only: the same one retro node and footer line as N (and the same refusals) onto the targeted site, with nothing engaged; your hold, the navball and the throttle stay as they are, and the burn fires itself"},
 		{"K", "close on target vessel: plant nudge, or open the Rendezvous Planner if too far in phase; also works inside the planner"},
 		{"R", "refine plan (re-Lambert the arrival); also works inside the planner"},
 		{"P", "porkchop plot to your TARGET planet; also works inside the planner"},

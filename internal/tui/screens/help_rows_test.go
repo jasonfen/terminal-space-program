@@ -97,6 +97,7 @@ func helpPhraseRows() []helpPhrase {
 		{name: "PLAN BURNS C", section: "PLAN BURNS", token: "C", has: []string{"circularize"}},
 		{name: "PLAN BURNS c", section: "PLAN BURNS", token: "c", has: []string{"throttle target"}},
 		{name: "PLAN BURNS N", section: "PLAN BURNS", token: "N", has: []string{"deorbit", "90%"}},
+		{name: "PLAN BURNS B", section: "PLAN BURNS", token: "B", has: []string{"deorbit burn only", "nothing engaged", "hold"}},
 		{name: "z/x selected throttle", section: "MANUAL FLIGHT", token: "z / x", has: []string{"selected throttle"}},
 		{name: "Z/X selected throttle", section: "MANUAL FLIGHT", token: "Z / X", has: []string{"selected throttle"}},
 		{name: "alt+z/x selected throttle", section: "MANUAL FLIGHT", token: "alt+z / alt+x", has: []string{"selected throttle"}},

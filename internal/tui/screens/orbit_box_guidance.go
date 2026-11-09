@@ -58,6 +58,9 @@ func (v *OrbitView) buildGuidanceBox(w *sim.World) []string {
 		}
 	}
 	headingLabel := readout.Heading(headingAbsDeg)
+	if math.Abs(c.HeadingTrim)*180/math.Pi > 0.05 { // P34: same threshold and colour as trim:
+		headingLabel = v.theme.Warning.Render(headingLabel)
+	}
 	trimDeg := w.TrimNoseDownDeg(c)
 	trimLabel := readout.TrimAngle(trimDeg)
 	if math.Abs(trimDeg) > 0.05 {
