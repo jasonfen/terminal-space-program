@@ -285,7 +285,7 @@ func TestSiteHoldLabelNamesEveryPhase(t *testing.T) {
 	}
 	c := w.ActiveCraft()
 	c.Landing = &spacecraft.LandingAutopilot{}
-	if got := w.siteHoldLabel(); got != "Site+" {
+	if got := w.siteHoldLabel(w.ActiveCraft()); got != "Site+" {
 		t.Errorf("disengaged = %q, want Site+", got)
 	}
 	c.Landing.Engaged = true
@@ -300,8 +300,8 @@ func TestSiteHoldLabelNamesEveryPhase(t *testing.T) {
 			spacecraft.PhaseApproach: "approach", spacecraft.PhaseFinal: "final",
 		} {
 			c.Landing.Phase = p
-			if want := "Site+" + tag + " " + word; w.siteHoldLabel() != want {
-				t.Errorf("nose=%v phase %v = %q, want %q", nose, p, w.siteHoldLabel(), want)
+			if want := "Site+" + tag + " " + word; w.siteHoldLabel(w.ActiveCraft()) != want {
+				t.Errorf("nose=%v phase %v = %q, want %q", nose, p, w.siteHoldLabel(w.ActiveCraft()), want)
 			}
 		}
 	}

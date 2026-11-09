@@ -119,8 +119,8 @@ func TestLandingAutopilotRODHoldsTheCommandedRate(t *testing.T) {
 				t.Fatal("LandingROD refused an engaged autopilot")
 			}
 			cmd = ap.RODRateMps
-			if want := fmt.Sprintf("Site+ ROD \u2212%.1f m/s", -cmd); w.siteHoldLabel() != want {
-				t.Errorf("hold reads %q, want %q", w.siteHoldLabel(), want)
+			if want := fmt.Sprintf("Site+ ROD \u2212%.1f m/s", -cmd); w.siteHoldLabel(w.ActiveCraft()) != want {
+				t.Errorf("hold reads %q, want %q", w.siteHoldLabel(w.ActiveCraft()), want)
 			}
 			return
 		}

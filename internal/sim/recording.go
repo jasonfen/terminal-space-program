@@ -279,7 +279,7 @@ func (w *World) recTPlus(c *spacecraft.Spacecraft, sim time.Time) (time.Duration
 
 // holdText is the GUIDANCE box's hold cell: name and frame tag.
 func (w *World) holdText(c *spacecraft.Spacecraft) string {
-	name, frame := w.AttitudeHoldParts(c.AttitudeMode)
+	name, frame := w.attitudeHoldPartsFor(c, c.AttitudeMode)
 	return fmt.Sprintf("%s (%s)", name, frame.Tag())
 }
 
@@ -327,8 +327,18 @@ const recordCloseHorizonSec = 4 * 3600.0
 // rendezvous had to be rebuilt from an autosave because the file said nothing
 // about the CSM). Landed, only range and relative speed are read.
 func (w *World) recordTarget(c *spacecraft.Spacecraft, row *recorder.Row) {
+	if c != w.ActiveCraft() {
+		// A vessel nobody is flying keeps its own site aim (apTarget), so a
+		// background touchdown still reads its range from the flag.
+		if lat, lon, name, ok := w.apTarget(c); ok {
+			rT, vT := surfacePointState(c.Primary, lat, lon, w.Clock.SimTime)
+			row.Target, row.RangeM, row.RelMS = name, rT.Sub(c.State.R).Norm(), vT.Sub(c.State.V).Norm()
+			row.CloseM, row.DInclDeg, row.LeadDeg = math.NaN(), math.NaN(), math.NaN()
+		}
+		return
+	}
 	rT, vT, ok := w.TargetStateRelativeToActivePrimary()
-	if !ok || c != w.ActiveCraft() {
+	if !ok {
 		return
 	}
 	row.Target = w.TargetName()

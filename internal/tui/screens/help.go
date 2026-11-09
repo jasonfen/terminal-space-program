@@ -87,7 +87,7 @@ var helpSections = []helpSection{
 		{"v", "cycle view (Tilted / Top / Right / Bottom / Left / Orbit-flat), projections only; two rows above \"view:\" read which way north points (N ↑ up, N ⊙ toward you, N ⊗ away; a degree figure, N ↑ 42°, is how far north tilts toward or away from you, 0° flat on the screen) and how open your orbit ring looks (plane ◠ 67° open: 0° ─ is a flat line, 90° ○ a full circle)"},
 		{"V", "launch / surface view: chase-cam on your active vessel; draws the targeted flag ⚑ (press again to return)"},
 		{"o", "proximity view: side picture, scope top-right; port line, misalign, lateral; their hull dotted = out of your plane"},
-		{"o (on ground)", "flag or landed vessel: landing view, dashed stop ⊙, LANDING chip, OVERHEAD inset; cross: / lat vel: = crossrange"},
+		{"o (on ground)", "flag or landed vessel: landing view, stop ⊙, LANDING chip, OVERHEAD inset; twr:, cross: / lat vel: = crossrange"},
 		{"shift+← / shift+→", "pan the view left / right (displaces the tracked center; [g] or any refocus clears it)"},
 		{"shift+↑ / shift+↓", "pan the view up / down (plain arrows are the flight trims, see MANUAL FLIGHT)"},
 		{"> / <", "tilt the 3D view up / down (tilted view only; moves the camera, never the vessel)"},
@@ -136,7 +136,7 @@ var helpSections = []helpSection{
 		{"e (SITE)", "in SITE: hold straight up (Site\u2212), no guidance; under N, e sinks"},
 		{"e / q (Site+ auto)", "under N, approach and final: e sinks 1 m/s slower, q faster; z x Z X take the throttle"},
 		{"q e w s a d (rcs)", "in SITE with RCS armed: pulse fwd / back, up / down, left / right; refused under N, free under q"},
-		{"alt+e / alt+q", "under Site+: the same sink steps, 0.3 m/s a press"},
+		{"alt+e / alt+q", "under Site+ auto, approach and final: the same sink steps, 0.3 m/s a press"},
 		{"arrows (Site+ auto)", "under N: ←/→ aim short/long, ↑/↓ left/right; 1 km, 250 m inside 50 km, 25 m inside 5 km; alt ≤10 m; | clears"},
 	}},
 	{"NAVIGATION", [][2]string{

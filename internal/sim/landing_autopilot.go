@@ -484,11 +484,18 @@ func (w *World) LandingHandOverThrottle() bool {
 // tickLandingAutopilot runs one tick of c's autopilot, called for every vessel.
 func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
 	ap := c.Landing
-	if ap == nil || !ap.Engaged {
+	if ap == nil {
 		return
 	}
 	if c.Landed || c.Crashed {
+		if !ap.Engaged {
+			ap.ClearAttempt() // a hand landing ends the attempt too: no stale aim for the next N
+			return
+		}
 		w.landingEnded(c)
+		return
+	}
+	if !ap.Engaged {
 		return
 	}
 	lat, lon, _, ok := w.apTarget(c)

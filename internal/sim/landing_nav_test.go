@@ -210,6 +210,32 @@ func TestSiteShiftRungsAndNudge(t *testing.T) {
 	}
 }
 
+// F2 (review 2): a hand takeover keeps the aim while the vessel flies, but a
+// hand landing ends the attempt, so the next N replans against the real flag.
+func TestHandLandingClearsTheAimAttempt(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	if _, err := w.PlanDeorbitAndEngage(); err != nil {
+		t.Fatal(err)
+	}
+	w.NudgeLandingAim(+1, 0, false)
+	if c.Landing.AimAlongM == 0 || !c.Landing.NavSeeded {
+		t.Fatalf("setup: aim %v seeded %v", c.Landing.AimAlongM, c.Landing.NavSeeded)
+	}
+	w.SetAttitudeMode(spacecraft.BurnSurfaceRetrograde) // the hold key takes the nose
+	if c.Landing.Engaged {
+		t.Fatal("setup: the hold key left the autopilot engaged")
+	}
+	ticks(w, 3) // still flying: the aim is the attempt's, it stays
+	if c.Landing.AimAlongM == 0 {
+		t.Error("the aim was dropped while the vessel still flew")
+	}
+	c.Landed = true
+	ticks(w, 3)
+	if c.Landing.AimAlongM != 0 || c.Landing.AimAcrossM != 0 || c.Landing.NavSeeded {
+		t.Errorf("hand landing left aim %v/%v seeded %v", c.Landing.AimAlongM, c.Landing.AimAcrossM, c.Landing.NavSeeded)
+	}
+}
+
 // walkAim presses the arrows, one axis at a time and alt once the rest
 // is under 600 m, until the computer's site is within 25 m of the real flag;
 // it reports the presses.
