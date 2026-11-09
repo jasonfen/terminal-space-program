@@ -70,7 +70,7 @@
     },
     {
       "id": "Lander",
-      "name": "Lander",
+      "name": "Uncrewed Lander",
       "role": "lander",
       "category": "landers-capsules",
       "glyph": "➤",
@@ -81,6 +81,22 @@
         },
         {
           "part_id": "lander-ascent"
+        }
+      ]
+    },
+    {
+      "id": "Lander-Crewed",
+      "name": "Crewed Lander",
+      "role": "lander",
+      "category": "landers-capsules",
+      "glyph": "➤",
+      "color": "#5FFF87",
+      "parts": [
+        {
+          "part_id": "lander-descent"
+        },
+        {
+          "part_id": "lander-ascent-crewed"
         }
       ]
     },

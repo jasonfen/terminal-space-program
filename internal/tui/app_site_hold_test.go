@@ -192,3 +192,28 @@ func TestNEngagesSitePlus(t *testing.T) {
 		t.Errorf("after N (%q): landing=%+v hold=%v nav=%v, want Site+ engaged on SITE", a.statusMsg, c.Landing, c.AttitudeMode, a.world.NavMode)
 	}
 }
+
+// ADR 0067 P35: B plants the same node and footer as N and engages nothing;
+// the hold, the nav mode and the autopilot are left as they were.
+func TestBPlantsDeorbitAndEngagesNothing(t *testing.T) {
+	aN, _ := siteHoldApp(t)
+	aN.world.NavMode = sim.NavSurface
+	pressKey(aN, 'N')
+
+	a, c := siteHoldApp(t)
+	a.world.NavMode = sim.NavSurface
+	hold := c.AttitudeMode
+	pressKey(a, 'B')
+	if c.Landing != nil && c.Landing.Engaged {
+		t.Errorf("B engaged the autopilot (%q)", a.statusMsg)
+	}
+	if c.AttitudeMode != hold || a.world.NavMode != sim.NavSurface {
+		t.Errorf("B moved the hold %v -> %v or nav to %v", hold, c.AttitudeMode, a.world.NavMode)
+	}
+	if !strings.HasPrefix(a.statusMsg, "deorbit onto ") || a.statusMsg != aN.statusMsg {
+		t.Errorf("B footer %q, want N's %q", a.statusMsg, aN.statusMsg)
+	}
+	if len(c.Nodes) == 0 {
+		t.Error("B planted no node")
+	}
+}

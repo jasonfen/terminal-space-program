@@ -233,7 +233,29 @@
       "can_soft_land": true
     },
     {
+      "id": "lander-ascent-crewed",
+      "ports": [{"end": "top"}],
+      "name": "Ascent",
+      "command_source": "crewed",
+      "antenna": {"kind": "direct", "range_m": 100000000},
+      "glyph": "➤",
+      "color": "#7BFFA0",
+      "tier": "payload",
+      "diameter_m": 4.29,
+      "dry_mass_kg": 1200,
+      "fuel_mass_kg": 1800,
+      "fuel_capacity_kg": 1800,
+      "thrust_n": 16000,
+      "isp_s": 311,
+      "launch_sprite_rows_px": 3,
+      "launch_sprite_width_px": 2,
+      "launch_sprite_color": "#D8D4C0",
+      "fuel_type": "hypergolic",
+      "can_soft_land": true
+    },
+    {
       "id": "csm",
+      "antenna": {"kind": "direct", "range_m": 100000000},
       "ports": [{"end": "top"}],
       "vab_seed": ["sps-transfer", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "hyper-tank-15", "crew-capsule"],
       "name": "CSM",
@@ -272,6 +294,7 @@
     },
     {
       "id": "command-module",
+      "antenna": {"kind": "direct", "range_m": 100000000},
       "ports": [{"end": "top"}],
       "name": "CM",
       "command_source": "crewed",
@@ -287,6 +310,7 @@
     },
     {
       "id": "csm-lm",
+      "antenna": {"kind": "direct", "range_m": 100000000},
       "ports": [{"end": "top"}],
       "name": "CSM+LM",
       "glyph": "➤",
@@ -512,6 +536,7 @@
     },
     {
       "id": "apollo-ascent",
+      "antenna": {"kind": "direct", "range_m": 100000000},
       "ports": [{"end": "top"}],
       "name": "Ascent",
       "tier": "payload",
