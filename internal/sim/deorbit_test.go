@@ -380,3 +380,32 @@ func TestDeorbitRefusalSaysBrakeNeedsAltitude(t *testing.T) {
 		t.Errorf("fuel-starved err = %v, want the plain no solution", err)
 	}
 }
+
+// Fix J2: bracketRoot's collapse onto a jump (finite on one side, +Inf on the
+// other, the live 50 km Lander: -946 km at the feasibility edge) is no root.
+// At exactly the tolerance it is one.
+func TestBracketRootCollapseNeedsTolerance(t *testing.T) {
+	const tol = 50.0
+	step := func(edge, miss float64) func(float64) float64 {
+		return func(dv float64) float64 {
+			if dv < edge {
+				return math.Inf(1) // too shallow: no ground
+			}
+			return -miss
+		}
+	}
+	for _, tc := range []struct {
+		name string
+		miss float64
+		want bool
+	}{{"946 km short refuses", 946104, false}, {"just over the tolerance refuses", tol + 0.01, false}, {"exactly the tolerance accepts", tol, true}} {
+		// Where the last probe lands relative to the edge decides the old
+		// answer, so sweep the edge.
+		for edge := 12.0; edge < 13.0; edge += 0.0137 {
+			if _, ok := bracketRoot(step(edge, tc.miss), 15, tol); ok != tc.want {
+				t.Errorf("%s (edge %.4f): ok = %v, want %v", tc.name, edge, ok, tc.want)
+				break
+			}
+		}
+	}
+}
