@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/planner"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
@@ -403,5 +405,46 @@ func TestClosestApproachMarkerAbsentWhenStillClosingAt4h(t *testing.T) {
 	out := v.Render(stillClosingAt4hWorld(t), 0, 200, 60)
 	if strings.ContainsRune(out, render.MarkerGlyph(render.MarkerClosestApproach)) {
 		t.Errorf("✕ marker drawn at the 4 h search edge:\n%s", out)
+	}
+}
+
+// #882: a targeted site's mark (⚑) wins its cell over the closest-approach ✕;
+// the ✕ means nothing for a point on the ground. The fixture scans the site's
+// longitude (west of the vessel: near side, off its own cell) until the ✕'s target end falls in the flag's cell at 140x40
+// (the guard is vacuous if no longitude gets there, so that is asserted).
+func TestSiteMarkWinsCellOverClosestApproachX(t *testing.T) {
+	v := NewOrbitView(Theme{HUDBox: lipgloss.NewStyle()})
+	v.Resize(140, 40)
+	w := moonSiteDescentWorld(t, false)
+	c := w.ActiveCraft()
+	site := &w.Sites[0]
+	site.LatDeg = 0
+	shared := 0
+	for lon := -60.0; lon <= -10; lon += 0.05 { // west of the vessel: near side, clear of its own cell
+		site.LonDeg = lon
+		out := v.Render(w, 0, 140, 40)
+		rT, vT, ok := w.TargetStateRelativeToActivePrimary()
+		if !ok {
+			t.Fatal("no target state")
+		}
+		_, _, _, posB, err := planner.NextClosestApproachPositions(
+			orbital.Vec3State{R: c.State.R, V: c.State.V}, orbital.Vec3State{R: rT, V: vT},
+			c.Primary.GravitationalParameter(), closestApproachHorizonSec)
+		if err != nil {
+			continue
+		}
+		sitePos, _, _ := w.SiteWorldPos(*site)
+		if !v.canvas.SameCell(w.BodyPosition(c.Primary).Add(posB), sitePos) {
+			continue
+		}
+		shared++
+		px, py, _ := v.canvas.Project(sitePos)
+		cell := []rune(ansi.Strip(strings.Split(v.canvas.String(), "\n")[py/4]))[px/2]
+		if cell != '⚑' {
+			t.Fatalf("lon %.2f: the flag's cell reads %q, want ⚑ (the ✕ hides it):\n%s", lon, cell, out)
+		}
+	}
+	if shared == 0 {
+		t.Fatal("no longitude put the ✕ under the flag; fixture does not reach the case")
 	}
 }

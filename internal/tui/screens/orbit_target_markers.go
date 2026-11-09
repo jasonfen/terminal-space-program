@@ -84,14 +84,21 @@ func (v *OrbitView) drawClosestApproachMarker(w *sim.World) {
 		v.registerDrawnOwner(caRef, inspectApproachName(w), targetPos, false)
 	}
 	v.drawMarkerClear(ownPos, render.MarkerClosestApproach, render.MarkerNominal, "", caTag)
-	v.drawMarkerClear(targetPos, render.MarkerClosestApproach, render.MarkerNominal, "", caTag)
+	// #882: the ✕ means nothing for a point on the ground, so a site target's
+	// ⚑/☠ keeps its cell; the craft's own end still draws.
+	groundTarget := w.Target.Kind == sim.TargetSite
+	if !groundTarget {
+		v.drawMarkerClear(targetPos, render.MarkerClosestApproach, render.MarkerNominal, "", caTag)
+	}
 	if v.isInspected(caRef) {
 		// Flare BOTH ends: the pair is the entity, and lighting only one
 		// ✕ would hide the very thing the marker exists to show — which
 		// two points on which two orbits the encounter joins.
 		glyph := render.MarkerGlyph(render.MarkerClosestApproach)
 		v.canvas.SetCellOverlayColored(ownPos, glyph, render.ColorInspect)
-		v.canvas.SetCellOverlayColored(targetPos, glyph, render.ColorInspect)
+		if !groundTarget {
+			v.canvas.SetCellOverlayColored(targetPos, glyph, render.ColorInspect)
+		}
 	}
 }
 
