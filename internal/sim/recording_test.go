@@ -1279,3 +1279,81 @@ func TestGhostAndDebrisGetNoRecording(t *testing.T) {
 		}
 	}
 }
+
+// L3 (review-2): a SITE trim row pressed while paused is written at the paused
+// moment (first Tick returns early on Paused), and a vessel switch before any
+// tick still stamps the outgoing vessel's row with the outgoing vessel's tail.
+func TestSiteTrimRowWhilePausedAndAcrossSwitch(t *testing.T) {
+	w, c, path := siteRecWorld(t)
+	w.Clock.Paused = true
+	press(w, func() { c.PitchTrim += spacecraft.PitchTrimFineStepRad })
+	w.Tick() // still paused
+	if got := lastEv(t, path); !strings.HasPrefix(got, "trim: ") {
+		t.Errorf("paused trim press not written by a paused Tick: last row %q", got)
+	}
+	// equal case: nothing pending, nothing written
+	_, before := recRead(t, path)
+	w.Tick()
+	if _, after := recRead(t, path); len(after) != len(before) {
+		t.Errorf("an idle paused Tick wrote %q", after[len(before):])
+	}
+	// switch before any tick: the row is flushed first, in the outgoing file
+	press(w, func() { c.PitchTrim += spacecraft.PitchTrimFineStepRad })
+	_, before = recRead(t, path)
+	awayFrom(t, w)
+	_, after := recRead(t, path)
+	if len(after) < len(before)+2 || !strings.HasPrefix(after[len(before)], "trim: ") || !strings.HasPrefix(after[len(before)+1], "active vessel") {
+		t.Errorf("rows after switch = %q, want trim row then active vessel", after[len(before):])
+	}
+}
+
+// Both hulls of a bump record it: the row lands in the Active Vessel's file and
+// in the partner's, each naming the other. Flight 10 saw it in only one file.
+func TestBumpRowLandsInBothVesselsFiles(t *testing.T) {
+	w, a, b := bumpWorld(t, 30, -0.3)
+	dir := recAttach(t, w)
+	tickUntil(w, 2000, func() bool { return w.LastBumpEvent != nil })
+	if w.LastBumpEvent == nil {
+		t.Fatal("setup: no bump")
+	}
+	for _, tc := range []struct {
+		c    *spacecraft.Spacecraft
+		want string
+	}{{a, "bump: " + b.Name + ", 0.3 m/s"}, {b, "bump: " + a.Name + ", 0.3 m/s"}} {
+		got := allEv(t, fileOf(t, dir, tc.c))
+		n := 0
+		for _, e := range got {
+			if e == tc.want {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s file has %d rows %q, want 1; events %q", tc.c.Name, n, tc.want, got)
+		}
+	}
+}
+
+// Background rows fill close/tca/Δincl for the vessel's own site aim the way the
+// Active Vessel's do (was "-"); lead stays NaN (a site has none), and the Landed
+// equal case keeps all three NaN.
+func TestBackgroundRowFillsApproachColumns(t *testing.T) {
+	w, c, _ := bgLander(t)
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	awayFrom(t, w)
+	row := w.rowFor(c, "")
+	if row.Target == "" {
+		t.Fatalf("setup: background vessel has no site aim")
+	}
+	if math.IsNaN(row.DInclDeg) || (math.IsNaN(row.CloseM) && row.TCA == 0) {
+		t.Errorf("background row close %v tca %v dincl %v: still unfilled", row.CloseM, row.TCA, row.DInclDeg)
+	}
+	if !math.IsNaN(row.LeadDeg) {
+		t.Errorf("lead = %v, want NaN for a site", row.LeadDeg)
+	}
+	c.Landed = true
+	if row := w.rowFor(c, ""); !math.IsNaN(row.CloseM) || !math.IsNaN(row.DInclDeg) || row.TCA != 0 {
+		t.Errorf("landed row filled close/tca/dincl: %+v", row)
+	}
+}

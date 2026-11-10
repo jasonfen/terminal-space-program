@@ -1,6 +1,9 @@
 package spacecraft
 
-import "fmt"
+import (
+	"fmt"
+	"math"
+)
 
 // Component is the finest catalog noun (ADR 0029 §1, the VAB cycle / Axis B
 // cycle 4) — one level below the atomic Part. A Part may declare an
@@ -77,6 +80,14 @@ type Component struct {
 	// CargoHold (ADR 0057 5.1) lets the stage that holds this component
 	// receive cargo. composePart ORs it onto the composed Part.
 	CargoHold bool `json:"cargo_hold,omitempty"`
+
+	// RCSThrustN / MonopropMassKg (ADR 0067 decision 9) are the component's
+	// published RCS figures (the LM's 890 N and its share of the 287 kg load).
+	// composePart carries the largest thrust and the summed monoprop onto the
+	// composed Part; zero adds nothing, and neither adds to dry mass (published
+	// masses are inclusive).
+	RCSThrustN     float64 `json:"rcs_thrust_n,omitempty"`
+	MonopropMassKg float64 `json:"monoprop_mass_kg,omitempty"`
 }
 
 // Component-kind constants (ADR 0029 §2). The five kinds that ship this
@@ -120,7 +131,7 @@ func ComposeStage(componentIDs []string, comps map[string]Component) (Stage, str
 		return Stage{}, err.Error()
 	}
 	st := agg.ToStage()
-	mp, monoCap, rcsThrust, rcsIsp := DefaultRCSLoadout(st.DryMass)
+	mp, monoCap, rcsThrust, rcsIsp := stageRCSFor(st.DryMass, agg.RCSThrustN, agg.MonopropMassKg)
 	st.MonopropMass, st.MonopropCap, st.RCSThrust, st.RCSIsp = mp, monoCap, rcsThrust, rcsIsp
 	return st, ""
 }
@@ -175,6 +186,7 @@ func composePart(p Part, comps map[string]Component) (Part, error) {
 	var canSoftLand, hasParachute bool
 	var compPorts []PartPort
 	cargoHold := p.CargoHold
+	var rcsThrust, monoprop float64
 
 	setFuel := func(ft string) error {
 		if ft == "" {
@@ -198,6 +210,8 @@ func composePart(p Part, comps map[string]Component) (Part, error) {
 		dryMass += c.DryMassKg
 		compPorts = append(compPorts, c.Ports...)
 		cargoHold = cargoHold || c.CargoHold
+		rcsThrust = math.Max(rcsThrust, c.RCSThrustN)
+		monoprop += c.MonopropMassKg
 		switch c.Kind {
 		case ComponentEngine:
 			if c.ThrustN > 0 && c.IspS > 0 {
@@ -253,6 +267,14 @@ func composePart(p Part, comps map[string]Component) (Part, error) {
 	// component's.
 	out.Ports = append(append([]PartPort(nil), p.Ports...), compPorts...)
 	out.CargoHold = cargoHold
+	// A Part's own RCS figures win; otherwise the components' (zero keeps the
+	// dry-mass scaling).
+	if p.RCSThrustN == 0 {
+		out.RCSThrustN = rcsThrust
+	}
+	if p.MonopropMassKg == 0 {
+		out.MonopropMassKg = monoprop
+	}
 	if antennaKind != AntennaNone {
 		out.Antenna = &Antenna{Kind: antennaKind, RangeM: antennaRange}
 	} else {

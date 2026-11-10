@@ -994,6 +994,7 @@ func (w *World) CraftInertial() orbital.Vec3 {
 // sub-step is < 1/100th of the current orbital period.
 func (w *World) Tick() {
 	if w.Clock.Paused {
+		w.flushPendingRows() // a press while paused is stamped now, not at the first tick after resume
 		return
 	}
 

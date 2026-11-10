@@ -257,3 +257,29 @@ func TestComponentsGlobalLoadsEmbedded(t *testing.T) {
 		t.Fatal("Components global is nil, want non-nil map")
 	}
 }
+
+// ADR 0067 decision 9: a VAB stage built from the LM's components carries the
+// LM's RCS (890 N; 193.9 kg for the descent engine, 93.1 kg for the cabin, 287
+// kg together) with no change to the dry mass; a stage with neither keeps the
+// dry-mass scaling (the equal case).
+func TestComposeStageCarriesLMRCSFromItsComponents(t *testing.T) {
+	desc, w1 := ComposeStage([]string{"lmde-descent", "hyper-tank-15"}, Components)
+	both, w2 := ComposeStage([]string{"lander-can", "lmde-descent", "hyper-tank-15"}, Components)
+	plain, w3 := ComposeStage([]string{"probe-core", "rl10-vac", "hydro-tank-2k"}, Components)
+	if w1 != "" || w2 != "" || w3 != "" {
+		t.Fatalf("warnings %q %q %q", w1, w2, w3)
+	}
+	if desc.RCSThrust != 890 || math.Abs(desc.MonopropMass-193.9) > 1e-9 || desc.MonopropCap != desc.MonopropMass {
+		t.Errorf("descent-engine stage RCS %.1f N, %.1f/%.1f kg, want 890 N, 193.9 full", desc.RCSThrust, desc.MonopropMass, desc.MonopropCap)
+	}
+	if both.RCSThrust != 890 || math.Abs(both.MonopropMass-287) > 1e-9 {
+		t.Errorf("cabin+descent stage RCS %.1f N, %.1f kg, want 890 N, 287", both.RCSThrust, both.MonopropMass)
+	}
+	if want := both.DryMass - 600; math.Abs(want-desc.DryMass) > 1e-9 {
+		t.Errorf("RCS figures changed the dry mass: %.1f vs %.1f", both.DryMass, desc.DryMass)
+	}
+	_, capWant, thrWant, _ := DefaultRCSLoadout(plain.DryMass)
+	if plain.MonopropCap != capWant || plain.RCSThrust != thrWant {
+		t.Errorf("plain stage RCS %.1f kg / %.1f N, want the scaling %.1f / %.1f", plain.MonopropCap, plain.RCSThrust, capWant, thrWant)
+	}
+}

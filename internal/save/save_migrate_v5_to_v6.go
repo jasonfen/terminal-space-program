@@ -42,6 +42,8 @@ func wireStagesToSim(wire []Stage) []spacecraft.Stage {
 			CargoKg:              s.CargoKg,
 			HoldKg:               s.HoldKg,
 			CargoHold:            s.CargoHold,
+			NavSigmaAlongM:       s.NavSigmaAlongM,
+			NavSigmaAcrossM:      s.NavSigmaAcrossM,
 			LitWithAbove:         s.LitWithAbove,
 		}
 		// The save does not carry the launch-sprite dimensions; the hull,
@@ -95,6 +97,8 @@ func simStagesToWire(stages []spacecraft.Stage) []Stage {
 			CargoKg:              s.CargoKg,
 			HoldKg:               s.HoldKg,
 			CargoHold:            s.CargoHold,
+			NavSigmaAlongM:       s.NavSigmaAlongM,
+			NavSigmaAcrossM:      s.NavSigmaAcrossM,
 			LitWithAbove:         s.LitWithAbove,
 		}
 	}

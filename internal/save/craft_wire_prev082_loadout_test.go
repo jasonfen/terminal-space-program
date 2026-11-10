@@ -1,6 +1,7 @@
 package save
 
 import (
+	"math"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
@@ -96,5 +97,91 @@ func TestSavedApolloLMTakesTheCatalogAntennaOnLoad(t *testing.T) {
 	}
 	if got := load("Apollo-TLI", true, "apollo-ascent", "apollo-descent"); got != spacecraft.DefaultProbeAntennaRangeM {
 		t.Errorf("stack out of catalog order loads at %g, want the 1e7 backfill", got)
+	}
+}
+
+// ADR 0067 decision 9: an LM saved before v0.67.0 (stages on the dry-mass RCS
+// scaling, 242 kg across the pair) takes the catalog 890 N / 287 kg on load,
+// keeping its fill fraction. Equal cases: a stage already on the catalog figures
+// is unchanged; an edited dry mass, and an unknown loadout, are left alone.
+func TestSavedLMTakesTheCatalogRCSOnLoad(t *testing.T) {
+	systems, err := bodies.LoadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	load := func(loadoutID string, old bool, dryDelta float64) []spacecraft.Stage {
+		var st []spacecraft.Stage
+		for _, id := range []string{"apollo-descent", "apollo-ascent"} {
+			s, _ := spacecraft.BuildStage(id)
+			s.DryMass += dryDelta
+			if old { // as a pre-v0.67.0 save stored it, 40% of the tank spent
+				mp, capKg, thr, _ := spacecraft.DefaultRCSLoadout(s.DryMass)
+				s.MonopropCap, s.MonopropMass, s.RCSThrust = capKg, mp*0.6, thr
+			}
+			st = append(st, s)
+		}
+		c := spacecraft.NewFromStages(st)
+		c.LoadoutID = loadoutID
+		c.Primary = w.ActiveCraft().Primary
+		c.State = w.ActiveCraft().State
+		got, err := CraftFromWire(CraftToWire(c), systems)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got.Stages
+	}
+	st := load("Apollo-TLI", true, 0)
+	if cap := st[0].MonopropCap + st[1].MonopropCap; math.Abs(cap-287) > 0.05 || st[0].RCSThrust != 890 || st[1].RCSThrust != 890 {
+		t.Errorf("old LM loads with %.1f kg / %.0f N, want 287 / 890", cap, st[0].RCSThrust)
+	}
+	if got, want := st[0].MonopropMass, 0.6*st[0].MonopropCap; math.Abs(got-want) > 1e-6 {
+		t.Errorf("descent monoprop %.2f kg, want the 60%% fill %.2f", got, want)
+	}
+	st = load("Apollo-TLI", false, 0)
+	if st[0].MonopropCap != 193.9 || st[1].MonopropCap != 93.1 {
+		t.Errorf("a stage already on the catalog figures changed: %.2f / %.2f", st[0].MonopropCap, st[1].MonopropCap)
+	}
+	if st = load("Apollo-TLI", true, 50); st[0].MonopropCap == 193.9 {
+		t.Errorf("an edited-mass stage was moved to the catalog figures")
+	}
+	if st = load("Custom", true, 0); st[0].MonopropCap == 193.9 {
+		t.Errorf("an unknown loadout was moved to the catalog figures")
+	}
+}
+
+// L7 follow-up: the landing computer's era survives save->load for stacks the
+// catalog run cannot match (VAB-built, edited, no loadout id).
+func TestNavSigmaSurvivesSaveLoadWithoutACatalogRun(t *testing.T) {
+	systems, err := bodies.LoadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, loadoutID := range map[string]string{"no loadout id": "", "unknown loadout": "Custom", "catalog loadout, edited stack": "Apollo-TLI"} {
+		d, _ := spacecraft.BuildStage("apollo-descent")
+		a, _ := spacecraft.BuildStage("apollo-ascent")
+		a.Name = "Edited Ascent" // never matches a catalog run
+		c := spacecraft.NewFromStages([]spacecraft.Stage{d, a})
+		c.LoadoutID = loadoutID
+		c.Primary = w.ActiveCraft().Primary
+		c.State = w.ActiveCraft().State
+		wa, wb, wok := c.NavSigma()
+		if !wok {
+			t.Fatalf("%s: setup: no Apollo sigma", name)
+		}
+		got, err := CraftFromWire(CraftToWire(c), systems)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ga, gb, gok := got.NavSigma(); !gok || ga != wa || gb != wb {
+			t.Errorf("%s: sigma %v/%v ok=%v after load, want %v/%v", name, ga, gb, gok, wa, wb)
+		}
 	}
 }

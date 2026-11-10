@@ -284,8 +284,9 @@ type Stage struct {
 
 	// NavSigmaAlongM / NavSigmaAcrossM (ADR 0067 decision 3): the landing
 	// computer's 1-sigma site error with no link, set on the command part of an
-	// Apollo-shaped vessel; zero is modern. Catalog-derived, not saved: see
-	// Spacecraft.NavSigma.
+	// Apollo-shaped vessel; zero is modern. Saved with the stage: a VAB-built or
+	// edited stack has no catalog run to re-derive it from. A save that stored
+	// zero (older) falls back to the catalog run: see Spacecraft.NavSigma.
 	NavSigmaAlongM, NavSigmaAcrossM float64
 }
 
