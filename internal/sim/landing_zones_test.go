@@ -242,30 +242,18 @@ func TestTouchdownAtTheCircleEdgePlantsNoFlagOneCmBeyondDoes(t *testing.T) {
 		w.applySurfaceArrival(v, physics.StateVector{R: v.State.R, V: v.State.V, M: v.State.M}, outcomeLanded, lat, -33)
 		return len(w.Sites) - before
 	}
+	// The ADR's 43 m, written out so a changed constant is seen here.
+	const edge = 43.0
 	r := lzTestRadius
-	dist := func(lat float64) float64 { return HaversineM(12.5, -33, lat, -33, r) }
-	lo, hi := 12.5, 12.5+0.01
-	for dist(math.Nextafter(lo, hi)) <= SiteLZRadiusM { // walk to the last float inside
-		next := (lo + hi) / 2
-		if dist(next) <= SiteLZRadiusM {
-			lo = next
-		} else {
-			hi = next
-		}
-		if math.Nextafter(lo, hi) == hi {
-			break
-		}
+	// A distance that lands exactly on 43.0 is not reachable through lat/lon
+	// floats (the grid is ~5e-11 m), so the equal case is pinned on the test itself.
+	if !insideLZ(edge) || insideLZ(math.Nextafter(edge, 44)) || insideLZ(edge+0.01) {
+		t.Error("insideLZ: exactly 43 m must be inside, the next float and 43 m + 1 cm outside")
 	}
-	if dist(lo) > SiteLZRadiusM || dist(hi) <= SiteLZRadiusM {
-		t.Fatalf("setup: boundary not bracketed (%.12f, %.12f)", dist(lo), dist(hi))
+	if n := arrive(12.5 + (edge-0.001)/r/rad); n != 0 {
+		t.Errorf("touchdown 1 mm inside planted %d flags, want 0", n)
 	}
-	if n := arrive(lo); n != 0 {
-		t.Errorf("touchdown at %.9f m planted %d flags, want 0", dist(lo), n)
-	}
-	if n := arrive(hi); n != 1 {
-		t.Errorf("touchdown at %.9f m planted %d flags, want 1", dist(hi), n)
-	}
-	if n := arrive(12.5 + (SiteLZRadiusM+0.01)/r/rad); n != 1 {
+	if n := arrive(12.5 + (edge+0.01)/r/rad); n != 1 {
 		t.Errorf("43 m + 1 cm planted %d flags, want 1", n)
 	}
 }

@@ -172,13 +172,16 @@ func (w *World) lzTaken(s Site, n int, self *spacecraft.Spacecraft) bool {
 		}
 		if v.Landed || v.Crashed {
 			vl, vo := v.SurfaceLatLon()
-			if HaversineM(vl, vo, lat, lon, r) <= SiteLZRadiusM {
+			if insideLZ(HaversineM(vl, vo, lat, lon, r)) {
 				return true
 			}
 		}
 	}
 	return false
 }
+
+// insideLZ is the circle test: exactly the radius is inside (decision 7).
+func insideLZ(distM float64) bool { return distM <= SiteLZRadiusM }
 
 // lowestFreeLZ is the lowest LZ number of s nobody holds, 0 if all are taken.
 func (w *World) lowestFreeLZ(s Site, self *spacecraft.Spacecraft) int {
@@ -271,7 +274,7 @@ func (w *World) lzAt(c *spacecraft.Spacecraft, lat, lon float64) (s Site, n int,
 		r := w.siteRadiusM(cand)
 		for i := 1; i <= cand.LZs(); i++ {
 			ll, lo := cand.lzLatLon(i, r)
-			if d := HaversineM(lat, lon, ll, lo, r); d <= SiteLZRadiusM && d < dist {
+			if d := HaversineM(lat, lon, ll, lo, r); insideLZ(d) && d < dist {
 				s, n, dist, ok = cand, i, d, true
 			}
 		}
