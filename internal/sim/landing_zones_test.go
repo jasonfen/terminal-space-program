@@ -422,3 +422,50 @@ func TestChosenLZMovesEveryReaderAndNClaimsItTaken(t *testing.T) {
 		t.Errorf("auto flies to LZ-%d, want lowest free 1", n)
 	}
 }
+
+// ADR 0068 decision 11, guard 9: a partner's landed ghost occupies an LZ, a
+// flying one does not; the 43 m edge is inside; a ghost at a same-id partner
+// site elsewhere does not cross over; 0N 0E is a position when Landed.
+func TestPartnerGhostsOccupyOnlyWhenLanded(t *testing.T) {
+	w, c, _ := moonLZWorld(t)
+	s := w.Sites[0]
+	r := w.siteRadiusM(s)
+	prim := c.Primary.ID
+	ghost := func(landed bool, lat, lon float64) Ghost {
+		return Ghost{Owner: "ansi", CraftID: 9, PrimaryID: prim, Landed: landed, LatDeg: lat, LonDeg: lon}
+	}
+	free := func(want int, why string) {
+		t.Helper()
+		if n := w.lowestFreeLZ(s, c); n != want {
+			t.Errorf("%s: lowest free = %d, want %d", why, n, want)
+		}
+	}
+	free(1, "no ghosts")
+	w.Ghosts = []Ghost{ghost(false, s.LatDeg, s.LonDeg)} // flying, same coordinates
+	free(1, "a flying ghost")
+	w.Ghosts = []Ghost{ghost(true, s.LatDeg, s.LonDeg)}
+	free(2, "a landed ghost on LZ-1")
+	// exactly 43 m north is inside (the equal case), 43 m + 1 cm is not.
+	edge := s.LatDeg + SiteLZRadiusM/r/rad
+	w.Ghosts = []Ghost{ghost(true, edge, s.LonDeg)}
+	if HaversineM(edge, s.LonDeg, s.LatDeg, s.LonDeg, r) > SiteLZRadiusM {
+		edge = math.Nextafter(edge, s.LatDeg) // rounding put it a hair out
+	}
+	free(2, "a landed ghost at the 43 m edge")
+	w.Ghosts = []Ghost{ghost(true, s.LatDeg+(SiteLZRadiusM+0.01)/r/rad, s.LonDeg)}
+	free(1, "a landed ghost 43.01 m out")
+	// a same-id partner site on the same body, elsewhere: its parked lander is not on ours.
+	w.PartnerSites = []PartnerSite{{Site: Site{ID: s.ID, Owner: "ansi", Body: s.Body, System: s.System, LatDeg: s.LatDeg + 1, LonDeg: s.LonDeg}}}
+	w.Ghosts = []Ghost{ghost(true, s.LatDeg+1, s.LonDeg)}
+	free(1, "a ghost at a same-id partner site")
+	// 0N 0E: a landed ghost there occupies a site at 0N 0E; a flying one does not.
+	z := Site{ID: 77, Body: s.Body, System: s.System, LatDeg: 0, LonDeg: 0, LZCount: 2}
+	w.Ghosts = []Ghost{ghost(false, 0, 0)}
+	if n := w.lowestFreeLZ(z, c); n != 1 {
+		t.Errorf("flying ghost at 0N 0E: lowest free %d, want 1", n)
+	}
+	w.Ghosts = []Ghost{ghost(true, 0, 0)}
+	if n := w.lowestFreeLZ(z, c); n != 2 {
+		t.Errorf("landed ghost at 0N 0E: lowest free %d, want 2", n)
+	}
+}
