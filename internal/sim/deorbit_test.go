@@ -568,3 +568,30 @@ func TestBurnAtCueOnAirIsTheLatestSafeLight(t *testing.T) {
 	}
 	t.Logf("Mars Ground-Station Lander cue: %.2f km, T-%.0f s, stops %.0f m up after %.0f s", cue.AltitudeM/1000, cue.InSec, pred.MarginM, pred.ElapsedSec)
 }
+
+// ADR 0069 guard 1 at every warp: the N entry lands on the flag whatever the
+// warp, because the coast to the air and the touchdown point do not depend on
+// the tick size. Before the fix 1000x and up missed by 11-12 km and 10x-100x
+// by 120 m.
+func TestEntryLandsOnFlagAtEveryWarp(t *testing.T) {
+	for idx, f := range WarpFactors {
+		w, c := entryWorld(t, "", "mars", "Ground-Station-Lander", 150e3, true)
+		if _, err := w.PlanDeorbitOntoSite(); err != nil {
+			t.Fatal(err)
+		}
+		if err := w.EngageLandingAutopilot(); err != nil {
+			t.Fatal(err)
+		}
+		w.Clock.WarpIdx = idx
+		for i := 0; i < 4*3600*20 && !c.Landed && !c.Crashed; i++ {
+			w.Tick()
+		}
+		if !c.Landed {
+			t.Fatalf("%vx: not landed (crashed=%v)", f, c.Crashed)
+		}
+		ev := w.PendingLandingEvents[len(w.PendingLandingEvents)-1]
+		if ev.DistanceM > 50 || ev.OutOfReach { // equal case: 50 m is within
+			t.Errorf("%vx: landed %.0f m from the flag (oor=%v), want within 50 m", f, ev.DistanceM, ev.OutOfReach)
+		}
+	}
+}

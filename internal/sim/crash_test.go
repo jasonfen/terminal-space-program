@@ -337,3 +337,23 @@ func TestContactReminderRulesMatchTheCrash(t *testing.T) {
 		}
 	}
 }
+
+// A touchdown's lat/lon is the ground point under the vessel at the contact
+// instant. Mars's ground moves 241 m/s, so reading it one sub-step early
+// (the sub-step's start) put the point 120 m west at 10x.
+func TestImpactLatLonIsGroundPointAtContact(t *testing.T) {
+	w, c := entryWorld(t, "", "mars", "Ground-Station-Lander", 150e3, false)
+	c.State.R = c.State.R.Unit().Scale(c.Primary.RadiusMeters() + 50)
+	c.State.V = c.State.R.Unit().Scale(-500) // falls through the ground inside one tick
+	step := 500 * time.Millisecond           // one 10x tick, one sub-step
+	w.Clock.SimTime = w.Clock.SimTime.Add(step)
+	w.integrateOneCraft(c, step)
+	if !c.Crashed && !c.Landed {
+		t.Fatalf("no contact in one tick: alt %.0f", c.Altitude())
+	}
+	wantLat, wantLon := render.WorldToBodyFixed(c.Primary, render.Vec3{X: c.State.R.Unit().X, Y: c.State.R.Unit().Y, Z: c.State.R.Unit().Z}, w.Clock.SimTime)
+	arcM := math.Hypot(c.LandedLatDeg-wantLat, (c.LandedLonDeg-wantLon)*math.Cos(wantLat*math.Pi/180)) * math.Pi / 180 * c.Primary.RadiusMeters()
+	if arcM > 5 { // lag was ~120 m
+		t.Errorf("touchdown point %.1f m from the ground under the vessel at contact", arcM)
+	}
+}
