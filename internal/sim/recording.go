@@ -329,11 +329,14 @@ const recordCloseHorizonSec = 4 * 3600.0
 func (w *World) recordTarget(c *spacecraft.Spacecraft, row *recorder.Row) {
 	if c != w.ActiveCraft() {
 		// A vessel nobody is flying keeps its own site aim (apTarget), so a
-		// background touchdown still reads its range from the flag.
+		// background touchdown still reads its range from the flag. The flag is
+		// on c's own primary, so close/tca/Δincl come from the same reading the
+		// active vessel's rows use; lead stays - (a site has no lead angle, as
+		// for the active vessel).
 		if lat, lon, name, ok := w.apTarget(c); ok {
 			rT, vT := surfacePointState(c.Primary, lat, lon, w.Clock.SimTime)
 			row.Target, row.RangeM, row.RelMS = name, rT.Sub(c.State.R).Norm(), vT.Sub(c.State.V).Norm()
-			row.CloseM, row.DInclDeg, row.LeadDeg = math.NaN(), math.NaN(), math.NaN()
+			recordApproach(c, rT, vT, true, row)
 		}
 		return
 	}
@@ -344,13 +347,23 @@ func (w *World) recordTarget(c *spacecraft.Spacecraft, row *recorder.Row) {
 	row.Target = w.TargetName()
 	row.RangeM = rT.Sub(c.State.R).Norm()
 	row.RelMS = vT.Sub(c.State.V).Norm()
+	recordApproach(c, rT, vT, w.TargetSharesActivePrimary(), row)
+	if !c.Landed {
+		if lead, ok := w.TargetLeadAngleDeg(); ok {
+			row.LeadDeg = lead
+		}
+	}
+}
+
+// recordApproach fills close/tca/Δincl for a target state (rT, vT) relative to
+// c's primary, as the TARGET box reads them. Landed, they stay NaN.
+func recordApproach(c *spacecraft.Spacecraft, rT, vT orbital.Vec3, sharesPrimary bool, row *recorder.Row) {
 	row.CloseM, row.DInclDeg, row.LeadDeg = math.NaN(), math.NaN(), math.NaN()
 	if c.Landed {
 		return
 	}
-	// The search flies both on c's primary, so like the TARGET box it runs
-	// only for a target sharing it.
-	if w.TargetSharesActivePrimary() {
+	// The search flies both on c's primary, so it runs only for a target sharing it.
+	if sharesPrimary {
 		mu := c.Primary.GravitationalParameter()
 		tca, d, _, err := planner.NextClosestApproach(orbital.Vec3State{R: c.State.R, V: c.State.V},
 			orbital.Vec3State{R: rT, V: vT}, c.Primary, mu, recordCloseHorizonSec)
@@ -361,16 +374,13 @@ func (w *World) recordTarget(c *spacecraft.Spacecraft, row *recorder.Row) {
 		default:
 			row.CloseM, row.TCA = d, time.Duration(tca*float64(time.Second))
 		}
-	}
-	if n, ok := w.TargetPlaneNormal(); ok {
-		h := c.State.R.Cross(c.State.V)
-		if hn, nn := h.Norm(), n.Norm(); hn > 0 && nn > 0 {
-			a := math.Acos(math.Max(-1, math.Min(1, h.Dot(n)/(hn*nn)))) * 180 / math.Pi
-			row.DInclDeg = math.Min(a, 180-a) // the TARGET box's Δincl
+		if n, ok := targetPlaneNormalRelativeTo(c.Primary, rT, vT); ok {
+			h := c.State.R.Cross(c.State.V)
+			if hn, nn := h.Norm(), n.Norm(); hn > 0 && nn > 0 {
+				a := math.Acos(math.Max(-1, math.Min(1, h.Dot(n)/(hn*nn)))) * 180 / math.Pi
+				row.DInclDeg = math.Min(a, 180-a) // the TARGET box's Δincl
+			}
 		}
-	}
-	if lead, ok := w.TargetLeadAngleDeg(); ok {
-		row.LeadDeg = lead
 	}
 }
 

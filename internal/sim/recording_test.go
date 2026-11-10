@@ -1332,3 +1332,28 @@ func TestBumpRowLandsInBothVesselsFiles(t *testing.T) {
 		}
 	}
 }
+
+// Background rows fill close/tca/Δincl for the vessel's own site aim the way the
+// Active Vessel's do (was "-"); lead stays NaN (a site has none), and the Landed
+// equal case keeps all three NaN.
+func TestBackgroundRowFillsApproachColumns(t *testing.T) {
+	w, c, _ := bgLander(t)
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	awayFrom(t, w)
+	row := w.rowFor(c, "")
+	if row.Target == "" {
+		t.Fatalf("setup: background vessel has no site aim")
+	}
+	if math.IsNaN(row.DInclDeg) || (math.IsNaN(row.CloseM) && row.TCA == 0) {
+		t.Errorf("background row close %v tca %v dincl %v: still unfilled", row.CloseM, row.TCA, row.DInclDeg)
+	}
+	if !math.IsNaN(row.LeadDeg) {
+		t.Errorf("lead = %v, want NaN for a site", row.LeadDeg)
+	}
+	c.Landed = true
+	if row := w.rowFor(c, ""); !math.IsNaN(row.CloseM) || !math.IsNaN(row.DInclDeg) || row.TCA != 0 {
+		t.Errorf("landed row filled close/tca/dincl: %+v", row)
+	}
+}
