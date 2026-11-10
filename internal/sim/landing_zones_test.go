@@ -337,6 +337,9 @@ func TestLZCirclesOnMapThreshold(t *testing.T) {
 	if !LZCirclesOnMap(s) || LZCirclesOnMap(math.Nextafter(s, 0)) {
 		t.Fatalf("threshold edge not found at %v", s)
 	}
+	if got := 2 * SiteLZRadiusM * s / 2; got != LZMapMinCells {
+		t.Errorf("the edge is at %v cells, not exactly %v: the equal case is not under test", got, LZMapMinCells)
+	}
 	if mPerCell := 2 / s; math.Abs(mPerCell-21.5) > 1e-9 {
 		t.Errorf("threshold is %.9f m a cell, want 21.5", mPerCell)
 	}

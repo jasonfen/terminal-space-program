@@ -230,3 +230,46 @@ func TestSurfaceMarksLZCircles(t *testing.T) {
 		t.Errorf("shipped zone near: LZ-1 %q LZ-2 %q ink %v", c[1], c[2], ink[2])
 	}
 }
+
+// BenchmarkMapNineLZCircles is the T8b frame-time check: a nine-LZ site at the
+// threshold zoom, circles drawn vs the same frame with the flags row off.
+func BenchmarkMapNineLZCircles(b *testing.B) {
+	for _, c := range []struct {
+		name string
+		on   bool
+	}{{"circles", true}, {"hidden", false}} {
+		b.Run(c.name, func(b *testing.B) {
+			w := lzRingWorld(&testing.T{}, 9)
+			w.Focus = sim.Focus{Kind: sim.FocusCraft}
+			w.ClearTarget()
+			v := NewOrbitView(Theme{})
+			st := v.settings
+			st.SetChip(settings.ChipMarksFlags, c.on)
+			v.SetSettings(st)
+			v.Resize(DesignWidth, DesignHeight)
+			v.Render(w, 0, DesignWidth, DesignHeight)
+			v.setUserZoom(1.01 * sim.LZMapMinCells / sim.SiteLZRadiusM / v.baseScale)
+			v.Render(w, 0, DesignWidth, DesignHeight)
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				v.Render(w, 0, DesignWidth, DesignHeight)
+			}
+		})
+	}
+}
+
+// BenchmarkDrawNineLZCircles is the added cost alone: nine circles and digits
+// drawn onto the threshold-zoom map canvas, the frame itself left out.
+func BenchmarkDrawNineLZCircles(b *testing.B) {
+	w := lzRingWorld(&testing.T{}, 9)
+	w.Focus = sim.Focus{Kind: sim.FocusCraft}
+	v := NewOrbitView(Theme{})
+	v.Resize(DesignWidth, DesignHeight)
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	v.setUserZoom(1.01 * sim.LZMapMinCells / sim.SiteLZRadiusM / v.baseScale)
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		v.drawLZCircles(w, w.Sites[0], false, "#5F5F5F")
+	}
+}
