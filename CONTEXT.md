@@ -886,6 +886,15 @@ keeps reading the real Site.
 _Avoid_: Waypoint, Marker (a Site is state, a marker is ink), Landing
 site (one kind of Site), Flag (the glyph, not the noun).
 
+**LZ (landing zone)** (ADR 0068):
+A numbered landing place at a **Site**: `LZ-1`, `LZ-2`. A flag is its own LZ-1;
+the shipped zones (`LC-13`, `Kern LZ`, `Tranquility Base`, `Sinus Medii`) have two.
+An LZ is a circle 86 m across (`SiteLZRadiusM` 43); a touchdown inside one plants
+no flag. `N`, `B` and `q` claim the lowest free LZ at the press; a vessel
+standing in the circle, or holding a claim, takes it. On screen the name is the
+site's, a space, the LZ's (`Flag-1 LZ-2`).
+_Avoid_: Pad (the launch pad only), Landing site.
+
 **Landing Autopilot** (ADR 0067; `Site+`):
 The vessel flies its own landing on the targeted **Site**: `N` plants the
 deorbit burn, puts the navball on `[SITE]` and engages it; it coasts to the
