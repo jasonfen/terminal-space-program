@@ -491,7 +491,7 @@ func entryWorld(t *testing.T, system, body, loadout string, altM float64, air bo
 	c.State.M = c.TotalMass()
 	c.CurrentAttitudeDir = c.State.V.Unit()
 	w.SetTargetSite(s.ID)
-	w.Clock.BaseStep = 250 * time.Millisecond
+	// the game's own 50 ms tick stands: a coarser one lags a spinning ground by 60 m per tick
 	return w, c
 }
 
