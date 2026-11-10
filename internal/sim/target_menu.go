@@ -64,13 +64,13 @@ func (w *World) TargetMenu() (rows []TargetRow, open int) {
 		}
 	}
 	if ac != nil {
-		for _, s := range w.Sites {
+		for _, s := range w.AllSites() {
 			if s.Body != ac.Primary.EnglishName || s.System != sys.Name {
 				continue
 			}
 			r, _ := surfacePointState(ac.Primary, s.LatDeg, s.LonDeg, w.Clock.SimTime)
 			rows = append(rows, TargetRow{Group: GroupSites, Target: Target{Kind: TargetSite, SiteID: s.ID},
-				Name: s.Name, Own: s.Owner == "", Wreck: s.Kind == SiteWreck,
+				Name: s.Name, Own: s.Owner == "" && s.Kind != SiteZone, Wreck: s.Kind == SiteWreck,
 				DistM: w.BodyPosition(ac.Primary).Add(r).Sub(from).Norm()})
 		}
 	}

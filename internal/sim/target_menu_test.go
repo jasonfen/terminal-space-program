@@ -51,6 +51,9 @@ func TestTargetMenuGroupsSitesOnThisBodyAndMarksOwn(t *testing.T) {
 			t.Fatalf("groups out of order at %q", r.Name)
 		}
 		last = r.Group
+		if _, shipped := shippedZoneByID(r.SiteID); shipped {
+			continue // the Moon's own zones (ADR 0068 decision 9b)
+		}
 		if r.Group == GroupSites {
 			sites++
 			if !r.Own || r.SiteID != id {

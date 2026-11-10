@@ -196,7 +196,7 @@ func pickSiteRow(t *testing.T, a *App) {
 	t.Helper()
 	pressKey(a, 't')
 	for i := 0; i < 40; i++ {
-		if r, ok := a.targetMenu.Row(); ok && r.Group == sim.GroupSites {
+		if r, ok := a.targetMenu.Row(); ok && r.Group == sim.GroupSites && r.Own {
 			return
 		}
 		tapKey(a, tea.KeyDown)

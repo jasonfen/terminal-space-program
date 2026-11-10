@@ -131,3 +131,12 @@ func (c *Spacecraft) NavSigma() (along, across float64, ok bool) {
 	}
 	return pick(CatalogRun(c))
 }
+
+// LZClaim is the landing zone a vessel holds at a site (ADR 0068 decision 5):
+// made at the N / B / q press, dropped at touchdown, crash, Site+ off or a
+// retarget. N is the LZ number, 0 for none. In memory only; a reload forgets it.
+type LZClaim struct {
+	Owner  string
+	SiteID uint64
+	N      int
+}

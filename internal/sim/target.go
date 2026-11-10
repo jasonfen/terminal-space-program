@@ -107,6 +107,10 @@ func (w *World) mirrorTargetToActiveCraft() {
 		if c.Target != w.Target {
 			// ADR 0055: a lean across one port face means nothing on another.
 			c.PortPitchTrim, c.PortYawTrim = 0, 0
+			// ADR 0068 decision 5: a retarget drops the claim.
+			if c.LZClaim.N > 0 && !(w.Target.Kind == TargetSite && w.Target.SiteID == c.LZClaim.SiteID && w.Target.GhostOwner == c.LZClaim.Owner) {
+				c.LZClaim = spacecraft.LZClaim{}
+			}
 		}
 		c.Target = w.Target
 	}
