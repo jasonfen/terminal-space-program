@@ -80,3 +80,46 @@ func TestNewInLEOAtPhaseInclinationIsSeedInclinationPrograde(t *testing.T) {
 		t.Errorf("SeedInclinationDeg = %v, want 51.6 (issue #566)", SeedInclinationDeg)
 	}
 }
+
+// ADR 0069 decision 4: three cases, one function.
+func TestEffectiveBallisticCoefficientByCase(t *testing.T) {
+	area := func(d float64) float64 { return math.Pi * d * d / 4 }
+	near := func(got, want float64) bool { return math.Abs(got-want) <= 1e-9*want }
+
+	// A capsule with no figure of its own: diameter and the mass on board.
+	pod := NewFromLoadout("Token-Pod")
+	if want := CapsuleCd * area(3.91) / pod.TotalMass(); !near(pod.EffectiveBallisticCoefficient(), want) {
+		t.Errorf("Token Pod BC = %g, want %g (size and mass, #937)", pod.EffectiveBallisticCoefficient(), want)
+	}
+	// Terminal speed on Kern sea level must be a capsule's, not 566 m/s.
+	if v := math.Sqrt(2 * 9.81 / (1.225 * pod.EffectiveBallisticCoefficient())); v > 60 {
+		t.Errorf("Token Pod falls at %.0f m/s, want a capsule's", v)
+	}
+
+	// A dropped stage falls engines-first by its own diameter and mass left.
+	s1 := NewFromLoadout("Falcon-9")
+	s1.Stages = s1.Stages[:1]
+	s1.Stages[0].FuelMass = 0
+	s1.Role = RoleJettisonedStage
+	s1.SyncFields()
+	if want := FallingStageCd * area(3.7) / s1.TotalMass(); !near(s1.EffectiveBallisticCoefficient(), want) {
+		t.Errorf("dropped stage BC = %g, want %g", s1.EffectiveBallisticCoefficient(), want)
+	}
+
+	// A launch stage keeps its tuned figure at ignition (every launch
+	// vehicle and the Kern Stack: equal case) and gains as propellant burns.
+	for _, id := range []string{"Falcon-9", "Saturn-V", "Kern-Stack", "Packet-9", "Vector-V", "Raster-LS", "Falcon-9-Dragon"} {
+		c := NewFromLoadout(id)
+		tuned := c.Stages[0].BallisticCoefficient
+		if got := c.EffectiveBallisticCoefficient(); got != tuned {
+			t.Errorf("%s at ignition BC = %g, want its tuned %g", id, got, tuned)
+		}
+		m0 := c.TotalMass()
+		c.Stages[0].FuelMass /= 2
+		c.SyncFields()
+		want := tuned * (m0 / c.TotalMass())
+		if got := c.EffectiveBallisticCoefficient(); !near(got, want) || got <= tuned {
+			t.Errorf("%s half burnt BC = %g, want %g (> %g)", id, got, want, tuned)
+		}
+	}
+}
