@@ -70,6 +70,8 @@
       "thrust_n": 45000,
       "isp_s": 311,
       "fuel_type": "hypergolic",
+      "rcs_thrust_n": 890,
+      "monoprop_mass_kg": 193.9,
       "description": "Throttleable hypergolic descent engine for landers."
     },
     {
@@ -218,6 +220,8 @@
       "dry_mass_kg": 600,
       "command_source": "crewed",
       "can_soft_land": true,
+      "rcs_thrust_n": 890,
+      "monoprop_mass_kg": 93.1,
       "description": "Crewed lander cabin rated for powered soft landings."
     },
 

@@ -2,6 +2,7 @@ package save
 
 import (
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
@@ -371,6 +372,7 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 	// resolved above decides crewed vs probe. No-op for post-comms saves
 	// whose stages already carry the attribute.
 	restoreCatalogAntennas(c)
+	restoreCatalogRCS(c)
 	spacecraft.EnsureCommandSource(c)
 	c.SyncFields()
 	c.NewestSeam = wc.NewestSeam
@@ -583,5 +585,26 @@ func restoreCatalogAntennas(c *spacecraft.Spacecraft) {
 			c.Stages[i].AntennaKind = cat[i].AntennaKind
 			c.Stages[i].AntennaRangeM = cat[i].AntennaRangeM
 		}
+	}
+}
+
+// restoreCatalogRCS (ADR 0067 decision 9) moves a saved LM-derived stage from
+// the dry-mass RCS scaling it was built with before v0.67.0 (242 kg across the
+// pair) to its catalog part's own figures (890 N, 287 kg across the pair). Only
+// a stage whose stored tank is exactly the old scaling of its own dry mass and
+// whose dry mass still equals the catalog's is touched; the propellant already
+// spent stays spent (the fill fraction carries over). Edited stacks, stages
+// already on the catalog figures and debris are left alone. No schema bump.
+func restoreCatalogRCS(c *spacecraft.Spacecraft) {
+	cat := spacecraft.CatalogRun(c)
+	for i := range cat {
+		st := &c.Stages[i]
+		_, oldCap, oldThrust, _ := spacecraft.DefaultRCSLoadout(st.DryMass)
+		if st.DryMass != cat[i].DryMass || st.MonopropCap <= 0 || cat[i].MonopropCap == st.MonopropCap ||
+			math.Abs(st.MonopropCap-oldCap) > 0.01 || math.Abs(st.RCSThrust-oldThrust) > 0.01 {
+			continue
+		}
+		st.MonopropMass *= cat[i].MonopropCap / st.MonopropCap
+		st.MonopropCap, st.RCSThrust = cat[i].MonopropCap, cat[i].RCSThrust
 	}
 }
