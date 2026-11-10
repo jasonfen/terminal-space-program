@@ -500,7 +500,8 @@ func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
 	}
 	lat, lon, _, ok := w.apTarget(c)
 	if !ok || c.ActiveStageFuel() <= 0 || c.Thrust <= 0 {
-		return // nothing to fly to, or nothing to fly with: keep the state, do nothing
+		ap.ForecastOK = false // a forecast the autopilot no longer refreshes must not keep reading as miss:/cross:
+		return                // nothing to fly to, or nothing to fly with: keep the rest of the state, do nothing
 	}
 	ap.Reserve, ap.OutOfReach, ap.ForecastOK = false, false, false
 	w.updateNavOnLink(c)
