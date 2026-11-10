@@ -279,6 +279,36 @@ func TestHandLandingInsideAnLZFlashesItAndSpendsTheClaim(t *testing.T) {
 	}
 }
 
+// The autopilot's flash names the LZ it was claimed, even when a lower LZ was
+// freed while it flew (here the LZ-1 claimant was taken over by hand): the
+// claim must outlive touchdown until landingEnded reads it.
+func TestAutopilotFlashNamesTheClaimedLZAfterALowerOneFrees(t *testing.T) {
+	w, c, o := moonLZWorld(t)
+	s := w.Sites[0]
+	o.Target = c.Target
+	if _, err := w.claimLZ(o); err != nil || o.LZClaim.N != 1 {
+		t.Fatalf("o claim: %v %d", err, o.LZClaim.N)
+	}
+	if _, err := w.claimLZ(c); err != nil || c.LZClaim.N != 2 {
+		t.Fatalf("c claim: %v %d", err, c.LZClaim.N)
+	}
+	o.LZClaim = spacecraft.LZClaim{} // o's pilot took it by hand
+	if c.Landing == nil {
+		c.Landing = &spacecraft.LandingAutopilot{}
+	}
+	c.Landing.Engaged, c.Landing.Nose = true, false
+	lat, lon := s.lzLatLon(2, c.Primary.RadiusMeters())
+	w.applySurfaceArrival(c, physics.StateVector{R: c.State.R, V: c.State.V, M: c.State.M}, outcomeLanded, lat, lon)
+	w.tickLandingAutopilot(c)
+	ev := w.PendingLandingEvents
+	if len(ev) != 1 || ev[0].SiteName != s.Name+" LZ-2" || ev[0].DistanceM > 1 {
+		t.Errorf("flash events = %+v, want one naming LZ-2 at under 1 m", ev)
+	}
+	if c.LZClaim.N != 0 {
+		t.Errorf("claim %d after the flash, want spent", c.LZClaim.N)
+	}
+}
+
 // Decision 5's occupancy: a crashed vessel holds its LZ until cleared; a partner
 // of the same site is not asked (S5).
 func TestACrashedVesselHoldsItsLZ(t *testing.T) {

@@ -223,7 +223,9 @@ func classifySurfaceArrival(
 // invocation (the clamped state is already on c.State).
 func (w *World) applySurfaceArrival(c *spacecraft.Spacecraft, clamped physics.StateVector, outcome surfaceArrivalOutcome, lat, lon float64) {
 	c.State = clamped
-	c.LZClaim = spacecraft.LZClaim{} // landed or crashed: the claim is spent (ADR 0068 decision 5)
+	if c.Landing == nil || !c.Landing.Engaged {
+		c.LZClaim = spacecraft.LZClaim{} // landed or crashed: the claim is spent (ADR 0068 decision 5)
+	} // an engaged autopilot spends it in landingEnded, after its flash reads it
 	switch outcome {
 	case outcomeLanded:
 		lat, lon = w.setDownBeside(c, lat, lon) // ADR 0068 decision 10

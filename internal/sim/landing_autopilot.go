@@ -818,6 +818,7 @@ func (w *World) landingEnded(c *spacecraft.Spacecraft) {
 	ap := c.Landing
 	rt := w.apRuntimeFor(c)
 	defer ap.ClearAttempt() // one offset per landing attempt
+	defer func() { c.LZClaim = spacecraft.LZClaim{} }() // spent at contact, after the flash below reads it (ADR 0068 decision 5)
 
 	if ap.Nose { // no flash: the pilot flew it
 		ap.Engaged, ap.Nose, ap.Phase = false, false, spacecraft.PhaseCoast
