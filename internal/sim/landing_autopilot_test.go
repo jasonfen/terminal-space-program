@@ -916,3 +916,28 @@ func TestOneBurnMarksOnTheCatalogParts(t *testing.T) {
 		t.Errorf("Dragon engage: %v, want %v until the SuperDracos exist", err, ErrSiteHoldUnderWeight)
 	}
 }
+
+// The profile at its edges, 100 m up and straight down: at exactly the contact
+// speed the thrust is gravity's (the equal case: nothing left to shed), at 20 m/s
+// it adds (v^2 - v_td^2) / 2h = 1.98 m/s^2, and under it the thrust is less than
+// gravity so the vessel is let down to the contact speed.
+func TestOneBurnProfileAtTheContactSpeed(t *testing.T) {
+	for _, tc := range []struct{ down, wantExtra float64 }{
+		{OneBurnContactMps, 0},
+		{20, (400 - OneBurnContactMps*OneBurnContactMps) / 200},
+	} {
+		w, c, _ := boosterWorld(t, boosterFall{altM: 4600, downMps: 250, fuelKg: 6500})
+		if _, err := w.PlanDeorbitAndEngage(); err != nil {
+			t.Fatal(err)
+		}
+		up := c.State.R.Unit()
+		c.State.R = up.Scale(c.Primary.RadiusMeters() + 100)
+		c.State.V = up.Scale(-tc.down).Add(physics.AtmosphereOmega(c.Primary).Cross(c.State.R))
+		lat, lon, _, _ := w.apTarget(c)
+		f := apFrameOf(c)
+		_, theta := w.apOneBurn(c, c.Landing, f, lat, lon)
+		if got, want := theta*f.aMax-f.g, tc.wantExtra; math.Abs(got-want) > 0.05 {
+			t.Errorf("at %.1f m/s down the net thrust is %.3f m/s^2 over gravity, want %.3f", tc.down, got, want)
+		}
+	}
+}
