@@ -9,10 +9,12 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
 
 const (
@@ -54,6 +56,11 @@ func (v *OrbitView) drawSurfaceMarks(w *sim.World, scale float64, canvasReach in
 	var order []cell
 	pos := map[cell]sim.Site{} // representative: the targeted one, else the first
 	all := append([]sim.Site(nil), w.Sites...)
+	if sim.LZCirclesOnMap(scale) {
+		// A shipped zone has no glyph of its own (it would cover a small
+		// body's disc); it appears only as its circles, once they fit.
+		all = append(all, w.ShippedZones()...)
+	}
 	for _, p := range w.PartnerSites {
 		all = append(all, p.Site)
 	}
@@ -97,6 +104,10 @@ func (v *OrbitView) drawSurfaceMarks(w *sim.World, scale float64, canvasReach in
 			col = render.ColorTarget
 		}
 		col = v.inspectLineColor(ref, col)
+		if s.Kind != sim.SiteWreck && sim.LZCirclesOnMap(scale) {
+			v.drawLZCircles(w, s, targeted, col)
+			continue
+		}
 		v.canvas.SetCellOverlayColored(p, glyph, col)
 	}
 	for _, c := range order {
@@ -107,6 +118,33 @@ func (v *OrbitView) drawSurfaceMarks(w *sim.World, scale float64, canvasReach in
 			name = fmt.Sprintf("%d sites · %s …", n, rep.Name)
 		}
 		v.addInspectable(InspectRef{Kind: InspectSite, SiteID: rep.ID, Owner: rep.Owner}, name, p, true)
+	}
+}
+
+// drawLZCircles draws a site's LZs as circles lying on the ground, in the
+// colour of the site's glyph, a digit at each centre and the flag at the one
+// you fly to (ADR 0068 decision 8). Called from the marks loop, so the `y`
+// card that hides the site's glyph hides these too.
+func (v *OrbitView) drawLZCircles(w *sim.World, s sim.Site, targeted bool, col lipgloss.Color) {
+	flown := 0
+	if targeted {
+		if _, n, ok := w.ActiveLandingLZ(); ok {
+			flown = n
+		}
+	}
+	for _, p := range w.LZPlaces(s) {
+		e1 := p.Up.Cross(orbital.Vec3{Z: 1})
+		if e1.Norm() < 1e-6 { // at a pole
+			e1 = p.Up.Cross(orbital.Vec3{X: 1})
+		}
+		e1 = e1.Unit()
+		e2 := p.Up.Cross(e1)
+		v.canvas.PlotPolylineClass(proximityRingPoints(p.Pos, e1, e2, sim.SiteLZRadiusM), col, widgets.ClassReal)
+		glyph := rune('0' + p.N)
+		if p.N == flown {
+			glyph = flagGlyph
+		}
+		v.canvas.SetCellOverlayColored(p.Pos, glyph, col)
 	}
 }
 
