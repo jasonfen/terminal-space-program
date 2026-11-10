@@ -43,10 +43,11 @@ const (
 	// The ladder gates, the scope's own pair: out at 95 % of the width, back in
 	// when the need would sit inside 45 % of the next step down.
 	overheadOutFrac = 0.95
-	// overheadStandGlyph marks a vessel of yours standing on an LZ.
-	overheadStandGlyph = '▲'
 	overheadInFrac  = 0.45
 )
+
+// overheadStandGlyph marks a vessel of yours standing on an LZ.
+const overheadStandGlyph = '▲'
 
 // The panel: an 8-column gutter (the cross bar and its label), a 24 x 12 cell
 // disc, a title row, a legend row and the border.
@@ -166,6 +167,19 @@ func (v *OrbitView) overheadGather(w *sim.World, st sim.ProximityState) overhead
 	return m
 }
 
+// overheadLZExtent is how far across the track the LZs the inset must hold
+// reach: every LZ within one spacing across, its circle included (±143 m for a
+// full ring). Exactly one spacing is in; a far LZ is left to the edge.
+func overheadLZExtent(lzs []overheadLZ) float64 {
+	ext := 0.0
+	for _, z := range lzs {
+		if math.Abs(z.left) <= sim.SiteLZSpacingM {
+			ext = math.Max(ext, math.Abs(z.left)+sim.SiteLZRadiusM)
+		}
+	}
+	return ext
+}
+
 // overheadCircle is an LZ's outline as canvas points: a circle of metres
 // radius about (along, left), stretched with the cross scale like everything
 // else the inset draws.
@@ -213,11 +227,7 @@ func (v *OrbitView) drawOverhead(w *sim.World, st sim.ProximityState) (alongBarM
 	// included, ±143 m, so the 200 m bar) instead of the 50 m floor, which
 	// shows five LZs with yours filling the picture. A far LZ (LC-13's 310 m)
 	// is clipped, not chased.
-	for _, z := range m.lzs {
-		if math.Abs(z.left) <= sim.SiteLZSpacingM {
-			ext = math.Max(ext, math.Abs(z.left)+sim.SiteLZRadiusM)
-		}
-	}
+	ext = math.Max(ext, overheadLZExtent(m.lzs))
 	crossPer := float64(overheadDiscRows) / overheadBarRows
 	v.ovAcross = max(overheadPick(v.ovAcross, v.ovRanged, 2*ext, crossPer), overheadFloorRung(overheadCrossFloorM))
 	v.ovRanged = true

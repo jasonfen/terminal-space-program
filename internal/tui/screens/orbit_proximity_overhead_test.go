@@ -8,11 +8,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 )
 
@@ -123,4 +125,173 @@ func TestLaunchViewDrawsTargetedFlag(t *testing.T) {
 	if n := v.canvas.CountOverlayColor(render.ColorTarget); n < 1 {
 		t.Errorf("targeted flag not drawn in V (TARGET-green overlay cells: %d)", n)
 	}
+}
+
+// lzRingWorld is the Moon site fixture with lzs LZs, the vessel 150 m short of
+// LZ-1 and 40 m up, so the inset reads in metres (final approach).
+func lzRingWorld(t *testing.T, lzs int) *sim.World {
+	t.Helper()
+	w := moonSiteDescentWorld(t, false)
+	w.Sites[0].LZCount = lzs
+	placeCraftNear(w, w.LZPlaces(w.Sites[0])[0])
+	return w
+}
+
+// placeCraftNear puts the active vessel 150 m short of an LZ and 40 m up.
+func placeCraftNear(w *sim.World, pl sim.LZPlace) {
+	c := w.ActiveCraft()
+	vd := c.State.V.Unit()
+	tan := vd.Sub(pl.Up.Scale(vd.Dot(pl.Up))).Unit()
+	c.State.R = pl.Pos.Sub(w.BodyPosition(c.Primary)).Sub(tan.Scale(150)).Add(pl.Up.Scale(40))
+	c.State.V = tan.Scale(20)
+}
+
+// overheadDisc draws the inset for w and returns the view, the bars and the
+// disc's rows as text (the cell grid the digits and braille sit on).
+func overheadDisc(t *testing.T, w *sim.World) (v *OrbitView, along, cross float64, rows [][]rune) {
+	t.Helper()
+	if entered, ref := w.ToggleProximityView(); !entered {
+		t.Fatalf("o refused: %q", ref)
+	}
+	v = newProximityTestView(t, DesignWidth, DesignHeight)
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	st, ok := w.ProximityState()
+	if !ok {
+		t.Fatal("no proximity state")
+	}
+	along, cross = v.drawOverhead(w, st)
+	for _, l := range strings.Split(ansi.Strip(v.ov.String()), "\n") {
+		rows = append(rows, []rune(l))
+	}
+	return
+}
+
+// lzCell is where LZ n's centre (or a ring point) lands in the disc's cells.
+func lzCell(t *testing.T, w *sim.World, v *OrbitView, along, cross float64, wp orbital.Vec3) (col, row int, ok bool) {
+	t.Helper()
+	st, _ := w.ProximityState()
+	a, l := overheadRel(st, wp)
+	stretch := (4.0 * overheadBarRows / cross) / (2.0 * overheadBarCells / along)
+	px, py, on := v.ov.Project(overheadPoint(a, l, stretch))
+	return px / 2, py / 4, on
+}
+
+// ADR 0068 decision 8, T8: the inset draws every LZ as a circle about its own
+// centre, the digit at each centre and the flag at the one you fly to, and the
+// cross bar is the measured 200 m (ring held) or the 50 m floor (lone flag).
+func TestOverheadLZCirclesDigitsAndFlag(t *testing.T) {
+	for _, claim := range []int{0, 2} { // LZ-1 by default; a claim on LZ-2 moves the flag
+		w := lzRingWorld(t, 7)
+		if claim > 0 {
+			w.ActiveCraft().LZClaim = spacecraft.LZClaim{SiteID: w.Sites[0].ID, N: claim}
+		}
+		flown := max(claim, 1)
+		v, along, cross, rows := overheadDisc(t, w)
+		if cross != 200 {
+			t.Errorf("claim %d: a full ring reads the %g m cross bar, want 200 (ring held)", claim, cross)
+		}
+		at := func(col, row int) rune {
+			if row < 0 || row >= len(rows) || col < 0 || col >= len(rows[row]) {
+				return 0
+			}
+			return rows[row][col]
+		}
+		digits := 0
+		for _, p := range w.LZPlaces(w.Sites[0]) {
+			col, row, on := lzCell(t, w, v, along, cross, p.Pos)
+			if !on {
+				continue
+			}
+			want := rune('0' + p.N)
+			if p.N == flown {
+				want = flagGlyph
+			}
+			if got := at(col, row); got != want {
+				t.Errorf("claim %d: LZ-%d centre cell (%d,%d) holds %q, want %q", claim, p.N, col, row, got, want)
+			}
+			if p.N != flown {
+				digits++
+			}
+			// the circle's four compass points are inked: the outline is
+			// about this LZ's centre, not the site point
+			for _, th := range []float64{0, math.Pi / 2, math.Pi, 3 * math.Pi / 2} {
+				st, _ := w.ProximityState()
+				a, l := overheadRel(st, p.Pos)
+				stretch := (4.0 * overheadBarRows / cross) / (2.0 * overheadBarCells / along)
+				px, py, on := v.ov.Project(overheadPoint(a+sim.SiteLZRadiusM*math.Cos(th), l+sim.SiteLZRadiusM*math.Sin(th), stretch))
+				if !on || px < 2 || py < 2 || px >= 2*overheadDiscCols-2 || py >= 4*overheadDiscRows-2 {
+					continue // the canvas edge row/column does not take a clipped dot
+				}
+				if c := at(px/2, py/4); c == '\u2800' || c == ' ' {
+					t.Errorf("claim %d: LZ-%d circle not inked at %.0f deg (cell %d,%d)", claim, p.N, th*180/math.Pi, px/2, py/4)
+				}
+			}
+		}
+		if digits < 3 {
+			t.Errorf("claim %d: only %d neighbour digits in the picture, want the ring in view", claim, digits)
+		}
+	}
+	// Lone flag: the 50 m floor, nothing to widen for.
+	if _, _, cross, _ := overheadDisc(t, lzRingWorld(t, 1)); cross != overheadCrossFloorM {
+		t.Errorf("a one-LZ flag reads the %g m cross bar, want the %g m floor", cross, overheadCrossFloorM)
+	}
+}
+
+// The widening takes only LZs within one spacing across: exactly 100 m is in
+// (143 m with its circle), 1 cm further is clipped, so LC-13's LZ-2 at 310 m
+// never pushes the bar to 500 m.
+func TestOverheadLZExtentGate(t *testing.T) {
+	if got := overheadLZExtent([]overheadLZ{{left: -sim.SiteLZSpacingM}}); got != sim.SiteLZSpacingM+sim.SiteLZRadiusM {
+		t.Errorf("an LZ exactly one spacing across holds %g m, want 143", got)
+	}
+	if got := overheadLZExtent([]overheadLZ{{left: sim.SiteLZSpacingM + 0.01}, {left: 310}}); got != 0 {
+		t.Errorf("a far LZ widened the axis to %g m", got)
+	}
+}
+
+// A vessel of yours standing on an LZ is drawn there; the colour is the
+// site's glyph's (TARGET green for yours, Dim for a partner's).
+func TestOverheadStandingVesselAndPartnerColour(t *testing.T) {
+	w := lzRingWorld(t, 7)
+	s := w.Sites[0]
+	o, err := w.SpawnCraft(sim.SpawnSpec{Alongside: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Primary, o.Color = w.ActiveCraft().Primary, "#FF00FF"
+	o.Landed, o.LandedLatDeg, o.LandedLonDeg = true, s.LatDeg, s.LonDeg // on LZ-1
+	for i, c := range w.Crafts {
+		if c == o {
+			continue
+		}
+		w.ActiveCraftIdx = i
+	}
+	w.SetTargetSite(s.ID)
+	v, _, _, rows := overheadDisc(t, w)
+	if !strings.ContainsRune(rowsText(rows), overheadStandGlyph) {
+		t.Errorf("no %c for the vessel standing on LZ-1:\n%s", overheadStandGlyph, rowsText(rows))
+	}
+	if n := v.ov.CountOverlayColor(lipgloss.Color("#FF00FF")); n != 1 {
+		t.Errorf("standing vessel in its own colour: %d cells, want 1", n)
+	}
+	own := v.ov.CountOverlayColor(render.ColorTarget)
+
+	// The same site as a partner's: its digits go Dim.
+	w2 := lzRingWorld(t, 7)
+	ps := w2.Sites[0]
+	ps.Owner = "SHA256:pal"
+	w2.Sites, w2.PartnerSites = nil, []sim.PartnerSite{{Handle: "pal", Site: ps}}
+	w2.SetTargetPartnerSite(ps.Owner, ps.ID)
+	v2, _, _, _ := overheadDisc(t, w2)
+	if n := v2.ov.CountOverlayColor(render.ColorTarget); n >= own {
+		t.Errorf("partner's digits drawn in TARGET green: %d cells, yours %d", n, own)
+	}
+}
+
+func rowsText(rows [][]rune) string {
+	var b strings.Builder
+	for _, r := range rows {
+		b.WriteString(string(r) + "\n")
+	}
+	return b.String()
 }

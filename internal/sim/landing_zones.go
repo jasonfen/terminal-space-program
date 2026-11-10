@@ -358,7 +358,8 @@ func (w *World) StandingOn(s Site) []StandingVessel {
 		for n := 1; n <= s.LZs(); n++ {
 			lat, lon := s.lzLatLon(n, r)
 			if insideLZ(HaversineM(vl, vo, lat, lon, r)) {
-				out = append(out, StandingVessel{Pos: w.BodyPosition(v.Primary).Add(v.State.R), Color: v.Color, LZ: n})
+				r, _ := surfacePointState(v.Primary, vl, vo, w.Clock.SimTime)
+				out = append(out, StandingVessel{Pos: w.BodyPosition(v.Primary).Add(r), Color: v.Color, LZ: n})
 				break
 			}
 		}
