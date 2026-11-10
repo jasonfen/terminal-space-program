@@ -9,6 +9,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // TestDragDecaysLowPerigeeOrbit: craft on a 140 km × 200 km elliptical
@@ -120,6 +121,10 @@ func TestHighWarpEntryStaysBounded(t *testing.T) {
 	w := mustWorld(t)
 	w.Clock.WarpIdx = len(WarpFactors) - 1
 	c := w.ActiveCraft()
+	// The test is about step size, not the hull: hold the drag at the old
+	// stock figure (the default stack's size-and-mass figure is 30x lower and
+	// never reaches the ground in 2000 ticks).
+	c.Stages[0].BallisticCoefficient = spacecraft.DefaultBallisticCoefficient
 	earth := c.Primary
 	mu := earth.GravitationalParameter()
 	R := earth.RadiusMeters()
