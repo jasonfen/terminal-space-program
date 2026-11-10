@@ -117,6 +117,7 @@ func TestSoftTouchdownPlantsFlagAndRepeatNumbersIt(t *testing.T) {
 		t.Errorf("flag = %+v, want Kind flag, name %q at the touchdown lat/lon", s, c.Name+" site")
 	}
 	w.leavePad(c)
+	w.Clock.SimTime = w.Clock.SimTime.Add(time.Hour) // the body turns: well outside the first flag's LZ (ADR 0068 decision 7)
 	setImpactState(c, 2, orbital.Vec3{X: 1})
 	w.integrateOneCraft(c, w.Clock.BaseStep)
 	if len(w.Sites) != 2 || w.Sites[1].Name != c.Name+" site 2" || w.Sites[1].ID == w.Sites[0].ID {

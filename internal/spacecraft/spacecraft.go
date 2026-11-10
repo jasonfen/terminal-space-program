@@ -209,6 +209,9 @@ type Spacecraft struct {
 	// the vessel never engaged it.
 	Landing *LandingAutopilot
 
+	// LZClaim (ADR 0068) is the LZ this vessel is flying to. Not saved.
+	LZClaim LZClaim `json:"-"`
+
 	// AttitudeRate (ADR 0055 slice 0) is the nose's inertial angular
 	// velocity in rad/s, world axes, measured by the sim from the slew it
 	// applied this tick. It is what makes a port point's velocity more than

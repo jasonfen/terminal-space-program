@@ -223,13 +223,22 @@ func classifySurfaceArrival(
 // invocation (the clamped state is already on c.State).
 func (w *World) applySurfaceArrival(c *spacecraft.Spacecraft, clamped physics.StateVector, outcome surfaceArrivalOutcome, lat, lon float64) {
 	c.State = clamped
+	c.LZClaim = spacecraft.LZClaim{} // landed or crashed: the claim is spent (ADR 0068 decision 5)
 	switch outcome {
 	case outcomeLanded:
 		lat, lon = w.setDownBeside(c, lat, lon) // ADR 0068 decision 10
 		c.Landed = true
 		c.LandedLatDeg = lat
 		c.LandedLonDeg = lon
-		w.plantSite(c, SiteFlag, "site", lat, lon) // ADR 0066 decision 3
+		// ADR 0068 decision 7: a touchdown inside an LZ plants no flag
+		if s, n, d, in := w.lzAt(c, lat, lon); in {
+			if ap := c.Landing; !ap.Owns() { // the autopilot's own flash says it
+				w.PendingLandingEvents = append(w.PendingLandingEvents,
+					LandingEvent{CraftName: c.Name, SiteName: s.lzLabel(n), DistanceM: d, Background: w.ActiveCraft() != c})
+			}
+		} else {
+			w.plantSite(c, SiteFlag, "site", lat, lon) // ADR 0066 decision 3
+		}
 		// Soft-landed vessels do NOT route to ViewLaunch (OnPad is
 		// cleared on liftoff and stays cleared after touchdown).
 		// Reset CurrentAttitudeDir to local-up so the next tick's

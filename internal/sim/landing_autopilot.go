@@ -109,7 +109,7 @@ func (w *World) apTarget(c *spacecraft.Spacecraft) (lat, lon float64, name strin
 		t = w.Target
 	}
 	if t.Kind == TargetSite {
-		s, found := w.siteOfTarget(t)
+		s, found := w.landingSiteOf(t, c)
 		if !found || s.Body != c.Primary.EnglishName {
 			return 0, 0, "", false
 		}
@@ -278,6 +278,9 @@ func (w *World) EngageLandingAutopilot() error {
 	if c.Landed {
 		return ErrDeorbitLanded
 	}
+	if _, err := w.claimLZ(c); err != nil {
+		return err
+	}
 	if ap := c.Landing; ap.Owns() {
 		// already flying: take the throttle back and keep the phase, whatever the
 		// link or the target is doing
@@ -345,6 +348,9 @@ func (w *World) EngageLandingNoseHold() error {
 	if c.Landed {
 		return ErrDeorbitLanded
 	}
+	if _, err := w.claimLZ(c); err != nil {
+		return err
+	}
 	if ap := c.Landing; ap != nil && ap.Engaged {
 		if !ap.Nose {
 			ap.ROD, ap.ThrottleHeld = false, false // under the autopilot q is the old re-assert
@@ -380,6 +386,19 @@ func (w *World) EngageLandingNoseHold() error {
 // itself is refused nothing engages (nil plan); when only the engage is
 // refused the plan stays planted and is returned with the error.
 func (w *World) PlanDeorbitAndEngage() (*DeorbitPlan, error) {
+	c := w.ActiveCraft()
+	fresh, err := w.claimLZ(c) // before the plan, so the burn aims at the claimed LZ
+	if err != nil {
+		return nil, err
+	}
+	plan, err := w.planDeorbitAndEngage()
+	if plan == nil && err != nil && fresh {
+		c.LZClaim = spacecraft.LZClaim{} // nothing planted, nothing engaged
+	}
+	return plan, err
+}
+
+func (w *World) planDeorbitAndEngage() (*DeorbitPlan, error) {
 	plan, err := w.PlanDeorbitOntoSite()
 	if errors.Is(err, ErrDeorbitFalling) {
 		if err := w.EngageLandingAutopilot(); err != nil {
@@ -430,6 +449,9 @@ func (w *World) apReachTest(c *spacecraft.Spacecraft, lat, lon float64) error {
 // DisengageLandingAutopilot hands the vessel back (a hold key took the nose).
 func (w *World) DisengageLandingAutopilot(c *spacecraft.Spacecraft) {
 	if c != nil && c.Landing != nil {
+		if c.Landing.Engaged {
+			c.LZClaim = spacecraft.LZClaim{} // Site+ off frees the LZ (decision 5)
+		}
 		c.Landing.Engaged, c.Landing.ROD, c.Landing.ThrottleHeld = false, false, false
 	}
 }

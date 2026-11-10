@@ -4887,7 +4887,7 @@ func (a *App) doPlanDeorbitOnly() {
 		a.refuseDeorbit(fmt.Sprintf("a burn is already planted (%s); clear it in [m] first", planted))
 		return
 	}
-	plan, err := a.world.PlanDeorbitOntoSite()
+	plan, err := a.world.PlanDeorbitOnly()
 	if err != nil {
 		a.refuseDeorbit(deorbitRefusal(err))
 		return
