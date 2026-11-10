@@ -120,11 +120,15 @@ type overheadMarks struct {
 	arc             []orbital.Vec3
 }
 
-func overheadGather(w *sim.World, st sim.ProximityState) overheadMarks {
+func (v *OrbitView) overheadGather(w *sim.World, st sim.ProximityState) overheadMarks {
 	var m overheadMarks
 	m.craft[0], m.craft[1] = overheadRel(st, st.CraftWorld)
 	m.cs[0], m.cs[1] = overheadRel(st, computerSiteWorld(st))
-	if arc, ok := w.LandingStopArc(); ok {
+	arc, ok := v.stopArc, v.stopArcOK
+	if !v.stopArcFresh { // the landing scene did not draw this frame
+		arc, ok = w.LandingStopArc()
+	}
+	if ok {
 		m.arc = arc.Points
 		if arc.Stopped && len(arc.Points) > 0 {
 			m.stop[0], m.stop[1] = overheadRel(st, arc.Points[len(arc.Points)-1])
@@ -140,7 +144,7 @@ func (v *OrbitView) drawOverhead(w *sim.World, st sim.ProximityState) (alongBarM
 	c.Resize(overheadDiscCols, overheadDiscRows)
 	c.Clear()
 	c.SetBasis(widgets.Basis{X: orbital.Vec3{X: 1}, Y: orbital.Vec3{Y: 1}})
-	m := overheadGather(w, st)
+	m := v.overheadGather(w, st)
 
 	// Along: the flag sits overheadFlagFrac from the left; the width must hold
 	// what is behind it on that side and what is ahead on the other.

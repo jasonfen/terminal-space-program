@@ -128,6 +128,13 @@ type OrbitView struct {
 	proxOwnSpriteShown    bool
 	proxTargetSpriteShown bool
 
+	// stopArc is this frame's powered-stop arc, set by the landing scene so
+	// the OVERHEAD inset reuses it instead of tracing the stop a second time
+	// (review-2 L6); stopArcFresh is false until the scene has drawn this frame.
+	stopArc      sim.LandingArc
+	stopArcOK    bool
+	stopArcFresh bool
+
 	// panOffset (ADR 0042, CONTEXT.md "Pan") is the player's ↑↓←→ view
 	// offset from the tracked Focus, in world units. Render adds it to
 	// FocusPosition() every frame — so the camera keeps tracking a moving

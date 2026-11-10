@@ -81,7 +81,9 @@ func (v *OrbitView) drawLandingScene(w *sim.World, st sim.ProximityState) {
 	}
 	v.canvas.PlotPolylineClass(pts, render.ColorDim, widgets.ClassReal)
 
-	if arc, ok := w.LandingStopArc(); ok {
+	arc, ok := w.LandingStopArc()
+	v.stopArc, v.stopArcOK, v.stopArcFresh = arc, ok, true
+	if ok {
 		v.canvas.PlotPolylineClass(arc.Points, render.ColorPredictedPath, widgets.ClassPlanned)
 		if arc.Stopped {
 			v.canvas.SetCellOverlayColored(arc.Points[len(arc.Points)-1], landingStopGlyph, render.ColorPredictedPath)
