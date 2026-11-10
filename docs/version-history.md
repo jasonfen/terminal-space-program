@@ -2,6 +2,19 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.68.0
+
+Start on a save from the command line, and the v0.67.0 known issues fixed (PRs `#933`, `#934`, `#938` to `#941`; closes `#881`, `#891`, `#911`, `#915`; tag `v0.68.0`). Save schema unchanged (23).
+
+- **`--load <name|path>`.** Starts the game on a save, by the name the Load menu shows (`[AUTOSAVE 1]`) or a file path. With `--serve` the host's own game starts from it; guests keep their own. Refused beside the spawn flags or `--reset-fleet`, and for a name that matches more than one save.
+- **Old wrecks stay put.** A wreck from a save older than v0.66.0 gets its crater and wreck site on load and stops drifting over the ground (`#881`).
+- **Joining from another save.** A session no longer brings back the flags of a different save you played it with before, and flag 1 no longer collides (`#891`).
+- **The planned-burn `Δ` stays on the burn.** On the heliocentric map it no longer slides along the arc and snaps back (`#911`).
+- **Landing view.** `⌖` draws for a landed-vessel target too; `miss:`/`cross:` clear once the tank is dry instead of freezing; `N` engaged in a hover fixes the aim's plane, so a 100 m aim no longer moves the site 146 m; the ground-update flash names the vessel when it is not the one you fly; the OVERHEAD inset no longer traces the stop a second time each frame.
+- **Landers.** Older saves and VAB-built landers take the LM RCS figures (890 N, 287 kg). VAB-built and edited stacks keep their landing-computer error through a save.
+- **Flight Recording.** A trim or aim press while paused is stamped at the press; `bump:` rows land in both vessels' files; background rows fill `close`, `tca` and `Δincl`.
+- **Known issues.** A chute opening fast in thick air can throw the vessel off at absurd speed (`#935`); the touchdown flash can say out of reach for an air landing beside the flag (`#936`); the Token Pod falls at 566 m/s on Kern without its chute (`#937`).
+
 ### v0.67.0
 
 Landing autopilot (ADR 0067; PRs `#896` to `#907`, `#912` to `#918`, `#920` to `#931`; closes `#880`, `#882`, `#886`; tag `v0.67.0`). Save schema 23 (each vessel keeps its own navball frame; older saves migrate).
