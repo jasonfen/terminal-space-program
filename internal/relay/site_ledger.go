@@ -28,6 +28,7 @@ type SiteRecord struct {
 	CraftID            uint64
 	PlantedAtNano      int64
 	UpdatedAtNano      int64
+	SaveID             string // #891: the owner's save that planted it; "" (pre-#891) matches any
 }
 
 type siteKey struct {
@@ -151,7 +152,7 @@ func SiteRecordOf(w *sim.World, s sim.Site, owner, handle string) (SiteRecord, b
 				return SiteRecord{
 					Owner: owner, OwnerHandle: handle, ID: s.ID, BodyID: b.ID, System: s.System,
 					LatDeg: s.LatDeg, LonDeg: s.LonDeg, Kind: int(s.Kind), Name: s.Name,
-					CraftID: s.CraftID, PlantedAtNano: s.PlantedAtNano, UpdatedAtNano: s.UpdatedAtNano,
+					CraftID: s.CraftID, PlantedAtNano: s.PlantedAtNano, UpdatedAtNano: s.UpdatedAtNano, SaveID: w.SaveID,
 				}, true
 			}
 		}
@@ -191,6 +192,9 @@ func siteOf(w *sim.World, r SiteRecord) (sim.Site, bool) {
 // the caller's memory of what it last agreed on and is rewritten here.
 func (l *SiteLedger) SyncSites(w *sim.World, owner, handle string, known map[uint64]int64, connect bool) bool {
 	changed := false
+	if connect && l.dropOtherSave(owner, w.SaveID) {
+		changed = true
+	}
 	have := make(map[uint64]bool, len(w.Sites))
 	for i := range w.Sites {
 		s := &w.Sites[i]
@@ -236,6 +240,22 @@ func (l *SiteLedger) SyncSites(w *sim.World, owner, handle string, known map[uin
 		known[s.ID] = s.UpdatedAtNano
 	}
 	return changed
+}
+
+// dropOtherSave removes owner's records planted from a different save than
+// save: ids are per save, so they would be restored into the wrong game and
+// collide with its own flags (#891). A record with no SaveID matches any save.
+func (l *SiteLedger) dropOtherSave(owner, save string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	dropped := false
+	for k, r := range l.recs {
+		if k.owner == owner && r.SaveID != "" && save != "" && r.SaveID != save {
+			delete(l.recs, k)
+			dropped = true
+		}
+	}
+	return dropped
 }
 
 func (l *SiteLedger) recordsOf(owner string) []SiteRecord {

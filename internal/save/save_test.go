@@ -103,6 +103,9 @@ func TestRoundtrip(t *testing.T) {
 	if got.Calculator == nil {
 		t.Error("Calculator nil after Load — should be reconstructed via orbital.ForSystem")
 	}
+	if w.SaveID == "" || got.SaveID != w.SaveID {
+		t.Errorf("SaveID: got %q want %q (#891)", got.SaveID, w.SaveID)
+	}
 }
 
 // TestDecouplePlanRoundtripMidStaging — v0.12 / ADR 0009. A mission

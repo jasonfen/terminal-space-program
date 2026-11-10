@@ -1,6 +1,8 @@
 package sim
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"time"
@@ -53,6 +55,10 @@ type World struct {
 	// monotonic id source, never reused.
 	Sites      []Site
 	NextSiteID uint64
+	// SaveID names this game across saves and loads (#891): the site ledger keys
+	// ids per save, so it must tell one save's flag 1 from another's. Random,
+	// persisted; empty only on a World built by hand.
+	SaveID string
 	// PartnerSites are other players' sites from the session ledger (ADR 0066
 	// decision 5), rebuilt each refreshSession; transient, never saved.
 	PartnerSites []PartnerSite
@@ -654,6 +660,7 @@ func NewWorld() (*World, error) {
 		SystemIdx: 0,
 		Clock:     NewClock(bodies.J2000, 50*time.Millisecond),
 		ViewTilt:  DefaultViewTilt(),
+		SaveID:    NewSaveID(),
 	}
 	w.Calculator = orbital.ForSystem(w.System())
 
@@ -2918,4 +2925,11 @@ func bodyVelocityIn(sys bodies.System, calc orbital.Calculator, b bodies.Celesti
 		return vRel
 	}
 	return bodyVelocityIn(sys, calc, *parent, t).Add(vRel)
+}
+
+// NewSaveID returns a fresh random World.SaveID.
+func NewSaveID() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
