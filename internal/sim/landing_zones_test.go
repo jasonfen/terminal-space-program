@@ -322,3 +322,103 @@ func TestACrashedVesselHoldsItsLZ(t *testing.T) {
 		t.Errorf("the wreck itself reads %d, want its own LZ-1 free", n)
 	}
 }
+
+// ADR 0068 decision 8, T8b: the map draws the circles when 86 m spans four
+// cells or more, 21.5 m a cell or finer. The equal case (exactly four cells)
+// draws; the next float down does not.
+func TestLZCirclesOnMapThreshold(t *testing.T) {
+	s := LZMapMinCells / SiteLZRadiusM
+	for !LZCirclesOnMap(s) {
+		s = math.Nextafter(s, math.Inf(1))
+	}
+	for LZCirclesOnMap(math.Nextafter(s, 0)) {
+		s = math.Nextafter(s, 0)
+	}
+	if !LZCirclesOnMap(s) || LZCirclesOnMap(math.Nextafter(s, 0)) {
+		t.Fatalf("threshold edge not found at %v", s)
+	}
+	if got := 2 * SiteLZRadiusM * s / 2; got != LZMapMinCells {
+		t.Errorf("the edge is at %v cells, not exactly %v: the equal case is not under test", got, LZMapMinCells)
+	}
+	if mPerCell := 2 / s; math.Abs(mPerCell-21.5) > 1e-9 {
+		t.Errorf("threshold is %.9f m a cell, want 21.5", mPerCell)
+	}
+}
+
+// Decision 8's picture needs the LZ centres in the world and your standing
+// vessels on them: LZ-1 and LZ-2 100 m apart on the ground, up unit, a landed
+// vessel inside LZ-2 listed on 2, the active vessel, a flyer and a landed
+// vessel just outside the circle (the equal case, 1 cm over) left out.
+func TestLZPlacesAndStandingOn(t *testing.T) {
+	w, c, o := moonLZWorld(t)
+	s := w.Sites[0]
+	ps := w.LZPlaces(s)
+	if len(ps) != 2 {
+		t.Fatalf("%d places for a two-LZ site", len(ps))
+	}
+	if d := ps[0].Pos.Sub(ps[1].Pos).Norm(); math.Abs(d-SiteLZSpacingM) > 0.01 {
+		t.Errorf("LZ-1 to LZ-2 %.4f m in the world frame, want 100", d)
+	}
+	if math.Abs(ps[1].Up.Norm()-1) > 1e-12 {
+		t.Errorf("Up is not a unit vector: %v", ps[1].Up)
+	}
+	r := w.siteRadiusM(s)
+	la, lo := s.lzLatLon(2, r)
+	standOn(o, la, lo)
+	got := w.StandingOn(s)
+	if len(got) != 1 || got[0].LZ != 2 || got[0].Pos.Sub(ps[1].Pos).Norm() > 0.01 {
+		t.Fatalf("standing on LZ-2: %+v", got)
+	}
+	standOn(c, s.LatDeg, s.LonDeg) // the active vessel is never listed
+	o.Landed = false
+	if got := w.StandingOn(s); len(got) != 0 {
+		t.Errorf("a flyer or the active vessel listed: %+v", got)
+	}
+	// 1 cm outside LZ-2's circle along the meridian is not standing on it.
+	standOn(o, la+(SiteLZRadiusM+0.01)/r/rad, lo)
+	if got := w.StandingOn(s); len(got) != 0 {
+		t.Errorf("a vessel 43.01 m from LZ-2 listed: %+v", got)
+	}
+}
+
+// ADR 0068 decision 6 (S4): a chosen LZ moves every reader together, N claims
+// it taken or not.
+func TestChosenLZMovesEveryReaderAndNClaimsItTaken(t *testing.T) {
+	w, c, o := moonLZWorld(t)
+	s := w.Sites[0]
+	w.SetTargetSiteLZ(s.ID, 2) // nobody on LZ-1: auto would pick it
+	rad := c.Primary.RadiusMeters()
+	wantLat, wantLon := s.lzLatLon(2, rad)
+	apLat, apLon, _, _ := w.apTarget(c)
+	gLat, gLon, _ := w.surfaceTargetLatLon(c)
+	dLat, dLon, _, _ := w.deorbitSite(c)
+	ts, _ := w.targetSite()
+	_, n, _ := w.ActiveLandingLZ()
+	for who, p := range map[string][2]float64{"autopilot": {apLat, apLon}, "miss/ground": {gLat, gLon}, "deorbit": {dLat, dLon}, "target": {ts.LatDeg, ts.LonDeg}} {
+		if HaversineM(p[0], p[1], wantLat, wantLon, rad) > 1e-3 {
+			t.Errorf("%s reads %v, chosen LZ-2 is at %v,%v", who, p, wantLat, wantLon)
+		}
+	}
+	if w.TargetName() != s.Name+" LZ-2" || n != 2 {
+		t.Errorf("TARGET %q, flag LZ %d, want LZ-2", w.TargetName(), n)
+	}
+	// N with LZ-2 chosen while a vessel stands on it: claims LZ-2, no refusal.
+	lat2, lon2 := s.lzLatLon(2, rad)
+	standOn(o, lat2, lon2)
+	if _, err := w.PlanDeorbitAndEngage(); err != nil || c.LZClaim.N != 2 {
+		t.Errorf("N on a taken chosen LZ: err %v claim %d, want claim 2", err, c.LZClaim.N)
+	}
+	// Choosing another LZ drops the claim; the new choice rules.
+	w.SetTargetSiteLZ(s.ID, 1)
+	if c.LZClaim.N != 0 {
+		t.Error("re-choosing kept the old claim")
+	}
+	if _, n, _ := w.ActiveLandingLZ(); n != 1 {
+		t.Errorf("LZ-1 chosen, flying to %d", n)
+	}
+	// Auto again: today's rule (lowest free).
+	w.SetTargetSiteLZ(s.ID, 0)
+	if _, n, _ := w.ActiveLandingLZ(); n != 1 {
+		t.Errorf("auto flies to LZ-%d, want lowest free 1", n)
+	}
+}

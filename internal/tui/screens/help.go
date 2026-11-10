@@ -191,6 +191,7 @@ var helpSections = []helpSection{
 		{"D", "transpose: SM → firing core, LM → releasable nose payload; asks first"},
 		{"t / T", "target menu: vessels, sites here, partners, bodies, nearest first; t again takes the row / T clears; LC-13 at the Cape, Kern LZ, Tranquility Base and Sinus Medii are listed in every game, and TARGET names the LZ you hold, e.g. LC-13 LZ-2"},
 		{"r / d (target menu)", "rename / delete a site you own"},
+		{"←/→ (target menu)", "on a site with more than one LZ: choose which, auto then LZ-1 up; N, B and enter use it; a taken LZ can be chosen"},
 		{"space", "decouple bottom stage, instantly, pad included (the STAGES box names it; bare chute capsule: arm the chute; a Dragon drops its trunk first, then the next press arms the chute; on an open chute: cut it, for good); refused while lit solid boosters burn; a booster stage drops as two vessels"},
 		{"E", "end flight: clear a crashed vessel from the slate (asks first)"},
 	}},

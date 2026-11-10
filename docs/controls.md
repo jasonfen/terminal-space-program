@@ -261,6 +261,7 @@ refuse in one phrase.
 |---|---|
 | `t` / `T` | Open the target menu / clear your target. The menu lists VESSELS, SITES on this body, PARTNERS and BODIES, nearest first inside each; a released batch is one row (its nearest member). The ▸ opens on the row one press used to take: your own primary is never offered, so from LEO it is the Moon and from lunar orbit it is Earth. `t` again or `enter` takes the highlighted row, `↑` / `↓` move it, `esc` closes it. Warp keys still work while it is open. On a site you own `r` renames it and `d` asks `delete / keep it`. Four zones ship with the game and are always listed, never renamed or deleted: `LC-13` at the Cape, `Kern LZ` at Kern Space Center, `Tranquility Base` and `Sinus Medii` on the Moon. TARGET and the LANDING chip name the **LZ** you hold (`LC-13 LZ-2`). On body info `t` still targets the body shown. `T` clears |
 | `r` / `d` (target menu) | On a site you own: rename it / delete it (asks first) |
+| `←` / `→` (target menu) | On a site with more than one LZ: choose which, `auto` then `LZ-1` up. `N`, `B` and `enter` use it; a taken LZ can be chosen. Forgotten on reload |
 | `l` / `h` | Move the map cursor to the next / previous body |
 
 ### Planning burns
