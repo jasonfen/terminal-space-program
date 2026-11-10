@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -107,6 +108,26 @@ func TestLandingViewComputerSiteAndReveal(t *testing.T) {
 		if got := flagRevealed(tc.differs, tc.rangeM); got != tc.want {
 			t.Errorf("flagRevealed(differs=%v, %v m) = %v, want %v", tc.differs, tc.rangeM, got, tc.want)
 		}
+	}
+}
+
+// Review-2 L2: the computer's-site error is read for a landed-vessel target
+// too, so the ⌖ is drawn there as well (beyond 10 km the real mark is hidden,
+// so without it a no-link descent onto a parked lander shows no mark at all).
+func TestLandingViewDrawsComputerSiteForLandedVesselTarget(t *testing.T) {
+	_, _, out := landingFrame(t, func(w *sim.World) {
+		c := w.ActiveCraft()
+		parked := *c
+		parked.ID, parked.Name = c.ID+1, "parked lander"
+		parked.Landed, parked.LandedLatDeg, parked.LandedLonDeg = true, 1, 2
+		parked.State.R = c.State.R.Unit().Scale(c.Primary.RadiusMeters())
+		parked.State.V = orbital.Vec3{}
+		w.Crafts = append(w.Crafts, &parked)
+		w.SetTargetCraft(len(w.Crafts) - 1)
+		c.Landing = &spacecraft.LandingAutopilot{NavSeeded: true, NavAlongM: 20000}
+	})
+	if !strings.Contains(out, string(computerSiteGlyph)) {
+		t.Errorf("no ⌖ for a landed-vessel target with a 20 km nav error\n%s", out)
 	}
 }
 
