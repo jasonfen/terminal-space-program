@@ -1307,6 +1307,28 @@ func TestSiteTrimRowWhilePausedAndAcrossSwitch(t *testing.T) {
 	}
 }
 
+// Guard 6, landed pair: a flying vessel bumping a standing one writes the row
+// in both files too.
+func TestBumpRowLandsInBothFilesForStandingPair(t *testing.T) {
+	w, a, b := standingWorld(t, 3, 1)
+	dir := recAttach(t, w)
+	w.checkBumps()
+	for _, tc := range []struct {
+		c    *spacecraft.Spacecraft
+		want string
+	}{{a, "bump: " + b.Name + ", 1.0 m/s"}, {b, "bump: " + a.Name + ", 1.0 m/s"}} {
+		n := 0
+		for _, e := range allEv(t, fileOf(t, dir, tc.c)) {
+			if e == tc.want {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s file has %d rows %q, want 1", tc.c.Name, n, tc.want)
+		}
+	}
+}
+
 // Both hulls of a bump record it: the row lands in the Active Vessel's file and
 // in the partner's, each naming the other. Flight 10 saw it in only one file.
 func TestBumpRowLandsInBothVesselsFiles(t *testing.T) {
