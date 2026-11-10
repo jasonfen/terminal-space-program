@@ -424,7 +424,7 @@ func TestChosenLZMovesEveryReaderAndNClaimsItTaken(t *testing.T) {
 }
 
 // ADR 0068 decision 11, guard 9: a partner's landed ghost occupies an LZ, a
-// flying one does not; the 43 m edge is inside; a ghost at a same-id partner
+// flying one does not; the 43 m edge (equal case pinned on insideLZ above); a ghost at a same-id partner
 // site elsewhere does not cross over; 0N 0E is a position when Landed.
 func TestPartnerGhostsOccupyOnlyWhenLanded(t *testing.T) {
 	w, c, _ := moonLZWorld(t)
@@ -447,13 +447,30 @@ func TestPartnerGhostsOccupyOnlyWhenLanded(t *testing.T) {
 	free(2, "a landed ghost on LZ-1")
 	// exactly 43 m north is inside (the equal case), 43 m + 1 cm is not.
 	edge := s.LatDeg + SiteLZRadiusM/r/rad
-	w.Ghosts = []Ghost{ghost(true, edge, s.LonDeg)}
-	if HaversineM(edge, s.LonDeg, s.LatDeg, s.LonDeg, r) > SiteLZRadiusM {
+	for HaversineM(edge, s.LonDeg, s.LatDeg, s.LonDeg, r) > SiteLZRadiusM {
 		edge = math.Nextafter(edge, s.LatDeg) // rounding put it a hair out
 	}
+	if d := HaversineM(edge, s.LonDeg, s.LatDeg, s.LonDeg, r); SiteLZRadiusM-d > 1e-6 {
+		t.Fatalf("edge fixture %.9f m from LZ-1, want 43", d)
+	}
+	w.Ghosts = []Ghost{ghost(true, edge, s.LonDeg)}
 	free(2, "a landed ghost at the 43 m edge")
 	w.Ghosts = []Ghost{ghost(true, s.LatDeg+(SiteLZRadiusM+0.01)/r/rad, s.LonDeg)}
 	free(1, "a landed ghost 43.01 m out")
+	// the same coordinates on another body of the system is not this body.
+	for _, b := range w.System().Bodies {
+		if b.ID != prim {
+			g := ghost(true, s.LatDeg, s.LonDeg)
+			g.PrimaryID = b.ID
+			w.Ghosts = []Ghost{g}
+			break
+		}
+	}
+	free(1, "a landed ghost on another body")
+	w.Ghosts = []Ghost{ghost(true, s.LatDeg, s.LonDeg)}
+	if n := w.lowestFreeLZ(Site{ID: 78, Body: s.Body, System: "Elsewhere", LatDeg: s.LatDeg, LonDeg: s.LonDeg}, c); n != 1 {
+		t.Errorf("a same-named body in another system: lowest free %d, want 1", n)
+	}
 	// a same-id partner site on the same body, elsewhere: its parked lander is not on ours.
 	w.PartnerSites = []PartnerSite{{Site: Site{ID: s.ID, Owner: "ansi", Body: s.Body, System: s.System, LatDeg: s.LatDeg + 1, LonDeg: s.LonDeg}}}
 	w.Ghosts = []Ghost{ghost(true, s.LatDeg+1, s.LonDeg)}
