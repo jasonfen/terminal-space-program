@@ -207,6 +207,9 @@ func (m *TargetMenu) HandleKey(s string) TargetMenuAction {
 	case "left", "right":
 		if r, ok := m.Row(); ok && pickable(r) {
 			i := m.items()[m.cursor].row
+			if m.lz == nil {
+				m.lz = map[int]int{}
+			}
 			if s == "right" {
 				m.lz[i] = min(m.lz[i]+1, r.LZs)
 			} else {

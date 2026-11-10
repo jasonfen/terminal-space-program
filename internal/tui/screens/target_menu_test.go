@@ -58,6 +58,49 @@ func TestTargetMenuRenderIsCardWide(t *testing.T) {
 	}
 }
 
+// ADR 0068 decision 6: the arrows on a multi-LZ site row step auto, LZ-1..n
+// (stopping at the ends, the equal case at n), do nothing on a one-LZ row, and
+// the row with the longest name still fits the card with its selector.
+func TestTargetMenuLZArrows(t *testing.T) {
+	site := func(name string, lzs int) sim.TargetRow {
+		return sim.TargetRow{Group: sim.GroupSites, Target: sim.Target{Kind: sim.TargetSite, SiteID: 7}, Name: name, LZs: lzs, DistM: 1}
+	}
+	m := NewTargetMenu(Theme{})
+	m.body = "MOON"
+	m.rows = []sim.TargetRow{site("Tranquility Base", 2), site("Flag-1", 1)}
+	chosen := func() int { r, _ := m.Row(); return r.LZ }
+	steps := []struct {
+		key  string
+		want int
+	}{{"left", 0}, {"right", 1}, {"right", 2}, {"right", 2}, {"left", 1}, {"left", 0}, {"left", 0}, {"right", 1}}
+	for i, s := range steps {
+		m.HandleKey(s.key)
+		if got := chosen(); got != s.want {
+			t.Fatalf("step %d %s: LZ %d, want %d", i, s.key, got, s.want)
+		}
+	}
+	out := m.Render()
+	for i, ln := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(ln); w != CardW {
+			t.Errorf("line %d is %d cells, want %d: %q", i, w, CardW, ln)
+		}
+	}
+	for _, want := range []string{"◂ LZ-1 ▸", "[←/→] LZ"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("render lacks %q:\n%s", want, out)
+		}
+	}
+	m.HandleKey("left")
+	if !strings.Contains(m.Render(), "◂ auto ▸") {
+		t.Error("left of LZ-1 does not read auto")
+	}
+	m.HandleKey("down") // the one-LZ flag
+	m.HandleKey("right")
+	if r, _ := m.Row(); r.LZ != 0 || strings.Contains(m.Render(), "◂") {
+		t.Errorf("a one-LZ row took an arrow or draws a selector (LZ %d)", r.LZ)
+	}
+}
+
 func TestTargetDist(t *testing.T) {
 	for _, c := range []struct {
 		m    float64
