@@ -1306,3 +1306,29 @@ func TestSiteTrimRowWhilePausedAndAcrossSwitch(t *testing.T) {
 		t.Errorf("rows after switch = %q, want trim row then active vessel", after[len(before):])
 	}
 }
+
+// Both hulls of a bump record it: the row lands in the Active Vessel's file and
+// in the partner's, each naming the other. Flight 10 saw it in only one file.
+func TestBumpRowLandsInBothVesselsFiles(t *testing.T) {
+	w, a, b := bumpWorld(t, 30, -0.3)
+	dir := recAttach(t, w)
+	tickUntil(w, 2000, func() bool { return w.LastBumpEvent != nil })
+	if w.LastBumpEvent == nil {
+		t.Fatal("setup: no bump")
+	}
+	for _, tc := range []struct {
+		c    *spacecraft.Spacecraft
+		want string
+	}{{a, "bump: " + b.Name + ", 0.3 m/s"}, {b, "bump: " + a.Name + ", 0.3 m/s"}} {
+		got := allEv(t, fileOf(t, dir, tc.c))
+		n := 0
+		for _, e := range got {
+			if e == tc.want {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("%s file has %d rows %q, want 1; events %q", tc.c.Name, n, tc.want, got)
+		}
+	}
+}
