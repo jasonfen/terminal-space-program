@@ -1,7 +1,9 @@
 package spacecraft
 
 import (
+	"encoding/json"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -104,5 +106,17 @@ func TestSyncFieldsNoOpOnEmptyStages(t *testing.T) {
 	s.SyncFields()
 	if s.DryMass != 1000 || s.Fuel != 500 || s.Thrust != 10000 || s.Isp != 300 {
 		t.Errorf("SyncFields with empty Stages clobbered flat fields: %+v", s)
+	}
+}
+
+// L7 (review-2): the nav sigma is catalog-derived and must not be saved, so a
+// parts.json edit reaches existing saves.
+func TestStageNavSigmaIsNotSerialised(t *testing.T) {
+	b, err := json.Marshal(Stage{NavSigmaAlongM: 2000, NavSigmaAcrossM: 1000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "NavSigma") {
+		t.Errorf("Stage JSON carries the nav sigma: %s", b)
 	}
 }

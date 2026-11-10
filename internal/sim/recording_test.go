@@ -1279,3 +1279,30 @@ func TestGhostAndDebrisGetNoRecording(t *testing.T) {
 		}
 	}
 }
+
+// L3 (review-2): a SITE trim row pressed while paused is written at the paused
+// moment (first Tick returns early on Paused), and a vessel switch before any
+// tick still stamps the outgoing vessel's row with the outgoing vessel's tail.
+func TestSiteTrimRowWhilePausedAndAcrossSwitch(t *testing.T) {
+	w, c, path := siteRecWorld(t)
+	w.Clock.Paused = true
+	press(w, func() { c.PitchTrim += spacecraft.PitchTrimFineStepRad })
+	w.Tick() // still paused
+	if got := lastEv(t, path); !strings.HasPrefix(got, "trim: ") {
+		t.Errorf("paused trim press not written by a paused Tick: last row %q", got)
+	}
+	// equal case: nothing pending, nothing written
+	_, before := recRead(t, path)
+	w.Tick()
+	if _, after := recRead(t, path); len(after) != len(before) {
+		t.Errorf("an idle paused Tick wrote %q", after[len(before):])
+	}
+	// switch before any tick: the row is flushed first, in the outgoing file
+	press(w, func() { c.PitchTrim += spacecraft.PitchTrimFineStepRad })
+	_, before = recRead(t, path)
+	awayFrom(t, w)
+	_, after := recRead(t, path)
+	if len(after) < len(before)+2 || !strings.HasPrefix(after[len(before)], "trim: ") || !strings.HasPrefix(after[len(before)+1], "active vessel") {
+		t.Errorf("rows after switch = %q, want trim row then active vessel", after[len(before):])
+	}
+}

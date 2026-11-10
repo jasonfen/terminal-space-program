@@ -286,7 +286,7 @@ type Stage struct {
 	// computer's 1-sigma site error with no link, set on the command part of an
 	// Apollo-shaped vessel; zero is modern. Catalog-derived, not saved: see
 	// Spacecraft.NavSigma.
-	NavSigmaAlongM, NavSigmaAcrossM float64
+	NavSigmaAlongM, NavSigmaAcrossM float64 `json:"-"`
 }
 
 // SumDryMass returns the total dry mass across every stage in kg.

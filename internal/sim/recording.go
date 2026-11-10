@@ -608,6 +608,7 @@ func (w *World) recordBurnStalled(c *spacecraft.Spacecraft) {
 // vessel being left names the vessel being taken.
 func (w *World) recordActiveSwitch(to *spacecraft.Spacecraft) {
 	if a := w.ActiveCraft(); to != nil && a != nil && to.ID != a.ID {
+		w.flushPendingRows() // a deferred row keeps the outgoing vessel's miss: tail
 		w.recordRow("active vessel → " + to.Name)
 	}
 }
