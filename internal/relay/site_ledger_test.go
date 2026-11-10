@@ -73,6 +73,11 @@ func TestSyncSitesConnectNewestWinsPublishesAndPutsBack(t *testing.T) {
 	if w.NextSiteID < 9 {
 		t.Errorf("NextSiteID = %d, want >= 9 so a new flag cannot reuse a ledger id", w.NextSiteID)
 	}
+	for _, r := range l.Snapshot() { // ADR 0068 guard 7: the shipped zones are never published
+		if r.ID >= uint64(1)<<62 || r.Name == "LC-13" || r.Name == "Tranquility Base" {
+			t.Errorf("ledger holds a shipped zone: %+v", r)
+		}
+	}
 }
 
 // Steady ticks: plant, rename and delete reach the ledger; an idle tick does not.

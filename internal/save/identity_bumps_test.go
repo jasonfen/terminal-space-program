@@ -1,6 +1,7 @@
 package save
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -178,6 +179,27 @@ func TestSitesAndSiteTargetRoundTrip(t *testing.T) {
 	}
 	if got.Target.Kind != sim.TargetSite || got.Target.SiteID != 2 || got.ActiveCraft().Target.SiteID != 2 {
 		t.Errorf("site target came back %+v, want site 2", got.Target)
+	}
+
+	// ADR 0068 guard 7: the shipped zones are in no save's bytes, yet a target
+	// on one survives a reload (the id resolves against the Go-side table).
+	raw, _ := os.ReadFile(path)
+	for _, zone := range []string{"LC-13", "Kern LZ", "Tranquility Base", "Sinus Medii"} {
+		if bytes.Contains(raw, []byte(zone)) {
+			t.Errorf("save bytes carry the shipped zone %q", zone)
+		}
+	}
+	zoneID := uint64(1)<<62 + 1
+	w.SetTargetSite(zoneID)
+	if err := Save(w, path); err != nil {
+		t.Fatal(err)
+	}
+	if back, err := Load(path); err != nil || back.Target.SiteID != zoneID || !back.TargetSiteResolves() {
+		t.Errorf("a shipped-zone target did not survive: %v %+v", err, back.Target)
+	}
+	w.SetTargetSite(2)
+	if err := Save(w, path); err != nil {
+		t.Fatal(err)
 	}
 
 	f := readFileForTest(t, path)
