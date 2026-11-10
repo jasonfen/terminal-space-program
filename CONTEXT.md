@@ -920,6 +920,15 @@ vessel, and the ENGINE row says so, `▸ brake at 73.2 km  T-16m44s  rsv 10%`.
 Before it, the cue assumed 100% and a pilot lighting at the cue ended 43 km
 short on the Lander.
 
+**One-burn landing** (ADR 0069 decision 10; `landing_throttle` on the part):
+A part marked for it (the Falcon 9 first stage and Side Boosters at 1/9, one
+engine of nine; Packet-1; Dragon at 1) lands on one burn timed to end at the
+ground at 2 m/s (`OneBurnContactMps`). The cue and `N` plan at the reserve
+throttle of the **landing throttle**, the autopilot never asks for more, and
+there is no descent-rate schedule, no `e`/`q` clicks and no second try. Landers
+(LM-class) are unmarked and keep the schedule on every body. A Dragon's mark is
+inert until it has landing engines (slice 6).
+
 **Computer's Site** (ADR 0067):
 Where the vessel's guidance thinks the **Site** is: the real Site plus an
 offset drawn once when the deorbit burn is planted, from a hash of the vessel,
