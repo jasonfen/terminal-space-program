@@ -62,6 +62,7 @@ func helpPhraseRows() []helpPhrase {
 		// ADR 0059 decision 9: a released batch is one stop for [t]; the map stays quick to about 30 vessels per player.
 		{name: "batch is one row in the target menu, about 30 vessels", section: "VESSEL", token: "batch", has: []string{"one row in the target menu", "About 30 vessels per player"}},
 		// ADR 0066 decision 2: t opens the target menu; t again takes the row; r and d act on your own site.
+		{name: "arrows choose an LZ in the target menu", section: "VESSEL", token: "←/→ (target menu)", has: []string{"more than one LZ", "N, B and enter use it", "a taken LZ can be chosen"}},
 		{name: "t opens the target menu", section: "VESSEL", token: "t / T", has: []string{"target menu", "sites here", "t again takes the row", "T clears"}},
 		// ADR 0066 decision 6: y filters the map's surface marks; the t menu keeps them all.
 		{name: "F3 filters surface marks", section: "CAMERA & VIEW", token: "F3", has: []string{"landed vessels [v]", "flags [f]", "wrecks [w]", "partners' marks [p]", "coverage now [c]", "[t] still lists them all"}},

@@ -380,3 +380,45 @@ func TestLZPlacesAndStandingOn(t *testing.T) {
 		t.Errorf("a vessel 43.01 m from LZ-2 listed: %+v", got)
 	}
 }
+
+// ADR 0068 decision 6 (S4): a chosen LZ moves every reader together, N claims
+// it taken or not.
+func TestChosenLZMovesEveryReaderAndNClaimsItTaken(t *testing.T) {
+	w, c, o := moonLZWorld(t)
+	s := w.Sites[0]
+	w.SetTargetSiteLZ(s.ID, 2) // nobody on LZ-1: auto would pick it
+	rad := c.Primary.RadiusMeters()
+	wantLat, wantLon := s.lzLatLon(2, rad)
+	apLat, apLon, _, _ := w.apTarget(c)
+	gLat, gLon, _ := w.surfaceTargetLatLon(c)
+	dLat, dLon, _, _ := w.deorbitSite(c)
+	ts, _ := w.targetSite()
+	_, n, _ := w.ActiveLandingLZ()
+	for who, p := range map[string][2]float64{"autopilot": {apLat, apLon}, "miss/ground": {gLat, gLon}, "deorbit": {dLat, dLon}, "target": {ts.LatDeg, ts.LonDeg}} {
+		if HaversineM(p[0], p[1], wantLat, wantLon, rad) > 1e-3 {
+			t.Errorf("%s reads %v, chosen LZ-2 is at %v,%v", who, p, wantLat, wantLon)
+		}
+	}
+	if w.TargetName() != s.Name+" LZ-2" || n != 2 {
+		t.Errorf("TARGET %q, flag LZ %d, want LZ-2", w.TargetName(), n)
+	}
+	// N with LZ-2 chosen while a vessel stands on it: claims LZ-2, no refusal.
+	lat2, lon2 := s.lzLatLon(2, rad)
+	standOn(o, lat2, lon2)
+	if _, err := w.PlanDeorbitAndEngage(); err != nil || c.LZClaim.N != 2 {
+		t.Errorf("N on a taken chosen LZ: err %v claim %d, want claim 2", err, c.LZClaim.N)
+	}
+	// Choosing another LZ drops the claim; the new choice rules.
+	w.SetTargetSiteLZ(s.ID, 1)
+	if c.LZClaim.N != 0 {
+		t.Error("re-choosing kept the old claim")
+	}
+	if _, n, _ := w.ActiveLandingLZ(); n != 1 {
+		t.Errorf("LZ-1 chosen, flying to %d", n)
+	}
+	// Auto again: today's rule (lowest free).
+	w.SetTargetSiteLZ(s.ID, 0)
+	if _, n, _ := w.ActiveLandingLZ(); n != 1 {
+		t.Errorf("auto flies to LZ-%d, want lowest free 1", n)
+	}
+}

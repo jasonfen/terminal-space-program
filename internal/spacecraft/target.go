@@ -59,4 +59,17 @@ type Target struct {
 	// SiteID is the World.Sites entry when Kind==TargetSite (ADR 0066
 	// decision 1). A partner's site would reuse GhostOwner (S6).
 	SiteID uint64 `json:"site_id,omitempty"`
+
+	// LZ is the LZ chosen on the t card for a TargetSite (ADR 0068
+	// decision 6): 0 is auto, n is LZ-n. Never saved (S6 owns the
+	// schema): CraftToWire copies fields by hand and leaves it out.
+	LZ int `json:"-"`
+}
+
+// SameAim reports whether t and o aim at the same thing. The LZ choice is
+// part of the site aim's detail, not its identity: the target cycle and the
+// menu's open row must still find a site when an LZ is chosen on it.
+func (t Target) SameAim(o Target) bool {
+	t.LZ, o.LZ = 0, 0
+	return t == o
 }

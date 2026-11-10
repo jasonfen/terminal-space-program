@@ -30,6 +30,7 @@ type TargetRow struct {
 	Own   bool
 	Wreck bool
 	Count int
+	LZs   int // the site's LZ count (site rows)
 }
 
 // TargetMenu lists the targets by group, nearest first inside each, plus the
@@ -70,7 +71,7 @@ func (w *World) TargetMenu() (rows []TargetRow, open int) {
 			}
 			r, _ := surfacePointState(ac.Primary, s.LatDeg, s.LonDeg, w.Clock.SimTime)
 			rows = append(rows, TargetRow{Group: GroupSites, Target: Target{Kind: TargetSite, SiteID: s.ID},
-				Name: s.Name, Own: s.Owner == "" && s.Kind != SiteZone, Wreck: s.Kind == SiteWreck,
+				Name: s.Name, LZs: s.LZs(), Own: s.Owner == "" && s.Kind != SiteZone, Wreck: s.Kind == SiteWreck,
 				DistM: w.BodyPosition(ac.Primary).Add(r).Sub(from).Norm()})
 		}
 	}
@@ -82,7 +83,7 @@ func (w *World) TargetMenu() (rows []TargetRow, open int) {
 			r, _ := surfacePointState(ac.Primary, p.LatDeg, p.LonDeg, w.Clock.SimTime)
 			rows = append(rows, TargetRow{Group: GroupPartners,
 				Target: Target{Kind: TargetSite, SiteID: p.ID, GhostOwner: p.Owner},
-				Name:   p.Handle + ": " + p.Name, Wreck: p.Kind == SiteWreck,
+				Name:   p.Handle + ": " + p.Name, LZs: p.LZs(), Wreck: p.Kind == SiteWreck,
 				DistM: w.BodyPosition(ac.Primary).Add(r).Sub(from).Norm()})
 		}
 	}

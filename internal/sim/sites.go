@@ -78,10 +78,13 @@ func (w *World) TargetSiteResolves() bool { _, ok := w.targetSite(); return ok }
 
 // SetTargetPartnerSite aims at a partner's site (a PARTNERS row). An unknown
 // pair clears the target.
-func (w *World) SetTargetPartnerSite(owner string, id uint64) {
+func (w *World) SetTargetPartnerSite(owner string, id uint64) { w.SetTargetPartnerSiteLZ(owner, id, 0) }
+
+// SetTargetPartnerSiteLZ is SetTargetPartnerSite with an LZ chosen (0 = auto).
+func (w *World) SetTargetPartnerSiteLZ(owner string, id uint64, lz int) {
 	for _, p := range w.PartnerSites {
 		if p.Owner == owner && p.ID == id {
-			w.Target = Target{Kind: TargetSite, SiteID: id, GhostOwner: owner}
+			w.Target = Target{Kind: TargetSite, SiteID: id, GhostOwner: owner, LZ: lz}
 			w.mirrorTargetToActiveCraft()
 			w.reconcileNavMode()
 			return
@@ -101,12 +104,16 @@ func (w *World) siteByID(id uint64) (Site, bool) {
 
 // SetTargetSite aims at a site of this World. An unknown id clears the target,
 // as SetTargetBody does for a bad index.
-func (w *World) SetTargetSite(id uint64) {
+func (w *World) SetTargetSite(id uint64) { w.SetTargetSiteLZ(id, 0) }
+
+// SetTargetSiteLZ is SetTargetSite with an LZ chosen (0 = auto, ADR 0068
+// decision 6).
+func (w *World) SetTargetSiteLZ(id uint64, lz int) {
 	if _, ok := w.siteByID(id); !ok {
 		w.ClearTarget()
 		return
 	}
-	w.Target = Target{Kind: TargetSite, SiteID: id}
+	w.Target = Target{Kind: TargetSite, SiteID: id, LZ: lz}
 	w.mirrorTargetToActiveCraft()
 	w.reconcileNavMode()
 }

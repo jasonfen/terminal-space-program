@@ -219,7 +219,9 @@ func (w *World) landingLZOf(t Target, self *spacecraft.Spacecraft) (s Site, n in
 	if !ok {
 		return s, 0, false
 	}
-	if self != nil && claimMatches(self, s) {
+	if t.LZ > 0 { // chosen on the t card (decision 6): wins over a claim and auto
+		n = min(t.LZ, s.LZs())
+	} else if self != nil && claimMatches(self, s) {
 		n = min(self.LZClaim.N, s.LZs())
 	} else if n = w.lowestFreeLZ(s, self); n == 0 {
 		n = 1
@@ -291,7 +293,9 @@ func (w *World) claimLZ(c *spacecraft.Spacecraft) (fresh bool, err error) {
 		return false, nil
 	}
 	n := w.lowestFreeLZ(s, c)
-	if n == 0 {
+	if t.LZ > 0 { // a chosen LZ is claimed taken or not (decision 6)
+		n = min(t.LZ, s.LZs())
+	} else if n == 0 {
 		return false, &NoFreeLZError{Site: s.Name}
 	}
 	c.LZClaim = spacecraft.LZClaim{Owner: s.Owner, SiteID: s.ID, N: n}
