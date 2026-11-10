@@ -40,6 +40,7 @@ func main() {
 		serveMode   bool
 		servePort   int
 		resetFleet  bool
+		loadArg     string
 	)
 	flag.BoolVar(&showVersion, "version", false, "print version + commit and exit")
 	flag.BoolVar(&showVersion, "v", false, "print version + commit and exit (shorthand)")
@@ -62,6 +63,7 @@ func main() {
 	flag.BoolVar(&serveMode, "serve", false, "host a multiplayer session: play here and accept SSH guests (ADR 0034)")
 	flag.IntVar(&servePort, "serve-port", serve.DefaultPort, "SSH listener port for --serve")
 	flag.BoolVar(&resetFleet, "reset-fleet", false, "with --serve: one-shot fleet reset at startup — wipe every enrolled player's vessel slate to one default vessel on a shared 500x500 km ring and align all subspace clocks (previous saves are backed up)")
+	flag.StringVar(&loadArg, "load", "", "start on a save: its name as the Load menu shows it (e.g. \"[AUTOSAVE 1]\"), or a file path; with --serve the host's own game starts from it (guests keep their own)")
 	flag.Parse()
 
 	if showVersion {
@@ -135,6 +137,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "terminal-space-program: altitude %s\n", note)
 	}
 
+	if err := validateLoad(loadArg, scenario != nil, resetFleet); err != nil {
+		fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", err)
+		os.Exit(2)
+	}
+
 	// --reset-fleet is a serve-time admin action: refuse it without
 	// --serve (and alongside a custom start scenario) before anything
 	// else runs.
@@ -162,8 +169,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// --load: resolve after the legacy import so an imported save is findable.
+	// It replaces both the resume card and the --serve autosave resume.
+	if loadArg != "" {
+		if err := loadStartSave(app, loadArg); err != nil {
+			fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", err)
+			os.Exit(2)
+		}
+	}
+
 	// A solo launch with no custom start asks to resume the newest autosave.
-	if !serveMode && scenario == nil {
+	if !serveMode && scenario == nil && loadArg == "" {
 		app.OfferResume()
 	}
 
@@ -182,7 +198,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "terminal-space-program: %v\n", err)
 			os.Exit(1)
 		}
-		if msg := resumeHostAutosave(app, true, resetFleet); msg != "" {
+		if msg := resumeHostAutosave(app, true, resetFleet || loadArg != ""); msg != "" {
 			fmt.Fprintf(os.Stderr, "terminal-space-program: %s\n", msg)
 		}
 		// --reset-fleet: one-shot startup reset, before the listener
@@ -333,4 +349,26 @@ func resumeHostAutosave(app *tui.App, serveMode, resetFleet bool) string {
 		return ""
 	}
 	return "host resumed autosave " + id
+}
+
+// loadStartSave swaps the --load save in as the app's World. A refusal is the
+// Load menu's own error text ("load failed: ...").
+func loadStartSave(app *tui.App, arg string) error {
+	infos, err := save.List()
+	if err != nil {
+		return err
+	}
+	id, path, err := resolveLoad(arg, infos)
+	if err != nil {
+		return err
+	}
+	if path != "" {
+		err = app.LoadSavePath(path)
+	} else {
+		err = app.LoadSaveID(id)
+	}
+	if err != nil {
+		return fmt.Errorf("load failed: %v", err)
+	}
+	return nil
 }

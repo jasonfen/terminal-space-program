@@ -2,9 +2,13 @@ package main
 
 import (
 	"math"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -259,5 +263,63 @@ func TestAltitudeFrozenFlag(t *testing.T) {
 	err = checkStartPreset(systems, s)
 	if err == nil || err.Error() != `no preset "frozen" at Earth` {
 		t.Errorf("Earth: err = %v, want no preset \"frozen\" at Earth", err)
+	}
+}
+
+func TestValidateLoad(t *testing.T) {
+	cases := []struct {
+		name                  string
+		load                  string
+		hasScenario, resetFlt bool
+		wantErr               string
+	}{
+		{"no --load", "", true, true, ""}, // other validators own those flags
+		{"load alone", "x", false, false, ""},
+		{"load with spawn flags", "x", true, false, "spawn flags"},
+		{"load with reset-fleet", "x", false, true, "--reset-fleet"},
+	}
+	for _, c := range cases {
+		err := validateLoad(c.load, c.hasScenario, c.resetFlt)
+		if (err == nil) != (c.wantErr == "") || (err != nil && !strings.Contains(err.Error(), c.wantErr)) {
+			t.Errorf("%s: err = %v, want %q", c.name, err, c.wantErr)
+		}
+	}
+}
+
+func TestResolveLoad(t *testing.T) {
+	infos := []save.SaveInfo{
+		{ID: "a.json", Lane: save.LaneAutosave},
+		{ID: "n1.json", Lane: save.LaneNamed, Meta: save.Meta{Name: "Dock test"}},
+		{ID: "n2.json", Lane: save.LaneNamed, Meta: save.Meta{Name: "Dock test"}},
+		{ID: "n3.json", Lane: save.LaneNamed, Meta: save.Meta{Name: "Landing"}},
+		{ID: "bad.json", Lane: save.LaneNamed, Unreadable: true, Note: "newer version"},
+	}
+	file := filepath.Join(t.TempDir(), "x.json")
+	if err := os.WriteFile(file, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		arg, wantID, wantPath, wantErr string
+	}{
+		{"Landing", "n3.json", "", ""},
+		{"[AUTOSAVE 1]", "a.json", "", ""},
+		{file, "", file, ""},
+		{"Dock test", "", "", "matches 2 saves"}, // n1.json named in the message
+		{"landing", "", "", "saves are:"},        // names are exact
+		{"nope", "", "", "unreadable (newer version)"},
+		{filepath.Dir(file), "", "", "no such save or file"}, // a directory is not a save
+	}
+	for _, c := range cases {
+		id, path, err := resolveLoad(c.arg, infos)
+		if c.wantErr == "" {
+			if err != nil || id != c.wantID || path != c.wantPath {
+				t.Errorf("%q: got (%q,%q,%v), want (%q,%q)", c.arg, id, path, err, c.wantID, c.wantPath)
+			}
+		} else if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+			t.Errorf("%q: err = %v, want %q", c.arg, err, c.wantErr)
+		}
+	}
+	if _, _, err := resolveLoad("x", nil); err == nil || !strings.Contains(err.Error(), "no saves") {
+		t.Errorf("empty dir: err = %v", err)
 	}
 }

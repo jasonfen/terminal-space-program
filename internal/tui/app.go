@@ -2565,6 +2565,24 @@ func (a *App) loadWorldByID(id string) error {
 	if err != nil {
 		return err
 	}
+	a.adoptLoadedWorld(w, id)
+	return nil
+}
+
+// LoadSaveID is the --load start: the same world swap as the Load menu.
+func (a *App) LoadSaveID(id string) error { return a.loadWorldByID(id) }
+
+// LoadSavePath is --load with a file path; same validation as LoadSaveID.
+func (a *App) LoadSavePath(path string) error {
+	w, err := save.Load(path)
+	if err != nil {
+		return err
+	}
+	a.adoptLoadedWorld(w, path)
+	return nil
+}
+
+func (a *App) adoptLoadedWorld(w *sim.World, id string) {
 	a.world, a.resumed = w, true
 	// The loaded world starts with the nil ("all enabled") default; re-apply
 	// the player's program toggles so a load respects them. v0.21 Slice 7.
@@ -2574,7 +2592,6 @@ func (a *App) loadWorldByID(id string) error {
 	a.fromMenu = false // a load lands on the map, never back on the menu (Q3)
 	a.menuHeld = false // the new world's own pause state applies
 	a.active = screenOrbit
-	return nil
 }
 
 // appCard is the one card the App has up (ADR 0054, #633): the shared

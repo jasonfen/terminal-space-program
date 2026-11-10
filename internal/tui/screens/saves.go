@@ -422,6 +422,21 @@ func displaySaveName(info save.SaveInfo, autosaveRank int) string {
 	return info.Meta.Name
 }
 
+// SaveDisplayNames is the Load menu's name for every entry, in order: the
+// same text the browser draws, autosave badges numbered by list position.
+// The --load flag matches against it.
+func SaveDisplayNames(infos []save.SaveInfo) []string {
+	out := make([]string, len(infos))
+	rank := 0
+	for i, in := range infos {
+		if in.Lane == save.LaneAutosave {
+			rank++
+		}
+		out[i] = displaySaveName(in, rank)
+	}
+	return out
+}
+
 // formatInGameDate renders Meta.InGameEpoch as sim date and time (the
 // orbit HUD's clock chip shows the date; the time tells two saves on the
 // same sim day apart, #503); a

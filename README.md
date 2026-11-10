@@ -192,6 +192,7 @@ terminal-space-program --orbit moon --altitude 100km          # 100 km lunar orb
 terminal-space-program --system Lumen --orbit kern --loadout Kern-Stack
 terminal-space-program --orbit earth --altitude 400km --inclination 51.6
 terminal-space-program --launch-site KSC --loadout Saturn-V    # on the pad
+terminal-space-program --load "[AUTOSAVE 1]"                  # start on a save (name as the Load menu shows it, or a file path)
 terminal-space-program --list-bodies --system Lumen           # discover names
 terminal-space-program --version
 ```
