@@ -48,30 +48,24 @@ const (
 	// up isn't going to land softly; flag as crash.
 	CrashNoseTol = 0.7
 
-	// ChuteDeployQMin is the dynamic-pressure floor (Pa) at which an
-	// ARMED parachute auto-deploys (v0.12 Slice 3, ADR 0008). The deploy
-	// gate is expressed in q = 0.5·ρ·|v_rel|², which is body-agnostic —
-	// no body-specific deploy-altitude constant. 1000 Pa is the starting
-	// value: low enough that a capsule re-entering through thickening air
-	// reaches it well before the surface (giving the canopy time to bleed
-	// off velocity), high enough that a chute armed in near-vacuum at the
-	// atmosphere's edge doesn't pop the instant q lifts off zero.
-	// Retunable from playtest like V_CRIT / NOSE_TOL.
-	ChuteDeployQMin = 1000.0
+	// ChuteOpenAltM is the height above the ground an ARMED parachute
+	// opens at (ADR 0069 decision 5, Dragon's 6,000 ft mains), on every body
+	// with air. At exactly this height it opens (<=); armed below it, it
+	// opens at once. Retunable from playtest.
+	ChuteOpenAltM = 1800.0
 )
 
-// maybeDeployParachute auto-deploys an armed parachute the first tick
-// its dynamic pressure reaches ChuteDeployQMin. Returns true if it
-// transitioned this call. No-op for a stowed chute (the player must arm
-// it first via the Stage action) or an already-deployed one (DEPLOYED
-// is terminal). Called once per tick from integrateOneCraft before the
-// effective-BC read, so the deployed BC bump engages for the whole tick
-// the deploy fires on (ADR 0008 §2).
+// maybeDeployParachute opens an armed parachute passing ChuteOpenAltM above
+// the ground (at it, or already below it when armed). Returns true if it
+// transitioned this call. No-op for a stowed, open or cut chute, and on a
+// body with no air (a canopy there is only a free soft-landing route). Called
+// once per sub-step from integrateOneCraft before the effective-BC read, so
+// the deployed BC engages for the sub-step the deploy fires on.
 func maybeDeployParachute(c *spacecraft.Spacecraft) bool {
-	if c.ChuteState != spacecraft.ChuteArmed {
+	if c.ChuteState != spacecraft.ChuteArmed || c.Primary.Atmosphere == nil {
 		return false
 	}
-	if physics.DynamicPressure(c.State.R, c.State.V, c.Primary) >= ChuteDeployQMin {
+	if c.State.R.Norm()-c.Primary.RadiusMeters() <= ChuteOpenAltM {
 		c.ChuteState = spacecraft.ChuteDeployed
 		return true
 	}

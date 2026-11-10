@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -31,17 +32,24 @@ func landingFrame(t *testing.T, mutate func(*sim.World)) (*OrbitView, *sim.World
 // the ⌖ sits on the ⚑ (no nav error until S4) so only the ⚑ shows, the legend
 // names the view, and the LANDING chip is 41 cells wide (39 inside) with the
 // rows in the ADR's order. Re-measured at 140x40, not inherited (#482).
+// ADR 0069 decision 9: a vessel that carries a chute adds the chute: row (its
+// state) after aim:, 17 rows against 16.
 func TestLandingViewDrawsGroundFlagAndChip(t *testing.T) {
-	for _, state := range []string{"idle", "firing"} {
-		t.Run(state, func(t *testing.T) { landingChipCase(t, state == "firing") })
+	for _, state := range []string{"idle", "firing", "chute"} {
+		t.Run(state, func(t *testing.T) { landingChipCase(t, state) })
 	}
 }
 
-func landingChipCase(t *testing.T, firing bool) {
+func landingChipCase(t *testing.T, state string) {
+	firing, chute := state == "firing", state == "chute"
 	_, _, out := landingFrame(t, func(w *sim.World) {
-		if c := w.ActiveCraft(); firing {
+		c := w.ActiveCraft()
+		if firing {
 			c.Throttle = 1
 			c.ManualBurn = &spacecraft.ManualBurn{StartTime: w.Clock.SimTime}
+		}
+		if chute {
+			c.HasParachute, c.ChuteState = true, spacecraft.ChuteCut
 		}
 	})
 	if !strings.Contains(out, "view: Landing") {
@@ -76,12 +84,24 @@ func landingChipCase(t *testing.T, firing bool) {
 	}
 	body := strings.Join(lines[top:bottom+1], "\n")
 	last := -1
-	for _, label := range []string{"LANDING", "range:", "alt:", "alt rate:", "stop:", "fwd vel:", "lat vel:", "lpd:", "miss:", "cross:", "aim:", "hold:", "throttle:", "twr:", "rcs:", "monoprop:"} {
+	labels := []string{"LANDING", "range:", "alt:", "alt rate:", "stop:", "fwd vel:", "lat vel:", "lpd:", "miss:", "cross:", "aim:", "hold:", "throttle:", "twr:", "rcs:", "monoprop:"}
+	rows := len(labels)
+	if chute {
+		labels = append(labels[:11], append([]string{"chute: "}, labels[11:]...)...)
+		rows++
+		if !regexp.MustCompile(`chute:\s+CUT\s`).MatchString(body) {
+			t.Errorf("chute: row does not read the state\n%s", body)
+		}
+	}
+	for _, label := range labels {
 		at := strings.Index(body, label)
 		if at < 0 || at < last {
 			t.Errorf("chip row %q missing or out of order (at %d after %d)\n%s", label, at, last, body)
 		}
 		last = at
+	}
+	if got := bottom - top - 1; got != rows { // the box's rows between its top and bottom borders
+		t.Errorf("LANDING chip is %d rows, want %d\n%s", got, rows, body)
 	}
 }
 

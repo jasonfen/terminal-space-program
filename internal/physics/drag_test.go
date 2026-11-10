@@ -259,3 +259,40 @@ func TestAtmosphereOmegaTidallyLockedUsesOrbit(t *testing.T) {
 		t.Errorf("|ω| = %g, want %g (orbital period for tidally-locked)", got, want)
 	}
 }
+
+// TestStepDragSafeNeverReverses — ADR 0069 guard: one step never applies
+// more drag dv than the air-relative speed. dragKick is the plain explicit
+// kick (dv = -k·|v|·v·dt). kvdt = 1 is the equal case (the kick exactly
+// cancels the airspeed: stops, does not reverse, and is NOT split); just
+// over 1 and far over (the #935 chute, 354) are split and stay forward.
+func TestStepDragSafeNeverReverses(t *testing.T) {
+	earth := earthWithAtm()
+	r := orbital.Vec3{X: earth.RadiusMeters()} // sea level, rho = 1.225
+	bc := 0.3
+	v0 := 1000.0
+	omega := AtmosphereOmega(earth).Cross(r)
+	s0 := StateVector{R: r, V: omega.Add(orbital.Vec3{X: -v0}), M: 1}
+	k := 0.5 * 1.225 * bc
+	for _, tc := range []struct {
+		name  string
+		kvdt  float64
+		calls int
+	}{{"equal", 1, 1}, {"just over", 1.001, 2}, {"chute opening", 354, 354}} {
+		dt := tc.kvdt / (k * v0)
+		calls := 0
+		out := StepDragSafe(s0, dt, earth, bc, func(s StateVector, h float64) StateVector {
+			calls++
+			rel := AirRelativeVelocity(s.R, s.V, earth)
+			dv := rel.Scale(-k * rel.Norm() * h)
+			s.V = s.V.Add(dv)
+			return s
+		})
+		rel := AirRelativeVelocity(out.R, out.V, earth)
+		if rel.Dot(orbital.Vec3{X: -1}) < -1e-9 {
+			t.Errorf("%s: airflow reversed, v_rel %+v", tc.name, rel)
+		}
+		if calls != tc.calls {
+			t.Errorf("%s: %d sub-steps, want %d", tc.name, calls, tc.calls)
+		}
+	}
+}

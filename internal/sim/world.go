@@ -1950,7 +1950,7 @@ func (w *World) AnyCraftThrusting() bool {
 // the player flies another still needs fine sub-steps).
 func (w *World) anyCraftChuteLive() bool {
 	for _, c := range w.Crafts {
-		if c == nil || c.ChuteState == spacecraft.ChuteStowed {
+		if c == nil || (c.ChuteState != spacecraft.ChuteArmed && c.ChuteState != spacecraft.ChuteDeployed) {
 			continue
 		}
 		atm := c.Primary.Atmosphere
@@ -2203,8 +2203,10 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 			// (re-bound after each SOI rebase below by the loop var
 			// capture). Zero drag automatically when the primary has
 			// no atmosphere or the craft is above cutoff.
-			c.State = physics.StepVerletWithAccel(c.State, mu, dt, func(r, v orbital.Vec3) orbital.Vec3 {
-				return physics.DragAccel(r, v, c.Primary, bc)
+			c.State = physics.StepDragSafe(c.State, dt, c.Primary, bc, func(s physics.StateVector, h float64) physics.StateVector {
+				return physics.StepVerletWithAccel(s, mu, h, func(r, v orbital.Vec3) orbital.Vec3 {
+					return physics.DragAccel(r, v, c.Primary, bc)
+				})
 			})
 		}
 		// v0.8.5: halt sub-stepping at surface contact. Without this,
@@ -2589,10 +2591,14 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 			}
 		}
 	}
-	c.State = physics.StepRK4(c.State, thrustDt, accelFn, 0)
+	c.State = physics.StepDragSafe(c.State, thrustDt, primary, bc, func(s physics.StateVector, h float64) physics.StateVector {
+		return physics.StepRK4(s, h, accelFn, 0)
+	})
 	if coastDt := dt - thrustDt; coastDt > 0 {
-		c.State = physics.StepVerletWithAccel(c.State, mu, coastDt, func(r, v orbital.Vec3) orbital.Vec3 {
-			return physics.DragAccel(r, v, primary, bc)
+		c.State = physics.StepDragSafe(c.State, coastDt, primary, bc, func(s physics.StateVector, h float64) physics.StateVector {
+			return physics.StepVerletWithAccel(s, mu, h, func(r, v orbital.Vec3) orbital.Vec3 {
+				return physics.DragAccel(r, v, primary, bc)
+			})
 		})
 	}
 

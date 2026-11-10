@@ -15,8 +15,8 @@ package spacecraft
 // no SchemaVersion bump (same posture as ADR 0004 / 0007).
 
 // ChuteState is the runtime deploy state of a Parachute. One-way:
-// STOWED → ARMED → DEPLOYED, with DEPLOYED terminal (no re-stow /
-// cut-away). There is deliberately no torn / failure state — the
+// STOWED → ARMED → DEPLOYED → CUT, with CUT terminal (no re-stow, no
+// re-arm; ADR 0069 decision 7 added the cut). There is deliberately no torn / failure state — the
 // over-speed tear model was considered and cut during the grill (ADR
 // 0008 Alternatives → tear model).
 type ChuteState int
@@ -28,14 +28,19 @@ const (
 	// ChuteArmed: staged, waiting for enough air to inflate. Arming is
 	// folded into the Stage (`space`) action — see ArmParachute.
 	ChuteArmed
-	// ChuteDeployed: inflated; the ChuteDeployedBC bump is active. Terminal.
+	// ChuteDeployed: inflated; the ChuteDeployedBC bump is active.
 	ChuteDeployed
+	// ChuteCut: cut away from a deployed chute (ADR 0069 decision 7).
+	// Terminal; the vessel lands on the engine route.
+	ChuteCut
 )
 
 // String renders a ChuteState for the HUD readout (STOWED / ARMED /
-// DEPLOYED).
+// DEPLOYED / CUT).
 func (s ChuteState) String() string {
 	switch s {
+	case ChuteCut:
+		return "CUT"
 	case ChuteArmed:
 		return "ARMED"
 	case ChuteDeployed:
@@ -70,5 +75,15 @@ func (s *Spacecraft) ArmParachute() bool {
 		return false
 	}
 	s.ChuteState = ChuteArmed
+	return true
+}
+
+// CutParachute cuts an open chute away (ADR 0069 decision 7). Returns true if
+// it transitioned; a chute that is not DEPLOYED is untouched. No way back.
+func (s *Spacecraft) CutParachute() bool {
+	if s.ChuteState != ChuteDeployed {
+		return false
+	}
+	s.ChuteState = ChuteCut
 	return true
 }

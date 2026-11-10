@@ -142,13 +142,17 @@ func (v *OrbitView) landingChipRows(w *sim.World, st sim.ProximityState) []strin
 		chipRow("miss:", landMissLabel(lb)),
 		chipRow("cross:", landCrossLabel(lb)),
 		chipRow("aim:", aim),
+	}
+	if c != nil && c.HasParachute { // ADR 0069 decision 9: 17 rows on a vessel with a chute, 16 without
+		rows = append(rows, chipRow("chute:", c.ChuteState.String()))
+	}
+	return append(rows,
 		proximityHoldRow(w),
 		v.landingEngineRow(w),
 		chipRow("twr:", engineTWRValue(c)), // ENGINE's figure (P36)
 		v.proximityRCSRow(w),
 		proximityMonopropRow(w),
-	}
-	return rows
+	)
 }
 
 // landingSpeedNeed is "  (need < 10)" in the Alert colour when the vessel,

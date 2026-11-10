@@ -2386,6 +2386,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// example, "dropped S-IC, 2 stages left"). Captured before
 			// the call since StageActive reslices Stages out from under
 			// the pre-drop bottom entry.
+			if c := a.world.ActiveCraft(); c != nil && c.CutParachute() { // ADR 0069 decision 7: no guard, no way back
+				a.flash("chute cut")
+				return a, nil
+			}
 			droppedName := ""
 			if c := a.world.ActiveCraft(); c != nil && len(c.Stages) > 0 {
 				droppedName = c.Stages[0].Name
@@ -2422,7 +2426,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// action," no new keybinding. Falls through to the normal
 				// no-op flash when there's no stowed chute to arm.
 				if c := a.world.ActiveCraft(); c != nil && c.ArmParachute() {
-					a.flash("parachute ARMED — auto-deploys in atmosphere")
+					a.flash("parachute ARMED, opens 1.8 km up")
 				} else {
 					a.flash("stage: cannot drop the only remaining stage")
 				}
