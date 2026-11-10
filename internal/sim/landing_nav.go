@@ -98,7 +98,7 @@ func (w *World) updateNavOnLink(c *spacecraft.Spacecraft) {
 	ap.NavAlongM, ap.NavAcrossM = navDraw(navSeed(c.ID, w.apSiteKey(c), w.Clock.SimTime), NavSigmaModernAlongM, NavSigmaModernAcrossM)
 	ap.NavFixed = true
 	w.PendingLandingEvents = append(w.PendingLandingEvents, LandingEvent{
-		CraftName: c.Name, Update: true, DistanceM: math.Hypot(ap.NavAlongM-oldA, ap.NavAcrossM-oldC),
+		CraftName: c.Name, Update: true, Background: c != w.ActiveCraft(), DistanceM: math.Hypot(ap.NavAlongM-oldA, ap.NavAcrossM-oldC),
 	})
 	w.recordRowFor(c, "ground update: site moved "+readout.Distance(math.Hypot(ap.NavAlongM-oldA, ap.NavAcrossM-oldC)))
 }

@@ -69,6 +69,7 @@ type LandingEvent struct {
 	Crashed    bool
 	OutOfReach bool
 	Update     bool // P20: the ground moved the computer's site; DistanceM is how far
+	Background bool // the vessel was not the active one when it happened
 }
 
 // apRuntime is the autopilot's transient cue cache for one vessel.

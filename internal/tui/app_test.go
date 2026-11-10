@@ -864,3 +864,19 @@ func TestSurfaceMarksCardFlipsPersistsAndSwallows(t *testing.T) {
 		t.Error("esc left the card open")
 	}
 }
+
+// Review-2 L8: the ground-update flash names the vessel only when it is not
+// the active one (the active vessel's text is P20's unchanged).
+func TestLandingFlashUpdateNamesABackgroundVessel(t *testing.T) {
+	for _, tc := range []struct {
+		bg   bool
+		want string
+	}{
+		{false, "⚑ update: site moved 2.500 km"},
+		{true, "⚑ update: Eagle site moved 2.500 km"},
+	} {
+		if got := landingFlash(sim.LandingEvent{CraftName: "Eagle", Update: true, Background: tc.bg, DistanceM: 2500}); got != tc.want {
+			t.Errorf("Background=%v: %q, want %q", tc.bg, got, tc.want)
+		}
+	}
+}

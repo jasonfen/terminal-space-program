@@ -3212,6 +3212,9 @@ func signedDistance(m float64) string {
 // 0067 decision 5): the true distance from the real site.
 func landingFlash(e sim.LandingEvent) string {
 	if e.Update { // P20: the ground moved the computer's site
+		if e.Background { // another vessel's ground: say whose
+			return fmt.Sprintf("⚑ update: %s site moved %s", e.CraftName, readout.Distance(e.DistanceM))
+		}
 		return fmt.Sprintf("⚑ update: site moved %s", readout.Distance(e.DistanceM))
 	}
 	verb := "landed"

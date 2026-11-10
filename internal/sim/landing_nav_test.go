@@ -127,6 +127,26 @@ func TestGroundUpdateFiresOnceOnTheFirstLink(t *testing.T) {
 	if len(w.PendingLandingEvents) != 1 {
 		t.Errorf("%d events after the link came back, want the update to fire once", len(w.PendingLandingEvents))
 	}
+	if w.PendingLandingEvents[0].Background {
+		t.Errorf("the active vessel's update is flagged Background")
+	}
+	// a vessel that is not the active one: review-2 L8, the flash must be able to name it
+	other := *c
+	other.ID++
+	w.Crafts = append(w.Crafts, &other)
+	w.SetActiveCraftIdx(len(w.Crafts) - 1)
+	w.PendingLandingEvents = nil
+	c.Landing.NavFixed, c.Landing.Phase = false, spacecraft.PhaseCoast
+	w.drawNavError(c, true)
+	linkUp(w, c, false)
+	w.drawNavError(c, true)
+	c.Landing.NavFixed = false
+	linkUp(w, c, true)
+	w.updateNavOnLink(c)
+	if n := len(w.PendingLandingEvents); n != 1 || !w.PendingLandingEvents[0].Background {
+		t.Errorf("events %+v for a vessel that is not active, want one Background update", w.PendingLandingEvents)
+	}
+	w.SetActiveCraftIdx(0)
 	// linked at the draw: nothing to update; and once the brake is lit no update either
 	w.PendingLandingEvents = nil
 	linkUp(w, c, true)
