@@ -15,6 +15,11 @@ const (
 	// leave in reserve (1 - reserve = 0.9). ADR 0067 row 1; Q7.
 	BrakeReserveFrac = 0.10
 
+	// OneBurnContactMps: the speed a marked vessel's one-burn landing is timed
+	// to meet the ground at (ADR 0069 decision 10; Falcon 9 landing
+	// reconstructions). Playtest-tuned.
+	OneBurnContactMps = 2.0
+
 	// SiteShiftFarRangeM / SiteShiftMidRangeM: where the aim rung changes
 	// (ground range to the computer's site). ADR 0067 row 2; Q6.
 	SiteShiftFarRangeM = 50000.0

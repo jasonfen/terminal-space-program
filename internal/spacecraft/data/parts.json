@@ -132,7 +132,8 @@
       "fuel_type": "kerolox",
       "command_source": "probe",
       "antenna": {"kind": "direct", "range_m": 10000000},
-      "can_soft_land": true
+      "can_soft_land": true,
+      "landing_throttle": 0.1111111111111111
     },
     {
       "id": "fh-boosters",
@@ -153,7 +154,8 @@
       "fuel_type": "kerolox",
       "command_source": "probe",
       "antenna": {"kind": "direct", "range_m": 10000000},
-      "can_soft_land": true
+      "can_soft_land": true,
+      "landing_throttle": 0.1111111111111111
     },
     {
       "id": "f9-s2",
@@ -370,7 +372,8 @@
       "launch_sprite_color": "#E8E8EE",
       "fuel_type": "hypergolic",
       "has_parachute": true,
-      "description": "8 SuperDraco abort engines, 71 kN each"
+      "description": "8 SuperDraco abort engines, 71 kN each",
+      "landing_throttle": 1
     },
     {
       "id": "dragon-cargo",
@@ -392,7 +395,8 @@
       "launch_sprite_color": "#E8E8EE",
       "fuel_type": "hypergolic",
       "has_parachute": true,
-      "cargo_kg": 2507
+      "cargo_kg": 2507,
+      "landing_throttle": 1
     },
     {
       "id": "dragon-trunk",
@@ -932,7 +936,8 @@
       "launch_sprite_rows_px": 14,
       "launch_sprite_width_px": 3,
       "fuel_type": "kerolox",
-      "can_soft_land": true
+      "can_soft_land": true,
+      "landing_throttle": 0.4
     },
     {
       "id": "packet-2",

@@ -4,11 +4,13 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"math/rand"
 	"testing"
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -715,6 +717,227 @@ func TestLandingFlashNotOutOfReachWhenOnTheFlag(t *testing.T) {
 		}
 		if ev.OutOfReach {
 			t.Errorf("air=%v: flash says out of reach for a landing %.1f m from the flag", air, ev.DistanceM)
+		}
+	}
+}
+
+// boosterFall is one arrival of the one-burn fixture: where the Falcon 9 first
+// stage meets the air over LC-13's LZ-1, in metres and m/s of ground-relative
+// motion (north/east offsets of the vessel from the LZ, and its sideways drift).
+type boosterFall struct{ altM, downMps, offN, offE, driftN, driftE, fuelKg float64 }
+
+// boosterWorld is a Falcon 9 first stage (part f9-s1) as its own vessel, falling
+// over Earth at b, with LC-13 LZ-1 as its target. There is no dropped-stage
+// vessel yet (ADR 0069 slice 8), so the fixture builds the vessel itself.
+func boosterWorld(t *testing.T, b boosterFall) (*World, *spacecraft.Spacecraft, Site) {
+	t.Helper()
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.navErrorOff = true
+	st, ok := spacecraft.BuildModule(spacecraft.StageModuleF9S1ID)
+	if !ok {
+		t.Fatal("no f9-s1 module")
+	}
+	st[0].FuelMass = b.fuelKg
+	c, err := w.SpawnCraft(SpawnSpec{CustomStages: st, ParentBodyID: "earth", AltitudeM: 200e3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, x := range w.Crafts {
+		if x == c {
+			w.SetActiveCraftIdx(i)
+		}
+	}
+	c.Landed, c.Crashed, c.Controllable = false, false, true
+	var lc13 Site
+	for _, z := range shippedZones {
+		if z.Name == "LC-13" {
+			lc13 = z
+		}
+	}
+	w.SetTargetSiteLZ(lc13.ID, 1)
+	R := c.Primary.RadiusMeters()
+	la, lo := lc13.lzLatLon(1, R)
+	hat := siteVec(c, la, lo, w.Clock.SimTime)
+	ax := render.BodyRotationAxisWorld(c.Primary)
+	axis := orbital.Vec3{X: ax.X, Y: ax.Y, Z: ax.Z}
+	east := axis.Cross(hat).Unit()
+	north := hat.Cross(east).Unit()
+	up := hat.Add(east.Scale(b.offE / R)).Add(north.Scale(b.offN / R)).Unit()
+	c.State.R = up.Scale(R + b.altM)
+	rel := up.Scale(-b.downMps).Add(east.Scale(b.driftE)).Add(north.Scale(b.driftN))
+	c.State.V = rel.Add(physics.AtmosphereOmega(c.Primary).Cross(c.State.R))
+	c.State.M = c.TotalMass()
+	c.CurrentAttitudeDir = rel.Scale(-1).Unit()
+	return w, c, lc13
+}
+
+// flyBooster engages N and ticks to contact. It returns the contact speed
+// (ground-relative, the tick before contact), the touchdown distance from the
+// LZ, the largest throttle the vessel ran, and whether it landed.
+func flyBooster(t *testing.T, w *World, c *spacecraft.Spacecraft, lc13 Site) (speed, distM, peakThrottle float64, landed bool) {
+	t.Helper()
+	if plan, err := w.PlanDeorbitAndEngage(); err != nil || plan != nil {
+		t.Fatalf("N on the falling booster: plan=%v err=%v, want engaged in place", plan, err)
+	}
+	for i := 0; i < 20*60*4 && !c.Landed && !c.Crashed; i++ {
+		speed = physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary).Norm()
+		w.Tick()
+		if c.ManualBurn != nil { // lit: before the light the core throttle is the spawn default
+			peakThrottle = math.Max(peakThrottle, c.EffectiveThrottle())
+		}
+	}
+	la, lo := lc13.lzLatLon(1, c.Primary.RadiusMeters())
+	return speed, HaversineM(c.LandedLatDeg, c.LandedLonDeg, la, lo, c.Primary.RadiusMeters()), peakThrottle, c.Landed
+}
+
+// tenFalls are the ten seeded arrivals of guard 6: the ADR's 250 m/s at the
+// ignition height, mixed offsets and drifts, 6.5 t of propellant.
+func tenFalls() []boosterFall {
+	rng := rand.New(rand.NewSource(69))
+	out := make([]boosterFall, 10)
+	for i := range out {
+		out[i] = boosterFall{
+			altM: 4000 + 1500*rng.Float64(), downMps: 235 + 25*rng.Float64(),
+			offN: 100 * (2*rng.Float64() - 1), offE: 100 * (2*rng.Float64() - 1),
+			driftN: 6 * (2*rng.Float64() - 1), driftE: 6 * (2*rng.Float64() - 1), fuelKg: 6500,
+		}
+	}
+	return out
+}
+
+// ADR 0069 guard 6: a marked vessel's contact speed is under 10 m/s over ten
+// seeded landings, and it burns on its one engine of nine, not more.
+func TestOneBurnTenSeededBoosterLandings(t *testing.T) {
+	for i, b := range tenFalls() {
+		w, c, lc13 := boosterWorld(t, b)
+		if c.LandingThrottle() != 1.0/9 {
+			t.Fatalf("f9-s1 landing throttle %v, want 1/9", c.LandingThrottle())
+		}
+		v, d, peak, landed := flyBooster(t, w, c, lc13)
+		t.Logf("landing %d: from %.0f m at %.0f m/s, off %.0f/%.0f m: contact %.2f m/s, %.1f m from LZ-1, peak throttle %.3f, landed=%v", i+1, b.altM, b.downMps, b.offN, b.offE, v, d, peak, landed)
+		if !landed || v >= CrashVCritMps {
+			t.Errorf("landing %d: landed=%v contact %.2f m/s, want landed under %v", i+1, landed, v, CrashVCritMps)
+		}
+		if peak > c.LandingThrottle()+1e-9 {
+			t.Errorf("landing %d: throttle reached %.3f, over the landing throttle %.3f", i+1, peak, c.LandingThrottle())
+		}
+	}
+}
+
+// The landing throttle is a hard cap: a burn that falls behind (60 m/s extra
+// at the light) does not borrow the other eight engines. The vessel runs at its
+// cap and hits hard.
+func TestOneBurnLandingThrottleIsACap(t *testing.T) {
+	w, c, lc13 := boosterWorld(t, boosterFall{altM: 4600, downMps: 250, fuelKg: 6500})
+	if plan, err := w.PlanDeorbitAndEngage(); err != nil || plan != nil {
+		t.Fatalf("N: plan=%v err=%v", plan, err)
+	}
+	for i := 0; i < 400 && c.ManualBurn == nil; i++ {
+		w.Tick()
+	}
+	if c.ManualBurn == nil {
+		t.Fatal("the burn never lit")
+	}
+	c.State.V = c.State.V.Add(c.State.R.Unit().Scale(-60))
+	peak := 0.0
+	for i := 0; i < 4000 && !c.Landed && !c.Crashed; i++ {
+		w.Tick()
+		if c.ManualBurn != nil {
+			peak = math.Max(peak, c.EffectiveThrottle())
+		}
+	}
+	_ = lc13
+	if peak > c.LandingThrottle()+1e-9 || peak < c.LandingThrottle()-0.005 {
+		t.Errorf("a burn behind ran at %.4f, want pinned at the cap %.4f", peak, c.LandingThrottle())
+	}
+	if c.Landed {
+		t.Error("a burn 60 m/s behind landed on one engine anyway")
+	}
+}
+
+// ADR 0069 decision 10: the marked vessel has no descent-rate schedule. The same
+// stage is down to the schedule's few m/s at 100 m with the mark off (nine
+// engines, ADR 0067, stopped 120 m up), and still on the one burn's own profile,
+// ending at the ground at 2 m/s, with it on. Unmarked Moon and Mars landers are pinned by the
+// existing landing tests above, which pass unchanged.
+func TestOneBurnMarkReplacesTheScheduleOnlyWhereMarked(t *testing.T) {
+	vzAt100 := func(mark float64) float64 {
+		w, c, _ := boosterWorld(t, boosterFall{altM: 4600, downMps: 250, fuelKg: 6500})
+		c.Stages[0].LandingThrottle = mark
+		if _, err := w.PlanDeorbitAndEngage(); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 4000 && !c.Landed && !c.Crashed; i++ {
+			w.Tick()
+			if f := apFrameOf(c); c.Landing.Phase != spacecraft.PhaseCoast && f.alt <= 100 {
+				return f.vz
+			}
+		}
+		t.Fatalf("mark %v: never reached 100 m under the autopilot", mark)
+		return 0
+	}
+	if vz := vzAt100(0); vz < -2*FinalRateAt100mMps {
+		t.Errorf("unmarked at 100 m falls %.2f m/s, want the schedule's slow few m/s (stop held 120 m up)", vz)
+	}
+	if vz := vzAt100(1.0 / 9); vz > -10*FinalRateAt100mMps {
+		t.Errorf("marked at 100 m falls %.2f m/s, want the one burn's profile (~50 m/s), far past the schedule", vz)
+	}
+}
+
+// The marks ship on the Falcon and Packet stages and Dragon, and a Dragon (no
+// landing engine until ADR 0069 slice 6) is marked but cannot fly it yet: N
+// refuses on thrust under weight, as for any vessel that cannot brake.
+func TestOneBurnMarksOnTheCatalogParts(t *testing.T) {
+	want := map[string]float64{spacecraft.StageModuleF9S1ID: 1.0 / 9, "fh-boosters": 1.0 / 9, "packet-1": 0.4, "dragon-crew": 1, "dragon-cargo": 1}
+	for id, lt := range want {
+		st, ok := spacecraft.BuildModule(id)
+		if !ok {
+			t.Fatalf("no module %s", id)
+		}
+		if got := st[0].LandingThrottle; math.Abs(got-lt) > 1e-12 {
+			t.Errorf("%s landing throttle %v, want %v", id, got, lt)
+		}
+	}
+	for _, id := range []string{"lander", "csm", "f9-s2"} {
+		if st, ok := spacecraft.BuildModule(id); ok && st[0].LandingThrottle != 0 {
+			t.Errorf("%s is marked (%v), want unmarked", id, st[0].LandingThrottle)
+		}
+	}
+	w, c := entryWorld(t, "", "earth", "Falcon-9-Dragon", 200e3, true)
+	c.Stages = c.Stages[len(c.Stages)-1:]
+	c.SyncFields()
+	if c.LandingThrottle() != 1 {
+		t.Fatalf("Dragon landing throttle %v, want 1", c.LandingThrottle())
+	}
+	if err := w.EngageLandingAutopilot(); !errors.Is(err, ErrSiteHoldUnderWeight) {
+		t.Errorf("Dragon engage: %v, want %v until the SuperDracos exist", err, ErrSiteHoldUnderWeight)
+	}
+}
+
+// The profile at its edges, 100 m up and straight down: at exactly the contact
+// speed the thrust is gravity's (the equal case: nothing left to shed), at 20 m/s
+// it adds (v^2 - v_td^2) / 2h = 1.98 m/s^2, and under it the thrust is less than
+// gravity so the vessel is let down to the contact speed.
+func TestOneBurnProfileAtTheContactSpeed(t *testing.T) {
+	for _, tc := range []struct{ down, wantExtra float64 }{
+		{OneBurnContactMps, 0},
+		{20, (400 - OneBurnContactMps*OneBurnContactMps) / 200},
+	} {
+		w, c, _ := boosterWorld(t, boosterFall{altM: 4600, downMps: 250, fuelKg: 6500})
+		if _, err := w.PlanDeorbitAndEngage(); err != nil {
+			t.Fatal(err)
+		}
+		up := c.State.R.Unit()
+		c.State.R = up.Scale(c.Primary.RadiusMeters() + 100)
+		c.State.V = up.Scale(-tc.down).Add(physics.AtmosphereOmega(c.Primary).Cross(c.State.R))
+		lat, lon, _, _ := w.apTarget(c)
+		f := apFrameOf(c)
+		_, theta := w.apOneBurn(c, c.Landing, f, lat, lon)
+		if got, want := theta*f.aMax-f.g, tc.wantExtra; math.Abs(got-want) > 0.05 {
+			t.Errorf("at %.1f m/s down the net thrust is %.3f m/s^2 over gravity, want %.3f", tc.down, got, want)
 		}
 	}
 }

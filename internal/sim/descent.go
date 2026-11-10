@@ -190,6 +190,15 @@ type ballisticSample struct {
 // always refused: a nil craft, missing primary radius/mu, a non-positive
 // horizon, or a craft state already at/under the surface.
 func forwardBallisticPath(c *spacecraft.Spacecraft, horizon time.Duration) (ballisticForecast, bool) {
+	return forwardBallisticPathSampled(c, horizon, false)
+}
+
+// forwardBallisticPathSampled is forwardBallisticPath with the sample cadence
+// a choice: dense samples every sub-step instead of every steps/impactPathSamples
+// (about 18 s over the 20 min horizon). A one-burn landing's whole fall is
+// shorter than that interval, so the coarse cadence left it one sample and no
+// cue (ADR 0069 slice 5); false is the historical cadence, bit for bit.
+func forwardBallisticPathSampled(c *spacecraft.Spacecraft, horizon time.Duration, dense bool) (ballisticForecast, bool) {
 	if c == nil {
 		return ballisticForecast{}, false
 	}
@@ -219,7 +228,7 @@ func forwardBallisticPath(c *spacecraft.Spacecraft, horizon time.Duration) (ball
 		return ballisticForecast{}, false
 	}
 	sampleEvery := steps / impactPathSamples
-	if sampleEvery < 1 {
+	if sampleEvery < 1 || dense {
 		sampleEvery = 1
 	}
 
@@ -239,6 +248,10 @@ func forwardBallisticPath(c *spacecraft.Spacecraft, horizon time.Duration) (ball
 		state = predictStep(state, mu, h, primary, bc)
 		if state.R.Norm() < radius {
 			hit, tau := refineSurfaceCrossing(pre, mu, h, primary, bc, radius)
+			if dense && elapsed > samples[len(samples)-1].elapsedSec {
+				// the last state above the ground: a fall shorter than one cadence still has a cue to search
+				samples = append(samples, ballisticSample{state: pre, elapsedSec: elapsed})
+			}
 			elapsed += tau
 			point := hit.R
 			if n := point.Norm(); n > 0 {
@@ -662,7 +675,7 @@ func PredictPoweredStop(c *spacecraft.Spacecraft, horizon time.Duration) (Powere
 // burn from THIS point on the ballistic coast instead of right now, does
 // it still work" without a second implementation.
 func predictPoweredStopFrom(state physics.StateVector, c *spacecraft.Spacecraft, horizon time.Duration) (PoweredStopPrediction, bool) {
-	return predictPoweredStopFromAt(state, c, horizon, DeorbitBrakeThrottle)
+	return predictPoweredStopFromAt(state, c, horizon, brakeThrottle(c))
 }
 
 // predictPoweredStopFromAt is predictPoweredStopFrom braking at a fraction of
@@ -876,7 +889,7 @@ func lerpBallisticSample(a, b ballisticSample, frac float64) ballisticSample {
 // Margin.State (CAN'T STOP) already carries that alarm, and a "burn at:
 // Xs ago" row would only muddy it.
 func PredictBurnAt(c *spacecraft.Spacecraft, horizon time.Duration) (BurnAtCue, bool) {
-	cue, _, ok := burnAtCue(c, horizon, DeorbitBrakeThrottle, burnAtRefineIters)
+	cue, _, ok := burnAtCue(c, horizon, brakeThrottle(c), burnAtRefineIters)
 	return cue, ok
 }
 
@@ -900,7 +913,7 @@ func burnAtCue(c *spacecraft.Spacecraft, horizon time.Duration, throttle float64
 	if c == nil {
 		return BurnAtCue{}, false, false
 	}
-	fc, setupOK := forwardBallisticPath(c, horizon)
+	fc, setupOK := forwardBallisticPathSampled(c, horizon, oneBurn(c))
 	if !setupOK || len(fc.samples) < 2 {
 		return BurnAtCue{}, false, false
 	}
