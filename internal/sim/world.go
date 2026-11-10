@@ -1787,6 +1787,18 @@ func (w *World) clampedWarp() float64 {
 			selected = maxGroundWarp
 		}
 	}
+	// Air approach: a path that dips into the air coasts on the sub-step
+	// loop, not the analytic Kepler step (drag breaks the conic), so warp
+	// glides to 1x autoWarpLeadTime before the cutoff, as for the ground.
+	if tAir, ok := airEntryIn(w.ActiveCraft()); ok {
+		maxAirWarp := (tAir - autoWarpLeadTime.Seconds()) / (approachClampSubsteps * w.Clock.BaseStep.Seconds())
+		if maxAirWarp < 1 {
+			maxAirWarp = 1
+		}
+		if selected > maxAirWarp {
+			selected = maxAirWarp
+		}
+	}
 	// v0.8.6.x+: upcoming-node approach clamp. At 100000× warp one
 	// tick advances 5000 s of sim time, so a planted node 30 s out
 	// would be skipped entirely before the burn-active cap could
@@ -1971,10 +1983,27 @@ const (
 // down at surface gravity.
 func (w *World) groundImpactIn() (float64, bool) {
 	c := w.ActiveCraft()
-	if c == nil || c.Landed || c.Crashed || c.ActiveBurn != nil || c.ManualBurn != nil {
+	if c == nil {
 		return 0, false
 	}
-	mu, R := c.Primary.GravitationalParameter(), c.Primary.RadiusMeters()
+	return timeToRadius(c, c.Primary.RadiusMeters())
+}
+
+// airEntryIn is groundImpactIn for the top of the air: sim-seconds until a
+// vessel's free-fall path first drops to its primary's atmosphere cutoff.
+// ok=false on an airless body, and once it is already inside.
+func airEntryIn(c *spacecraft.Spacecraft) (float64, bool) {
+	if c == nil || c.Primary.Atmosphere == nil {
+		return 0, false
+	}
+	return timeToRadius(c, c.Primary.RadiusMeters()+c.Primary.Atmosphere.CutoffAltitude)
+}
+
+func timeToRadius(c *spacecraft.Spacecraft, R float64) (float64, bool) {
+	if c.Landed || c.Crashed || c.ActiveBurn != nil || c.ManualBurn != nil {
+		return 0, false
+	}
+	mu := c.Primary.GravitationalParameter()
 	r := c.State.R.Norm()
 	if mu <= 0 || R <= 0 || r <= R {
 		return 0, false
@@ -2650,7 +2679,14 @@ func (w *World) canKeplerStep(c *spacecraft.Spacecraft, simDelta time.Duration) 
 	if base <= 0 || simDelta.Seconds() <= base {
 		return false
 	}
-	return canKeplerStepState(c.State, c.Primary.GravitationalParameter(), c.Primary)
+	if canKeplerStepState(c.State, c.Primary.GravitationalParameter(), c.Primary) {
+		return true
+	}
+	// A coast whose path dips into the air is exact (no drag above the
+	// cutoff) until it gets there: stay analytic while the tick ends short of
+	// the cutoff, else period/100 Verlet steps drift the entry point.
+	tAir, ok := airEntryIn(c)
+	return ok && tAir > 2*simDelta.Seconds()
 }
 
 // canKeplerStepState is the orbital-geometry half of canKeplerStep,
@@ -2764,7 +2800,8 @@ func (w *World) chunkedSOIStep(c *spacecraft.Spacecraft, secs float64, step func
 		// rather than double-stepping from the partial advance.
 		if el := orbital.ElementsFromState(c.State.R, c.State.V, mu); el.E < 1 && el.A > 0 {
 			periAlt := el.A*(1-el.E) - c.Primary.RadiusMeters()
-			if periAlt < 0 {
+			// An air body's path still short of the cutoff is exact (canKeplerStep).
+			if tAir, inAir := airEntryIn(c); periAlt < 0 && !(inAir && tAir > 2*secs) {
 				c.State = entryState
 				c.Primary = entryPrimary
 				return false
