@@ -247,3 +247,64 @@ func TestDescentCorridorAlarmsWhenItCannotStop(t *testing.T) {
 		t.Errorf("Limiter = %v, want fuel (no engine at all reads as the fuel side binding)", margin.Limiter)
 	}
 }
+
+// fallGroundError lets c fall with no thrust and returns, in metres on the
+// ground, the distance between the forecast's ground-frame impact point (taken
+// now) and where the vessel really touches down, plus the gap between the
+// inertial and ground-frame forecast points (what the old arc drew wrong).
+func fallGroundError(t *testing.T, w *World, c *spacecraft.Spacecraft) (miss, inertialGap float64) {
+	t.Helper()
+	imp, ok := PredictImpact(c, 3*time.Hour)
+	if !ok {
+		t.Fatal("no impact forecast")
+	}
+	t0 := w.Clock.SimTime
+	for i := 0; i < 6*3600*20 && !c.Landed && !c.Crashed && c.State.R.Norm() > c.Primary.RadiusMeters(); i++ {
+		w.Tick()
+	}
+	radius := c.Primary.RadiusMeters()
+	if c.State.R.Norm() > radius+1e3 && !c.Crashed && !c.Landed {
+		t.Fatalf("never reached the ground, alt %.0f m", c.State.R.Norm()-radius)
+	}
+	fLat, fLon := w.surfaceLatLon(imp.GroundPoint, c, t0)
+	iLat, iLon := w.surfaceLatLon(imp.Point, c, t0)
+	aLat, aLon := w.surfaceLatLon(c.State.R, c, w.Clock.SimTime)
+	return HaversineM(fLat, fLon, aLat, aLon, radius), HaversineM(fLat, fLon, iLat, iLon, radius)
+}
+
+// The V view draws the forecast against today's ground, so the impact point
+// must be where the turning body brings the ground to meet the vessel. Mars
+// spins 241 m/s at 5N: 14 km of lag per minute of fall, red with unspin removed.
+// 3 km on Mars (6 km on the Moon, where the ground-frame correction is 14 km of
+// a 19 km miss) allows the forecast's own integrator error over a 30-50 minute
+// fall; the rotation is the rest.
+func TestPredictImpactGroundFrameMatchesTouchdown(t *testing.T) {
+	for _, f := range []struct {
+		body       string
+		air        bool
+		tol        float64
+		minInertia float64 // inertial point lags by at least this
+	}{
+		{"mars", true, 3e3, 100e3},
+		{"moon", false, 6e3, 10e3},
+	} {
+		w, c := entryWorld(t, "", f.body, "Ground-Station-Lander", 150e3, f.air)
+		grazing(c)
+		miss, gap := fallGroundError(t, w, c)
+		t.Logf("%s: ground-frame miss %.0f m, inertial-vs-ground gap %.0f m", f.body, miss, gap)
+		if miss > f.tol {
+			t.Errorf("%s: ground-frame impact misses touchdown by %.0f m, want <= %.0f", f.body, miss, f.tol)
+		}
+		if gap < f.minInertia {
+			t.Errorf("%s: inertial point only %.0f m from the ground-frame one, want >= %.0f", f.body, gap, f.minInertia)
+		}
+	}
+}
+
+// A body that does not spin draws the inertial path unchanged.
+func TestUnspinNoSpinIsIdentity(t *testing.T) {
+	p := orbital.Vec3{X: 1e6, Y: 2e6, Z: 3e6}
+	if got := unspin(p, bodies.CelestialBody{}, 1234); got != p {
+		t.Errorf("unspun %v, want %v", got, p)
+	}
+}

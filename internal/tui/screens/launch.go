@@ -1108,7 +1108,7 @@ func (v *LaunchView) drawOrbitPath(craft *spacecraft.Spacecraft, bodyCentre orbi
 // pad and tower use — a contact point on the far side of the body would
 // otherwise draw straight through the planet.
 func (v *LaunchView) drawDescentArc(bodyCentre, camFromBody orbital.Vec3, dc sim.DescentCorridor) {
-	if len(dc.Impact.Path) < 2 {
+	if len(dc.Impact.GroundPath) < 2 {
 		return
 	}
 	alarm := dc.Margin.State == sim.MarginInsufficient
@@ -1116,20 +1116,20 @@ func (v *LaunchView) drawDescentArc(bodyCentre, camFromBody orbital.Vec3, dc sim
 	if alarm {
 		arcColor = render.ColorAlert
 	}
-	pts := make([]orbital.Vec3, len(dc.Impact.Path))
-	for i, p := range dc.Impact.Path {
+	pts := make([]orbital.Vec3, len(dc.Impact.GroundPath))
+	for i, p := range dc.Impact.GroundPath {
 		pts[i] = bodyCentre.Add(p)
 	}
 	v.canvas.PlotPolylineClass(pts, arcColor, widgets.ClassPlanned)
 
-	if !isNearHemisphere(dc.Impact.Point, camFromBody) {
+	if !isNearHemisphere(dc.Impact.GroundPoint, camFromBody) {
 		return
 	}
 	state := render.MarkerNominal
 	if alarm {
 		state = render.MarkerAlarm
 	}
-	drawMarker(v.canvas, bodyCentre.Add(dc.Impact.Point), render.MarkerImpact, state, "", widgets.CellTag{})
+	drawMarker(v.canvas, bodyCentre.Add(dc.Impact.GroundPoint), render.MarkerImpact, state, "", widgets.CellTag{})
 }
 
 // secondsToDuration converts a float64 seconds reading (sim.BurnAtCue /
@@ -1158,11 +1158,11 @@ func secondsToDuration(s float64) time.Duration {
 // path capped to the ascent horizon whether or not it ever finds ground
 // contact.
 func (v *LaunchView) drawAscentArc(bodyCentre orbital.Vec3, arc sim.AscentPath) {
-	if len(arc.Path) < 2 {
+	if len(arc.GroundPath) < 2 {
 		return
 	}
-	pts := make([]orbital.Vec3, len(arc.Path))
-	for i, p := range arc.Path {
+	pts := make([]orbital.Vec3, len(arc.GroundPath))
+	for i, p := range arc.GroundPath {
 		pts[i] = bodyCentre.Add(p)
 	}
 	v.canvas.PlotPolylineClass(pts, render.ColorPredictedPath, widgets.ClassPlanned)
