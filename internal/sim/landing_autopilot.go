@@ -318,6 +318,9 @@ func (w *World) EngageLandingAutopilot() error {
 		ap.Phase = spacecraft.PhaseCoast
 	}
 	c.Landing = ap
+	if ap.Phase == spacecraft.PhaseFinal && ap.TrackN.Norm() == 0 {
+		ap.TrackN = apTrackNormal(c, c.State) // a hover has no brake light to fix the aim's plane; zero drift leaves it unset
+	}
 	if ap.Phase != spacecraft.PhaseFinal {
 		if err := w.apReachTest(c, lat, lon); err != nil {
 			ap.Engaged, ap.Nose = wasNose, wasNose
