@@ -319,10 +319,11 @@ func (w *World) checkBumps() {
 			if a.Landed && b.Landed {
 				continue
 			}
-			if a.Landed || b.Landed {
-				if a.Landed {
-					a, b = b, a
-				}
+			if a.Landed {
+				w.bumpAgainstStanding(a, b) // locals only: a is the outer loop's vessel
+				continue
+			}
+			if b.Landed {
 				w.bumpAgainstStanding(b, a)
 				continue
 			}

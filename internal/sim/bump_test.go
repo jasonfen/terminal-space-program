@@ -616,6 +616,21 @@ func TestBumpAgainstStandingVesselMoverBouncesStandingStays(t *testing.T) {
 	}
 }
 
+// The standing vessel ahead of two flyers in the slate: the far flyer's pair
+// must not swap the outer vessel, or the touching flyer is tested against the
+// far one instead of the standing hull and never bounces.
+func TestBumpAgainstStandingVesselFirstInSlateStillBumpsLaterFlyer(t *testing.T) {
+	w, a, b := standingWorld(t, 3, 1)
+	far := *a
+	far.Name = "Far"
+	far.State.R = b.State.R.Add(orbital.Vec3{Y: 5000})
+	w.Crafts = []*spacecraft.Spacecraft{b, &far, a}
+	w.checkBumps()
+	if got := a.State.V.Y; math.Abs(got-0.5) > 1e-9 {
+		t.Errorf("touching flyer leaves at %v m/s, want 0.5", got)
+	}
+}
+
 // Guard 4: the standing contact is not latched, so each tick still closing is
 // pushed again; and a pair that is parting (equal case: exactly zero closing)
 // is left alone.
