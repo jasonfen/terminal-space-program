@@ -8,8 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
+
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 func marksWorld(t *testing.T, n int) *sim.World {
@@ -108,5 +112,164 @@ func TestSurfaceMarksPartnerSites(t *testing.T) {
 	own := sim.Site{ID: 1, Owner: ""}
 	if v.siteTargeted(w, own) || !v.siteTargeted(w, w.PartnerSites[0].Site) {
 		t.Errorf("owner not part of the target match")
+	}
+}
+
+// lzMapCells renders the map focused on the vessel at the given multiple of
+// the LZ-circle threshold scale and returns, for each LZ of site s, its centre
+// cell's rune and which of eight points on the circle sit on an inked cell.
+func lzMapCells(t *testing.T, v *OrbitView, w *sim.World, s sim.Site, xThreshold float64) (centre map[int]rune, ink map[int][8]bool) {
+	t.Helper()
+	v.Resize(DesignWidth, DesignHeight)
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	thr := sim.LZMapMinCells / sim.SiteLZRadiusM
+	v.setUserZoom(xThreshold * thr / v.baseScale)
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	rows := strings.Split(ansi.Strip(v.canvas.String()), "\n")
+	at := func(col, row int) rune {
+		if row < 0 || row >= len(rows) || col < 0 || col >= len([]rune(rows[row])) {
+			return 0
+		}
+		return []rune(rows[row])[col]
+	}
+	centre, ink = map[int]rune{}, map[int][8]bool{}
+	for _, p := range w.LZPlaces(s) {
+		if px, py, on := v.canvas.Project(p.Pos); on {
+			centre[p.N] = at(px/2, py/4)
+		}
+		e1 := p.Up.Cross(orbital.Vec3{Z: 1}).Unit()
+		e2 := p.Up.Cross(e1)
+		var pts [8]bool
+		for i := range pts {
+			th := float64(i) * math.Pi / 4
+			q := p.Pos.Add(e1.Scale(sim.SiteLZRadiusM * math.Cos(th))).Add(e2.Scale(sim.SiteLZRadiusM * math.Sin(th)))
+			if px, py, on := v.canvas.Project(q); on {
+				c := at(px/2, py/4)
+				pts[i] = c != '\u2800' && c != ' ' && c != 0
+			}
+		}
+		ink[p.N] = pts
+	}
+	return
+}
+
+// newInk counts circle points inked with the circles on that the baseline
+// (the same frame, circles off) left blank: the circle's own ink, apart from
+// the orbit, the vessel and the labels that share the frame.
+func newInk(on, off [8]bool) (n int) {
+	for i := range on {
+		if on[i] && !off[i] {
+			n++
+		}
+	}
+	return
+}
+
+// ADR 0068 decision 8, T8b: from four cells across the map draws each LZ as a
+// circle with its digit at the centre and the flag at the one you fly to;
+// further out it is the one glyph. The `y` flags row governs the circles (an
+// untargeted site hidden by it draws none) and a shipped zone, which has no
+// glyph, shows only as circles.
+func TestSurfaceMarksLZCircles(t *testing.T) {
+	w := lzRingWorld(t, 7)
+	w.Focus = sim.Focus{Kind: sim.FocusCraft}
+	s := w.Sites[0]
+	v := NewOrbitView(Theme{})
+	// The baseline: the same frame with the site hidden (untargeted, flags row off).
+	hidden := NewOrbitView(Theme{})
+	st := hidden.settings
+	st.SetChip(settings.ChipMarksFlags, false)
+	hidden.SetSettings(st)
+	w.ClearTarget()
+	_, baseFar := lzMapCells(t, hidden, w, s, 0.5)
+	_, baseNear := lzMapCells(t, hidden, w, s, 2)
+	w.SetTargetSite(s.ID)
+
+	far, farInk := lzMapCells(t, v, w, s, 0.5)
+	if far[2] == '2' || newInk(farInk[2], baseFar[2]) != 0 || newInk(farInk[7], baseFar[7]) != 0 {
+		t.Errorf("half the threshold zoom drew circles: LZ-2 centre %q, ink %v", far[2], farInk[2])
+	}
+	near, nearInk := lzMapCells(t, v, w, s, 2)
+	if near[1] != flagGlyph || near[2] != '2' || near[7] != '7' {
+		t.Errorf("twice the threshold: centres LZ-1 %q (want the flag) LZ-2 %q LZ-7 %q", near[1], near[2], near[7])
+	}
+	if a, b := newInk(nearInk[2], baseNear[2]), newInk(nearInk[7], baseNear[7]); a < 4 || b < 4 {
+		t.Errorf("circles not inked about their own centres: LZ-2 %d LZ-7 %d of 8 points", a, b)
+	}
+	// A claim on LZ-2 moves the flag there and leaves LZ-1 its digit.
+	w.ActiveCraft().LZClaim = spacecraft.LZClaim{SiteID: s.ID, N: 2}
+	if c, _ := lzMapCells(t, v, w, s, 2); c[2] != flagGlyph || c[1] != '1' {
+		t.Errorf("claimed LZ-2: centres LZ-1 %q LZ-2 %q, want the digit 1 and the flag", c[1], c[2])
+	}
+	w.ActiveCraft().LZClaim = spacecraft.LZClaim{}
+	// Untargeted: the digit 1 and no flag; the flags row off hides the lot.
+	w.ClearTarget()
+	if c, _ := lzMapCells(t, v, w, s, 2); c[1] != '1' || c[2] != '2' {
+		t.Errorf("untargeted site: LZ-1 %q LZ-2 %q, want digits 1 and 2", c[1], c[2])
+	}
+	if c, ink := lzMapCells(t, hidden, w, s, 2); c[2] == '2' || newInk(ink[2], baseNear[2]) != 0 {
+		t.Errorf("flags row off still drew circles: %q", c[2])
+	}
+	// A shipped zone: Tranquility Base, no glyph far, circles near.
+	w2 := moonSiteDescentWorld(t, false)
+	var zone sim.Site
+	for _, z := range w2.ShippedZones() {
+		if z.Name == "Tranquility Base" {
+			zone = z
+		}
+	}
+	placeCraftNear(w2, w2.LZPlaces(zone)[0])
+	w2.ClearTarget()
+	w2.Focus = sim.Focus{Kind: sim.FocusCraft}
+	if c, _ := lzMapCells(t, NewOrbitView(Theme{}), w2, zone, 0.5); c[1] == flagGlyph || c[1] == '1' {
+		t.Errorf("a shipped zone drew a glyph far out: %q", c[1])
+	}
+	c, ink := lzMapCells(t, NewOrbitView(Theme{}), w2, zone, 2)
+	_, base := lzMapCells(t, hidden, w2, zone, 2)
+	if c[1] != '1' || c[2] != '2' || newInk(ink[2], base[2]) < 4 {
+		t.Errorf("shipped zone near: LZ-1 %q LZ-2 %q ink %v", c[1], c[2], ink[2])
+	}
+}
+
+// BenchmarkMapNineLZCircles is the T8b frame-time check: a nine-LZ site at the
+// threshold zoom, circles drawn vs the same frame with the flags row off.
+func BenchmarkMapNineLZCircles(b *testing.B) {
+	for _, c := range []struct {
+		name string
+		on   bool
+	}{{"circles", true}, {"hidden", false}} {
+		b.Run(c.name, func(b *testing.B) {
+			w := lzRingWorld(&testing.T{}, 9)
+			w.Focus = sim.Focus{Kind: sim.FocusCraft}
+			w.ClearTarget()
+			v := NewOrbitView(Theme{})
+			st := v.settings
+			st.SetChip(settings.ChipMarksFlags, c.on)
+			v.SetSettings(st)
+			v.Resize(DesignWidth, DesignHeight)
+			v.Render(w, 0, DesignWidth, DesignHeight)
+			v.setUserZoom(1.01 * sim.LZMapMinCells / sim.SiteLZRadiusM / v.baseScale)
+			v.Render(w, 0, DesignWidth, DesignHeight)
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				v.Render(w, 0, DesignWidth, DesignHeight)
+			}
+		})
+	}
+}
+
+// BenchmarkDrawNineLZCircles is the added cost alone: nine circles and digits
+// drawn onto the threshold-zoom map canvas, the frame itself left out.
+func BenchmarkDrawNineLZCircles(b *testing.B) {
+	w := lzRingWorld(&testing.T{}, 9)
+	w.Focus = sim.Focus{Kind: sim.FocusCraft}
+	v := NewOrbitView(Theme{})
+	v.Resize(DesignWidth, DesignHeight)
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	v.setUserZoom(1.01 * sim.LZMapMinCells / sim.SiteLZRadiusM / v.baseScale)
+	v.Render(w, 0, DesignWidth, DesignHeight)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		v.drawLZCircles(w, w.Sites[0], false, "#5F5F5F")
 	}
 }

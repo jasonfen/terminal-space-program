@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -16,6 +17,9 @@ const (
 	SiteLZSpacingM = 100.0 // honeycomb centre to centre
 	SiteLZRadiusM  = 43.0  // an LZ is a circle 86 m across
 	SiteMaxLZs     = 9     // every LZ is one digit in the picture
+	// LZMapMinCells: the map draws LZ circles once 86 m spans this many cells
+	// (21.5 m a cell or finer); further out a site is its one glyph.
+	LZMapMinCells = 4.0
 
 	lc13OffsetM    = 310.0 // LZ-2 from LZ-1 at the Cape, as the real pair
 	lc13BearingDeg = 315.0 // northwest
@@ -127,6 +131,9 @@ func shippedZoneByID(id uint64) (Site, bool) {
 	return Site{}, false
 }
 
+// ShippedZones are the zones every game has, for drawing.
+func (w *World) ShippedZones() []Site { return append([]Site(nil), shippedZones...) }
+
 // AllSites is your sites plus the shipped zones: what a lookup or a menu sees.
 // The save and the ledger read w.Sites alone.
 func (w *World) AllSites() []Site {
@@ -197,19 +204,67 @@ func (w *World) lowestFreeLZ(s Site, self *spacecraft.Spacecraft) int {
 // (ADR 0068 decision 1, guard 8): siteOfTarget with the position and name of
 // the LZ the vessel holds, else the lowest free one (LZ-1 if all are taken).
 func (w *World) landingSiteOf(t Target, self *spacecraft.Spacecraft) (Site, bool) {
-	s, ok := w.siteOfTarget(t)
+	s, n, ok := w.landingLZOf(t, self)
 	if !ok {
 		return s, false
 	}
-	n := 0
+	s.LatDeg, s.LonDeg = s.lzLatLon(n, w.siteRadiusM(s))
+	s.Name = s.lzLabel(n)
+	return s, true
+}
+
+// landingLZOf is landingSiteOf's choice: the site and the LZ number n.
+func (w *World) landingLZOf(t Target, self *spacecraft.Spacecraft) (s Site, n int, ok bool) {
+	s, ok = w.siteOfTarget(t)
+	if !ok {
+		return s, 0, false
+	}
 	if self != nil && claimMatches(self, s) {
 		n = min(self.LZClaim.N, s.LZs())
 	} else if n = w.lowestFreeLZ(s, self); n == 0 {
 		n = 1
 	}
-	s.LatDeg, s.LonDeg = s.lzLatLon(n, w.siteRadiusM(s))
-	s.Name = s.lzLabel(n)
-	return s, true
+	return s, n, true
+}
+
+// LZPlace is one LZ of a site in the system's world frame: its centre and the
+// unit vector straight up from the ground there.
+type LZPlace struct {
+	N   int
+	Pos orbital.Vec3
+	Up  orbital.Vec3
+}
+
+// LZPlaces places every LZ of s (decision 8's circles), nil if the site's
+// body is not in the current system.
+func (w *World) LZPlaces(s Site) []LZPlace {
+	sys := w.System()
+	if s.System != sys.Name {
+		return nil
+	}
+	for _, b := range sys.Bodies {
+		if b.EnglishName != s.Body {
+			continue
+		}
+		bp := w.BodyPosition(b)
+		out := make([]LZPlace, 0, s.LZs())
+		for n := 1; n <= s.LZs(); n++ {
+			lat, lon := s.lzLatLon(n, b.RadiusMeters())
+			r, _ := surfacePointState(b, lat, lon, w.Clock.SimTime)
+			out = append(out, LZPlace{N: n, Pos: bp.Add(r), Up: r.Unit()})
+		}
+		return out
+	}
+	return nil
+}
+
+// ActiveLandingLZ is the site the active vessel is aimed at and the LZ number
+// it is flying to; ok is false when the aim is no site.
+func (w *World) ActiveLandingLZ() (s Site, n int, ok bool) {
+	if w.Target.Kind != TargetSite {
+		return Site{}, 0, false
+	}
+	return w.landingLZOf(w.Target, w.ActiveCraft())
 }
 
 // NoFreeLZError is the `N`/`B` refusal when every LZ of the aimed site is taken.
@@ -280,4 +335,41 @@ func (w *World) lzAt(c *spacecraft.Spacecraft, lat, lon float64) (s Site, n int,
 		}
 	}
 	return
+}
+
+// StandingVessel is a landed vessel of yours inside an LZ of a site: where it
+// stands (world frame) and its colour, for decision 8's picture.
+type StandingVessel struct {
+	Pos   orbital.Vec3
+	Color string
+	LZ    int
+}
+
+// StandingOn lists your landed vessels, the active one apart, that stand
+// inside an LZ circle of s.
+func (w *World) StandingOn(s Site) []StandingVessel {
+	var out []StandingVessel
+	r := w.siteRadiusM(s)
+	for _, v := range w.Crafts {
+		if v == nil || v == w.ActiveCraft() || !v.Landed || !w.onSiteBody(v, s) {
+			continue
+		}
+		vl, vo := v.SurfaceLatLon()
+		for n := 1; n <= s.LZs(); n++ {
+			lat, lon := s.lzLatLon(n, r)
+			if insideLZ(HaversineM(vl, vo, lat, lon, r)) {
+				r, _ := surfacePointState(v.Primary, vl, vo, w.Clock.SimTime)
+				out = append(out, StandingVessel{Pos: w.BodyPosition(v.Primary).Add(r), Color: v.Color, LZ: n})
+				break
+			}
+		}
+	}
+	return out
+}
+
+// LZCirclesOnMap says the map is zoomed far enough (scale in canvas dots per
+// metre, two dots to a cell) for an LZ circle to be at least LZMapMinCells
+// across; the equal case draws (decision 8).
+func LZCirclesOnMap(scale float64) bool {
+	return 2*SiteLZRadiusM*scale/2 >= LZMapMinCells
 }

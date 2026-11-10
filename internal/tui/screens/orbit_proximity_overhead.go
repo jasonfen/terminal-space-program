@@ -46,6 +46,9 @@ const (
 	overheadInFrac  = 0.45
 )
 
+// overheadStandGlyph marks a vessel of yours standing on an LZ.
+const overheadStandGlyph = '▲'
+
 // The panel: an 8-column gutter (the cross bar and its label), a 24 x 12 cell
 // disc, a title row, a legend row and the border.
 const (
@@ -118,6 +121,21 @@ type overheadMarks struct {
 	craft, cs, stop [2]float64
 	hasStop         bool
 	arc             []orbital.Vec3
+	// lzs are the aimed site's LZs (ADR 0068 decision 8) as (along, left) from
+	// the flag, flown the number of the one you fly to; stand the vessels
+	// standing on them. Empty off a site or while the computer's site is hidden.
+	lzs   []overheadLZ
+	flown int
+	site  sim.Site
+	stand []overheadLZ
+}
+
+// overheadLZ is one LZ centre (or a standing vessel) as (along, left) metres
+// from the flag, with its number and the vessel's colour.
+type overheadLZ struct {
+	n           int
+	along, left float64
+	color       string
 }
 
 func (v *OrbitView) overheadGather(w *sim.World, st sim.ProximityState) overheadMarks {
@@ -135,7 +153,44 @@ func (v *OrbitView) overheadGather(w *sim.World, st sim.ProximityState) overhead
 			m.hasStop = true
 		}
 	}
+	if site, flown, ok := w.ActiveLandingLZ(); ok && flagRevealed(computerSiteWorld(st).Sub(st.TargetWorld).Norm() > 0.5, st.RangeM) {
+		m.site, m.flown = site, flown
+		for _, p := range w.LZPlaces(site) {
+			a, l := overheadRel(st, p.Pos)
+			m.lzs = append(m.lzs, overheadLZ{n: p.N, along: a, left: l})
+		}
+		for _, sv := range w.StandingOn(site) {
+			a, l := overheadRel(st, sv.Pos)
+			m.stand = append(m.stand, overheadLZ{n: sv.LZ, along: a, left: l, color: sv.Color})
+		}
+	}
 	return m
+}
+
+// overheadLZExtent is how far across the track the LZs the inset must hold
+// reach: every LZ within one spacing across, its circle included (±143 m for a
+// full ring). Exactly one spacing is in; a far LZ is left to the edge.
+func overheadLZExtent(lzs []overheadLZ) float64 {
+	ext := 0.0
+	for _, z := range lzs {
+		if math.Abs(z.left) <= sim.SiteLZSpacingM {
+			ext = math.Max(ext, math.Abs(z.left)+sim.SiteLZRadiusM)
+		}
+	}
+	return ext
+}
+
+// overheadCircle is an LZ's outline as canvas points: a circle of metres
+// radius about (along, left), stretched with the cross scale like everything
+// else the inset draws.
+func overheadCircle(along, left, radiusM, stretch float64) []orbital.Vec3 {
+	const segs = 48
+	pts := make([]orbital.Vec3, 0, segs+1)
+	for i := 0; i <= segs; i++ {
+		th := 2 * math.Pi * float64(i) / segs
+		pts = append(pts, overheadPoint(along+radiusM*math.Cos(th), left+radiusM*math.Sin(th), stretch))
+	}
+	return pts
 }
 
 // drawOverhead paints the disc onto v.ov and returns the two bar values.
@@ -167,6 +222,12 @@ func (v *OrbitView) drawOverhead(w *sim.World, st sim.ProximityState) (alongBarM
 	if m.hasStop {
 		ext = math.Max(ext, math.Abs(m.stop[1]))
 	}
+	// ADR 0068 decision 8, measured at 140x40: the cross axis widens to hold
+	// the ring of neighbours (every LZ within one spacing across, circle
+	// included, ±143 m, so the 200 m bar) instead of the 50 m floor, which
+	// shows five LZs with yours filling the picture. A far LZ (LC-13's 310 m)
+	// is clipped, not chased.
+	ext = math.Max(ext, overheadLZExtent(m.lzs))
 	crossPer := float64(overheadDiscRows) / overheadBarRows
 	v.ovAcross = max(overheadPick(v.ovAcross, v.ovRanged, 2*ext, crossPer), overheadFloorRung(overheadCrossFloorM))
 	v.ovRanged = true
@@ -183,6 +244,19 @@ func (v *OrbitView) drawOverhead(w *sim.World, st sim.ProximityState) (alongBarM
 	// The track line through the flag.
 	reach := widthM
 	c.PlotPolylineClass([]orbital.Vec3{pt(-reach, 0), pt(reach, 0)}, render.ColorDim, widgets.ClassScenery)
+	// The LZ circles, in the class and colour of the site's glyph (Dim for a
+	// partner's): the one you fly to solid, its neighbours dotted.
+	lzCol := render.ColorTarget
+	if m.site.Owner != "" {
+		lzCol = render.ColorDim
+	}
+	for _, z := range m.lzs {
+		class := widgets.ClassScenery
+		if z.n == m.flown {
+			class = widgets.ClassReal
+		}
+		c.PlotPolylineClass(overheadCircle(z.along, z.left, sim.SiteLZRadiusM, stretch), lzCol, class)
+	}
 	// The stop arc's trace on the ground, dashed, you to the stop.
 	if len(m.arc) > 1 {
 		tr := make([]orbital.Vec3, len(m.arc))
@@ -200,6 +274,18 @@ func (v *OrbitView) drawOverhead(w *sim.World, st sim.ProximityState) (alongBarM
 	c.SetCellOverlayColored(pt(m.cs[0], m.cs[1]), computerSiteGlyph, render.ColorTarget)
 	if flagRevealed(differs, st.RangeM) {
 		c.SetCellOverlayColored(pt(0, 0), landingSiteMark(w), render.ColorTarget)
+	}
+	for _, z := range m.lzs { // the digit at each centre; the flown-to LZ has the flag
+		if z.n != m.flown {
+			c.SetCellOverlayColored(pt(z.along, z.left), rune('0'+z.n), lzCol)
+		}
+	}
+	for _, z := range m.stand { // a standing vessel, on its LZ
+		col := render.ColorDim
+		if z.color != "" {
+			col = lipgloss.Color(z.color)
+		}
+		c.SetCellOverlayColored(pt(z.along, z.left), overheadStandGlyph, col)
 	}
 
 	// You, with the ground-velocity stub (dotted) and the thrust pointer (solid).
