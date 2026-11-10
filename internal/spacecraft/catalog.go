@@ -83,6 +83,10 @@ type Part struct {
 	// Capability flags (per-stage, mirror Stage).
 	CanSoftLand  bool `json:"can_soft_land,omitempty"`
 	HasParachute bool `json:"has_parachute,omitempty"`
+	// LandingThrottle (ADR 0069 decision 10) marks the part for a one-burn
+	// landing and is the largest throttle the landing burn may use (a Falcon
+	// first stage lands on one engine of nine: 1/9). 0 = not marked.
+	LandingThrottle float64 `json:"landing_throttle,omitempty"`
 
 	// Forward-compatible attributes consumed by cycle 2 (ADR 0027 — comms).
 	// Declared in the schema now so it stays stable; C1 ignores them.
@@ -269,6 +273,7 @@ func (p Part) ToStage() Stage {
 		LaunchSpriteHasLegs:  p.LaunchSpriteHasLegs,
 		CanSoftLand:          p.CanSoftLand,
 		HasParachute:         p.HasParachute,
+		LandingThrottle:      p.LandingThrottle,
 		CommandSource:        p.CommandSource,
 		PartPorts:            topPorts(p.Ports),
 		CargoKg:              p.CargoKg,

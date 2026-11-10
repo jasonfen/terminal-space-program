@@ -529,6 +529,10 @@ type Stage struct {
 
 	// LitWithAbove (ADR 0058, schema v16): the Booster mark. Absent = serial.
 	LitWithAbove bool `json:"lit_with_above,omitempty"`
+
+	// LandingThrottle (ADR 0069 decision 10, additive, NO bump: omitempty):
+	// the one-burn landing mark. Absent = 0 = unmarked, the schedule landing.
+	LandingThrottle float64 `json:"landing_throttle,omitempty"`
 }
 
 // PortWire mirrors spacecraft.PartPort on the wire.

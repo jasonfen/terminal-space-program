@@ -141,6 +141,21 @@ type DeorbitPlan struct {
 
 // canBrakeAtSite: an engine that, at the brake throttle, out-thrusts gravity at
 // the surface, with propellant in the lit stage.
+// oneBurn: c's bottom stage is marked for a one-burn landing (ADR 0069
+// decision 10): its brake ends at the ground, with no descent-rate schedule.
+func oneBurn(c *spacecraft.Spacecraft) bool { return c.LandingThrottle() > 0 }
+
+// brakeThrottle is the throttle the cue, stop:, N and the autopilot plan the
+// brake at, as a fraction of full thrust: the reserve throttle, of the landing
+// throttle on a marked vessel (a Falcon stage's one engine of nine plans at
+// 0.9 / 9). Unmarked vessels get DeorbitBrakeThrottle, bit for bit.
+func brakeThrottle(c *spacecraft.Spacecraft) float64 {
+	if lt := c.LandingThrottle(); lt > 0 {
+		return DeorbitBrakeThrottle * lt
+	}
+	return DeorbitBrakeThrottle
+}
+
 func canBrakeAtSite(c *spacecraft.Spacecraft) bool {
 	if c.Thrust <= 0 || c.Isp <= 0 || c.ActiveStageFuel() <= 0 || c.TotalMass() <= 0 {
 		return false
@@ -149,7 +164,7 @@ func canBrakeAtSite(c *spacecraft.Spacecraft) bool {
 	if r <= 0 {
 		return false
 	}
-	return c.Thrust*DeorbitBrakeThrottle/c.TotalMass() > c.Primary.GravitationalParameter()/(r*r)
+	return c.Thrust*brakeThrottle(c)/c.TotalMass() > c.Primary.GravitationalParameter()/(r*r)
 }
 
 // deorbitSite resolves the aimed surface point: a site, a landed vessel or a
@@ -250,7 +265,7 @@ type stopForecast struct {
 // ground=false when the coast never meets the ground in the horizon;
 // ok=false when it meets it but the brake cannot stop above it.
 func stopPointFor(v *spacecraft.Spacecraft, horizon time.Duration) (sf stopForecast, ground, ok bool) {
-	cue, ground, hasCue := burnAtCue(v, horizon, DeorbitBrakeThrottle, deorbitRefineIters)
+	cue, ground, hasCue := burnAtCue(v, horizon, brakeThrottle(v), deorbitRefineIters)
 	if !ground {
 		return stopForecast{}, false, false
 	}
@@ -258,7 +273,7 @@ func stopPointFor(v *spacecraft.Spacecraft, horizon time.Duration) (sf stopForec
 	if hasCue {
 		start, lead = cue.State, cue.InSec
 	}
-	pred, pok := predictPoweredStopFromAt(start, v, horizon-time.Duration(lead*float64(time.Second)), DeorbitBrakeThrottle)
+	pred, pok := predictPoweredStopFromAt(start, v, horizon-time.Duration(lead*float64(time.Second)), brakeThrottle(v))
 	if !pok || pred.Outcome != StopStopped || pred.MarginM < 0 {
 		return stopForecast{}, true, false
 	}

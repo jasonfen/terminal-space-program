@@ -248,6 +248,13 @@ type Stage struct {
 	// across a decouple. `omitempty`.
 	HasParachute bool `json:",omitempty"`
 
+	// LandingThrottle (ADR 0069 decision 10) marks this stage for a one-burn
+	// landing: the autopilot times its brake to end at the ground and never
+	// asks for more than this fraction of the stage's thrust. 0 = unmarked
+	// (the descent-rate schedule of ADR 0067). Read from Stages[0] by
+	// Spacecraft.LandingThrottle; saved with omitempty, so old saves load off.
+	LandingThrottle float64 `json:",omitempty"`
+
 	// CommandSource (v0.23 / ADR 0027) declares whether this stage is a
 	// control point: CommandCrewed / CommandProbe / CommandNone (empty).
 	// Authored on the Part (ADR 0026 catalog) and carried here so it
@@ -521,6 +528,15 @@ func (s *Spacecraft) ActiveStageFuel() float64 {
 		f += s.Stages[i].FuelMass
 	}
 	return f
+}
+
+// LandingThrottle is the one-burn landing mark of the bottom stage (ADR 0069
+// decision 10): the largest throttle its landing burn uses, 0 when unmarked.
+func (s *Spacecraft) LandingThrottle() float64 {
+	if len(s.Stages) == 0 {
+		return 0
+	}
+	return s.Stages[0].LandingThrottle
 }
 
 // BurnFuel decrements the lit set's main-engine fuel by amount (kg), split

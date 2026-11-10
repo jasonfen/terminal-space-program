@@ -87,6 +87,8 @@ type StageModule struct {
 	// and capsule (the standalone re-entry test vehicle). Disjoint from
 	// canSoftLand — a capsule has no engine landing route, only the chute.
 	hasParachute bool
+	// landingThrottle (ADR 0069 decision 10) populates Stage.LandingThrottle.
+	landingThrottle float64
 	// commandSource / antenna (v0.23 / ADR 0027): comms part attributes,
 	// carried onto the built Stage by BuildStage so a configurator-picked
 	// part contributes its connectivity role to a custom stack, exactly as
@@ -231,6 +233,7 @@ func (p Part) toStageModule() StageModule {
 		launchSpriteHasLegs: p.LaunchSpriteHasLegs,
 		canSoftLand:         p.CanSoftLand,
 		hasParachute:        p.HasParachute,
+		landingThrottle:     p.LandingThrottle,
 		commandSource:       p.CommandSource,
 		antennaKind:         antennaKindOf(p),
 		antennaRangeM:       antennaRangeOf(p),
@@ -332,6 +335,7 @@ func BuildStage(id string) (Stage, bool) {
 		LaunchSpriteHasLegs:  m.launchSpriteHasLegs,
 		CanSoftLand:          m.canSoftLand,
 		HasParachute:         m.hasParachute,
+		LandingThrottle:      m.landingThrottle,
 		CommandSource:        m.commandSource,
 		AntennaKind:          m.antennaKind,
 		AntennaRangeM:        m.antennaRangeM,

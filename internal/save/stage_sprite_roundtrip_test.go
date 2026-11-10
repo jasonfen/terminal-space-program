@@ -1,6 +1,7 @@
 package save
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -92,5 +93,34 @@ func TestCatalogModuleSpriteSurvivesTheWire(t *testing.T) {
 	}
 	if n == 0 {
 		t.Fatal("no catalog parts checked")
+	}
+}
+
+// ADR 0069 decision 10 (S5): the one-burn landing mark survives the wire stage
+// by stage for every shipped loadout, and a save written before it existed
+// (no landing_throttle key) loads every stage unmarked, with no schema bump.
+func TestLandingThrottleSurvivesTheWireAndOldSavesLoadOff(t *testing.T) {
+	var marked int
+	for _, id := range spacecraft.LoadoutOrder {
+		stages := spacecraft.NewFromLoadout(id).Stages
+		back := wireStagesToSim(simStagesToWire(stages))
+		for i, want := range stages {
+			if want.LandingThrottle > 0 {
+				marked++
+			}
+			if back[i].LandingThrottle != want.LandingThrottle {
+				t.Errorf("%s stage %d (%s): landing throttle %v after the wire, want %v", id, i, want.Name, back[i].LandingThrottle, want.LandingThrottle)
+			}
+		}
+	}
+	if marked == 0 {
+		t.Fatal("positive control: no shipped loadout carries the mark, the loop would prove nothing")
+	}
+	var old []Stage
+	if err := json.Unmarshal([]byte(`[{"Name":"F9-S1","thrust":7607000,"can_soft_land":true}]`), &old); err != nil {
+		t.Fatal(err)
+	}
+	if got := wireStagesToSim(old)[0].LandingThrottle; got != 0 {
+		t.Errorf("a stage saved without the key loads with landing throttle %v, want 0 (off)", got)
 	}
 }
