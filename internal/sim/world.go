@@ -2188,7 +2188,7 @@ func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Durati
 		// the physics package stays predicate-free and the sub-craft-
 		// point inverse projection has access to the live sim clock.
 		if clamped, hit := physics.ClampToSurface(c.State, c.Primary); hit {
-			outcome, lat, lon := classifySurfaceArrival(c, c.State.R, c.State.V, clock)
+			outcome, lat, lon := classifySurfaceArrival(c, c.State.R, c.State.V, clock.Add(stepDur)) // contact is at the END of this sub-step
 			impactMS := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary).Norm() // vs the ground, not the spin
 			w.applySurfaceArrival(c, clamped, outcome, lat, lon)
 			w.recordSurface(c, impactMS, lat, lon)
