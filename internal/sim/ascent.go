@@ -121,6 +121,9 @@ type AscentPath struct {
 	// back down inside the horizon).
 	Impact      orbital.Vec3
 	ImpactFound bool
+	// GroundPath is Path in the body-fixed frame of now (what the surface
+	// view draws; see ImpactPrediction.GroundPath).
+	GroundPath []orbital.Vec3
 }
 
 // PredictAscentPath forward-propagates the craft's current state exactly
@@ -136,7 +139,7 @@ func PredictAscentPath(c *spacecraft.Spacecraft, horizon time.Duration) (AscentP
 	if !setupOK {
 		return AscentPath{}, false
 	}
-	return AscentPath{Path: fc.Path, Impact: fc.Impact, ImpactFound: fc.ImpactFound}, true
+	return AscentPath{Path: fc.Path, Impact: fc.Impact, ImpactFound: fc.ImpactFound, GroundPath: fc.GroundPath}, true
 }
 
 // AscentQBand is the atmosphere/Q instrument the ascent cues draw as a

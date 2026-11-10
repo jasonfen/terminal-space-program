@@ -99,6 +99,13 @@ type ImpactPrediction struct {
 	// (Path[0]) to Point (the last element) — the raw material for the
 	// dashed arc to ground.
 	Path []orbital.Vec3
+	// GroundPath / GroundPoint are Path / Point as the GROUND will see them:
+	// each sample turned back about the spin axis by the body's rotation over
+	// its elapsed time, so they sit on today's ground (flag, pad, coast) where
+	// the vessel will actually meet it. Path / Point stay inertial for the
+	// physics callers; only the surface view draws these.
+	GroundPath  []orbital.Vec3
+	GroundPoint orbital.Vec3
 	// TimeToImpact is the flight time from now to contact.
 	TimeToImpact time.Duration
 	// SpeedMps is the SURFACE-relative speed at contact (v − ω×r via
@@ -122,6 +129,8 @@ func PredictImpact(c *spacecraft.Spacecraft, horizon time.Duration) (ImpactPredi
 	return ImpactPrediction{
 		Point:        fc.Impact,
 		Path:         fc.Path,
+		GroundPath:   fc.GroundPath,
+		GroundPoint:  fc.GroundImpact,
 		TimeToImpact: fc.TimeToImpact,
 		SpeedMps:     fc.SpeedMps,
 	}, true
@@ -139,6 +148,10 @@ type ballisticForecast struct {
 	ImpactFound  bool
 	TimeToImpact time.Duration
 	SpeedMps     float64
+	// GroundPath / GroundImpact: Path / Impact in the body-fixed frame of now
+	// (see ImpactPrediction.GroundPath).
+	GroundPath   []orbital.Vec3
+	GroundImpact orbital.Vec3
 
 	// samples parallels Path at the same cadence but carries the full
 	// (state, elapsed-seconds) pair rather than just the plotted
@@ -212,6 +225,7 @@ func forwardBallisticPath(c *spacecraft.Spacecraft, horizon time.Duration) (ball
 
 	path := make([]orbital.Vec3, 0, impactPathSamples+2)
 	path = append(path, state.R)
+	ground := append(make([]orbital.Vec3, 0, impactPathSamples+2), state.R)
 	samples := make([]ballisticSample, 0, impactPathSamples+2)
 	samples = append(samples, ballisticSample{state: state, elapsedSec: 0})
 	elapsed, weight := 0.0, 0.0
@@ -231,8 +245,11 @@ func forwardBallisticPath(c *spacecraft.Spacecraft, horizon time.Duration) (ball
 				point = point.Scale(radius / n)
 			}
 			path = append(path, point)
+			gp := unspin(point, primary, elapsed)
 			return ballisticForecast{
 				Path:         path,
+				GroundPath:   append(ground, gp),
+				GroundImpact: gp,
 				Impact:       point,
 				ImpactFound:  true,
 				TimeToImpact: time.Duration(elapsed * float64(time.Second)),
@@ -248,10 +265,24 @@ func forwardBallisticPath(c *spacecraft.Spacecraft, horizon time.Duration) (ball
 		if weight >= float64(sampleEvery) {
 			weight -= float64(sampleEvery)
 			path = append(path, state.R)
+			ground = append(ground, unspin(state.R, primary, elapsed))
 			samples = append(samples, ballisticSample{state: state, elapsedSec: elapsed})
 		}
 	}
-	return ballisticForecast{Path: path, samples: samples}, true
+	return ballisticForecast{Path: path, GroundPath: ground, samples: samples}, true
+}
+
+// unspin turns an inertial primary-relative position back by the body's
+// rotation over elapsed seconds: where today's ground must be for that point to
+// be over it at elapsed. A body with no spin returns p unchanged.
+func unspin(p orbital.Vec3, b bodies.CelestialBody, elapsedSec float64) orbital.Vec3 {
+	om := render.BodySpinOmegaWorld(b)
+	mag := math.Sqrt(om.X*om.X + om.Y*om.Y + om.Z*om.Z)
+	if mag == 0 || elapsedSec == 0 {
+		return p
+	}
+	axis := orbital.Vec3{X: om.X / mag, Y: om.Y / mag, Z: om.Z / mag}
+	return orbital.Rotate(p, axis, -mag*elapsedSec)
 }
 
 // impactMaxAirSubSteps bounds the forecast's walk on a body with air, where the
