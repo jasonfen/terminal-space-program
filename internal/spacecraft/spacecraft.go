@@ -612,13 +612,46 @@ func (s *Spacecraft) EffectiveBallisticCoefficient() float64 {
 	if s.ChuteState == ChuteDeployed {
 		return ChuteDeployedBC
 	}
-	if len(s.Stages) > 0 && s.Stages[0].BallisticCoefficient > 0 {
-		return s.Stages[0].BallisticCoefficient
+	if len(s.Stages) > 0 {
+		b := s.Stages[0]
+		m := s.TotalMass()
+		switch {
+		// ADR 0069 decision 4: a dropped stage falls engines-first by its
+		// own diameter and the mass it has left.
+		case s.Role == RoleJettisonedStage && b.DiameterM > 0 && m > 0:
+			return sizeBC(FallingStageCd, b.DiameterM, m)
+		// A launch stage's tuned figure is for the full stack; the figure
+		// grows as propellant burns off (BC = C_D*A/m). Equals the tuned
+		// figure with full tanks.
+		case b.BallisticCoefficient > 0:
+			if m > 0 {
+				return b.BallisticCoefficient * ((m + max(b.FuelCapacity-b.FuelMass, 0)) / m)
+			}
+			return b.BallisticCoefficient
+		// A capsule or lander with no figure of its own: diameter and mass.
+		case b.DiameterM > 0 && m > 0:
+			return sizeBC(CapsuleCd, b.DiameterM, m)
+		}
 	}
 	if s.BallisticCoefficient > 0 {
 		return s.BallisticCoefficient
 	}
 	return DefaultBallisticCoefficient
+}
+
+// Drag coefficients for things that fall (ADR 0069 decision 4). Capsule: the
+// Apollo CM heat-shield-forward, C_D 1.31 at 85 km / 9.6 km/s on D_b^2*pi/4
+// (Moss, Glass & Greene, AIAA 2006-3577, NASA LaRC, Table 4). Falling stage:
+// a blunt-ended cylinder end-on, 0.81 for l/d > 2 and 1.17 for a flat disk
+// (Hoerner, via aerospaceweb.org); engines-first estimates run 1.0 to 1.2.
+const (
+	CapsuleCd      = 1.3
+	FallingStageCd = 1.0
+)
+
+// sizeBC is C_D * frontal area / mass for a round hull of the given diameter.
+func sizeBC(cd, diameterM, massKg float64) float64 {
+	return cd * math.Pi * diameterM * diameterM / 4 / massKg
 }
 
 // RCSDeltaV estimates how much more Δv the current monoprop pool
