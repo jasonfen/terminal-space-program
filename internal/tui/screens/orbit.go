@@ -1354,7 +1354,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// SetCellOverlay covers a 2x4 sub-pixel cell, so a 5-px
 		// offset crosses the boundary regardless of velocity
 		// direction.
-		if c.ActiveBurn != nil || (c.ManualBurn != nil && c.EngineMode == spacecraft.EngineMain && c.EffectiveThrottle() > 0) {
+		if c.ActiveBurn != nil || (c.ManualBurn != nil && c.EngineMode != spacecraft.EngineRCS && c.EffectiveThrottle() > 0) {
 			vMag := c.State.V.Norm()
 			if vMag > 0 && scale > 0 {
 				vHat := c.State.V.Scale(1 / vMag)

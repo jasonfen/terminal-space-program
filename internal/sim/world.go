@@ -2071,6 +2071,10 @@ var liveSOIShortcut = true
 // Multi-craft (v0.8.1+): each craft is integrated independently via
 // this helper. Tick loops over Crafts.
 func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Duration) {
+	c.OnSuperDraco(func() { w.integrateOneCraftOn(c, simDelta) })
+}
+
+func (w *World) integrateOneCraftOn(c *spacecraft.Spacecraft, simDelta time.Duration) {
 	// v0.9.2+: Landed craft bypass normal integration. They co-rotate
 	// with the primary's surface — R rotates about world +Z by ω·dt
 	// per tick, V is recomputed as ω × R. No gravity, no drag, no

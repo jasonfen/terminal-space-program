@@ -89,6 +89,7 @@ type StageModule struct {
 	hasParachute bool
 	// landingThrottle (ADR 0069 decision 10) populates Stage.LandingThrottle.
 	landingThrottle float64
+	superThrust, superIsp float64
 	// commandSource / antenna (v0.23 / ADR 0027): comms part attributes,
 	// carried onto the built Stage by BuildStage so a configurator-picked
 	// part contributes its connectivity role to a custom stack, exactly as
@@ -234,6 +235,8 @@ func (p Part) toStageModule() StageModule {
 		canSoftLand:         p.CanSoftLand,
 		hasParachute:        p.HasParachute,
 		landingThrottle:     p.LandingThrottle,
+		superThrust:         p.SuperThrustN,
+		superIsp:            p.SuperIspS,
 		commandSource:       p.CommandSource,
 		antennaKind:         antennaKindOf(p),
 		antennaRangeM:       antennaRangeOf(p),
@@ -336,6 +339,8 @@ func BuildStage(id string) (Stage, bool) {
 		CanSoftLand:          m.canSoftLand,
 		HasParachute:         m.hasParachute,
 		LandingThrottle:      m.landingThrottle,
+		SuperThrust:          m.superThrust,
+		SuperIsp:             m.superIsp,
 		CommandSource:        m.commandSource,
 		AntennaKind:          m.antennaKind,
 		AntennaRangeM:        m.antennaRangeM,

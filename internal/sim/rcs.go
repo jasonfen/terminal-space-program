@@ -16,12 +16,32 @@ func (w *World) CycleEngineMode() {
 	if w.ActiveCraft() == nil {
 		return
 	}
-	if w.ActiveCraft().EngineMode == spacecraft.EngineMain {
+	c := w.ActiveCraft()
+	switch {
+	case c.EngineMode == spacecraft.EngineMain && c.HasSuperDraco():
 		w.StopManualBurn()
-		w.ActiveCraft().EngineMode = spacecraft.EngineRCS
+		c.EngineMode = spacecraft.EngineSuperDraco
+	case c.EngineMode == spacecraft.EngineRCS:
+		c.EngineMode = spacecraft.EngineMain
+	default: // main without SuperDracos, or superdraco
+		w.StopManualBurn()
+		c.EngineMode = spacecraft.EngineRCS
+	}
+}
+
+// ToggleRCS flips between RCS and the main engine, the navball's RCS button
+// (a Dragon's `r` also visits superdraco; the button never does).
+func (w *World) ToggleRCS() {
+	c := w.ActiveCraft()
+	if c == nil {
 		return
 	}
-	w.ActiveCraft().EngineMode = spacecraft.EngineMain
+	if c.EngineMode == spacecraft.EngineRCS {
+		c.EngineMode = spacecraft.EngineMain
+		return
+	}
+	w.StopManualBurn()
+	c.EngineMode = spacecraft.EngineRCS
 }
 
 // CycleRCSPulseScale steps the active craft's RCS pulse magnitude to the

@@ -255,6 +255,11 @@ type Stage struct {
 	// Spacecraft.LandingThrottle; saved with omitempty, so old saves load off.
 	LandingThrottle float64 `json:",omitempty"`
 
+	// SuperThrust / SuperIsp (ADR 0069 decision 6) are the stage's SuperDraco
+	// engine on the same tank; Thrust / Isp stay the Dracos. 0 = none.
+	SuperThrust float64 `json:",omitempty"`
+	SuperIsp    float64 `json:",omitempty"`
+
 	// CommandSource (v0.23 / ADR 0027) declares whether this stage is a
 	// control point: CommandCrewed / CommandProbe / CommandNone (empty).
 	// Authored on the Part (ADR 0026 catalog) and carried here so it

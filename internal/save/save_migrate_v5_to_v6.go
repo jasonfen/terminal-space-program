@@ -46,6 +46,8 @@ func wireStagesToSim(wire []Stage) []spacecraft.Stage {
 			NavSigmaAcrossM:      s.NavSigmaAcrossM,
 			LitWithAbove:         s.LitWithAbove,
 			LandingThrottle:      s.LandingThrottle,
+			SuperThrust:          s.SuperThrust,
+			SuperIsp:             s.SuperIsp,
 		}
 		// The save does not carry the launch-sprite dimensions; the hull,
 		// and the docking port derived from it (ADR 0053), come back from
@@ -102,6 +104,8 @@ func simStagesToWire(stages []spacecraft.Stage) []Stage {
 			NavSigmaAcrossM:      s.NavSigmaAcrossM,
 			LitWithAbove:         s.LitWithAbove,
 			LandingThrottle:      s.LandingThrottle,
+			SuperThrust:          s.SuperThrust,
+			SuperIsp:             s.SuperIsp,
 		}
 	}
 	return out

@@ -372,8 +372,10 @@
       "launch_sprite_color": "#E8E8EE",
       "fuel_type": "hypergolic",
       "has_parachute": true,
-      "description": "8 SuperDraco abort engines, 71 kN each",
-      "landing_throttle": 1
+      "description": "8 SuperDraco engines, 71 kN each",
+      "landing_throttle": 1,
+      "super_thrust_n": 568000,
+      "super_isp_s": 235
     },
     {
       "id": "dragon-cargo",
@@ -396,7 +398,9 @@
       "fuel_type": "hypergolic",
       "has_parachute": true,
       "cargo_kg": 2507,
-      "landing_throttle": 1
+      "landing_throttle": 1,
+      "super_thrust_n": 568000,
+      "super_isp_s": 235
     },
     {
       "id": "dragon-trunk",
