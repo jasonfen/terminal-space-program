@@ -146,4 +146,21 @@ func TestArmParachuteStateMachine(t *testing.T) {
 	if c.ChuteState != ChuteDeployed {
 		t.Errorf("deployed state must be preserved, got %v", c.ChuteState)
 	}
+	// ADR 0069 decision 7: only an open chute cuts, and a cut is for good.
+	for _, st := range []ChuteState{ChuteStowed, ChuteArmed, ChuteCut} {
+		c.ChuteState = st
+		if c.CutParachute() || c.ChuteState != st {
+			t.Errorf("CutParachute moved %v", st)
+		}
+	}
+	c.ChuteState = ChuteDeployed
+	if !c.CutParachute() || c.ChuteState != ChuteCut || c.ChuteState.String() != "CUT" {
+		t.Errorf("cutting an open chute left state %v", c.ChuteState)
+	}
+	if c.ArmParachute() || c.ChuteState != ChuteCut {
+		t.Errorf("a cut chute re-armed, state %v", c.ChuteState)
+	}
+	if got := c.EffectiveBallisticCoefficient(); got == ChuteDeployedBC {
+		t.Errorf("a cut chute still reports the canopy BC %g", got)
+	}
 }

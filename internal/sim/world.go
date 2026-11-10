@@ -1950,7 +1950,7 @@ func (w *World) AnyCraftThrusting() bool {
 // the player flies another still needs fine sub-steps).
 func (w *World) anyCraftChuteLive() bool {
 	for _, c := range w.Crafts {
-		if c == nil || c.ChuteState == spacecraft.ChuteStowed {
+		if c == nil || (c.ChuteState != spacecraft.ChuteArmed && c.ChuteState != spacecraft.ChuteDeployed) {
 			continue
 		}
 		atm := c.Primary.Atmosphere

@@ -15,37 +15,45 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
-// TestParachuteAutoDeploysAboveQMin — an armed chute auto-deploys the
-// first tick dynamic pressure reaches ChuteDeployQMin; below the floor
-// it stays armed.
-func TestParachuteAutoDeploysAboveQMin(t *testing.T) {
+// ADR 0069 guard 3: an armed chute does not open above ChuteOpenAltM at any
+// speed, opens at exactly ChuteOpenAltM (the equal case: "passing 1.8 km" is
+// at-or-below), and opens at once when armed lower, at terminal speed too.
+func TestParachuteOpensPassingChuteOpenAlt(t *testing.T) {
 	_, c := crashTestPrimaryFor(t)
 	radius := c.Primary.RadiusMeters()
-
-	// Below the floor: high above the atmosphere cutoff → q ≈ 0.
-	c.ChuteState = spacecraft.ChuteArmed
-	c.State.R = orbital.Vec3{X: radius + c.Primary.Atmosphere.CutoffAltitude + 1000}
-	c.State.V = orbital.Vec3{Z: 50}
-	if maybeDeployParachute(c) {
-		t.Errorf("chute deployed above the atmosphere cutoff (q≈0), want stay armed")
+	at := func(altM, vDown float64) bool {
+		c.ChuteState = spacecraft.ChuteArmed
+		c.State.R = orbital.Vec3{X: radius + altM}
+		c.State.V = orbital.Vec3{X: -vDown}
+		return maybeDeployParachute(c)
 	}
-	if c.ChuteState != spacecraft.ChuteArmed {
-		t.Errorf("state changed off the armed floor: %v", c.ChuteState)
+	for _, v := range []float64{0, 40, 3000} { // 3 km/s is q far above the old 1,000 Pa floor
+		if at(ChuteOpenAltM+0.001, v) {
+			t.Errorf("opened 1 mm above %v m at %v m/s", ChuteOpenAltM, v)
+		}
+		if c.ChuteState != spacecraft.ChuteArmed {
+			t.Errorf("state = %v above the height, want ARMED", c.ChuteState)
+		}
 	}
-
-	// Above the floor: at the surface with a fast descent → q ≫ QMin.
-	c.State.R = orbital.Vec3{X: radius}
-	c.State.V = orbital.Vec3{X: -300}
-	if !maybeDeployParachute(c) {
-		t.Fatalf("chute did not deploy at the surface with a 300 m/s descent (q ≫ QMin)")
+	if !at(ChuteOpenAltM, 40) {
+		t.Errorf("did not open at exactly %v m", ChuteOpenAltM)
 	}
 	if c.ChuteState != spacecraft.ChuteDeployed {
-		t.Errorf("state = %v, want Deployed", c.ChuteState)
+		t.Errorf("state = %v after opening, want DEPLOYED", c.ChuteState)
+	}
+	// armed low: at once, at the speed it would fall at without air (Earth, 40.2 m/s)
+	if !at(1000, 40.2) {
+		t.Errorf("armed at 1 km at terminal speed did not open")
+	}
+	// one chute, one height: a body with no air never opens it
+	c.Primary.Atmosphere = nil
+	if at(1000, 40.2) {
+		t.Errorf("opened on a body with no air")
 	}
 }
 
 // TestParachuteDeployOnlyFromArmed — a stowed chute never auto-deploys
-// (the player must arm it first), and a deployed chute is terminal
+// (the player must arm it first), and a deployed or cut chute is terminal
 // (maybeDeployParachute is a no-op once up).
 func TestParachuteDeployOnlyFromArmed(t *testing.T) {
 	_, c := crashTestPrimaryFor(t)
@@ -61,6 +69,40 @@ func TestParachuteDeployOnlyFromArmed(t *testing.T) {
 	c.ChuteState = spacecraft.ChuteDeployed
 	if maybeDeployParachute(c) {
 		t.Errorf("deployed chute reported a fresh transition (should be terminal no-op)")
+	}
+	c.ChuteState = spacecraft.ChuteCut
+	if maybeDeployParachute(c) || c.ChuteState != spacecraft.ChuteCut {
+		t.Errorf("a cut chute opened again, state=%v", c.ChuteState)
+	}
+}
+
+// ADR 0069 decision 7: after the cut the vessel lands on the engine route, and
+// the nose rule applies again. Same slow contact, nose sideways: the open chute
+// lands it (nose waived), the cut chute on a CanSoftLand vessel crashes on the
+// nose, level it lands on the engine, and without CanSoftLand it crashes.
+func TestCutChuteLandsOnEngineRouteWithNoseRule(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		state    spacecraft.ChuteState
+		soft     bool
+		nose     orbital.Vec3
+		wantLand bool
+	}{
+		{"open chute, nose sideways", spacecraft.ChuteDeployed, true, orbital.Vec3{Y: 1}, true},
+		{"cut, nose sideways", spacecraft.ChuteCut, true, orbital.Vec3{Y: 1}, false},
+		{"cut, nose up", spacecraft.ChuteCut, true, orbital.Vec3{X: 1}, true},
+		{"cut, no landing engine", spacecraft.ChuteCut, false, orbital.Vec3{X: 1}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w, c := crashTestPrimaryFor(t)
+			c.CanSoftLand = tc.soft
+			setImpactState(c, 3, tc.nose)
+			c.ChuteState = tc.state
+			w.integrateOneCraft(c, w.Clock.BaseStep)
+			if c.Landed != tc.wantLand || c.Crashed == tc.wantLand {
+				t.Errorf("Landed=%v Crashed=%v, want landed=%v", c.Landed, c.Crashed, tc.wantLand)
+			}
+		})
 	}
 }
 
@@ -113,11 +155,13 @@ func TestChuteRouteCrashesAboveVCrit(t *testing.T) {
 
 // TestArmedChuteStillCrashes — an ARMED (not yet deployed) chute gives
 // no soft-land qualification. A capsule that hits with the chute armed
-// but never inflated (e.g. airless body, or contact before the q floor)
-// Crashes like any non-CanSoftLand vessel.
+// but never inflated (an airless body, where it never opens) Crashes like
+// any non-CanSoftLand vessel. On a body with air an armed chute opens at
+// once below ChuteOpenAltM, so contact there is never undeployed.
 func TestArmedChuteStillCrashes(t *testing.T) {
 	w, c := crashTestPrimaryFor(t)
 	c.CanSoftLand = false
+	c.Primary.Atmosphere = nil
 	localUp := orbital.Vec3{X: 1}
 	setImpactState(c, 3, localUp)
 	c.ChuteState = spacecraft.ChuteArmed

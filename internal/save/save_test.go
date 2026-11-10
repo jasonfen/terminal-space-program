@@ -1410,6 +1410,14 @@ func TestRoundtripParachute(t *testing.T) {
 	if !gc.HasParachute {
 		t.Errorf("Spacecraft.HasParachute mirror not re-derived on load")
 	}
+	// ADR 0069 decision 7: CUT is a new value in the same field, no schema bump.
+	c.ChuteState = spacecraft.ChuteCut
+	if err := save.Save(w, path); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if got, err = save.Load(path); err != nil || got.ActiveCraft().ChuteState != spacecraft.ChuteCut {
+		t.Errorf("CUT did not round-trip: %v, %v", err, got.ActiveCraft().ChuteState)
+	}
 }
 
 // TestRoundtripPreservesMoonPhase is a regression for the moon-phase bug:

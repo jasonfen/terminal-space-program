@@ -502,10 +502,21 @@ func lifecycleCases() []lifecycleCase {
 			c := w.ActiveCraft()
 			c.HasParachute, c.ChuteState = true, spacecraft.ChuteArmed
 			up := c.State.R.Unit()
-			c.State.R = up.Scale(c.Primary.RadiusMeters() + 10e3)
+			c.State.R = up.Scale(c.Primary.RadiusMeters() + 1.5e3) // under ChuteOpenAltM
 			c.State.V = physics.AtmosphereOmega(c.Primary).Cross(c.State.R).Add(up.Scale(-200))
 			return w
 		}, func(t *testing.T, w *World) { w.Tick() }, "chute: deployed"},
+		{"chute cut", func(t *testing.T) *World {
+			w := mustWorld(t)
+			c := w.ActiveCraft()
+			c.HasParachute, c.ChuteState = true, spacecraft.ChuteDeployed
+			return w
+		}, func(t *testing.T, w *World) {
+			if !w.ActiveCraft().CutParachute() {
+				t.Fatal("cut refused")
+			}
+			w.Tick()
+		}, "chute: cut"},
 	}
 }
 
