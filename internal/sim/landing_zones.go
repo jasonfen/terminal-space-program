@@ -74,7 +74,12 @@ func (s Site) lzLatLon(n int, radiusM float64) (lat, lon float64) {
 	e := [3]float64{-math.Sin(lo), math.Cos(lo), 0}
 	nn := [3]float64{-math.Sin(la) * math.Cos(lo), -math.Sin(la) * math.Sin(lo), math.Cos(la)}
 	if math.Abs(s.LatDeg) >= 89 {
-		e, nn = [3]float64{0, 1, 0}, [3]float64{1, 0, 0}
+		// the 0 degree meridian's direction, made exactly tangent
+		d := p[0]
+		nn = [3]float64{1 - d*p[0], -d * p[1], -d * p[2]}
+		m := math.Sqrt(nn[0]*nn[0] + nn[1]*nn[1] + nn[2]*nn[2])
+		nn = [3]float64{nn[0] / m, nn[1] / m, nn[2] / m}
+		e = [3]float64{p[1]*nn[2] - p[2]*nn[1], p[2]*nn[0] - p[0]*nn[2], p[0]*nn[1] - p[1]*nn[0]}
 	}
 	ang := d / radiusM
 	var q [3]float64
