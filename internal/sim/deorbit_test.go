@@ -503,7 +503,7 @@ func grazing(c *spacecraft.Spacecraft) {
 	c.State.V = c.State.V.Unit().Scale(math.Sqrt(2 * mu * (rp - 5000) / (r * (r + rp - 5000))))
 }
 
-// ADR 0069 guard 2: on a body with no air the cue search is bit for bit what it
+// ADR 0069 guard 2: on a body with no air the cue search is what it
 // was before the entry plan existed. The expected bits were captured from
 // origin/main 1d23710 before the change.
 func TestBurnAtCueAirlessIsUnchanged(t *testing.T) {
@@ -526,9 +526,14 @@ func TestBurnAtCueAirlessIsUnchanged(t *testing.T) {
 		c := f.build()
 		grazing(c)
 		cue, ground, ok := burnAtCue(c, 2*time.Hour, DeorbitBrakeThrottle, deorbitRefineIters)
-		if !ground || ok != f.ok || math.Float64bits(cue.AltitudeM) != f.altBits || math.Float64bits(cue.InSec) != f.inBits {
-			t.Errorf("%s: ground=%v ok=%v alt=%x in=%x, want ok=%v alt=%x in=%x", f.name, ground, ok,
-				math.Float64bits(cue.AltitudeM), math.Float64bits(cue.InSec), f.ok, f.altBits, f.inBits)
+		// arm64 and amd64 differ in the last bit (fused multiply-add), so equal to 1e-12 relative
+		near := func(got float64, wantBits uint64) bool {
+			want := math.Float64frombits(wantBits)
+			return math.Abs(got-want) <= 1e-12*math.Max(1, math.Abs(want))
+		}
+		if !ground || ok != f.ok || !near(cue.AltitudeM, f.altBits) || !near(cue.InSec, f.inBits) {
+			t.Errorf("%s: ground=%v ok=%v alt=%v in=%v, want ok=%v alt=%v in=%v", f.name, ground, ok,
+				cue.AltitudeM, cue.InSec, f.ok, math.Float64frombits(f.altBits), math.Float64frombits(f.inBits))
 		}
 	}
 }
