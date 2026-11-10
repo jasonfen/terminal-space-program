@@ -7,6 +7,7 @@ import (
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -223,12 +224,12 @@ func TestBumpIgnoresOpeningDebrisAndLanded(t *testing.T) {
 		t.Error("debris bumped debris")
 	}
 	a.Role, b.Role = "", ""
-	b.Landed = true
+	a.Landed, b.Landed = true, true
 	w.checkBumps()
 	if w.LastBumpEvent != nil {
-		t.Error("a Landed vessel bumped")
+		t.Error("two Landed vessels bumped")
 	}
-	b.Landed = false
+	a.Landed, b.Landed = false, false
 	w.checkBumps()
 	if w.LastBumpEvent == nil {
 		t.Error("control: the same overlap closing at 1 m/s between flying vessels must bump")
@@ -580,5 +581,117 @@ func TestBatchClampExemptionLastsOneOrbit(t *testing.T) {
 	}
 	if got := w.clampedWarp(); got != top {
 		t.Errorf("warp one period on with sat 1 at 70 m = %v, want %v", got, top)
+	}
+}
+
+// standingWorld is bumpWorld with B standing (Landed) and both hulls upright
+// (nose along local up, +X here): A sits gapM metres along +Y, a horizontal
+// offset, closing on B at closeMS. Returns the world, the mover A, the
+// standing B.
+func standingWorld(t *testing.T, gapM, closeMS float64) (*World, *spacecraft.Spacecraft, *spacecraft.Spacecraft) {
+	t.Helper()
+	w, a, b := bumpWorld(t, 0, 0)
+	up := orbital.Vec3{X: 1}
+	a.CurrentAttitudeDir, b.CurrentAttitudeDir = up, up
+	b.Name, b.Landed = "Lander-1", true
+	b.State.V = orbital.Vec3{}
+	a.State.R = b.State.R.Add(orbital.Vec3{Y: gapM})
+	a.State.V = orbital.Vec3{Y: -closeMS}
+	return w, a, b
+}
+
+// ADR 0068 decision 10 / guard 4: drifting into a standing vessel at 1 m/s
+// leaves at 0.5 m/s, the standing one does not move, momentum is not shared.
+func TestBumpAgainstStandingVesselMoverBouncesStandingStays(t *testing.T) {
+	w, a, b := standingWorld(t, 3, 1)
+	w.checkBumps()
+	if w.LastBumpEvent == nil || w.LastBumpEvent.PartnerName != "Lander-1" || math.Abs(w.LastBumpEvent.SpeedMS-1) > 1e-9 {
+		t.Fatalf("event = %+v, want a 1.0 m/s bump against Lander-1", w.LastBumpEvent)
+	}
+	if got := a.State.V.Y; math.Abs(got-0.5) > 1e-9 {
+		t.Errorf("mover leaves at %v m/s, want 0.5", got)
+	}
+	if b.State.V.Norm() != 0 {
+		t.Errorf("standing vessel took velocity %v", b.State.V)
+	}
+}
+
+// Guard 4: the standing contact is not latched, so each tick still closing is
+// pushed again; and a pair that is parting (equal case: exactly zero closing)
+// is left alone.
+func TestBumpAgainstStandingVesselIsNotLatchedAndSkipsParting(t *testing.T) {
+	w, a, _ := standingWorld(t, 3, 1)
+	w.checkBumps()
+	a.State.V = orbital.Vec3{Y: -0.4} // pushed back in, still overlapping
+	w.LastBumpEvent = nil
+	w.checkBumps()
+	if w.LastBumpEvent == nil || a.State.V.Y <= 0 {
+		t.Errorf("second closing tick: event %+v, V.Y %v, want pushed again", w.LastBumpEvent, a.State.V.Y)
+	}
+	a.State.V = orbital.Vec3{}
+	w.LastBumpEvent = nil
+	w.checkBumps()
+	if w.LastBumpEvent != nil {
+		t.Error("zero closing speed bumped")
+	}
+}
+
+// Straight down onto the roof: the mover is on the standing hull's axis, so
+// the horizontal normal is undefined and the push is straight up.
+func TestBumpAgainstStandingVesselOnAxisPushesUp(t *testing.T) {
+	w, a, b := standingWorld(t, 0, 0)
+	a.State.R = b.State.R.Add(orbital.Vec3{X: 10}) // tail inside B's 18 m hull
+	a.State.V = orbital.Vec3{X: -1}
+	w.checkBumps()
+	if w.LastBumpEvent == nil || a.State.V.X < 0.49 || a.State.V.X > 0.51 {
+		t.Errorf("event %+v, V.X %v, want a bounce up at 0.5", w.LastBumpEvent, a.State.V.X)
+	}
+}
+
+// Guard 5 (second half): a touchdown inside half the two widths of a landed
+// hull's axis is moved out to exactly that distance, along the same line, and
+// the stored lat/lon lands there; outside it, or at it, stays.
+func TestSetDownBesideMovesTouchdownClearOfStandingHull(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+	mk := func(lat, lon float64) *spacecraft.Spacecraft {
+		c := spacecraft.NewFromLoadout("S-IVB-1")
+		c.Primary, c.SystemIdx = *earth, w.Crafts[0].SystemIdx
+		c.CurrentAttitudeDir = orbital.Vec3{X: 1}
+		c.ID = uint64(len(w.Crafts) + 50)
+		c.LandedLatDeg, c.LandedLonDeg = lat, lon
+		return c
+	}
+	st := mk(10, 20)
+	st.Landed = true
+	st.State.R, _ = surfacePointState(*earth, 10, 20, w.Clock.SimTime)
+	w.Crafts = append(w.Crafts, st)
+	clear := VesselPortGeometry(st).WidthM // same hull both: (w+w)/2
+	up := st.State.R.Unit()
+	east := up.Cross(orbital.Vec3{Z: 1}).Unit()
+	for _, tc := range []struct {
+		name string
+		off  float64
+	}{{"inside by 1 mm", clear - 1e-3}, {"on the axis", 0}, {"at half the widths", clear}, {"outside by 1 mm", clear + 1e-3}} {
+		c := mk(0, 0)
+		c.State.R = st.State.R.Add(east.Scale(tc.off)).Unit().Scale(earth.RadiusMeters())
+		u := c.State.R.Unit()
+		lat0, lon0 := render.WorldToBodyFixed(*earth, render.Vec3{X: u.X, Y: u.Y, Z: u.Z}, w.Clock.SimTime)
+		lat, lon := w.setDownBeside(c, lat0, lon0)
+		p, _ := surfacePointState(*earth, lat, lon, w.Clock.SimTime)
+		d := p.Sub(st.State.R)
+		got := d.Sub(up.Scale(d.Dot(up))).Norm()
+		if want := math.Max(tc.off, clear); math.Abs(got-want) > 1e-3 {
+			t.Errorf("%s: pinned %.4f m from the axis, want %.4f", tc.name, got, want)
+		}
+	}
+	// Wired into touchdown: applySurfaceArrival pins at the moved point.
+	c := mk(0, 0)
+	c.State.R = st.State.R.Add(east.Scale(1)).Unit().Scale(earth.RadiusMeters())
+	w.applySurfaceArrival(c, c.State, outcomeLanded, 10, 20)
+	p, _ := surfacePointState(*earth, c.LandedLatDeg, c.LandedLonDeg, w.Clock.SimTime)
+	d := p.Sub(st.State.R)
+	if got := d.Sub(up.Scale(d.Dot(up))).Norm(); got < clear-1e-3 {
+		t.Errorf("touchdown pinned %.3f m from the standing hull, want >= %.3f", got, clear)
 	}
 }

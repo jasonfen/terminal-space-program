@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -313,9 +314,16 @@ func (w *World) checkBumps() {
 			if b == nil || a.SystemIdx != b.SystemIdx || a.Primary.ID != b.Primary.ID {
 				continue
 			}
-			// Same exclusions as checkDocking: Landed craft are pinned to the
-			// ground and debris never meets debris.
+			// Two landed vessels are never tested; exactly one is the
+			// immovable side (ADR 0068 decision 10). Debris never meets debris.
+			if a.Landed && b.Landed {
+				continue
+			}
 			if a.Landed || b.Landed {
+				if a.Landed {
+					a, b = b, a
+				}
+				w.bumpAgainstStanding(b, a)
 				continue
 			}
 			if a.Role == spacecraft.RoleJettisonedStage && b.Role == spacecraft.RoleJettisonedStage {
@@ -379,6 +387,88 @@ func (w *World) checkBumps() {
 			w.recordBump(b, a.Name, s, w.LastBumpEvent.Latched)
 		}
 	}
+}
+
+// bumpAgainstStanding is the bump between a flying vessel and a landed one
+// (ADR 0068 decision 10). The standing vessel is immovable, as a ghost is
+// (CheckGhostBumps): the mover alone takes s + max(s/2, floor) along the
+// contact normal. The normal is horizontal, from the standing hull's axis to
+// the mover (straight up when the mover is on the axis, a roof landing), and
+// the contact is not latched: each tick still closing is pushed again.
+// Landed vessels are not docked or magnet-pulled, so no gate is consulted.
+func (w *World) bumpAgainstStanding(st, mv *spacecraft.Spacecraft) {
+	if st.Crashed || mv.Crashed || craftHullDistanceM(mv, st) > DockingDistM {
+		return
+	}
+	m0, m1, wm, okM := hullSegment(mv)
+	s0, s1, ws, okS := hullSegment(st)
+	if !okM || !okS {
+		return
+	}
+	if touch, _ := hullContact(m0, m1, wm, s0, s1, ws); !touch {
+		return
+	}
+	up := st.State.R.Unit()
+	d := mv.State.R.Sub(st.State.R)
+	n := d.Sub(up.Scale(d.Dot(up)))
+	if n.Norm() < bumpMinNormalM {
+		n = up
+	} else {
+		n = n.Unit()
+	}
+	s := -mv.State.V.Sub(st.State.V).Dot(n)
+	if s <= 0 {
+		return
+	}
+	mv.State.V = mv.State.V.Add(n.Scale(s + math.Max(s/2, bumpFloorMS)))
+	var when time.Time
+	if w.Clock != nil {
+		when = w.Clock.SimTime
+	}
+	partner := st
+	if st == w.ActiveCraft() {
+		partner = mv
+	}
+	w.LastBumpEvent = &BumpEvent{When: when, PartnerName: partner.Name, SpeedMS: s}
+	w.recordBump(mv, st.Name, s, false)
+	w.recordBump(st, mv.Name, s, false)
+}
+
+// setDownBeside moves a touchdown point out of every other landed vessel's
+// footprint (ADR 0068 decision 10): a point closer to a landed hull's axis
+// than half the two widths slides out along the line from that axis to just
+// clear it (exactly half the widths still counts as clear). Returns the point
+// as lat/lon, unchanged when nothing is in the way. shortcut: one pass in
+// slate order, so a nudge into a third hull is not re-checked; rare at LZ
+// spacing, revisit if sites pack tighter.
+func (w *World) setDownBeside(c *spacecraft.Spacecraft, lat, lon float64) (float64, float64) {
+	r := c.State.R.Norm()
+	wc := VesselPortGeometry(c).WidthM
+	moved := false
+	for _, o := range w.Crafts {
+		if o == nil || o == c || !o.Landed || o.Crashed || o.SystemIdx != c.SystemIdx || o.Primary.ID != c.Primary.ID {
+			continue
+		}
+		up := o.State.R.Unit()
+		d := c.State.R.Sub(o.State.R)
+		dh := d.Sub(up.Scale(d.Dot(up)))
+		clear := (wc + VesselPortGeometry(o).WidthM) / 2
+		if dh.Norm() >= clear {
+			continue
+		}
+		dir := up.Cross(orbital.Vec3{X: 1}).Unit() // arbitrary tangent when dead on the axis
+		if dh.Norm() > bumpMinNormalM {
+			dir = dh.Unit()
+		}
+		p := o.State.R.Add(dir.Scale(clear)).Unit()
+		c.State.R = p.Scale(r)
+		moved = true
+	}
+	if !moved {
+		return lat, lon
+	}
+	u := c.State.R.Unit()
+	return render.WorldToBodyFixed(c.Primary, render.Vec3{X: u.X, Y: u.Y, Z: u.Z}, w.Clock.SimTime)
 }
 
 // activeNearOtherHull reports whether the active vessel is inside

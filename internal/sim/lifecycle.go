@@ -225,6 +225,7 @@ func (w *World) applySurfaceArrival(c *spacecraft.Spacecraft, clamped physics.St
 	c.State = clamped
 	switch outcome {
 	case outcomeLanded:
+		lat, lon = w.setDownBeside(c, lat, lon) // ADR 0068 decision 10
 		c.Landed = true
 		c.LandedLatDeg = lat
 		c.LandedLonDeg = lon
