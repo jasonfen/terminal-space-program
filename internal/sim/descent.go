@@ -845,11 +845,21 @@ func burnAtCue(c *spacecraft.Spacecraft, horizon time.Duration, throttle float64
 		return ok && pred.Outcome == StopStopped && pred.MarginM >= 0
 	}
 
-	if !safeAt(fc.samples[0]) {
-		return BurnAtCue{}, impactFound, false
-	}
-
 	loIdx, hiIdx := 0, len(fc.samples)-1
+	if !safeAt(fc.samples[0]) {
+		// An airless body: earlier is always safer, so a light at the top of
+		// the coast that cannot stop means nothing later can. With air, later is
+		// safer (the air does the braking), so look for the last safe sample
+		// (ADR 0069 decision 2).
+		if c.Primary.Atmosphere == nil || !impactFound {
+			return BurnAtCue{}, impactFound, false
+		}
+		for loIdx = hiIdx; loIdx > 0 && !safeAt(fc.samples[loIdx]); loIdx-- {
+		}
+		if loIdx == 0 {
+			return BurnAtCue{}, impactFound, false
+		}
+	}
 	if safeAt(fc.samples[hiIdx]) {
 		// Even the very end of the sampled coast is still stoppable (a
 		// shallow / slow descent) — best effort: the latest candidate we
