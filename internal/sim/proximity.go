@@ -801,12 +801,12 @@ func (w *World) LandingStopArc() (LandingArc, bool) {
 	if _, _, ground := w.surfaceTargetLatLon(c); !ground {
 		return LandingArc{}, false
 	}
-	start, lead, pitch, throttle, fromCue := c.State, 0.0, 0.0, DeorbitBrakeThrottle, false
+	start, lead, pitch, throttle, fromCue := c.State, 0.0, 0.0, brakeThrottle(c), false
 	if ap := c.Landing; ap != nil && ap.Engaged && ap.Phase != spacecraft.PhaseCoast {
 		// the arc it is flying: its lean AND the throttle it has trimmed to (a
 		// plan's stop has no margin to spare, 0.90 and 0.91 end on different sides)
 		pitch, throttle = ap.PitchUpRad, c.EffectiveThrottle()
-	} else if cue, ground, has := burnAtCue(c, deorbitHorizon, DeorbitBrakeThrottle, burnAtRefineIters); ground && has {
+	} else if cue, ground, has := burnAtCue(c, deorbitHorizon, brakeThrottle(c), burnAtRefineIters); ground && has {
 		start, lead, fromCue = cue.State, cue.InSec, true
 	}
 	var trace []stopSample

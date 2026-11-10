@@ -206,7 +206,7 @@ func (w *World) landingCueIn(c *spacecraft.Spacecraft) (in time.Duration, ground
 	burning := c.ActiveBurn != nil
 	if !rt.checked || rt.burning != burning || !now.Before(rt.nextCheck) {
 		rt.checked, rt.burning = true, burning
-		cue, g, ok := burnAtCue(c, deorbitHorizon, DeorbitBrakeThrottle, deorbitRefineIters)
+		cue, g, ok := burnAtCue(c, deorbitHorizon, brakeThrottle(c), deorbitRefineIters)
 		rt.ground, rt.late = g, g && !ok
 		switch {
 		case !g:
@@ -314,8 +314,8 @@ func (w *World) EngageLandingAutopilot() error {
 	switch {
 	case wasNose:
 		// N over the nose hold keeps the phase it reached
-	case f.sh < FinalPhaseGroundSpeedMps:
-		ap.Phase = spacecraft.PhaseFinal // a hover: nothing to brake
+	case f.sh < FinalPhaseGroundSpeedMps && !(oneBurn(c) && c.ManualBurn == nil):
+		ap.Phase = spacecraft.PhaseFinal // a hover: nothing to brake (a one-burn vessel falling straight down waits for its cue)
 	case c.ManualBurn != nil:
 		ap.Phase = spacecraft.PhaseBrake // an engage mid-brake takes the controls where it stands
 	default:
@@ -424,7 +424,7 @@ func (w *World) planDeorbitAndEngage() (*DeorbitPlan, error) {
 func (w *World) apReachTest(c *spacecraft.Spacecraft, lat, lon float64) error {
 	start, lead := c.State, 0.0
 	if c.ManualBurn == nil {
-		cue, ground, ok := burnAtCue(c, deorbitHorizon, DeorbitBrakeThrottle, deorbitRefineIters)
+		cue, ground, ok := burnAtCue(c, deorbitHorizon, brakeThrottle(c), deorbitRefineIters)
 		if !ground {
 			return nil
 		}
@@ -433,7 +433,7 @@ func (w *World) apReachTest(c *spacecraft.Spacecraft, lat, lon float64) error {
 		}
 		start, lead = cue.State, cue.InSec
 	}
-	pred, ok := predictPoweredStopFromAt(start, c, apStopHorizon, DeorbitBrakeThrottle)
+	pred, ok := predictPoweredStopFromAt(start, c, apStopHorizon, brakeThrottle(c))
 	if !ok || pred.Outcome != StopStopped || pred.MarginM < 0 {
 		return ErrSiteHoldCannotStop
 	}
@@ -479,6 +479,9 @@ func (w *World) LandingROD(delta float64) bool {
 		return false
 	}
 	ap := c.Landing
+	if oneBurn(c) {
+		return false // ADR 0069 decision 10: a one-burn landing has no rate to click
+	}
 	if ap.Phase != spacecraft.PhaseApproach && ap.Phase != spacecraft.PhaseFinal {
 		return false // P66 is a final-phase mode: in coast and brake the key is the raw throttle's
 	}
@@ -554,7 +557,7 @@ func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
 			ap.Phase = spacecraft.PhaseBrake
 			ap.TrackN, ap.StopSpanM, ap.PitchUpRad = orbital.Vec3{}, 0, 0
 			ap.TrackN = apTrackNormal(c, c.State)
-			w.apSetThrottle(c, DeorbitBrakeThrottle)
+			w.apSetThrottle(c, brakeThrottle(c))
 			c.ManualBurn = &spacecraft.ManualBurn{StartTime: w.Clock.SimTime}
 			c.DryOrder = false
 		}
@@ -572,7 +575,9 @@ func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
 	}
 	var dir orbital.Vec3
 	var theta float64
-	if ap.Phase == spacecraft.PhaseFinal && ap.Nose {
+	if oneBurn(c) && !ap.Nose {
+		dir, theta = w.apOneBurn(c, ap, f, lat, lon) // ADR 0069 decision 10: no schedule, no clicks
+	} else if ap.Phase == spacecraft.PhaseFinal && ap.Nose {
 		dir = f.up // P9: the hand nose holds straight up in final; no lean, no forecast
 	} else if ap.Phase == spacecraft.PhaseFinal {
 		dir, theta = w.apFinal(c, ap, f, lat, lon)
@@ -583,7 +588,7 @@ func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
 	if ap.Nose {
 		return // the nose hold steers only: the engine is the pilot's
 	}
-	if ap.ROD && ap.Phase != spacecraft.PhaseFinal {
+	if ap.ROD && ap.Phase != spacecraft.PhaseFinal && !oneBurn(c) {
 		theta = apRodThrottle(c, ap, f, dir)
 	}
 	if !ap.ThrottleHeld {
@@ -741,6 +746,18 @@ func apFinalRate(h, netDecel float64) float64 {
 // zero, plus a slow closing speed toward the aim point (half the final entry
 // speed at most) so the brake's last tens of metres do not stand as the miss.
 func (w *World) apCloseVelocity(c *spacecraft.Spacecraft, f apFrame, lat, lon float64) (vel orbital.Vec3, along, cross float64, ok bool) {
+	e, along, cross, ok := w.apAimError(c, f, lat, lon)
+	d := e.Norm()
+	if d == 0 {
+		return orbital.Vec3{}, along, cross, ok
+	}
+	return e.Unit().Scale(math.Min(d*apCloseGain, FinalPhaseGroundSpeedMps/2)), along, cross, ok
+}
+
+// apAimError is the horizontal vector from the vessel to the aim (the real
+// site plus the computer's navigation error and the pilot's offsets), and the
+// same error as miss:/cross: sign it (+ long, + right).
+func (w *World) apAimError(c *spacecraft.Spacecraft, f apFrame, lat, lon float64) (e orbital.Vec3, along, cross float64, ok bool) {
 	aimHat := siteVec(c, lat, lon, w.Clock.SimTime)
 	aim := aimHat.Scale(c.Primary.RadiusMeters())
 	var tHat, rHat orbital.Vec3
@@ -751,16 +768,12 @@ func (w *World) apCloseVelocity(c *spacecraft.Spacecraft, f apFrame, lat, lon fl
 		aim = aim.Add(tHat.Scale(ap.NavAlongM + ap.AimAlongM)).Add(rHat.Scale(ap.NavAcrossM + ap.AimAcrossM))
 		ok = true
 	}
-	e := aim.Sub(c.State.R)
+	e = aim.Sub(c.State.R)
 	e = e.Sub(f.up.Scale(e.Dot(f.up)))
-	if ok { // the error the phase is closing, as miss:/cross: sign it (+ long, + right)
+	if ok {
 		along, cross = -e.Dot(tHat), -e.Dot(rHat)
 	}
-	d := e.Norm()
-	if d == 0 {
-		return orbital.Vec3{}, along, cross, ok
-	}
-	return e.Unit().Scale(math.Min(d*apCloseGain, FinalPhaseGroundSpeedMps/2)), along, cross, ok
+	return e, along, cross, ok
 }
 
 // apFinal nulls the drift and flies the descent rate: thrust = m * (g - a_cmd)
@@ -797,6 +810,47 @@ func (w *World) apFinal(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilo
 		return f.up, 0
 	}
 	return tv.Unit(), theta
+}
+
+// apOneBurn is the one-burn landing law (ADR 0069 decision 10): a brake timed
+// to end at the ground at OneBurnContactMps. The thrust is gravity's share
+// straight up plus the deceleration that spends the path to the ground exactly,
+// a = (v^2 - v_td^2) / 2s, along surface-retrograde (a vertical fall is
+// a = g + (v^2 - v_td^2) / 2h), with a zero-effort-miss pull onto the aim added
+// sideways. The thrust is capped at the landing throttle, the aim giving way
+// first; the cue lit the brake with the 10 % reserve left, which is what absorbs
+// a late start or the pull. No rate schedule, no engine cut above the ground.
+func (w *World) apOneBurn(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilot, f apFrame, lat, lon float64) (orbital.Vec3, float64) {
+	if f.aMax <= 0 {
+		return f.up, 0
+	}
+	h, v := math.Max(f.alt, 0.05), f.vRel.Norm()
+	e, along, cross, ok := w.apAimError(c, f, lat, lon)
+	ap.ForecastAlongM, ap.ForecastCrossM, ap.ForecastOK = along, cross, ok
+	tv := f.up.Scale(f.g)
+	tgo := 1.0
+	if v > OneBurnContactMps && f.vz < 0 {
+		s := h * v / -f.vz // the path to the ground at the present angle
+		tv = tv.Add(f.retro().Scale((v*v - OneBurnContactMps*OneBurnContactMps) / (2 * s)))
+		tgo = math.Max(s/((v+OneBurnContactMps)/2), 1)
+	}
+	// the retrograde share already damps the drift by vh/tgo; the pull sideways
+	// makes that the 4 vh/tgo of the zero-effort-velocity law
+	aim := f.vh.Scale(-3 / tgo)
+	if ok && tgo > 3 { // the last seconds only null the drift: no late aim move
+		aim = aim.Add(e.Scale(6 / (tgo * tgo)))
+	}
+	if lim := tv.Norm() * math.Tan(apMaxTiltRad); aim.Norm() > lim {
+		aim = aim.Unit().Scale(lim)
+	}
+	tv = tv.Add(aim)
+	if cap := c.LandingThrottle() * f.aMax; tv.Norm() > cap {
+		tv = tv.Unit().Scale(cap)
+	}
+	if tv.Norm() == 0 {
+		return f.up, 0
+	}
+	return tv.Unit(), tv.Norm() / f.aMax
 }
 
 // apRodThrottle is the throttle that holds the commanded descent rate along
