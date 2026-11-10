@@ -1,6 +1,7 @@
 package tui
 
 import (
+	tea "github.com/charmbracelet/bubbletea"
 	"strings"
 	"testing"
 	"time"
@@ -66,6 +67,29 @@ func TestRefuseIsAFlash(t *testing.T) {
 	}
 	if a.statusExpires.Before(before.Add(flashLifetime)) {
 		t.Errorf("refuse did not apply flashLifetime: statusExpires = %v", a.statusExpires)
+	}
+}
+
+// ADR 0069 decision 7: `space` on an open chute cuts it, no confirmation; the
+// next press does nothing to the chute (no way back) and drops no stage.
+func TestSpaceCutsAnOpenChute(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	c := spacecraft.NewFromLoadout(spacecraft.LoadoutCapsuleID)
+	c.Primary = a.world.Crafts[0].Primary
+	c.State = a.world.Crafts[0].State
+	a.world.Crafts[0] = c
+	a.world.ActiveCraftIdx = 0
+	c.ChuteState = spacecraft.ChuteDeployed
+	pressMsg(a, tea.KeyMsg{Type: tea.KeySpace})
+	if c.ChuteState != spacecraft.ChuteCut || a.statusMsg != "chute cut" {
+		t.Errorf("state %v, flash %q: want CUT, %q", c.ChuteState, a.statusMsg, "chute cut")
+	}
+	pressMsg(a, tea.KeyMsg{Type: tea.KeySpace})
+	if c.ChuteState != spacecraft.ChuteCut || len(a.world.Crafts) != 1 {
+		t.Errorf("second press changed state to %v, crafts %d", c.ChuteState, len(a.world.Crafts))
 	}
 }
 

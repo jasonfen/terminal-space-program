@@ -108,6 +108,7 @@ func TestControlsDocNamesApsisWarpButton(t *testing.T) {
 	for _, want := range []string{
 		"| `»` after `Ap` / `Pe` (NAVIGATION) | Warp to 30 s before that apsis",
 		"| `alt+g` | Warp to 30 s before the nearer apsis",
+		"On an open chute `space` cuts it, for good",
 		"| `alt+s` | Reset the camera to the whole system",
 		"| ground | Coasting into the ground (engine off, periapsis below the surface), warp glides down",
 	} {
