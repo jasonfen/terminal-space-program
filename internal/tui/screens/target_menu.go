@@ -16,8 +16,9 @@ type TargetMenu struct {
 	theme    Theme
 	body     string
 	rows     []sim.TargetRow
-	expanded bool // the SITES `… N more` row was opened
-	cursor   int  // index into items()
+	expanded bool        // the SITES `… N more` row was opened
+	cursor   int         // index into items()
+	lz       map[int]int // chosen LZ per row index (0 = auto), ADR 0068 decision 6
 	// rename is the text field state; renaming is true while it is up.
 	renaming bool
 	renameID uint64
@@ -52,6 +53,12 @@ func (m *TargetMenu) Open(w *sim.World) {
 		m.body = strings.ToUpper(c.Primary.EnglishName)
 	}
 	m.expanded, m.renaming, m.input = false, false, nil
+	m.lz = map[int]int{}
+	for i, r := range m.rows { // reopening shows the LZ already chosen
+		if r.Kind == sim.TargetSite && r.Target.SameAim(w.Target) {
+			m.lz[i] = w.Target.LZ
+		}
+	}
 	m.cursor = 0
 	if open >= 0 {
 		for i, it := range m.items() {
@@ -66,6 +73,7 @@ func (m *TargetMenu) Open(w *sim.World) {
 // Refresh rebuilds the rows after a delete or rename, keeping the cursor in range.
 func (m *TargetMenu) Refresh(w *sim.World) {
 	m.rows, _ = w.TargetMenu()
+	m.lz = map[int]int{}
 	if n := len(m.items()); m.cursor >= n {
 		m.cursor = n - 1
 	}
@@ -145,7 +153,14 @@ func (m *TargetMenu) Row() (sim.TargetRow, bool) {
 	if m.cursor < 0 || m.cursor >= len(it) || it[m.cursor].more > 0 {
 		return sim.TargetRow{}, false
 	}
-	return m.rows[it[m.cursor].row], true
+	r := m.rows[it[m.cursor].row]
+	r.Target.LZ = m.lz[it[m.cursor].row]
+	return r, true
+}
+
+// pickable is true on a site row with more than one LZ: the arrows act there.
+func pickable(r sim.TargetRow) bool {
+	return r.Kind == sim.TargetSite && !r.Wreck && r.LZs > 1
 }
 
 // RenameText is the typed name.
@@ -188,6 +203,15 @@ func (m *TargetMenu) HandleKey(s string) TargetMenuAction {
 	case "down":
 		if n > 0 {
 			m.cursor = (m.cursor + 1) % n
+		}
+	case "left", "right":
+		if r, ok := m.Row(); ok && pickable(r) {
+			i := m.items()[m.cursor].row
+			if s == "right" {
+				m.lz[i] = min(m.lz[i]+1, r.LZs)
+			} else {
+				m.lz[i] = max(m.lz[i]-1, 0)
+			}
 		}
 	case "enter", "t":
 		if n == 0 {
@@ -282,6 +306,13 @@ func (m *TargetMenu) Render() string {
 		if r.Count > 1 {
 			name = fmt.Sprintf("%s (x%d)", name, r.Count)
 		}
+		if r, _ := m.Row(); i == m.cursor && pickable(r) {
+			sel := "auto"
+			if n := m.lz[it.row]; n > 0 {
+				sel = fmt.Sprintf("LZ-%d", n)
+			}
+			name = padCells(name, 11) + " ◂ " + sel + " ▸"
+		}
 		name = padCells(name, 20)
 		if i == m.cursor {
 			name = m.theme.Primary.Render(name)
@@ -300,10 +331,16 @@ func (m *TargetMenu) Render() string {
 		lines = lines[top : top+targetMenuBodyLines]
 	}
 	footer := "[↑/↓] pick  [enter] or [t] target"
-	if m.renaming {
+	r, ok := m.Row()
+	switch {
+	case m.renaming:
 		footer = "name: " + string(m.input) + "▏"
-	} else if r, ok := m.Row(); ok && r.Own && r.Group == sim.GroupSites {
+	case ok && r.Own && r.Group == sim.GroupSites && pickable(r):
+		footer = "[←/→] LZ [r] rename [d] delete"
+	case ok && r.Own && r.Group == sim.GroupSites:
 		footer = "[r] rename [d] delete [esc] close"
+	case ok && pickable(r):
+		footer = "[↑/↓] pick [←/→] LZ [enter] target"
 	}
 	body := append([]string{""}, lines...)
 	body = append(body, "", "  "+m.theme.Footer.Render(footer))

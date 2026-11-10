@@ -197,6 +197,14 @@ func TestSitesAndSiteTargetRoundTrip(t *testing.T) {
 	if back, err := Load(path); err != nil || back.Target.SiteID != zoneID || !back.TargetSiteResolves() {
 		t.Errorf("a shipped-zone target did not survive: %v %+v", err, back.Target)
 	}
+	// ADR 0068 S4: a chosen LZ is forgotten on reload until S6 owns the schema.
+	w.SetTargetSiteLZ(zoneID, 2)
+	if err := Save(w, path); err != nil {
+		t.Fatal(err)
+	}
+	if back, err := Load(path); err != nil || back.Target.SiteID != zoneID || back.Target.LZ != 0 || back.ActiveCraft().Target.LZ != 0 {
+		t.Errorf("a chosen LZ survived the reload: %v %+v", err, back.Target)
+	}
 	w.SetTargetSite(2)
 	if err := Save(w, path); err != nil {
 		t.Fatal(err)
