@@ -9,8 +9,10 @@
 package screens
 
 import (
+	"math"
 	"testing"
 
+	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -90,5 +92,56 @@ func TestDescentStopCacheBustsOnBurnStart(t *testing.T) {
 	v.Render(w, 200, 60)
 	if v.hudSource.descentStopCacheComputes != 2 {
 		t.Errorf("descentStopCacheComputes = %d after ActiveBurn was set, want 2 (midBurn must bust the key)", v.hudSource.descentStopCacheComputes)
+	}
+}
+
+// marsEntryCraft is a Ground-Station Lander on a 150 km Mars orbit with its
+// periapsis 5 km under the ground: an entry coast. air=false strips the air.
+func marsEntryCraft(t *testing.T, air bool) (*sim.World, *spacecraft.Spacecraft) {
+	t.Helper()
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := w.SpawnCraft(sim.SpawnSpec{LoadoutID: "Ground-Station-Lander", ParentBodyID: "mars", AltitudeM: 150e3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !air {
+		c.Primary.Atmosphere = nil
+	}
+	mu, rp := c.Primary.GravitationalParameter(), c.Primary.RadiusMeters()
+	r := c.State.R.Norm()
+	c.State.V = c.State.V.Unit().Scale(math.Sqrt(2 * mu * (rp - 5000) / (r * (r + rp - 5000))))
+	c.State.M = c.TotalMass()
+	return w, c
+}
+
+// ADR 0069 guard 2: while the cue is ahead on a body with air, stop: is the
+// brake lit at the cue (it stops, margin >= 0), not the lit-now answer; with no
+// air it stays the lit-now forecast, equal to the plain PredictPoweredStop.
+func TestStopReadsTheBrakeAtTheCueOnAir(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w, c := marsEntryCraft(t, true)
+	dat := v.cachedDescentStop(w, c)
+	if !dat.hasBurnAt || dat.burnAt.InSec <= 0 {
+		t.Fatalf("no cue ahead: has=%v in=%v", dat.hasBurnAt, dat.burnAt.InSec)
+	}
+	if !dat.stopOK || dat.stop.Outcome != sim.StopStopped || dat.stop.MarginM < 0 {
+		t.Errorf("stop: with the cue ahead = ok %v %v margin %.0f, want the cue's brake: stopped, margin >= 0", dat.stopOK, dat.stop.Outcome, dat.stop.MarginM)
+	}
+	lit, litOK := sim.PredictPoweredStop(c, sim.DescentPredictHorizon)
+	if litOK && lit.Outcome == sim.StopStopped {
+		t.Errorf("fixture does not separate the two: lit-now also stops (margin %.0f)", lit.MarginM)
+	}
+	t.Logf("Mars entry coast: cue %.1f km T-%.0f s, stop: margin %.0f m; lit-now reads %v", dat.burnAt.AltitudeM/1000, dat.burnAt.InSec, dat.stop.MarginM, lit.Outcome)
+
+	// no air: the lit-now forecast, bit for bit (no cue is found there at all)
+	w2, c2 := marsEntryCraft(t, false)
+	v2 := NewOrbitView(launchThemeForTest())
+	dat2 := v2.cachedDescentStop(w2, c2)
+	want, wantOK := sim.PredictPoweredStop(c2, sim.DescentPredictHorizon)
+	if dat2.stop != want || dat2.stopOK != wantOK {
+		t.Errorf("airless stop: = %+v ok=%v, want the lit-now forecast %+v ok=%v", dat2.stop, dat2.stopOK, want, wantOK)
 	}
 }

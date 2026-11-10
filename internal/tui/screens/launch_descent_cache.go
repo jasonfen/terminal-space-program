@@ -140,6 +140,12 @@ func (v *OrbitView) cachedDescentStop(w *sim.World, c *spacecraft.Spacecraft) de
 	// row that won't render.
 	if !sim.StackMidBurn(c) {
 		dat.burnAt, dat.hasBurnAt = sim.PredictBurnAt(c, sim.DescentPredictHorizon)
+		// ADR 0069 decision 3: with air the stop reads the brake lit at the cue
+		// while the cue is ahead, so it stays steady through the entry coast.
+		// Airless, the two are the same coast and nothing changes.
+		if dat.hasBurnAt && dat.burnAt.InSec > 0 && c.Primary.Atmosphere != nil {
+			dat.stop, dat.stopOK = sim.PredictPoweredStopAtCue(c, dat.burnAt, sim.DescentPredictHorizon)
+		}
 	}
 	v.descentStopCache = descentStopRenderCache{has: true, key: key, dat: dat}
 	v.descentStopCacheComputes++

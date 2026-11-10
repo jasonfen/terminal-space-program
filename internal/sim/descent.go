@@ -849,6 +849,17 @@ func PredictBurnAt(c *spacecraft.Spacecraft, horizon time.Duration) (BurnAtCue, 
 	return cue, ok
 }
 
+// PredictPoweredStopAtCue is the stop forecast of the brake lit at cue, the
+// latest safe light: what ADR 0069 decision 3 has stop: read while that cue is
+// still ahead on a body with air, where lit-now can read can't-stop for a
+// whole entry coast that a later light stops.
+func PredictPoweredStopAtCue(c *spacecraft.Spacecraft, cue BurnAtCue, horizon time.Duration) (PoweredStopPrediction, bool) {
+	if c == nil {
+		return PoweredStopPrediction{}, false
+	}
+	return predictPoweredStopFrom(cue.State, c, horizon-time.Duration(cue.InSec*float64(time.Second)))
+}
+
 // burnAtCue is PredictBurnAt for a brake at a fraction of full thrust, with a
 // caller-chosen number of refinement rounds (the deorbit solver wants the cue
 // to a fraction of a second; the HUD cue is happy with three). impactFound
