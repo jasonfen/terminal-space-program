@@ -57,9 +57,9 @@ type PartnerSite struct {
 // partner's, keyed by owner and that owner's own site id.
 func (w *World) targetSite() (Site, bool) { return w.landingSiteOf(w.Target, w.ActiveCraft()) }
 
-// siteOfTarget is targetSite for any aim, so the landing autopilot can read a
-// vessel that is not the active one through its own Target (ADR 0067 decision
-// 1). It is the one site lookup; nothing else calls siteByID for a target.
+// siteOfTarget is the raw site lookup for any aim (ADR 0067 decision 1). Only
+// landingSiteOf and claimLZ call it: every surface-point reader goes through
+// landingSiteOf, which resolves the LZ (ADR 0068).
 func (w *World) siteOfTarget(t Target) (Site, bool) {
 	if t.GhostOwner == "" {
 		return w.siteByID(t.SiteID)
