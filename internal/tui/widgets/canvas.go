@@ -525,6 +525,28 @@ func (c *Canvas) FillColoredDiskTagged(center orbital.Vec3, pxRadius int, tag Ce
 	}
 }
 
+// FillGroundTagged fills the part of a disk of true pixel radius pxRadius
+// (a float: a planet at surface zoom is hundreds of thousands of dots across)
+// that lies on the canvas, row by row, so the cost is the canvas and not the
+// disk. It is the flat ground under a map zoomed in past the textured disk's
+// cap; the horizon is the disk's true edge.
+func (c *Canvas) FillGroundTagged(center orbital.Vec3, pxRadius float64, tag CellTag) {
+	cx, cy, _ := c.Project(center)
+	for py := 0; py < c.pxH; py++ {
+		dy := float64(py - cy)
+		if dy > pxRadius || dy < -pxRadius {
+			continue
+		}
+		half := math.Sqrt(pxRadius*pxRadius - dy*dy)
+		x0 := math.Max(0, math.Ceil(float64(cx)-half))
+		x1 := math.Min(float64(c.pxW-1), math.Floor(float64(cx)+half))
+		for px := int(x0); px <= int(x1); px++ {
+			c.dc.Set(px, py)
+			c.pixelTags.set(px, py, tag)
+		}
+	}
+}
+
 // FillTexturedDiskTagged fills a disk like FillColoredDiskTagged but
 // asks `texture` for the per-pixel color instead of using a single
 // uniform value from the supplied tag. The tag's BodyID / NodeIdx /

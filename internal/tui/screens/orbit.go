@@ -592,7 +592,9 @@ func (v *OrbitView) zoomMemoryFor(slot zoomMemoryKey) float64 {
 }
 
 func (v *OrbitView) setUserZoom(z float64) {
-	const minZoom, maxZoom = 1e-4, 1e4
+	// maxZoom 1e5 puts every rocky body at or under 21.5 m a cell (the LZ
+	// circle threshold, sim.LZCirclesOnMap): Earth is 106 m a cell at 1e4.
+	const minZoom, maxZoom = 1e-4, 1e5
 	if z < minZoom {
 		z = minZoom
 	}
@@ -919,37 +921,6 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 	// default-colored.
 	// See BodyPixelRadius for the size-tier logic.
 	canvasReach := v.canvas.Cols()*2 + v.canvas.Rows()*4
-	// v0.8.5: when the focused craft is landed (altitude ≤ 0) — or the
-	// focused body is its primary — cap the zoom so the body's
-	// projected radius stays within canvas reach. Above this cap the
-	// body's drawn disk (capped at canvasReach px) can no longer reach
-	// back from its off-canvas center to the craft's pixel position,
-	// leaving the landed craft floating in empty space. Clamping every
-	// frame is intentional — manual [+] past the cap is silently
-	// ignored so the surface contact stays visually consistent with
-	// the HUD altitude readout. Skipped when the focus is unrelated
-	// (system view or a different body) so an unrelated zoom-in isn't
-	// surprisingly capped.
-	if c := w.ActiveCraft(); c != nil && (c.Landed || c.Altitude() <= 0) {
-		focused := false
-		switch w.Focus.Kind {
-		case sim.FocusCraft:
-			focused = true
-		case sim.FocusBody:
-			if w.Focus.BodyIdx >= 0 && w.Focus.BodyIdx < len(sys.Bodies) &&
-				sys.Bodies[w.Focus.BodyIdx].ID == c.Primary.ID {
-				focused = true
-			}
-		}
-		if focused {
-			if r := c.Primary.RadiusMeters(); r > 0 {
-				maxScale := float64(canvasReach) / r
-				if v.canvas.Scale() > maxScale {
-					v.canvas.SetScale(maxScale)
-				}
-			}
-		}
-	}
 	scale := v.canvas.Scale()
 	// v0.9.6: the system's star radius, hoisted once for the
 	// per-body eclipse-cone test below. sol.json puts the star at
@@ -1085,7 +1056,14 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 		// at default zoom. FillTexturedDiskTagged/FillColoredDiskTagged
 		// already no-op per off-canvas pixel, so skipping the whole
 		// call draws identically (nothing) while skipping the setup.
-		if v.canvas.DiskIntersectsCanvas(pos, r) {
+		// Past the textured disk's cap (v0.8.5 clamped the zoom there so a
+		// landed craft never floated off a shrunken disk) the ground is
+		// drawn at its true radius as a flat fill, clipped to the canvas
+		// row by row, so the surface stays under the craft and the LZ
+		// circles at any zoom.
+		if groundPx := b.RadiusMeters() * scale; groundPx > float64(canvasReach) {
+			v.canvas.FillGroundTagged(pos, groundPx, bodyTag)
+		} else if v.canvas.DiskIntersectsCanvas(pos, r) {
 			if tex := render.DiskShader(b, r, subLat, subLon, upX, upY, light, trueSizeDisk); tex != nil {
 				pxR := r
 				// #363: serve the cached raster grid on a quantized-key

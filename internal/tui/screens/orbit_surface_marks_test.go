@@ -145,7 +145,8 @@ func lzMapCells(t *testing.T, v *OrbitView, w *sim.World, s sim.Site, xThreshold
 			q := p.Pos.Add(e1.Scale(sim.SiteLZRadiusM * math.Cos(th))).Add(e2.Scale(sim.SiteLZRadiusM * math.Sin(th)))
 			if px, py, on := v.canvas.Project(q); on {
 				c := at(px/2, py/4)
-				pts[i] = c != '\u2800' && c != ' ' && c != 0
+				// A full block is the ground fill, not ink: the ring cells keep only the ring's own dots.
+				pts[i] = c != '\u2800' && c != ' ' && c != 0 && c != '\u28ff'
 			}
 		}
 		ink[p.N] = pts
