@@ -423,3 +423,33 @@ func TestLandBesideReadsTheAutopilotsForecast(t *testing.T) {
 		t.Errorf("last reading before contact miss %.1f cross %.1f m, want both within 50", lastMiss, lastCross)
 	}
 }
+
+// Review-2 L4: with the tank dry the autopilot returns before it refreshes its
+// forecast, so miss:/cross: kept serving the last one. Past that point they go
+// back to the plain stop (or a dash), never a number the autopilot stopped
+// updating.
+func TestLandBesideDropsTheForecastOnceTheTankIsDry(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	var dried bool
+	flyLanding(t, w, c, 2*3600*4, func(int) {
+		ap := c.Landing
+		if dried || !ap.Engaged || ap.Phase != spacecraft.PhaseBrake || !ap.ForecastOK {
+			return
+		}
+		dried = true
+		for _, s := range c.Stages {
+			s.FuelMass = 0
+		}
+		c.Thrust = 0
+		w.Tick()
+		if ap.ForecastOK {
+			t.Errorf("ForecastOK still set after a tick with no fuel")
+		}
+		if lb, _ := w.LandBesideReading(); lb.MissOK && lb.MissM == ap.ForecastAlongM {
+			t.Errorf("miss: still serves the frozen forecast %v", lb.MissM)
+		}
+	})
+	if !dried {
+		t.Fatal("setup: never reached a brake tick with a forecast")
+	}
+}

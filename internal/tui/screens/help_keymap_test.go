@@ -256,6 +256,7 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 		"e (SITE) in SITE: hold straight up (Site−), no guidance; under N, e sinks",
 		"e / q (Site+ auto) under N, approach and final: e sinks 1 m/s slower, q faster; z x Z X take the throttle",
 		"q e w s a d (rcs) in SITE with RCS armed: pulse fwd / back, up / down, left / right; refused under N, free under q",
+		"alt+e / alt+q under Site+ auto, approach and final: the same sink steps, 0.3 m/s a press",
 	} {
 		if !strings.Contains(f1, want) {
 			t.Errorf("F1 MANUAL FLIGHT page lacks %q", want)

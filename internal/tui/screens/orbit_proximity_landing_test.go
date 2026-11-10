@@ -7,6 +7,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -107,6 +108,42 @@ func TestLandingViewComputerSiteAndReveal(t *testing.T) {
 		if got := flagRevealed(tc.differs, tc.rangeM); got != tc.want {
 			t.Errorf("flagRevealed(differs=%v, %v m) = %v, want %v", tc.differs, tc.rangeM, got, tc.want)
 		}
+	}
+}
+
+// Review-2 L2: the computer's-site error is read for a landed-vessel target
+// too, so the ⌖ is drawn there as well (beyond 10 km the real mark is hidden,
+// so without it a no-link descent onto a parked lander shows no mark at all).
+func TestLandingViewDrawsComputerSiteForLandedVesselTarget(t *testing.T) {
+	_, _, out := landingFrame(t, func(w *sim.World) {
+		c := w.ActiveCraft()
+		parked := *c
+		parked.ID, parked.Name = c.ID+1, "parked lander"
+		parked.Landed, parked.LandedLatDeg, parked.LandedLonDeg = true, 1, 2
+		parked.State.R = c.State.R.Unit().Scale(c.Primary.RadiusMeters())
+		parked.State.V = orbital.Vec3{}
+		w.Crafts = append(w.Crafts, &parked)
+		w.SetTargetCraft(len(w.Crafts) - 1)
+		c.Landing = &spacecraft.LandingAutopilot{NavSeeded: true, NavAlongM: 20000}
+	})
+	if !strings.Contains(out, string(computerSiteGlyph)) {
+		t.Errorf("no ⌖ for a landed-vessel target with a 20 km nav error\n%s", out)
+	}
+}
+
+// Review-2 L6: the OVERHEAD inset reuses the landing scene's stop arc rather
+// than tracing the powered stop a second time per frame (3 ms each on a coast
+// arc). Same backing array means no second trace.
+func TestOverheadInsetReusesTheSceneStopArc(t *testing.T) {
+	v, w, _ := landingFrame(t, func(w *sim.World) {
+		w.ActiveCraft().State.V = w.ActiveCraft().State.V.Scale(0.2) // a fall that meets the ground
+	})
+	st, _ := w.ProximityState()
+	if !v.stopArcFresh || !v.stopArcOK || len(v.stopArc.Points) < 2 {
+		t.Fatalf("setup: the scene drew no stop arc (fresh=%v ok=%v)", v.stopArcFresh, v.stopArcOK)
+	}
+	if m := v.overheadGather(w, st); len(m.arc) == 0 || &m.arc[0] != &v.stopArc.Points[0] {
+		t.Errorf("the inset traced its own stop arc instead of the scene's")
 	}
 }
 

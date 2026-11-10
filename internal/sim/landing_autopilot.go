@@ -69,6 +69,7 @@ type LandingEvent struct {
 	Crashed    bool
 	OutOfReach bool
 	Update     bool // P20: the ground moved the computer's site; DistanceM is how far
+	Background bool // the vessel was not the active one when it happened
 }
 
 // apRuntime is the autopilot's transient cue cache for one vessel.
@@ -318,6 +319,9 @@ func (w *World) EngageLandingAutopilot() error {
 		ap.Phase = spacecraft.PhaseCoast
 	}
 	c.Landing = ap
+	if ap.Phase == spacecraft.PhaseFinal && ap.TrackN.Norm() == 0 {
+		ap.TrackN = apTrackNormal(c, c.State) // a hover has no brake light to fix the aim's plane; zero drift leaves it unset
+	}
 	if ap.Phase != spacecraft.PhaseFinal {
 		if err := w.apReachTest(c, lat, lon); err != nil {
 			ap.Engaged, ap.Nose = wasNose, wasNose
@@ -500,7 +504,8 @@ func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
 	}
 	lat, lon, _, ok := w.apTarget(c)
 	if !ok || c.ActiveStageFuel() <= 0 || c.Thrust <= 0 {
-		return // nothing to fly to, or nothing to fly with: keep the state, do nothing
+		ap.ForecastOK = false // a forecast the autopilot no longer refreshes must not keep reading as miss:/cross:
+		return                // nothing to fly to, or nothing to fly with: keep the rest of the state, do nothing
 	}
 	ap.Reserve, ap.OutOfReach, ap.ForecastOK = false, false, false
 	w.updateNavOnLink(c)

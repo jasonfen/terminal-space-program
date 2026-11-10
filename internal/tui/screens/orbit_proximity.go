@@ -133,6 +133,7 @@ func (v *OrbitView) renderProximity(w *sim.World, totalCols, totalRows int) stri
 	}
 
 	v.canvas.Clear()
+	v.stopArcFresh = false
 	// Inspect is a map affordance — it steps through what the map drew.
 	// The proximity scene draws two glyphs the player already knows the
 	// identity of, so the set stays empty and [j] is a no-op here rather

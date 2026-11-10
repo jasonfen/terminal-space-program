@@ -81,7 +81,9 @@ func (v *OrbitView) drawLandingScene(w *sim.World, st sim.ProximityState) {
 	}
 	v.canvas.PlotPolylineClass(pts, render.ColorDim, widgets.ClassReal)
 
-	if arc, ok := w.LandingStopArc(); ok {
+	arc, ok := w.LandingStopArc()
+	v.stopArc, v.stopArcOK, v.stopArcFresh = arc, ok, true
+	if ok {
 		v.canvas.PlotPolylineClass(arc.Points, render.ColorPredictedPath, widgets.ClassPlanned)
 		if arc.Stopped {
 			v.canvas.SetCellOverlayColored(arc.Points[len(arc.Points)-1], landingStopGlyph, render.ColorPredictedPath)
@@ -91,9 +93,7 @@ func (v *OrbitView) drawLandingScene(w *sim.World, st sim.ProximityState) {
 	// When the two differ the ⚑ is drawn only inside SiteRevealRangeM.
 	cs := computerSiteWorld(st)
 	differs := cs.Sub(st.TargetWorld).Norm() > 0.5
-	if w.Target.Kind == sim.TargetSite {
-		v.canvas.SetCellOverlayColored(cs, computerSiteGlyph, render.ColorTarget)
-	}
+	v.canvas.SetCellOverlayColored(cs, computerSiteGlyph, render.ColorTarget) // any surface target: the error reads for a landed vessel too
 	if flagRevealed(differs, st.RangeM) {
 		v.canvas.SetCellOverlayColored(st.TargetWorld, landingSiteMark(w), render.ColorTarget)
 	}

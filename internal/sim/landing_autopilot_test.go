@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -627,5 +628,38 @@ func TestNoseHoldTrimsMoveMissAndPitch(t *testing.T) {
 	miss2, el2 := read()
 	if math.Abs(miss2-miss0) > math.Abs(miss1-miss0)/4 || math.Abs(el2-el0) > 1 {
 		t.Errorf("after | miss %.0f (was %.0f), nose %.1f (was %.1f): want both back", miss2, miss0, el2, el0)
+	}
+}
+
+// Review-2 L5: N pressed in a hover goes straight to Final, which nothing
+// ever gave a track plane, so the aim's axes hung on the instantaneous drift
+// direction and the computer's site swung with it. The plane is fixed at the
+// engage.
+func TestLandingEngageInAHoverFixesTheTrackPlane(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	drift := func(d orbital.Vec3) {
+		vGround := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary)
+		c.State.V = c.State.V.Sub(vGround).Add(d) // co-moving with the ground, plus d
+	}
+	up := c.State.R.Unit()
+	e1 := up.Cross(orbital.Vec3{Z: 1}).Unit()
+	e2 := up.Cross(e1).Unit()
+	drift(e1.Scale(1)) // 1 m/s over the ground: under FinalPhaseGroundSpeedMps
+	if err := w.EngageLandingAutopilot(); err != nil {
+		t.Fatal(err)
+	}
+	ap := c.Landing
+	if ap.Phase != spacecraft.PhaseFinal {
+		t.Fatalf("setup: hover engaged in %v, want Final", ap.Phase.Word())
+	}
+	if ap.TrackN.Norm() == 0 {
+		t.Errorf("no track plane fixed at a hover engage")
+	}
+	ap.AimAlongM = 100
+	siteR := siteVec(c, w.Sites[0].LatDeg, w.Sites[0].LonDeg, w.Clock.SimTime).Scale(c.Primary.RadiusMeters())
+	before := computerSitePoint(c, siteR)
+	drift(e2.Scale(1)) // the drift turns 90 degrees
+	if d := computerSitePoint(c, siteR).Sub(before).Norm(); d > 1e-6 {
+		t.Errorf("computer's site moved %.1f m when the drift direction turned", d)
 	}
 }
