@@ -96,6 +96,18 @@ func TestEffectiveBallisticCoefficientByCase(t *testing.T) {
 		t.Errorf("Token Pod falls at %.0f m/s, want a capsule's", v)
 	}
 
+	// The Kern Stack's lander once its boost and transfer stages are gone is a
+	// lander with no figure of its own, not a launch stage (same fault as #937).
+	kl := NewFromLoadout("Kern-Stack")
+	kl.Stages = kl.Stages[2:]
+	kl.SyncFields()
+	if kl.Stages[0].Name != "Kern Lander" && kl.Stages[0].DiameterM != 4.22 {
+		t.Fatalf("Kern-Stack stage 2 is %q, want the lander", kl.Stages[0].Name)
+	}
+	if want := CapsuleCd * area(4.22) / kl.TotalMass(); !near(kl.EffectiveBallisticCoefficient(), want) {
+		t.Errorf("Kern Lander BC = %g, want %g (size and mass)", kl.EffectiveBallisticCoefficient(), want)
+	}
+
 	// A dropped stage falls engines-first by its own diameter and mass left.
 	s1 := NewFromLoadout("Falcon-9")
 	s1.Stages = s1.Stages[:1]
