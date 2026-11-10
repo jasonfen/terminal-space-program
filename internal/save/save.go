@@ -520,6 +520,13 @@ type Stage struct {
 	HoldKg    float64 `json:"hold_kg,omitempty"`
 	CargoHold bool    `json:"cargo_hold,omitempty"`
 
+	// NavSigmaAlongM / NavSigmaAcrossM (ADR 0067 decision 3, schema 23
+	// additive, NO bump: omitempty): the landing computer's no-link error, so
+	// a VAB-built, edited or loadout-less stack keeps its era. Absent = 0 =
+	// the catalog-run fallback in Spacecraft.NavSigma.
+	NavSigmaAlongM  float64 `json:"nav_sigma_along_m,omitempty"`
+	NavSigmaAcrossM float64 `json:"nav_sigma_across_m,omitempty"`
+
 	// LitWithAbove (ADR 0058, schema v16): the Booster mark. Absent = serial.
 	LitWithAbove bool `json:"lit_with_above,omitempty"`
 }

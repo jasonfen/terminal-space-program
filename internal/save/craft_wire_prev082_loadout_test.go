@@ -152,3 +152,36 @@ func TestSavedLMTakesTheCatalogRCSOnLoad(t *testing.T) {
 		t.Errorf("an unknown loadout was moved to the catalog figures")
 	}
 }
+
+// L7 follow-up: the landing computer's era survives save->load for stacks the
+// catalog run cannot match (VAB-built, edited, no loadout id).
+func TestNavSigmaSurvivesSaveLoadWithoutACatalogRun(t *testing.T) {
+	systems, err := bodies.LoadAll()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, loadoutID := range map[string]string{"no loadout id": "", "unknown loadout": "Custom", "catalog loadout, edited stack": "Apollo-TLI"} {
+		d, _ := spacecraft.BuildStage("apollo-descent")
+		a, _ := spacecraft.BuildStage("apollo-ascent")
+		a.Name = "Edited Ascent" // never matches a catalog run
+		c := spacecraft.NewFromStages([]spacecraft.Stage{d, a})
+		c.LoadoutID = loadoutID
+		c.Primary = w.ActiveCraft().Primary
+		c.State = w.ActiveCraft().State
+		wa, wb, wok := c.NavSigma()
+		if !wok {
+			t.Fatalf("%s: setup: no Apollo sigma", name)
+		}
+		got, err := CraftFromWire(CraftToWire(c), systems)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if ga, gb, gok := got.NavSigma(); !gok || ga != wa || gb != wb {
+			t.Errorf("%s: sigma %v/%v ok=%v after load, want %v/%v", name, ga, gb, gok, wa, wb)
+		}
+	}
+}
