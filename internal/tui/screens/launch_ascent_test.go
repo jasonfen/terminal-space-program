@@ -62,7 +62,7 @@ func TestAscentArcIsPlannedDashed(t *testing.T) {
 	v.canvas.Center(orbital.Vec3{})
 
 	pts := []orbital.Vec3{{X: -100}, {X: 100}}
-	arc := sim.AscentPath{Path: pts}
+	arc := sim.AscentPath{GroundPath: pts}
 	v.drawAscentArc(orbital.Vec3{}, arc)
 	live := countBrailleDots(v.canvas.String())
 	if live == 0 {
@@ -102,7 +102,7 @@ func TestAscentArcClipsAtViewEdge(t *testing.T) {
 	// The canvas is a few hundred pixels wide at scale 1; this run goes
 	// four orders of magnitude past that.
 	pts := []orbital.Vec3{{X: 0}, {X: 50}, {X: 1_000_000}}
-	arc := sim.AscentPath{Path: pts}
+	arc := sim.AscentPath{GroundPath: pts}
 
 	defer func() {
 		if r := recover(); r != nil {

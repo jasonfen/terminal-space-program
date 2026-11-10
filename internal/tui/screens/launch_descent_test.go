@@ -69,7 +69,7 @@ func TestDescentArcIsPlannedDashed(t *testing.T) {
 	v.canvas.Center(orbital.Vec3{})
 
 	pts := []orbital.Vec3{{X: -100}, {X: 100}}
-	dc := sim.DescentCorridor{Impact: sim.ImpactPrediction{Path: pts, Point: pts[1]}}
+	dc := sim.DescentCorridor{Impact: sim.ImpactPrediction{GroundPath: pts, GroundPoint: pts[1]}}
 	// Put the camera on the far side so the impact glyph is depth-culled
 	// and the only ink on the canvas is the arc itself.
 	v.drawDescentArc(orbital.Vec3{}, pts[1].Scale(-1), dc)
@@ -109,7 +109,7 @@ func TestDescentArcAlarmRecolours(t *testing.T) {
 		v.canvas.SetScale(1)
 		v.canvas.Center(orbital.Vec3{})
 		dc := sim.DescentCorridor{
-			Impact: sim.ImpactPrediction{Path: pts, Point: pts[1]},
+			Impact: sim.ImpactPrediction{GroundPath: pts, GroundPoint: pts[1]},
 			Margin: margin,
 		}
 		v.drawDescentArc(orbital.Vec3{}, pts[1], dc) // camera on the near side

@@ -205,7 +205,7 @@ func TestAscentArcStaysVisibleInItsOwnColourOverTheSky(t *testing.T) {
 		f := float64(i) / 60
 		path = append(path, orbital.Vec3{X: 300 * f * mPerPx, Y: earth.RadiusMeters() + 2000 + 70*f*mPerPx*4})
 	}
-	v.drawAscentArc(orbital.Vec3{}, sim.AscentPath{Path: path})
+	v.drawAscentArc(orbital.Vec3{}, sim.AscentPath{GroundPath: path})
 	ground := darkenHex(earth.SurfaceColorHex(), groundTintDarkenFrac)
 	if n := arcCellsOverSky(v.canvas.String(), render.ColorPredictedPath, ground); n < 20 {
 		t.Errorf("only %d cells show the arc in its colour over the sky, want it drawn across the climb", n)
