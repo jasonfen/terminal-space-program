@@ -271,3 +271,65 @@ func TestWarpClampedDuringChuteDescent(t *testing.T) {
 		t.Errorf("armed chute above the atmosphere cutoff should not clamp, got %.0f", eff)
 	}
 }
+
+// TestChuteOpeningFastInThickAirDoesNotOvershoot — #935 / ADR 0069 guard 4:
+// a Token Pod on Kern with its chute armed at 5 km opens at ~1,375 m/s. One
+// step's drag then exceeded the airspeed (k·v·dt = 354), reversed the
+// vessel and threw it off at 7e8 m/s, neither landed nor crashed. The pod
+// must only slow down and end on the ground, and the forecast's step must
+// agree.
+func TestChuteOpeningFastInThickAirDoesNotOvershoot(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cycleToSystem(t, w, "Lumen")
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Token-Pod", ParentBodyID: "kern", AltitudeM: 100e3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, x := range w.Crafts {
+		if x == c {
+			w.SetActiveCraftIdx(i)
+		}
+	}
+	rHat := orbital.Vec3{X: 1}
+	c.State.R = rHat.Scale(c.Primary.RadiusMeters() + 5000)
+	c.State.V = physics.AtmosphereOmega(c.Primary).Cross(c.State.R).Add(rHat.Scale(-1375))
+	c.State.M = c.TotalMass()
+	c.ArmParachute()
+	start := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary).Norm()
+	w.Clock.WarpIdx = 0
+	for i := 0; i < 20000 && !c.Landed && !c.Crashed; i++ {
+		w.Tick()
+		if v := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary).Norm(); v > start*1.01 {
+			t.Fatalf("tick %d: air-relative speed %.0f m/s exceeds the entry speed %.0f (drag step overshot)", i, v, start)
+		}
+	}
+	if !c.Landed && !c.Crashed {
+		t.Fatalf("pod is neither landed nor crashed: speed %.3g m/s", c.State.V.Norm())
+	}
+}
+
+// TestPredictStepDragNeverReversesAirflow — the forecast's propagator takes
+// the same drag-safe step: a chute-sized BC at 1,375 m/s in Kern air leaves
+// the air-relative velocity pointing the way it did.
+func TestPredictStepDragNeverReversesAirflow(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cycleToSystem(t, w, "Lumen")
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Token-Pod", ParentBodyID: "kern", AltitudeM: 100e3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rHat := orbital.Vec3{X: 1}
+	s := physics.StateVector{R: rHat.Scale(c.Primary.RadiusMeters() + 5000), M: 1}
+	s.V = physics.AtmosphereOmega(c.Primary).Cross(s.R).Add(rHat.Scale(-1375))
+	next := predictStep(s, c.Primary.GravitationalParameter(), atmosphereMaxStepSec, c.Primary, spacecraft.ChuteDeployedBC)
+	rel := physics.AirRelativeVelocity(next.R, next.V, c.Primary)
+	if rel.Dot(rHat) > 0 || rel.Norm() > 1375 {
+		t.Fatalf("forecast step reversed or sped the airflow: v_rel %+v", rel)
+	}
+}

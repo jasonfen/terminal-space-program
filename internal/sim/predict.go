@@ -89,8 +89,10 @@ func predictStep(state physics.StateVector, mu, dt float64, primary bodies.Celes
 			return next
 		}
 	}
-	return physics.StepVerletWithAccel(state, mu, dt, func(r, v orbital.Vec3) orbital.Vec3 {
-		return physics.DragAccel(r, v, primary, bc)
+	return physics.StepDragSafe(state, dt, primary, bc, func(s physics.StateVector, h float64) physics.StateVector {
+		return physics.StepVerletWithAccel(s, mu, h, func(r, v orbital.Vec3) orbital.Vec3 {
+			return physics.DragAccel(r, v, primary, bc)
+		})
 	})
 }
 

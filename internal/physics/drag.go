@@ -163,3 +163,34 @@ func DragAccel(r, v orbital.Vec3, primary bodies.CelestialBody, bc float64) orbi
 	factor := -0.5 * rho * vRelMag * bc
 	return vRel.Scale(factor)
 }
+
+// DragStepLimit is the largest k·|v_rel|·dt (k = 0.5·ρ·BC, the linear drag
+// rate: dv/dt = -k·|v|·v) one integrator step may take. Past 1 an explicit
+// step removes more than the whole air-relative speed, reverses the vessel
+// and diverges (#935: a chute opening at 1,375 m/s at Kern's 5 km had
+// k·v·dt = 354 and left at 7e8 m/s). At or under it the step is untouched.
+const DragStepLimit = 1.0
+
+// maxDragSubsteps bounds the work one step may split into.
+const maxDragSubsteps = 1024
+
+// StepDragSafe advances s by dt with step, split into equal sub-steps when a
+// single step would exceed DragStepLimit. The split is sized once from the
+// state at the start, where the drag rate is highest on a decelerating
+// vessel. When no split is needed it is exactly step(s, dt).
+func StepDragSafe(s StateVector, dt float64, primary bodies.CelestialBody, bc float64, step func(StateVector, float64) StateVector) StateVector {
+	n := 1
+	if bc > 0 && primary.Atmosphere != nil {
+		if rho := AtmosphericDensity(primary, s.R.Norm()-primary.RadiusMeters()); rho > 0 {
+			vRel := AirRelativeVelocity(s.R, s.V, primary).Norm()
+			if x := 0.5 * rho * bc * vRel * dt / DragStepLimit; x > 1 {
+				n = int(math.Min(math.Ceil(x), maxDragSubsteps))
+			}
+		}
+	}
+	h := dt / float64(n)
+	for i := 0; i < n; i++ {
+		s = step(s, h)
+	}
+	return s
+}
