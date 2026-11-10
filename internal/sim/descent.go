@@ -214,12 +214,17 @@ func forwardBallisticPath(c *spacecraft.Spacecraft, horizon time.Duration) (ball
 	path = append(path, state.R)
 	samples := make([]ballisticSample, 0, impactPathSamples+2)
 	samples = append(samples, ballisticSample{state: state, elapsedSec: 0})
-	elapsed := 0.0
-	for i := 0; i < steps; i++ {
+	elapsed, weight := 0.0, 0.0
+	air := primary.Atmosphere != nil
+	for i := 0; (!air && i < steps) || (air && elapsed < total && i < impactMaxAirSubSteps); i++ {
 		pre := state
-		state = predictStep(state, mu, dt, primary, bc)
+		h := dt
+		if air {
+			h = airSubStep(state, dt, primary)
+		}
+		state = predictStep(state, mu, h, primary, bc)
 		if state.R.Norm() < radius {
-			hit, tau := refineSurfaceCrossing(pre, mu, dt, primary, bc, radius)
+			hit, tau := refineSurfaceCrossing(pre, mu, h, primary, bc, radius)
 			elapsed += tau
 			point := hit.R
 			if n := point.Norm(); n > 0 {
@@ -235,13 +240,37 @@ func forwardBallisticPath(c *spacecraft.Spacecraft, horizon time.Duration) (ball
 				samples:      samples,
 			}, true
 		}
-		elapsed += dt
-		if (i+1)%sampleEvery == 0 {
+		elapsed += h
+		// weight counts steps in units of dt, so a run of full steps samples
+		// exactly every sampleEvery-th one (airless: bit for bit as before) and
+		// the short steps inside the air do not multiply the samples.
+		weight += h / dt
+		if weight >= float64(sampleEvery) {
+			weight -= float64(sampleEvery)
 			path = append(path, state.R)
 			samples = append(samples, ballisticSample{state: state, elapsedSec: elapsed})
 		}
 	}
 	return ballisticForecast{Path: path, samples: samples}, true
+}
+
+// impactMaxAirSubSteps bounds the forecast's walk on a body with air, where the
+// steps inside the atmosphere are short and the count is the time asked for
+// rather than steps.
+const impactMaxAirSubSteps = 20000
+
+// airSubStep is the forecast's sub-step from state on a body with air: the
+// live integrator's own step (atmosphereMaxStepSec) once the vessel is inside
+// the atmosphere or one coarse step from it. A coarse Verlet step through the
+// air walked the stop point 1.4 km on a Mars entry (ADR 0069 slice 1).
+func airSubStep(state physics.StateVector, dt float64, primary bodies.CelestialBody) float64 {
+	if dt <= atmosphereMaxStepSec {
+		return dt
+	}
+	if state.R.Norm()-primary.RadiusMeters()-primary.Atmosphere.CutoffAltitude < state.V.Norm()*dt {
+		return atmosphereMaxStepSec
+	}
+	return dt
 }
 
 // refineSurfaceCrossing bisects surface contact inside (0, dt]: pre is
@@ -820,6 +849,17 @@ func PredictBurnAt(c *spacecraft.Spacecraft, horizon time.Duration) (BurnAtCue, 
 	return cue, ok
 }
 
+// PredictPoweredStopAtCue is the stop forecast of the brake lit at cue, the
+// latest safe light: what ADR 0069 decision 3 has stop: read while that cue is
+// still ahead on a body with air, where lit-now can read can't-stop for a
+// whole entry coast that a later light stops.
+func PredictPoweredStopAtCue(c *spacecraft.Spacecraft, cue BurnAtCue, horizon time.Duration) (PoweredStopPrediction, bool) {
+	if c == nil {
+		return PoweredStopPrediction{}, false
+	}
+	return predictPoweredStopFrom(cue.State, c, horizon-time.Duration(cue.InSec*float64(time.Second)))
+}
+
 // burnAtCue is PredictBurnAt for a brake at a fraction of full thrust, with a
 // caller-chosen number of refinement rounds (the deorbit solver wants the cue
 // to a fraction of a second; the HUD cue is happy with three). impactFound
@@ -845,11 +885,21 @@ func burnAtCue(c *spacecraft.Spacecraft, horizon time.Duration, throttle float64
 		return ok && pred.Outcome == StopStopped && pred.MarginM >= 0
 	}
 
-	if !safeAt(fc.samples[0]) {
-		return BurnAtCue{}, impactFound, false
-	}
-
 	loIdx, hiIdx := 0, len(fc.samples)-1
+	if !safeAt(fc.samples[0]) {
+		// An airless body: earlier is always safer, so a light at the top of
+		// the coast that cannot stop means nothing later can. With air, later is
+		// safer (the air does the braking), so look for the last safe sample
+		// (ADR 0069 decision 2).
+		if c.Primary.Atmosphere == nil || !impactFound {
+			return BurnAtCue{}, impactFound, false
+		}
+		for loIdx = hiIdx; loIdx > 0 && !safeAt(fc.samples[loIdx]); loIdx-- {
+		}
+		if loIdx == 0 {
+			return BurnAtCue{}, impactFound, false
+		}
+	}
 	if safeAt(fc.samples[hiIdx]) {
 		// Even the very end of the sampled coast is still stoppable (a
 		// shallow / slow descent) — best effort: the latest candidate we

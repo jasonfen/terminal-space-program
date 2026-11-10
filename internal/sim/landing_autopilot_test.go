@@ -663,3 +663,58 @@ func TestLandingEngageInAHoverFixesTheTrackPlane(t *testing.T) {
 		t.Errorf("computer's site moved %.1f m when the drift direction turned", d)
 	}
 }
+
+// flyEntry plans N, engages Site+ and ticks to contact on a world from
+// entryWorld; it returns the Event Flash the landing raised.
+func flyEntry(t *testing.T, w *World, c *spacecraft.Spacecraft) (LandingEvent, *DeorbitPlan) {
+	t.Helper()
+	plan, err := w.PlanDeorbitOntoSite()
+	if err != nil {
+		t.Fatalf("N: %v", err)
+	}
+	if err := w.EngageLandingAutopilot(); err != nil {
+		t.Fatalf("engage: %v", err)
+	}
+	for i := 0; i < 4*3600*20 && !c.Landed && !c.Crashed; i++ {
+		w.Tick()
+	}
+	if len(w.PendingLandingEvents) == 0 {
+		t.Fatalf("no landing flash (landed=%v crashed=%v)", c.Landed, c.Crashed)
+	}
+	return w.PendingLandingEvents[len(w.PendingLandingEvents)-1], plan
+}
+
+// ADR 0069 guard 1: a lander that cannot stop from orbit on its tank gets a plan
+// on a body with air, and the flown landing is within 50 m. Both vessels were
+// refused before (Ground-Station Lander: no solution; Endpoint Station: brake
+// needs 1779 km). With the air off the same orbit still refuses.
+func TestEntryPlanLandsOnMarsOnTheFlag(t *testing.T) {
+	for _, name := range []string{"Ground-Station-Lander", "Endpoint-Station"} {
+		w, c := entryWorld(t, "", "mars", name, 150e3, true)
+		ev, plan := flyEntry(t, w, c)
+		if ev.Crashed || !c.Landed || ev.DistanceM > 50 {
+			t.Errorf("%s: landed=%v crashed=%v %.1f m from the flag", name, c.Landed, ev.Crashed, ev.DistanceM)
+		}
+		t.Logf("Mars %s: plan %.1f m/s retro in %v, long %.0f m; landed %.1f m from the flag, oor=%v", name, plan.DV, plan.In.Round(time.Second), plan.LongM, ev.DistanceM, ev.OutOfReach)
+
+		w2, _ := entryWorld(t, "", "mars", name, 150e3, false)
+		if _, err := w2.PlanDeorbitOntoSite(); err == nil {
+			t.Errorf("%s: no air, yet N planned", name)
+		}
+	}
+}
+
+// #936: a landing the final phase brings to the flag is not out of reach, with
+// or without air. The air case latched the brake phase's saturated reading.
+func TestLandingFlashNotOutOfReachWhenOnTheFlag(t *testing.T) {
+	for _, air := range []bool{false, true} {
+		w, c := entryWorld(t, "Lumen", "rust", "Endpoint-Station", 80e3, air)
+		ev, _ := flyEntry(t, w, c)
+		if ev.Crashed || ev.DistanceM > 25 {
+			t.Fatalf("air=%v: landed %.1f m from the flag (crashed=%v)", air, ev.DistanceM, ev.Crashed)
+		}
+		if ev.OutOfReach {
+			t.Errorf("air=%v: flash says out of reach for a landing %.1f m from the flag", air, ev.DistanceM)
+		}
+	}
+}

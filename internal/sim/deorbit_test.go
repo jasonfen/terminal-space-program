@@ -451,3 +451,120 @@ func TestDescentReadoutsSeeTheWholeDeorbitFall(t *testing.T) {
 		t.Errorf("impact 5 s past the horizon found, want not found")
 	}
 }
+
+// entryWorld puts a loadout on a circular orbit at altM round a body (system ""
+// is the default Sol), 150 degrees of arc behind a flag at 5N 20E, targeted.
+// air=false strips the atmosphere.
+func entryWorld(t *testing.T, system, body, loadout string, altM float64, air bool) (*World, *spacecraft.Spacecraft) {
+	t.Helper()
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.navErrorOff = true
+	if system != "" {
+		cycleToSystem(t, w, system)
+	}
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: loadout, ParentBodyID: body, AltitudeM: altM})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, x := range w.Crafts {
+		if x == c {
+			w.SetActiveCraftIdx(i)
+		}
+	}
+	if !air {
+		c.Primary.Atmosphere = nil
+	}
+	c.Crewed, c.Controllable = true, true
+	w.plantSite(c, SiteFlag, "site", 5, 20)
+	s := w.Sites[len(w.Sites)-1]
+	p0 := siteVec(c, s.LatDeg, s.LonDeg, w.Clock.SimTime)
+	ax := render.BodyRotationAxisWorld(c.Primary)
+	east := orbital.Vec3{X: ax.X, Y: ax.Y, Z: ax.Z}.Cross(p0).Unit()
+	h := p0.Unit().Cross(east).Unit()
+	rHat := rotAbout(p0.Unit(), h, -150)
+	r := c.Primary.RadiusMeters() + altM
+	c.State.R = rHat.Scale(r)
+	c.State.V = h.Cross(rHat).Unit().Scale(math.Sqrt(c.Primary.GravitationalParameter() / r))
+	c.State.M = c.TotalMass()
+	c.CurrentAttitudeDir = c.State.V.Unit()
+	w.SetTargetSite(s.ID)
+	// the game's own 50 ms tick stands: a coarser one lags a spinning ground by 60 m per tick
+	return w, c
+}
+
+// grazing drops c's periapsis to 5 km under the ground: the coast a minimal
+// deorbit leaves.
+func grazing(c *spacecraft.Spacecraft) {
+	mu, rp := c.Primary.GravitationalParameter(), c.Primary.RadiusMeters()
+	r := c.State.R.Norm()
+	c.State.V = c.State.V.Unit().Scale(math.Sqrt(2 * mu * (rp - 5000) / (r * (r + rp - 5000))))
+}
+
+// ADR 0069 guard 2: on a body with no air the cue search is what it
+// was before the entry plan existed. The expected bits were captured from
+// origin/main 1d23710 before the change.
+func TestBurnAtCueAirlessIsUnchanged(t *testing.T) {
+	type fix struct {
+		name    string
+		build   func() *spacecraft.Spacecraft
+		ok      bool
+		altBits uint64
+		inBits  uint64
+	}
+	for _, f := range []fix{
+		{"moon 100 km", func() *spacecraft.Spacecraft { _, c := deorbitWorld(t, 150, 0); return c }, true, 0x40ede992f0dd21f4, 0x409667b455000000},
+		{"moon 50 km", func() *spacecraft.Spacecraft { _, c := deorbitWorld(t, 150, 0); atAltitude(c, 50); return c }, true, 0x40e83aa997e387d4, 0x4062417258000000},
+		// a light at the top cannot stop and nothing later is searched: no cue
+		{"mars without air", func() *spacecraft.Spacecraft {
+			_, c := entryWorld(t, "", "mars", "Ground-Station-Lander", 150e3, false)
+			return c
+		}, false, 0, 0},
+	} {
+		c := f.build()
+		grazing(c)
+		cue, ground, ok := burnAtCue(c, 2*time.Hour, DeorbitBrakeThrottle, deorbitRefineIters)
+		// arm64 and amd64 differ in the last bit (fused multiply-add), so equal to 1e-12 relative
+		near := func(got float64, wantBits uint64) bool {
+			want := math.Float64frombits(wantBits)
+			return math.Abs(got-want) <= 1e-12*math.Max(1, math.Abs(want))
+		}
+		if !ground || ok != f.ok || !near(cue.AltitudeM, f.altBits) || !near(cue.InSec, f.inBits) {
+			t.Errorf("%s: ground=%v ok=%v alt=%v in=%v, want ok=%v alt=%v in=%v", f.name, ground, ok,
+				cue.AltitudeM, cue.InSec, f.ok, math.Float64frombits(f.altBits), math.Float64frombits(f.inBits))
+		}
+	}
+}
+
+// ADR 0069 decision 3 / guard 1: on a body with air a light at the top of the
+// coast can fail where a later one stops, so the cue is the latest safe light,
+// found from the last safe sample. Mars, Ground-Station Lander, 150 km.
+func TestBurnAtCueOnAirIsTheLatestSafeLight(t *testing.T) {
+	_, c := entryWorld(t, "", "mars", "Ground-Station-Lander", 150e3, true)
+	grazing(c)
+	cue, ground, ok := burnAtCue(c, 2*time.Hour, DeorbitBrakeThrottle, deorbitRefineIters)
+	if !ground || !ok {
+		t.Fatalf("ground=%v ok=%v, want a cue", ground, ok)
+	}
+	if cue.AltitudeM < 5000 || cue.AltitudeM > 40000 || cue.InSec <= 0 {
+		t.Fatalf("cue %.0f m in %.0f s", cue.AltitudeM, cue.InSec)
+	}
+	hz := 2 * time.Hour
+	left := hz - time.Duration(cue.InSec*float64(time.Second))
+	pred, pok := predictPoweredStopFromAt(cue.State, c, left, DeorbitBrakeThrottle)
+	if !pok || pred.Outcome != StopStopped || pred.MarginM < 0 {
+		t.Errorf("the cue itself does not stop: ok=%v %v margin %.1f", pok, pred.Outcome, pred.MarginM)
+	}
+	// latest: 10 s later (ahead on the same coast) no longer stops
+	later, lok := physics.KeplerStep(cue.State, c.Primary.GravitationalParameter(), 10)
+	if !lok {
+		t.Fatal("no kepler step")
+	}
+	p2, p2ok := predictPoweredStopFromAt(later, c, left-10*time.Second, DeorbitBrakeThrottle)
+	if p2ok && p2.Outcome == StopStopped && p2.MarginM >= 0 {
+		t.Errorf("a light 10 s after the cue still stops (margin %.0f m): the cue is not the latest", p2.MarginM)
+	}
+	t.Logf("Mars Ground-Station Lander cue: %.2f km, T-%.0f s, stops %.0f m up after %.0f s", cue.AltitudeM/1000, cue.InSec, pred.MarginM, pred.ElapsedSec)
+}
