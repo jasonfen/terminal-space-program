@@ -166,7 +166,8 @@ func claimMatches(v *spacecraft.Spacecraft, s Site) bool {
 }
 
 // lzTaken is decision 5's test: a vessel (landed, or crashed and not cleared)
-// inside LZ n's circle, or a vessel other than self holding a claim on it.
+// inside LZ n's circle, or a vessel other than self holding a claim on it, or
+// a partner's landed ghost inside it.
 func (w *World) lzTaken(s Site, n int, self *spacecraft.Spacecraft) bool {
 	r := w.siteRadiusM(s)
 	lat, lon := s.lzLatLon(n, r)
@@ -182,6 +183,17 @@ func (w *World) lzTaken(s Site, n int, self *spacecraft.Spacecraft) bool {
 			if insideLZ(HaversineM(vl, vo, lat, lon, r)) {
 				return true
 			}
+		}
+	}
+	// A partner's parked lander occupies (decision 11); one still flying does
+	// not. Landed is the gate, so a ghost at exactly 0N 0E is a real position.
+	for _, g := range w.Ghosts {
+		if !g.Landed {
+			continue
+		}
+		if b, ok := w.bodyInSystemByID(g.PrimaryID); ok && b.EnglishName == s.Body && w.System().Name == s.System &&
+			insideLZ(HaversineM(g.LatDeg, g.LonDeg, lat, lon, r)) {
+			return true
 		}
 	}
 	return false
