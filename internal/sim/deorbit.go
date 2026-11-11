@@ -705,7 +705,10 @@ func (w *World) plannedAim(c *spacecraft.Spacecraft, n spacecraft.ManeuverNode) 
 	if cc := &w.deorbitCache; cc.has && cc.key == key {
 		return cc.pt, cc.ok
 	}
-	pt, ok := w.computePlannedAim(c, n)
+	var pt aimPoint
+	var ok bool
+	// the node flies on the landing engine (SuperDracos), as the solver planned it
+	c.OnLandingBrake(func() { pt, ok = w.computePlannedAim(c, n) })
 	w.deorbitCache = deorbitCache{has: true, key: key, pt: pt, ok: ok}
 	return pt, ok
 }

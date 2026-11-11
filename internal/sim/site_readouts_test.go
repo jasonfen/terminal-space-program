@@ -117,6 +117,20 @@ func TestLandBesideEqualPointHasNoBearing(t *testing.T) {
 	}
 }
 
+// Playtest 2026-11-11: a Dragon's deorbit burn flies on the SuperDracos, so the
+// (plan) miss must forecast that burn, not a 17-minute Draco burn (it read
+// 2,566 km right after N while the flight landed under a metre from the flag).
+func TestLandBesidePlanForecastsTheSuperDracoBurn(t *testing.T) {
+	w, _ := dragonFromOrbit(t, "earth", 200e3)
+	if _, err := w.PlanDeorbitAndEngage(); err != nil {
+		t.Fatal(err)
+	}
+	lb, ok := w.LandBesideReading()
+	if !ok || !lb.Planned || !lb.MissOK || math.Abs(lb.MissM) > 500 || math.Abs(lb.CrossM) > 500 {
+		t.Errorf("right after N: %+v, want the plan's stop within 500 m, tagged Planned", lb)
+	}
+}
+
 // ADR 0066 decision 21 / guard 19: a vessel that can stop reads the stop point,
 // tagged as a plan before the burn and live after it, never the free fall; a
 // vessel that cannot stop reads the free-fall impact as before.
