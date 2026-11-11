@@ -554,3 +554,42 @@ func TestPropagateCraftSOIAware(t *testing.T) {
 	}
 	_ = physics.SemimajorAxis // reuse import
 }
+
+// A forecast coast that cannot reach the air is the exact conic, even when its
+// periapsis dips into it: a 2 s Verlet step on that coast walked a Dragon's stop
+// point 150 m by the time the burn that aims it was flown (ADR 0069 slice 9). A
+// vessel 150 km up, falling to a periapsis under the ground, steps Kepler bit for
+// bit at 2 s while its step stays 1.5 v dt clear of the cutoff and Verlet when it
+// does not; equal case, the margin exactly 1.5 v dt is not clear.
+func TestPredictStepIsKeplerWhileClearOfTheAir(t *testing.T) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	earth := w.ActiveCraft().Primary
+	mu := earth.GravitationalParameter()
+	cut := earth.Atmosphere.CutoffAltitude
+	v := 7800.0
+	at := func(altM float64) physics.StateVector {
+		return physics.StateVector{R: orbital.Vec3{X: earth.RadiusMeters() + altM}, V: orbital.Vec3{Y: v, X: -200}, M: 1}
+	}
+	margin := 1.5 * math.Hypot(v, 200) * 2
+	for _, tc := range []struct {
+		altM  float64
+		clear bool
+	}{{cut + margin + 1, true}, {cut + margin - 1, false}} {
+		s := at(tc.altM)
+		if got := clearOfTheAir(s, 2, earth); got != tc.clear {
+			t.Errorf("%.0f m: clearOfTheAir = %v, want %v", tc.altM, got, tc.clear)
+		}
+		want, _ := physics.KeplerStep(s, mu, 2)
+		if isKepler := predictStep(s, mu, 2, earth, 0.003) == want; isKepler != tc.clear {
+			t.Errorf("%.0f m: predictStep is Kepler = %v, want %v", tc.altM, isKepler, tc.clear)
+		}
+	}
+	airless := earth
+	airless.Atmosphere = nil
+	if clearOfTheAir(at(cut+margin+1), 2, airless) {
+		t.Error("a body with no air is never clear of it")
+	}
+}

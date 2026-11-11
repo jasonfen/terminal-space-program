@@ -221,7 +221,7 @@ func (w *World) landingCueInOn(c *spacecraft.Spacecraft) (in time.Duration, grou
 			rt.cueAt, rt.nextCheck = now, now
 		default:
 			rt.cueAt = now.Add(time.Duration(cue.InSec * float64(time.Second)))
-			if c.WorksChute() {
+			if oneBurn(c) {
 				rt.cueErrM = w.cueStopErrM(c, cue)
 			}
 			wait := cue.InSec / 4
@@ -260,12 +260,22 @@ func (w *World) cueStopErrM(c *spacecraft.Spacecraft, cue BurnAtCue) float64 {
 // a tilt limit of g tan(apMaxTiltRad), so it wants a burn of at least
 // sqrt(6 e / (g tan(apMaxTiltRad))) seconds, lit that long before the cue.
 func (w *World) chuteAimCut(c *spacecraft.Spacecraft, f apFrame, in time.Duration) bool {
-	if c.ChuteState != spacecraft.ChuteDeployed || !c.WorksChute() || !oneBurn(c) || f.g <= 0 || c.Isp <= 0 {
+	if (c.WorksChute() && c.ChuteState != spacecraft.ChuteDeployed) || !oneBurn(c) || f.g <= 0 || c.Isp <= 0 {
 		return false
 	}
 	// seconds the burn needs to null the stop's error, and the most the tank
 	// can hover for (a share of it) so the landing itself keeps its fuel
 	need := math.Sqrt(6 * w.apRuntimeFor(c).cueErrM / (f.g * math.Tan(apMaxTiltRad)))
+	if !c.WorksChute() {
+		// no canopy: the brake lit at the cue has its own time to steer, tgo
+		// = 2 h / (v + 2) at the cue (the aim is dropped under 3 s). A booster
+		// lights kilometres up and has it; a Dragon falling at its terminal
+		// speed lights 120 m up with 2 s, so it lights `need` early instead
+		hCue := math.Max(f.alt+f.vz*in.Seconds(), 0)
+		if 2*hCue/(math.Max(-f.vz, OneBurnContactMps)+OneBurnContactMps) >= need {
+			return false
+		}
+	}
 	// the law slows to the contact speed, so the burn runs mean speed is (v+2)/2, so the
 	// burn lasts 2v/(v+2) times the lead
 	v := math.Max(-f.vz, OneBurnContactMps)

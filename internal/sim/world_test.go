@@ -470,3 +470,56 @@ func TestLiftoffStampsSimTime(t *testing.T) {
 		t.Errorf("LiftoffSimTime = %v, want the clock of the lifting tick %v", c.LiftoffSimTime, w.Clock.SimTime)
 	}
 }
+
+// A coast through dense air lands at the same point at every warp: the entry
+// does not depend on the tick (ADR 0069 slice 9). A Dragon with no chute
+// falls from 200 km on an orbit whose periapsis is 5 km under the ground; at
+// 1x it flies 0.05 s steps and at 10x and up 0.5 s ones, which landed it 1 km
+// apart while the drag was read at a half-step velocity. 15 m is twice the
+// 8 m the 0.5 s step still leaves.
+func TestBallisticEntryLandsTheSameAtEveryWarp(t *testing.T) {
+	var lat0, lon0 float64
+	for idx, f := range WarpFactors[:4] {
+		w, c := dragonFromOrbit(t, "earth", 200e3)
+		noChute(c)
+		grazing(c)
+		w.Clock.WarpIdx = idx
+		for i := 0; i < 4*3600*20 && !c.Landed && !c.Crashed; i++ {
+			w.Tick()
+		}
+		if idx == 0 {
+			lat0, lon0 = c.LandedLatDeg, c.LandedLonDeg
+		}
+		if d := HaversineM(c.LandedLatDeg, c.LandedLonDeg, lat0, lon0, c.Primary.RadiusMeters()); d > 15 { // equal case: 15 m is within
+			t.Errorf("%vx: the ballistic entry lands %.1f m from the 1x one, want within 15 m", f, d)
+		}
+	}
+}
+
+// A planted burn spends the same propellant for its dv at every warp: a
+// thrusting tick steps at most the 1x tick, because thrust acceleration is held
+// at the step's start mass. N's 159 m/s deorbit burn on the SuperDracos used
+// 0.5 % more propellant at 10x (0.5 s steps) than at 1x for the same dv, and the
+// lighter vessel flew a different entry (48 m at the stop point).
+func TestPlantedBurnSpendsTheSamePropellantAtEveryWarp(t *testing.T) {
+	var used1 float64
+	for idx := 0; idx < 2; idx++ {
+		w, c := dragonFromOrbit(t, "earth", 200e3)
+		noChute(c)
+		if _, err := w.PlanDeorbitAndEngage(); err != nil {
+			t.Fatal(err)
+		}
+		w.Clock.WarpIdx = idx
+		fuel0, burning := c.ActiveStageFuel(), false
+		for i := 0; i < 3600*20 && !(burning && c.ActiveBurn == nil); i++ {
+			w.Tick()
+			burning = burning || c.ActiveBurn != nil
+		}
+		used := fuel0 - c.ActiveStageFuel()
+		if idx == 0 {
+			used1 = used
+		} else if math.Abs(used-used1)/used1 > 0.001 { // equal case: 0.1 % is within
+			t.Errorf("%vx: the burn used %.1f kg, 1x used %.1f", WarpFactors[idx], used, used1)
+		}
+	}
+}

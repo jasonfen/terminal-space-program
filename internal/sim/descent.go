@@ -258,7 +258,17 @@ func forwardBallisticPathSampled(c *spacecraft.Spacecraft, horizon time.Duration
 			h = airSubStep(state, dt, primary)
 		}
 		stepBC := pathBC(pre)
-		state = predictStep(state, mu, h, primary, stepBC)
+		tau, mid, ok := 0.0, pre, false
+		if c.WorksChute() && air {
+			tau, mid, ok = chuteOpeningWithin(pre, h, radius, func(s physics.StateVector, d float64) physics.StateVector {
+				return predictStep(s, mu, d, primary, stepBC)
+			})
+		}
+		if ok { // the canopy opens where the path crosses ChuteOpenAltM
+			state = predictStep(mid, mu, h-tau, primary, spacecraft.ChuteDeployedBC)
+		} else {
+			state = predictStep(state, mu, h, primary, stepBC)
+		}
 		if state.R.Norm() < radius {
 			hit, tau := refineSurfaceCrossing(pre, mu, h, primary, stepBC, radius)
 			if dense && (elapsed > samples[len(samples)-1].elapsedSec || len(samples) < 2) { // a fall inside its first step still has a start to light from

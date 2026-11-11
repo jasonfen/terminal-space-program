@@ -80,3 +80,25 @@ func TestVerletCircularPreservesRadius(t *testing.T) {
 			maxRadDiff, maxRadDiff/r0*100)
 	}
 }
+
+// Drag is evaluated at the step's end velocity, so the entry converges as the
+// step shrinks: a vessel dropping into dense air from 60 km at 7 km/s lands
+// within 30 m of the fine-step answer at 0.5 s (it was 1.1 km with the drag read
+// at a half-step velocity, error linear in the step).
+func TestVerletDragConvergesWithTheStep(t *testing.T) {
+	earth := earthWithAtm()
+	mu := earth.GravitationalParameter()
+	const bc = 0.003
+	start := StateVector{R: orbital.Vec3{X: earth.RadiusMeters() + 60e3}, V: orbital.Vec3{X: -1500, Y: 6800}, M: 1}
+	fly := func(h float64) orbital.Vec3 {
+		s := start
+		for i := 0; i < int(40/h); i++ {
+			s = StepVerletWithAccel(s, mu, h, func(r, v orbital.Vec3) orbital.Vec3 { return DragAccel(r, v, earth, bc) })
+		}
+		return s.R
+	}
+	ref := fly(0.005)
+	if d := fly(0.5).Sub(ref).Norm(); d > 30 {
+		t.Errorf("a 0.5 s step lands %.1f m from the 0.005 s answer, want under 30 m", d)
+	}
+}

@@ -377,3 +377,33 @@ func TestPredictStepDragNeverReversesAirflow(t *testing.T) {
 		t.Fatalf("forecast step reversed or sped the airflow: v_rel %+v", rel)
 	}
 }
+
+// The canopy opens where the path crosses ChuteOpenAltM, not at the end of the
+// step that ends below it: a 0.5 s step at 950 m/s opened up to 475 m late, and
+// the touchdown moved with the step (ADR 0069 slice 9). A straight 100 m/s fall
+// from 1860 m, one 1 s step: it crosses at 0.6 s. Equal cases: starting at the
+// height is not a crossing (it opens at once, maybeDeployParachute), ending at
+// it is.
+func TestChuteOpeningWithinFindsTheCrossing(t *testing.T) {
+	radius := 6371e3
+	fall := func(s physics.StateVector, h float64) physics.StateVector {
+		s.R.X += s.V.X * h
+		return s
+	}
+	at := func(alt float64) physics.StateVector {
+		return physics.StateVector{R: orbital.Vec3{X: radius + alt}, V: orbital.Vec3{X: -100}}
+	}
+	tau, mid, ok := chuteOpeningWithin(at(ChuteOpenAltM+60), 1, radius, fall)
+	if !ok || math.Abs(tau-0.6) > 1e-6 || mid.R.Norm()-radius < ChuteOpenAltM || mid.R.Norm()-radius > ChuteOpenAltM+1e-4 {
+		t.Errorf("crossing at %.6f s, ok=%v, alt %.5f, want 0.6 s, just above %v", tau, ok, mid.R.Norm()-radius, ChuteOpenAltM)
+	}
+	if _, _, ok := chuteOpeningWithin(at(ChuteOpenAltM), 1, radius, fall); ok {
+		t.Error("a step that starts at the height crossed it")
+	}
+	if tau, _, ok := chuteOpeningWithin(at(ChuteOpenAltM+100), 1, radius, fall); !ok || math.Abs(tau-1) > 1e-6 {
+		t.Errorf("a step that ends exactly at the height: tau %.6f ok=%v, want 1 s", tau, ok)
+	}
+	if _, _, ok := chuteOpeningWithin(at(ChuteOpenAltM+100.001), 1, radius, fall); ok {
+		t.Error("a step that ends 1 mm above the height crossed it")
+	}
+}
