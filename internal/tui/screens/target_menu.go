@@ -34,6 +34,8 @@ const (
 	TargetMenuCommit // aim at Row()
 	TargetMenuDelete // ask to delete Row() (an own site)
 	TargetMenuRename // rename Row()'s site to RenameText()
+	TargetMenuAddLZ  // add an LZ to Row()'s site (an own flag)
+	TargetMenuDropLZ // take Row()'s last LZ away
 )
 
 const (
@@ -225,6 +227,13 @@ func (m *TargetMenu) HandleKey(s string) TargetMenuAction {
 			return TargetMenuNone
 		}
 		return TargetMenuCommit
+	case "+", "-":
+		if r, ok := m.Row(); ok && r.Own && r.Group == sim.GroupSites && !r.Wreck {
+			if s == "+" {
+				return TargetMenuAddLZ
+			}
+			return TargetMenuDropLZ
+		}
 	case "r", "d":
 		if r, ok := m.Row(); ok && r.Own && r.Group == sim.GroupSites {
 			if s == "d" {
@@ -333,13 +342,15 @@ func (m *TargetMenu) Render() string {
 		top = max(0, min(top, len(lines)-targetMenuBodyLines))
 		lines = lines[top : top+targetMenuBodyLines]
 	}
-	footer := "[↑/↓] pick  [enter] or [t] target"
+	footer, footer2 := "[↑/↓] pick  [enter] or [t] target", ""
 	r, ok := m.Row()
 	switch {
 	case m.renaming:
 		footer = "name: " + string(m.input) + "▏"
 	case ok && r.Own && r.Group == sim.GroupSites && pickable(r):
-		footer = "[←/→] LZ [r] rename [d] delete"
+		footer, footer2 = "[←/→] LZ [+] LZ [-] LZ", "[r] rename [d] delete [esc] close"
+	case ok && r.Own && r.Group == sim.GroupSites && !r.Wreck:
+		footer, footer2 = "[+] LZ [-] LZ", "[r] rename [d] delete [esc] close"
 	case ok && r.Own && r.Group == sim.GroupSites:
 		footer = "[r] rename [d] delete [esc] close"
 	case ok && pickable(r):
@@ -347,5 +358,8 @@ func (m *TargetMenu) Render() string {
 	}
 	body := append([]string{""}, lines...)
 	body = append(body, "", "  "+m.theme.Footer.Render(footer))
+	if footer2 != "" {
+		body = append(body, "  "+m.theme.Footer.Render(footer2))
+	}
 	return strings.Join(formBox(m.theme, "  "+m.theme.Title.Render("TARGET"), body, CardW), "\n")
 }

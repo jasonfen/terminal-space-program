@@ -111,3 +111,49 @@ func TestTargetDist(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0068 decision 2: + and - are card keys on an own flag only (not a
+// wreck, a partner's row or a shipped zone, which is not Own); the footer
+// names every key on lines that fit the card.
+func TestTargetMenuPlusMinusAndFooter(t *testing.T) {
+	flag := func(lzs int) sim.TargetRow {
+		return sim.TargetRow{Group: sim.GroupSites, Target: sim.Target{Kind: sim.TargetSite, SiteID: 7}, Name: "Flag-1", LZs: lzs, Own: true, DistM: 1}
+	}
+	cases := []struct {
+		name     string
+		row      sim.TargetRow
+		add, del TargetMenuAction
+		footer   []string
+	}{
+		{"own one-LZ flag", flag(1), TargetMenuAddLZ, TargetMenuDropLZ, []string{"[+] LZ [-] LZ", "[r] rename [d] delete [esc] close"}},
+		{"own nine-LZ flag", flag(9), TargetMenuAddLZ, TargetMenuDropLZ, []string{"[←/→] LZ [+] LZ [-] LZ", "[r] rename [d] delete [esc] close"}},
+		{"own wreck", sim.TargetRow{Group: sim.GroupSites, Name: "w", Own: true, Wreck: true}, 0, 0, []string{"[r] rename [d] delete [esc] close"}},
+		{"shipped zone", sim.TargetRow{Group: sim.GroupSites, Target: sim.Target{Kind: sim.TargetSite, SiteID: 1 << 62}, Name: "LC-13", LZs: 2}, 0, 0, []string{"[←/→] LZ"}},
+		{"partner site", sim.TargetRow{Group: sim.GroupPartners, Target: sim.Target{Kind: sim.TargetSite, GhostOwner: "fp"}, Name: "ansi: B", LZs: 3}, 0, 0, []string{"[←/→] LZ"}},
+	}
+	for _, c := range cases {
+		m := NewTargetMenu(Theme{})
+		m.body = "MOON"
+		m.rows = []sim.TargetRow{c.row}
+		if got := m.HandleKey("+"); got != c.add {
+			t.Errorf("%s: + = %v, want %v", c.name, got, c.add)
+		}
+		if got := m.HandleKey("-"); got != c.del {
+			t.Errorf("%s: - = %v, want %v", c.name, got, c.del)
+		}
+		out := m.Render()
+		for _, f := range c.footer {
+			if !strings.Contains(out, f) {
+				t.Errorf("%s: footer lacks %q:\n%s", c.name, f, out)
+			}
+		}
+		if c.add == 0 && (strings.Contains(out, "[+]") || strings.Contains(out, "[-]")) {
+			t.Errorf("%s: footer offers + or -:\n%s", c.name, out)
+		}
+		for i, ln := range strings.Split(out, "\n") {
+			if w := lipgloss.Width(ln); w != CardW {
+				t.Errorf("%s: line %d is %d cells, want %d", c.name, i, w, CardW)
+			}
+		}
+	}
+}

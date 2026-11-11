@@ -164,3 +164,67 @@ func TestTargetNameVanishedPartnerSiteIsPending(t *testing.T) {
 		t.Errorf("name = %q, want pending target lock", got)
 	}
 }
+
+// ADR 0068 guard 3 (S6): the eighth + makes nine LZs, the next adds nothing
+// (the equal case is the cap itself); a stamp moves so the ledger re-publishes.
+func TestAddLZStopsAtNineAndStampsTheSite(t *testing.T) {
+	w, _, _ := moonLZWorld(t)
+	id := w.Sites[0].ID
+	w.Sites[0].LZCount = 1
+	w.Sites[0].UpdatedAtNano = 1
+	for n := 2; n <= SiteMaxLZs; n++ {
+		if !w.AddLZ(id) || w.Sites[0].LZs() != n {
+			t.Fatalf("+ number %d: LZs = %d, want %d", n-1, w.Sites[0].LZs(), n)
+		}
+	}
+	if w.Sites[0].UpdatedAtNano <= 1 {
+		t.Error("+ did not stamp the site, so the ledger would never see it")
+	}
+	if w.AddLZ(id) || w.Sites[0].LZs() != SiteMaxLZs {
+		t.Errorf("the tenth LZ was added: %d", w.Sites[0].LZs())
+	}
+	if w.AddLZ(id+99) || w.AddLZ(shippedZones[0].ID) {
+		t.Error("+ reached a site you do not own")
+	}
+	w.Sites[0].Kind, w.Sites[0].LZCount = SiteWreck, 1
+	if w.AddLZ(id) {
+		t.Error("+ added an LZ to a wreck")
+	}
+}
+
+// ADR 0068 guards 3 and 12: - takes the last LZ, but not the only one, not one
+// a vessel holds a claim on, and not one a vessel stands on.
+func TestRemoveLZRefusesTheOnlyTheClaimedAndTheOccupied(t *testing.T) {
+	w, c, o := moonLZWorld(t) // two LZs
+	id := w.Sites[0].ID
+	w.Sites[0].LZNames = []string{"", "Bravo"}
+	c.LZClaim = spacecraft.LZClaim{SiteID: id, N: 2}
+	if w.RemoveLZ(id) || w.Sites[0].LZs() != 2 {
+		t.Fatal("- removed an LZ a vessel is flying to")
+	}
+	c.LZClaim = spacecraft.LZClaim{SiteID: id, N: 1} // the equal case: a claim on another LZ does not block
+	stamp := w.Sites[0].UpdatedAtNano
+	w.Target.LZ = 2
+	if !w.RemoveLZ(id) || w.Sites[0].LZs() != 1 || len(w.Sites[0].LZNames) != 1 || w.Target.LZ != 0 || w.Sites[0].UpdatedAtNano <= stamp {
+		t.Fatalf("- on a free last LZ: LZs %d names %v target LZ %d", w.Sites[0].LZs(), w.Sites[0].LZNames, w.Target.LZ)
+	}
+	c.LZClaim = spacecraft.LZClaim{} // nothing holds LZ-1, so only the count can refuse
+	if w.RemoveLZ(id) || w.Sites[0].LZCount != 1 {
+		t.Error("- took the only LZ away")
+	}
+	w.Sites[0].LZCount = 2
+	c.LZClaim = spacecraft.LZClaim{}
+	lat, lon := w.Sites[0].lzLatLon(2, w.siteRadiusM(w.Sites[0]))
+	standOn(o, lat, lon)
+	if w.RemoveLZ(id) || w.Sites[0].LZs() != 2 {
+		t.Error("- removed an LZ with a vessel standing on it")
+	}
+	w.Sites[0].Kind = SiteWreck
+	standOn(o, 0, 0)
+	if w.RemoveLZ(id) {
+		t.Error("- touched a wreck")
+	}
+	if w.RemoveLZ(shippedZones[0].ID) || shippedZones[0].LZs() != 2 {
+		t.Error("- touched a shipped zone")
+	}
+}

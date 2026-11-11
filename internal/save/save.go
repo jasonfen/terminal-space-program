@@ -144,7 +144,12 @@ import (
 // nav_mode onto the active vessel (the others start on ORBIT). The envelope
 // key is read for that and no longer written. The bump makes a v22 binary
 // refuse a v23 envelope instead of dropping every vessel's frame.
-const SchemaVersion = 23
+//
+// ADR 0068 S6 bumps to v24 - Site.lz_count / lz_names, Target.lz and
+// Craft.lz_claim: a site's LZs, the LZ chosen on the t card and the LZ a vessel
+// holds. All additive: a v23 save reads one LZ, auto and no claim, so there is
+// no transform and no migrate function.
+const SchemaVersion = 24
 
 // LandingWire is spacecraft.LandingAutopilot on the wire (schema v22). Only
 // state that cannot be re-derived is saved: the brake's pitch-up, track plane
@@ -264,21 +269,31 @@ type Target struct {
 	CraftID    uint64 `json:"craft_id,omitempty"`  // v7+ stable ID
 	GhostOwner string `json:"ghost_owner,omitempty"`
 	SiteID     uint64 `json:"site_id,omitempty"` // schema v21 (ADR 0066)
+	LZ         int    `json:"lz,omitempty"`      // schema v24 (ADR 0068): 0 = auto
+}
+
+// LZClaimWire is spacecraft.LZClaim on the wire (schema v24).
+type LZClaimWire struct {
+	Owner  string `json:"owner,omitempty"`
+	SiteID uint64 `json:"site_id"`
+	N      int    `json:"n"`
 }
 
 // Site is sim.Site on the wire (schema v21).
 type Site struct {
-	ID            uint64  `json:"id"`
-	Body          string  `json:"body"`
-	System        string  `json:"system"`
-	LatDeg        float64 `json:"lat_deg"`
-	LonDeg        float64 `json:"lon_deg"`
-	Kind          int     `json:"kind,omitempty"`
-	Name          string  `json:"name"`
-	CraftID       uint64  `json:"craft_id,omitempty"`
-	Owner         string  `json:"owner,omitempty"`
-	PlantedAtNano int64   `json:"planted_at_nano,omitempty"`
-	UpdatedAtNano int64   `json:"updated_at_nano,omitempty"`
+	ID            uint64   `json:"id"`
+	Body          string   `json:"body"`
+	System        string   `json:"system"`
+	LatDeg        float64  `json:"lat_deg"`
+	LonDeg        float64  `json:"lon_deg"`
+	Kind          int      `json:"kind,omitempty"`
+	Name          string   `json:"name"`
+	CraftID       uint64   `json:"craft_id,omitempty"`
+	Owner         string   `json:"owner,omitempty"`
+	PlantedAtNano int64    `json:"planted_at_nano,omitempty"`
+	UpdatedAtNano int64    `json:"updated_at_nano,omitempty"`
+	LZCount       int      `json:"lz_count,omitempty"` // schema v24 (ADR 0068): absent = one LZ
+	LZNames       []string `json:"lz_names,omitempty"`
 }
 
 // Vec3 is the wire form of orbital.Vec3.
@@ -418,7 +433,8 @@ type Craft struct {
 	BatchLead                 bool         `json:"batch_lead,omitempty"`
 	BatchClampExemptUntilNano int64        `json:"batch_clamp_exempt_until_unix_nano,omitempty"`
 	Raise                     *RaiseWire   `json:"raise,omitempty"`
-	Landing                   *LandingWire `json:"landing,omitempty"` // schema v22 (ADR 0067)
+	Landing                   *LandingWire `json:"landing,omitempty"`  // schema v22 (ADR 0067)
+	LZClaim                   *LZClaimWire `json:"lz_claim,omitempty"` // schema v24 (ADR 0068): absent = no claim
 	NavMode                   int          `json:"nav_mode,omitempty"` // schema v23 (ADR 0067 P22): this vessel's navball frame; ORBIT=0 omitted
 
 	// Crashed / CanSoftLand / OnPad / LandedLatDeg / LandedLonDeg
@@ -930,7 +946,8 @@ func payloadFromWorld(w *sim.World) Payload {
 	for _, st := range w.Sites {
 		p.Sites = append(p.Sites, Site{ID: st.ID, Body: st.Body, System: st.System, LatDeg: st.LatDeg, LonDeg: st.LonDeg,
 			Kind: int(st.Kind), Name: st.Name, CraftID: st.CraftID, Owner: st.Owner,
-			PlantedAtNano: st.PlantedAtNano, UpdatedAtNano: st.UpdatedAtNano})
+			PlantedAtNano: st.PlantedAtNano, UpdatedAtNano: st.UpdatedAtNano,
+			LZCount: st.LZCount, LZNames: st.LZNames})
 	}
 	p.NextSiteID = w.NextSiteID
 	p.SaveID = w.SaveID
@@ -1015,7 +1032,8 @@ func worldFromPayload(p Payload, systems []bodies.System) (*sim.World, error) {
 	for _, st := range p.Sites {
 		w.Sites = append(w.Sites, sim.Site{ID: st.ID, Body: st.Body, System: st.System, LatDeg: st.LatDeg, LonDeg: st.LonDeg,
 			Kind: sim.SiteKind(st.Kind), Name: st.Name, CraftID: st.CraftID, Owner: st.Owner,
-			PlantedAtNano: st.PlantedAtNano, UpdatedAtNano: st.UpdatedAtNano})
+			PlantedAtNano: st.PlantedAtNano, UpdatedAtNano: st.UpdatedAtNano,
+			LZCount: st.LZCount, LZNames: st.LZNames})
 	}
 	w.NextSiteID = p.NextSiteID
 	if w.SaveID = p.SaveID; w.SaveID == "" {

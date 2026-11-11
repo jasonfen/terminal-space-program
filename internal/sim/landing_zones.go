@@ -100,6 +100,9 @@ func (s Site) lzLabel(n int) string {
 	if s.LZs() == 1 {
 		return s.Name
 	}
+	if n <= len(s.LZNames) && s.LZNames[n-1] != "" {
+		return s.Name + " " + s.LZNames[n-1]
+	}
 	return fmt.Sprintf("%s LZ-%d", s.Name, n)
 }
 

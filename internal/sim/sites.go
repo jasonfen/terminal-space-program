@@ -38,9 +38,12 @@ type Site struct {
 	Owner         string
 	PlantedAtNano int64 // wall clock; decision 5 reconciles by it
 	UpdatedAtNano int64
-	// LZCount and Layout (ADR 0068): zero is one LZ in the honeycomb. In memory
-	// only until the save slice; only the shipped zones set them.
+	// LZCount, LZNames and Layout (ADR 0068): zero is one LZ in the honeycomb.
+	// LZCount and LZNames are saved and in the ledger (schema 24, meta 7);
+	// LZNames[n-1] is LZ n's name, "" or absent is "LZ-n". Layout is shipped
+	// zones only, never saved.
 	LZCount int
+	LZNames []string
 	Layout  LZLayout
 }
 
@@ -178,6 +181,42 @@ func (w *World) RenameSite(id uint64, name string) bool {
 			w.Sites[i].UpdatedAtNano = time.Now().UnixNano()
 			return true
 		}
+	}
+	return false
+}
+
+// AddLZ gives one of your own flags another LZ, up to SiteMaxLZs (decision 2).
+// False for a partner's site, a shipped zone, a wreck, or a full site.
+func (w *World) AddLZ(id uint64) bool {
+	for i := range w.Sites {
+		s := &w.Sites[i]
+		if s.ID != id || s.Kind == SiteWreck || s.LZs() >= SiteMaxLZs {
+			continue
+		}
+		s.LZCount = s.LZs() + 1
+		s.UpdatedAtNano = time.Now().UnixNano()
+		return true
+	}
+	return false
+}
+
+// RemoveLZ takes the last LZ of one of your own flags away unless it is the
+// only one, or a vessel stands on it or holds a claim on it (decisions 2, 12).
+func (w *World) RemoveLZ(id uint64) bool {
+	for i := range w.Sites {
+		s := &w.Sites[i]
+		if s.ID != id || s.Kind == SiteWreck || s.LZs() <= 1 || w.lzTaken(*s, s.LZs(), nil) {
+			continue
+		}
+		n := s.LZs()
+		s.LZCount = n - 1
+		s.LZNames = s.LZNames[:min(len(s.LZNames), n-1)]
+		s.UpdatedAtNano = time.Now().UnixNano()
+		if w.Target.Kind == TargetSite && w.Target.GhostOwner == "" && w.Target.SiteID == id && w.Target.LZ == n {
+			w.Target.LZ = 0 // the LZ chosen on the card is gone: back to auto
+			w.mirrorTargetToActiveCraft()
+		}
+		return true
 	}
 	return false
 }
