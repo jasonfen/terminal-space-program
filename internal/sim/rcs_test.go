@@ -251,3 +251,34 @@ func TestSiteRCSPulseIgnoresRCSThrust(t *testing.T) {
 		t.Errorf("pulse dv %.9f at 890 N vs %.9f at 1 N, want equal", a, b)
 	}
 }
+
+// ADR 0069 decision 6: `r` cycles main, superdraco, rcs on a Dragon and the
+// old main, rcs on a vessel with RCS but no second engine (the equal case).
+func TestCycleEngineModeVisitsSuperDracoOnlyOnADragon(t *testing.T) {
+	w, c, _ := fallWorld(t, "dragon-crew", boosterFall{altM: 4600, downMps: 250, fuelKg: 2562})
+	var got []spacecraft.EngineMode
+	for i := 0; i < 4; i++ {
+		w.CycleEngineMode()
+		got = append(got, c.EngineMode)
+	}
+	want := []spacecraft.EngineMode{spacecraft.EngineSuperDraco, spacecraft.EngineRCS, spacecraft.EngineMain, spacecraft.EngineSuperDraco}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("Dragon cycle %v, want %v", got, want)
+		}
+	}
+	w2, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c2 := w2.ActiveCraft()
+	if c2.HasSuperDraco() {
+		t.Fatal("default craft has SuperDracos, the equal case needs one without")
+	}
+	w2.CycleEngineMode()
+	w2.CycleEngineMode()
+	w2.CycleEngineMode()
+	if c2.EngineMode != spacecraft.EngineRCS {
+		t.Errorf("three presses on a vessel without them = %v, want rcs (main, rcs, main, rcs)", c2.EngineMode)
+	}
+}
