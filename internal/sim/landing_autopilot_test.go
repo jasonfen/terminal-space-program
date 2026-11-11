@@ -1103,15 +1103,16 @@ func TestChuteCutRuleBoundaries(t *testing.T) {
 	if need > afford {
 		t.Fatalf("setup: need %.1f s over afford %.1f s", need, afford)
 	}
-	cut := func(inSec float64) (r bool) {
-		c.OnLandingBrake(func() { r = w.chuteAimCut(c, f, time.Duration(inSec*float64(time.Second))) })
+	cut := func(in time.Duration) (r bool) {
+		c.OnLandingBrake(func() { r = w.chuteAimCut(c, f, in) })
 		return r
 	}
-	if !cut(need) { // the equal case
-		t.Errorf("did not cut %.6f s from the cue with exactly that needed", need)
+	lead := time.Duration(need * float64(time.Second))
+	if !cut(lead) { // the equal case
+		t.Errorf("did not cut %v from the cue with exactly that needed", lead)
 	}
-	if cut(need + 1e-3) {
-		t.Errorf("cut %.3f s from the cue with %.1f s needed", need+1e-3, need)
+	if cut(lead + time.Nanosecond) {
+		t.Errorf("cut %v from the cue with %v needed", lead+time.Nanosecond, lead)
 	}
 	if !cut(0) {
 		t.Error("did not cut at the cue itself")

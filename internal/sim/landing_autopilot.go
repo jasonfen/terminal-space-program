@@ -270,7 +270,7 @@ func (w *World) chuteAimCut(c *spacecraft.Spacecraft, f apFrame, in time.Duratio
 	// burn lasts 2v/(v+2) times the lead
 	v := math.Max(-f.vz, OneBurnContactMps)
 	afford := ChuteAimFuelFrac * c.Isp * stdGravityMps2 * c.ActiveStageFuel() / (c.TotalMass() * f.g) * (v + OneBurnContactMps) / (2 * v)
-	return need <= afford && in.Seconds() <= need
+	return need <= afford && in <= time.Duration(need*float64(time.Second))
 }
 
 // landingAutopilotWarpLimit is the warp ceiling the engaged autopilots impose

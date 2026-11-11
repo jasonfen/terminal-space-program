@@ -325,11 +325,20 @@ func TestForecastFliesTheArmedChuteAndFindsAShortCue(t *testing.T) {
 			t.Errorf("chute %v: impact at %.1f m/s, want bare=%v (over 30) or the canopy's few m/s", state, imp.SpeedMps, bare)
 		}
 	}
-	_, c, _ := fallWorld(t, "dragon-crew", boosterFall{altM: 20, downMps: 20, fuelKg: 2562})
+	_, c, _ := fallWorld(t, "dragon-crew", boosterFall{altM: 6, downMps: 10, fuelKg: 2562})
 	noChute(c)
 	var ground, ok bool
 	c.OnLandingBrake(func() { _, ground, ok = burnAtCue(c, DescentPredictHorizon, brakeThrottle(c), burnAtRefineIters) })
 	if !ground || !ok {
-		t.Errorf("a 20 m fall at 20 m/s the SuperDracos can stop: ground=%v ok=%v, want a cue to light at", ground, ok)
+		t.Errorf("a 6 m fall at 10 m/s the SuperDracos can stop: ground=%v ok=%v, want a cue to light at", ground, ok)
+	}
+	// the brake is forecast bare: the autopilot cuts the chute at the light, so the
+	// canopy's drag (450 m/s^2 at 50 m/s on Earth) must not shorten the stop
+	_, c, _ = fallWorld(t, "dragon-crew", boosterFall{altM: 60, downMps: 50, fuelKg: 2562})
+	c.ChuteState = spacecraft.ChuteDeployed
+	var pred PoweredStopPrediction
+	c.OnLandingBrake(func() { pred, ok = predictPoweredStopFromAt(c.State, c, DescentPredictHorizon, brakeThrottle(c)) })
+	if !ok || pred.MarginM > 45 {
+		t.Errorf("stop forecast under a worked chute: ok=%v margin %.1f m, want a bare brake (about 30 m of 60 m left, not the canopy's 58)", ok, pred.MarginM)
 	}
 }
