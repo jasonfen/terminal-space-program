@@ -1171,3 +1171,39 @@ func TestDragonLandsInsideTheCircleAtEveryWarp(t *testing.T) {
 		check(fmt.Sprintf("LC-13 fall %vx", f), w, c)
 	}
 }
+
+// Jason 2026-11-11: a vessel that lands holds surface radial (Radial+, no pitch
+// trim, straight up) on the SURF navball, so the next liftoff goes straight
+// up. Autoland and hand landings alike; a background vessel's own navball
+// frame changes, not the active vessel's.
+func TestLandedVesselHoldsSurfaceRadial(t *testing.T) {
+	w, c := entryWorld(t, "", "mars", "Ground-Station-Lander", 150e3, true)
+	c.PitchTrim = 0.2
+	ev, _ := flyEntry(t, w, c)
+	w.Tick() // the autopilot's own close-out runs the tick after contact
+	if !c.Landed || ev.Crashed {
+		t.Fatalf("setup: landed=%v crashed=%v", c.Landed, ev.Crashed)
+	}
+	if c.AttitudeMode != spacecraft.BurnRadialOut || c.PitchTrim != 0 || w.NavMode != NavSurface {
+		t.Errorf("after an autoland: hold %v, pitch trim %v, nav %v; want Radial+, 0, SURF", c.AttitudeMode, c.PitchTrim, w.NavMode)
+	}
+
+	// A hand landing by a background vessel: its own frame, not the active one's.
+	o, err := w.SpawnCraft(SpawnSpec{Alongside: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Primary, o.Landed = c.Primary, false
+	o.AttitudeMode, o.NavFrame = spacecraft.BurnPrograde, int(NavOrbit)
+	w.NavMode = NavSite
+	for i, v := range w.Crafts {
+		if v == c {
+			w.ActiveCraftIdx = i
+		}
+	}
+	lat, lon := c.LandedLatDeg+0.1, c.LandedLonDeg
+	w.applySurfaceArrival(o, physics.StateVector{R: o.State.R, V: o.State.V, M: o.State.M}, outcomeLanded, lat, lon)
+	if o.AttitudeMode != spacecraft.BurnRadialOut || o.NavFrame != int(NavSurface) || w.NavMode != NavSite {
+		t.Errorf("background hand landing: hold %v, frame %v, active nav %v; want Radial+, SURF, active untouched (SITE)", o.AttitudeMode, o.NavFrame, w.NavMode)
+	}
+}
