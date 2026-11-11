@@ -66,7 +66,11 @@ import (
 // v6 (ADR 0066 decision 5): adds Sites, the surface-site ledger (flags and
 // wrecks of every player, so they outlive their owner's session and a
 // restart). A v5 file has none; migrateMetaV5ToV6 leaves Sites empty.
-const MetaVersion = 6
+//
+// v7 (ADR 0068 decision 13): each SiteLink gains lz_count and lz_names, the
+// base as its owner laid it out. Additive: a v6 record reads one LZ, so there
+// is no transform and no migrate function.
+const MetaVersion = 7
 
 // Roster roles. Host is the session's root operator (ADR 0034): the
 // player whose machine runs the session, with invite/removal authority
@@ -259,19 +263,21 @@ type Meta struct {
 // cross-player identity, the wire's and the ghosts'), not the English name a
 // World stores. Kind is sim.SiteKind.
 type SiteLink struct {
-	Owner         string  `json:"owner"`
-	OwnerHandle   string  `json:"owner_handle,omitempty"`
-	ID            uint64  `json:"id"`
-	BodyID        string  `json:"body_id"`
-	System        string  `json:"system"`
-	LatDeg        float64 `json:"lat_deg"`
-	LonDeg        float64 `json:"lon_deg"`
-	Kind          int     `json:"kind,omitempty"`
-	Name          string  `json:"name"`
-	CraftID       uint64  `json:"craft_id,omitempty"`
-	PlantedAtNano int64   `json:"planted_at_nano"`
-	UpdatedAtNano int64   `json:"updated_at_nano"`
-	SaveID        string  `json:"save_id,omitempty"` // #891: the owner's save this site came from; empty = pre-#891
+	Owner         string   `json:"owner"`
+	OwnerHandle   string   `json:"owner_handle,omitempty"`
+	ID            uint64   `json:"id"`
+	BodyID        string   `json:"body_id"`
+	System        string   `json:"system"`
+	LatDeg        float64  `json:"lat_deg"`
+	LonDeg        float64  `json:"lon_deg"`
+	Kind          int      `json:"kind,omitempty"`
+	Name          string   `json:"name"`
+	CraftID       uint64   `json:"craft_id,omitempty"`
+	PlantedAtNano int64    `json:"planted_at_nano"`
+	UpdatedAtNano int64    `json:"updated_at_nano"`
+	LZCount       int      `json:"lz_count,omitempty"` // v7 (ADR 0068): 0 = one LZ
+	LZNames       []string `json:"lz_names,omitempty"`
+	SaveID        string   `json:"save_id,omitempty"` // #891: the owner's save this site came from; empty = pre-#891
 }
 
 // Store owns one session directory. All mutations re-read

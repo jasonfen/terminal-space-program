@@ -199,7 +199,11 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 			CraftID:    c.Target.CraftID,
 			GhostOwner: c.Target.GhostOwner,
 			SiteID:     c.Target.SiteID,
+			LZ:         c.Target.LZ,
 		}
+	}
+	if k := c.LZClaim; k.N > 0 { // schema v24 (ADR 0068)
+		wc.LZClaim = &LZClaimWire{Owner: k.Owner, SiteID: k.SiteID, N: k.N}
 	}
 	// ADR 0059 (schema v17): batch tag and raise order.
 	wc.BatchID, wc.BatchLead, wc.Raise = c.BatchID, c.BatchLead, raiseToWire(c.Raise)
@@ -488,7 +492,11 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			CraftID:    wc.Target.CraftID,
 			GhostOwner: wc.Target.GhostOwner,
 			SiteID:     wc.Target.SiteID,
+			LZ:         wc.Target.LZ,
 		}
+	}
+	if k := wc.LZClaim; k != nil {
+		c.LZClaim = spacecraft.LZClaim{Owner: k.Owner, SiteID: k.SiteID, N: k.N}
 	}
 	c.BatchID, c.BatchLead, c.Raise = wc.BatchID, wc.BatchLead, raiseFromWire(wc.Raise)
 	c.Landing = landingFromWire(wc.Landing)

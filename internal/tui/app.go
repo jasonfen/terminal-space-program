@@ -5139,6 +5139,16 @@ func (a *App) handleTargetMenuKey(m tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if r, ok := a.targetMenu.Row(); ok {
 			a.askDeleteSite(r)
 		}
+	case screens.TargetMenuAddLZ, screens.TargetMenuDropLZ:
+		// HandleKey returned which; the key is the action, so read it again.
+		if r, ok := a.targetMenu.Row(); ok {
+			if m.String() == "+" {
+				a.world.AddLZ(r.SiteID)
+			} else {
+				a.world.RemoveLZ(r.SiteID)
+			}
+			a.targetMenu.Refresh(a.world)
+		}
 	}
 	return a, nil
 }

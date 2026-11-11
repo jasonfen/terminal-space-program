@@ -252,3 +252,22 @@ func TestTargetMenuRenameTypesText(t *testing.T) {
 		t.Errorf("esc in the field changed the name or closed the menu")
 	}
 }
+
+// ADR 0068 decision 2: + and - on your own flag's row add and drop LZs through
+// the real key path, and the menu stays open for the next press.
+func TestTargetMenuPlusMinusAddAndDropLZs(t *testing.T) {
+	a := moonSiteApp(t)
+	pickSiteRow(t, a)
+	for i := 0; i < 10; i++ {
+		pressKey(a, '+')
+	}
+	if got := a.world.Sites[0].LZs(); got != sim.SiteMaxLZs || !a.targetMenuOpen {
+		t.Fatalf("ten + gave %d LZs (menu open %v), want %d", got, a.targetMenuOpen, sim.SiteMaxLZs)
+	}
+	for i := 0; i < 20; i++ {
+		pressKey(a, '-')
+	}
+	if got := a.world.Sites[0].LZs(); got != 1 || !a.targetMenuOpen {
+		t.Errorf("twenty - left %d LZs (menu open %v), want 1", got, a.targetMenuOpen)
+	}
+}

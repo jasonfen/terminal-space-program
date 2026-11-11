@@ -125,11 +125,11 @@ func TestEveryFixtureStillLoads(t *testing.T) {
 	}
 }
 
-// The writer stamps 23, so a v22 reader (accepts [1,22]) refuses the file;
+// The writer stamps 24, so a v23 reader (accepts [1,23]) refuses the file;
 // a version past ours is refused here for the same reason.
-func TestWriterStampsV23AndNewerIsRefused(t *testing.T) {
-	if save.SchemaVersion != 23 {
-		t.Fatalf("SchemaVersion = %d, want 23", save.SchemaVersion)
+func TestWriterStampsV24AndNewerIsRefused(t *testing.T) {
+	if save.SchemaVersion != 24 {
+		t.Fatalf("SchemaVersion = %d, want 24", save.SchemaVersion)
 	}
 	w, _ := slsSaveWorld(t)
 	path := filepath.Join(t.TempDir(), "save.json")
@@ -141,10 +141,10 @@ func TestWriterStampsV23AndNewerIsRefused(t *testing.T) {
 	if err := json.Unmarshal(raw, &f); err != nil {
 		t.Fatal(err)
 	}
-	if f.Version != 23 {
-		t.Errorf("written version = %d, want 23", f.Version)
+	if f.Version != 24 {
+		t.Errorf("written version = %d, want 24", f.Version)
 	}
-	f.Version = 24
+	f.Version = 25
 	raw, _ = json.Marshal(f)
 	_ = os.WriteFile(path, raw, 0o644)
 	if _, err := save.Load(path); !errors.Is(err, save.ErrSchemaMismatch) {
