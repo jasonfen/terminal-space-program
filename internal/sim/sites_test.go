@@ -208,7 +208,8 @@ func TestRemoveLZRefusesTheOnlyTheClaimedAndTheOccupied(t *testing.T) {
 	if !w.RemoveLZ(id) || w.Sites[0].LZs() != 1 || len(w.Sites[0].LZNames) != 1 || w.Target.LZ != 0 || w.Sites[0].UpdatedAtNano <= stamp {
 		t.Fatalf("- on a free last LZ: LZs %d names %v target LZ %d", w.Sites[0].LZs(), w.Sites[0].LZNames, w.Target.LZ)
 	}
-	if w.RemoveLZ(id) || w.Sites[0].LZs() != 1 {
+	c.LZClaim = spacecraft.LZClaim{} // nothing holds LZ-1, so only the count can refuse
+	if w.RemoveLZ(id) || w.Sites[0].LZCount != 1 {
 		t.Error("- took the only LZ away")
 	}
 	w.Sites[0].LZCount = 2
