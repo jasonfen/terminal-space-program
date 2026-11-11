@@ -219,6 +219,13 @@ func TestAttitudeHoldPartsNamesFrame(t *testing.T) {
 		{NavPort, spacecraft.BurnInertial, "Inertial", NavOrbit},  // the mode's frame, not the live NavMode
 		{NavOrbit, spacecraft.BurnSite, "Site+", NavSite},         // ADR 0067: frame-locked to the site
 		{NavOrbit, spacecraft.BurnSiteOut, "Site\u2212", NavSite}, // P10: e in SITE
+		// Jason 2026-11-11: Radial is the same direction in ORBIT and SURF, so
+		// its tag follows the navball between those two; elsewhere it stays ORBIT.
+		{NavSurface, spacecraft.BurnRadialOut, spacecraft.BurnRadialOut.String(), NavSurface},
+		{NavSurface, spacecraft.BurnRadialIn, spacecraft.BurnRadialIn.String(), NavSurface},
+		{NavOrbit, spacecraft.BurnRadialOut, spacecraft.BurnRadialOut.String(), NavOrbit},
+		{NavPort, spacecraft.BurnRadialOut, spacecraft.BurnRadialOut.String(), NavOrbit},
+		{NavSurface, spacecraft.BurnPrograde, "Prograde", NavOrbit}, // only Radial follows
 	}
 	for _, tc := range cases {
 		w.NavMode = tc.nav
@@ -226,6 +233,24 @@ func TestAttitudeHoldPartsNamesFrame(t *testing.T) {
 		if label != tc.wantLabel || frame != tc.wantFrame {
 			t.Errorf("nav %v mode %v: got (%q, %v), want (%q, %v)", tc.nav, tc.mode, label, frame, tc.wantLabel, tc.wantFrame)
 		}
+	}
+	// A background vessel's row reads its own frame, not the active one's.
+	active := w.ActiveCraft()
+	o, err := w.SpawnCraft(SpawnSpec{Alongside: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, v := range w.Crafts {
+		if v == active {
+			w.ActiveCraftIdx = i
+		}
+	}
+	if o == w.ActiveCraft() {
+		t.Fatal("setup: the spawned vessel is still active")
+	}
+	w.NavMode, o.NavFrame = NavOrbit, int(NavSurface)
+	if _, frame := w.attitudeHoldPartsFor(o, spacecraft.BurnRadialOut); frame != NavSurface {
+		t.Errorf("background vessel on SURF: Radial+ tagged %v, want SURF", frame)
 	}
 }
 

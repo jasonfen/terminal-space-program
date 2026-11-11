@@ -355,6 +355,16 @@ func (w *World) attitudeHoldPartsFor(c *spacecraft.Spacecraft, mode spacecraft.B
 		frame = NavPort
 	case spacecraft.BurnSite, spacecraft.BurnSiteOut:
 		frame = NavSite // ADR 0067: Site+ / Site- are frame-locked to the site
+	case spacecraft.BurnRadialOut, spacecraft.BurnRadialIn:
+		// Radial is the same direction in ORBIT and SURF: its tag follows the
+		// vessel's navball between those two (Jason 2026-11-11).
+		nav := w.NavMode
+		if c != nil && c != w.ActiveCraft() {
+			nav = NavMode(c.NavFrame)
+		}
+		if nav == NavSurface {
+			frame = NavSurface
+		}
 	}
 	// #478 A2: the bracket tag already names the frame, so a surface-
 	// framed mode drops its own redundant "Surface " word ("Surface

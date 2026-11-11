@@ -199,7 +199,9 @@ func TestAttitudeHoldLabelTargetModeAlwaysTagsTgt(t *testing.T) {
 // surface-frame normal in the game). Reproduced live: KSC pad (nav
 // SURFACE by default), press `a` -> `hold: Normal+ (SURF)`; in flight,
 // `w` then `;` -> `hold: Prograde (SURF)` while the nose still holds
-// orbit-frame prograde.
+// orbit-frame prograde. Radial+/- is the exception: orbit radial and
+// surface radial are the same line (local vertical), so its tag follows
+// the navball (SURF under nav:SURFACE), Jason's pick 2026-11-11.
 func TestAttitudeHoldLabelBaseModesAlwaysTagOrbit(t *testing.T) {
 	cases := []struct {
 		name string
@@ -214,6 +216,10 @@ func TestAttitudeHoldLabelBaseModesAlwaysTagOrbit(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			want, not := "(ORBIT)", "(SURF)"
+			if tc.mode == spacecraft.BurnRadialOut || tc.mode == spacecraft.BurnRadialIn {
+				want, not = not, want
+			}
 			w := proximityWorld(t, orbital.Vec3{X: 1_000})
 			w.NavMode = sim.NavSurface
 			c := w.ActiveCraft()
@@ -221,11 +227,8 @@ func TestAttitudeHoldLabelBaseModesAlwaysTagOrbit(t *testing.T) {
 
 			v := newProximityTestView(t, 80, 24)
 			row := holdRow(t, v.buildGuidanceBox(w))
-			if !strings.Contains(row, "(ORBIT)") {
-				t.Errorf("hold row = %q, want a base mode to tag (ORBIT) even under nav:SURFACE (the nose has no surface-frame equivalent for this mode)", row)
-			}
-			if strings.Contains(row, "(SURF)") {
-				t.Errorf("hold row = %q, must not claim SURF for a mode the nose never rebinds to surface frame", row)
+			if !strings.Contains(row, want) || strings.Contains(row, not) {
+				t.Errorf("hold row = %q under nav:SURFACE, want %s and not %s", row, want, not)
 			}
 		})
 	}
