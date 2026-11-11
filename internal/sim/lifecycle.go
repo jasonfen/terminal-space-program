@@ -266,6 +266,15 @@ func (w *World) applySurfaceArrival(c *spacecraft.Spacecraft, clamped physics.St
 		if rMag := c.State.R.Norm(); rMag > 0 {
 			c.CurrentAttitudeDir = c.State.R.Scale(1 / rMag)
 		}
+		// Landed, a vessel holds surface radial on the SURF navball (Jason
+		// 2026-11-11), so the next liftoff goes straight up; the active vessel's
+		// frame lives on the World, a background vessel's on itself.
+		c.AttitudeMode, c.PitchTrim = spacecraft.BurnRadialOut, 0
+		if c == w.ActiveCraft() {
+			w.NavMode = NavSurface
+		} else {
+			c.NavFrame = int(NavSurface)
+		}
 	case outcomeCrashed:
 		c.Crashed = true
 		// ADR 0066 decision 8: remember the crater; the wreck is pinned to it
