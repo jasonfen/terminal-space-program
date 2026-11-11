@@ -308,3 +308,28 @@ func TestUnspinNoSpinIsIdentity(t *testing.T) {
 		t.Errorf("unspun %v, want %v", got, p)
 	}
 }
+
+// ADR 0069 decision 8: the forecast of a vessel that works its chute flies the
+// canopy below the opening height (a stowed one falls bare), and a fall shorter
+// than one forecast sub-step still has a cue to light at.
+func TestForecastFliesTheArmedChuteAndFindsAShortCue(t *testing.T) {
+	b := boosterFall{altM: 1500, downMps: 60, fuelKg: 2562}
+	for state, bare := range map[spacecraft.ChuteState]bool{spacecraft.ChuteStowed: true, spacecraft.ChuteArmed: false} {
+		_, c, _ := fallWorld(t, "dragon-crew", b)
+		c.ChuteState = state
+		imp, ok := PredictImpact(c, 10*time.Minute)
+		if !ok {
+			t.Fatalf("chute %v: no impact", state)
+		}
+		if bare != (imp.SpeedMps > 30) {
+			t.Errorf("chute %v: impact at %.1f m/s, want bare=%v (over 30) or the canopy's few m/s", state, imp.SpeedMps, bare)
+		}
+	}
+	_, c, _ := fallWorld(t, "dragon-crew", boosterFall{altM: 20, downMps: 20, fuelKg: 2562})
+	noChute(c)
+	var ground, ok bool
+	c.OnLandingBrake(func() { _, ground, ok = burnAtCue(c, DescentPredictHorizon, brakeThrottle(c), burnAtRefineIters) })
+	if !ground || !ok {
+		t.Errorf("a 20 m fall at 20 m/s the SuperDracos can stop: ground=%v ok=%v, want a cue to light at", ground, ok)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"reflect"
 	"testing"
 	"time"
 
@@ -984,6 +985,7 @@ func TestOneBurnProfileAtTheContactSpeed(t *testing.T) {
 	for _, tc := range []struct{ down, wantExtra float64 }{
 		{OneBurnContactMps, 0},
 		{20, (400 - OneBurnContactMps*OneBurnContactMps) / 200},
+		{1, -OneBurnLetDownGain}, // slower than the contact speed: let down to it, never hover
 	} {
 		w, c, _ := boosterWorld(t, boosterFall{altM: 4600, downMps: 250, fuelKg: 6500})
 		if _, err := w.PlanDeorbitAndEngage(); err != nil {
@@ -998,5 +1000,129 @@ func TestOneBurnProfileAtTheContactSpeed(t *testing.T) {
 		if got, want := theta*f.aMax-f.g, tc.wantExtra; math.Abs(got-want) > 0.05 {
 			t.Errorf("at %.1f m/s down the net thrust is %.3f m/s^2 over gravity, want %.3f", tc.down, got, want)
 		}
+	}
+}
+
+// dragonFromOrbit is a Dragon with its trunk dropped, in a circular orbit round
+// body, 150 degrees of arc behind a flag, N not yet pressed.
+func dragonFromOrbit(t *testing.T, body string, altM float64) (*World, *spacecraft.Spacecraft) {
+	t.Helper()
+	w, c := entryWorld(t, "", body, "Dragon", altM, true)
+	c.Stages = c.Stages[len(c.Stages)-1:]
+	c.SyncFields()
+	return w, c
+}
+
+// ADR 0069 decision 8 (T7): N on a Dragon over Mars runs arm, open, cut, land on
+// the flag with no other key, at every warp. The deorbit burn is N's own and
+// flies on the SuperDracos (seconds, not the Dracos' 17 minutes). The hold row
+// reads `Site+ auto chute` under the canopy.
+func TestNFliesTheChuteOnMars(t *testing.T) {
+	for _, idx := range []int{0, 1, 2, 4} {
+		w, c := dragonFromOrbit(t, "mars", 150e3)
+		if _, err := w.PlanDeorbitAndEngage(); err != nil {
+			t.Fatalf("warp %v: N: %v", WarpFactors[idx], err)
+		}
+		if c.ChuteState != spacecraft.ChuteArmed {
+			t.Fatalf("warp %v: chute %v after N, want ARMED", WarpFactors[idx], c.ChuteState)
+		}
+		if d := c.Nodes[0].Duration; d > 10*time.Second {
+			t.Errorf("warp %v: the deorbit burn is planned %v long, want seconds on the SuperDracos", WarpFactors[idx], d)
+		}
+		w.Clock.WarpIdx = idx
+		seen := []spacecraft.ChuteState{c.ChuteState}
+		hold, speed := "", 0.0
+		for i := 0; i < 6*3600*20 && !c.Landed && !c.Crashed; i++ {
+			speed = physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary).Norm()
+			w.Tick()
+			if c.ChuteState != seen[len(seen)-1] {
+				seen = append(seen, c.ChuteState)
+			}
+			if c.ChuteState == spacecraft.ChuteDeployed && hold == "" {
+				hold = w.siteHoldLabel(c)
+			}
+		}
+		ev := w.PendingLandingEvents[len(w.PendingLandingEvents)-1]
+		t.Logf("Mars Dragon warp %vx: chute %v, contact %.2f m/s, %.1f m from the flag", WarpFactors[idx], seen, speed, ev.DistanceM)
+		if want := []spacecraft.ChuteState{spacecraft.ChuteArmed, spacecraft.ChuteDeployed, spacecraft.ChuteCut}; !reflect.DeepEqual(seen, want) {
+			t.Errorf("warp %v: chute went %v, want %v", WarpFactors[idx], seen, want)
+		}
+		if !c.Landed || speed >= CrashVCritMps || ev.DistanceM > 43 {
+			t.Errorf("warp %v: landed=%v contact %.2f m/s %.1f m from the flag, want landed under %v m/s inside the 43 m LZ circle", WarpFactors[idx], c.Landed, speed, ev.DistanceM, CrashVCritMps)
+		}
+		if hold != "Site+ auto chute" {
+			t.Errorf("warp %v: hold row under the canopy %q, want %q", WarpFactors[idx], hold, "Site+ auto chute")
+		}
+	}
+}
+
+// N on a chute vessel with no landing engine (a CSM) plants the deorbit burn and stops
+// there, as before: the chute stays stowed. The unmarked Ground-Station Lander
+// has no chute and flies as it did.
+func TestNLeavesVesselsWithoutLandingEnginesAlone(t *testing.T) {
+	w, c := entryWorld(t, "", "earth", "Capsule", 200e3, true)
+	c.Stages, _ = spacecraft.BuildModule("csm") // a chute and a 91 kN engine that cannot land
+	c.SyncFields()
+	plan, err := w.PlanDeorbitAndEngage()
+	if plan == nil || !errors.Is(err, ErrSiteHoldUnderWeight) || len(c.Nodes) != 1 {
+		t.Errorf("CSM: plan=%v err=%v nodes=%d, want the deorbit burn planted and the engage refused", plan, err, len(c.Nodes))
+	}
+	if c.ChuteState != spacecraft.ChuteStowed {
+		t.Errorf("chute %v after N on a capsule with no landing engine, want STOWED", c.ChuteState)
+	}
+	w2, c2 := entryWorld(t, "", "mars", "Ground-Station-Lander", 150e3, true)
+	if _, err := w2.PlanDeorbitAndEngage(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 6*3600*20 && !c2.Landed && !c2.Crashed; i++ {
+		w2.Tick()
+	}
+	if ev := w2.PendingLandingEvents[len(w2.PendingLandingEvents)-1]; !c2.Landed || ev.DistanceM > 43 || c2.ChuteState != spacecraft.ChuteStowed {
+		t.Errorf("Ground-Station Lander: landed=%v %.1f m from the flag chute %v, want landed on the flag with no chute touched", c2.Landed, ev.DistanceM, c2.ChuteState)
+	}
+}
+
+// The cut rule (ADR 0069 decision 8): under the canopy a one-burn vessel cuts
+// when the cue is within the burn the aim error needs, and never when the tank
+// cannot hover that long. The equal case cuts.
+func TestChuteCutRuleBoundaries(t *testing.T) {
+	w, c := dragonFromOrbit(t, "mars", 150e3)
+	if _, err := w.PlanDeorbitAndEngage(); err != nil {
+		t.Fatal(err)
+	}
+	c.ChuteState = spacecraft.ChuteDeployed
+	f := apFrame{g: 3.7, vz: -36}
+	rt := w.apRuntimeFor(c)
+	rt.cueErrM = 100
+	need := math.Sqrt(6 * 100 / (f.g * math.Tan(apMaxTiltRad)))
+	var afford float64
+	c.OnLandingBrake(func() {
+		v := math.Max(-f.vz, OneBurnContactMps)
+		afford = ChuteAimFuelFrac * c.Isp * stdGravityMps2 * c.ActiveStageFuel() / (c.TotalMass() * f.g) * (v + OneBurnContactMps) / (2 * v)
+	})
+	if need > afford {
+		t.Fatalf("setup: need %.1f s over afford %.1f s", need, afford)
+	}
+	cut := func(inSec float64) (r bool) {
+		c.OnLandingBrake(func() { r = w.chuteAimCut(c, f, time.Duration(inSec*float64(time.Second))) })
+		return r
+	}
+	if !cut(need) { // the equal case
+		t.Errorf("did not cut %.6f s from the cue with exactly that needed", need)
+	}
+	if cut(need + 1e-3) {
+		t.Errorf("cut %.3f s from the cue with %.1f s needed", need+1e-3, need)
+	}
+	if !cut(0) {
+		t.Error("did not cut at the cue itself")
+	}
+	rt.cueErrM = 1e6 // an error the tank cannot hover out
+	if cut(0) {
+		t.Error("cut to steer an error the tank cannot afford")
+	}
+	c.ChuteState = spacecraft.ChuteArmed
+	rt.cueErrM = 100
+	if cut(0) {
+		t.Error("cut a chute that has not opened")
 	}
 }
