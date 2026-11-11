@@ -1768,9 +1768,6 @@ func (w *World) clampedWarp() float64 {
 	// deploy window (auto-deploy missed) or inflate the canopy in one
 	// giant integration step (instant-inflation overshoot). Keeps the
 	// per-tick sub-steps fine enough for the deploy check to resolve.
-	if selected > 10 && w.anyCraftChuteLive() {
-		selected = 10
-	}
 	if selected > atmosphereWarpCap && w.anyCraftInAtmosphere() {
 		selected = atmosphereWarpCap
 	}
@@ -1779,7 +1776,11 @@ func (w *World) clampedWarp() float64 {
 	// free-fall path into the ground, warp glides down like the node
 	// approach and hands over 1x autoWarpLeadTime before impact.
 	if tImp, ok := w.groundImpactIn(); ok {
-		maxGroundWarp := (tImp - autoWarpLeadTime.Seconds()) / (approachClampSubsteps * w.Clock.BaseStep.Seconds())
+		lead := autoWarpLeadTime.Seconds()
+		if inAtmosphere(w.ActiveCraft()) {
+			lead = airGroundLeadSec // the bound is a floor on the fall time, not a conic guess
+		}
+		maxGroundWarp := (tImp - lead) / (approachClampSubsteps * w.Clock.BaseStep.Seconds())
 		if maxGroundWarp < 1 {
 			maxGroundWarp = 1
 		}
@@ -1791,7 +1792,7 @@ func (w *World) clampedWarp() float64 {
 	// loop, not the analytic Kepler step (drag breaks the conic), so warp
 	// glides to 1x autoWarpLeadTime before the cutoff, as for the ground.
 	if tAir, ok := airEntryIn(w.ActiveCraft()); ok {
-		maxAirWarp := (tAir - autoWarpLeadTime.Seconds()) / (approachClampSubsteps * w.Clock.BaseStep.Seconds())
+		maxAirWarp := (tAir - airEntryLeadSec) / (approachClampSubsteps * w.Clock.BaseStep.Seconds())
 		if maxAirWarp < 1 {
 			maxAirWarp = 1
 		}
@@ -1939,37 +1940,22 @@ func (w *World) AnyCraftThrusting() bool {
 	return false
 }
 
-// anyCraftChuteLive reports whether any craft has an armed or deployed
-// parachute while inside its primary's atmosphere. v0.12 Slice 3 (ADR
-// 0008): drives the chute-descent warp clamp in clampedWarp. High warp
-// lets a single tick span a large sim-time leap; for a chute craft that
-// means the integrator can step clean across the q deploy window
-// (auto-deploy missed → crash undeployed) or inflate the canopy in one
-// giant step (the instant-inflation overshoot ADR 0008 banked). Walking
-// all crafts mirrors the burn cap (a passive chute craft descending while
-// the player flies another still needs fine sub-steps).
-func (w *World) anyCraftChuteLive() bool {
-	for _, c := range w.Crafts {
-		if c == nil || (c.ChuteState != spacecraft.ChuteArmed && c.ChuteState != spacecraft.ChuteDeployed) {
-			continue
-		}
-		atm := c.Primary.Atmosphere
-		if atm == nil {
-			continue
-		}
-		if c.Altitude() < atm.CutoffAltitude {
-			return true
-		}
-	}
-	return false
-}
-
 // atmosphereWarpCap and atmosphereMaxStepSec keep an entry integrable. The
 // sub-step is period/100, which on a lunar return (period ~20 days) is one
 // huge step per tick: at 1000x a single 50 s step dove from 94 km into dense
 // air and crashed a CSM at 528 km/s. Inside the atmosphere each step is at
 // most 0.5 s (the 10x step entries already flew), and warp stops at 1000x so
 // that stays within the 1024 sub-steps a tick allows.
+// airGroundLeadSec is the 1x hand-over before touchdown inside the air, where
+// groundImpactIn is airFallBound's floor on the fall rather than a conic.
+const airGroundLeadSec = 5.0
+
+// airEntryLeadSec is the 1x hand-over before the cutoff. The crossing tick must
+// be a fine one (the step before it is analytic and carries no drag), but the
+// glide shape (warp falls with the time left) reaches 1x in a few real seconds
+// whatever the lead, so it need not be autoWarpLeadTime.
+const airEntryLeadSec = 1.0
+
 const (
 	atmosphereWarpCap    = 1000.0
 	atmosphereMaxStepSec = 0.5
@@ -1986,7 +1972,35 @@ func (w *World) groundImpactIn() (float64, bool) {
 	if c == nil {
 		return 0, false
 	}
-	return timeToRadius(c, c.Primary.RadiusMeters())
+	t, ok := timeToRadius(c, c.Primary.RadiusMeters())
+	if ok && inAtmosphere(c) {
+		// Drag breaks the drag-free conic: it says a canopy lands in 18 s that
+		// takes 225 s. Inside the air the fall is no faster than max(speed,
+		// terminal speed), so alt over that bounds the time from below.
+		if b := airFallBound(c, c.Altitude(), physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary).Norm()); b > t {
+			t = b
+		}
+	}
+	return t, ok
+}
+
+// airFallBound is a lower bound on the seconds a vessel at alt metres, moving
+// vRel m/s through the air, needs to reach the ground: the air only gets
+// denser below, so its speed stays under max(vRel, terminal speed here).
+// O(1), unlike the descent forecast (a 20000-step integration per call).
+func airFallBound(c *spacecraft.Spacecraft, alt, vRel float64) float64 {
+	v := vRel
+	rho := physics.AtmosphericDensity(c.Primary, alt)
+	if bc := c.EffectiveBallisticCoefficient(); rho > 0 && bc > 0 {
+		r := c.State.R.Norm()
+		if vt := math.Sqrt(c.Primary.GravitationalParameter() / (r * r) / (0.5 * rho * bc)); vt > v {
+			v = vt
+		}
+	}
+	if v <= 0 {
+		return math.Inf(1)
+	}
+	return alt / v
 }
 
 // airEntryIn is groundImpactIn for the top of the air: sim-seconds until a

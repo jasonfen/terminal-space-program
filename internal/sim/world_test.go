@@ -9,6 +9,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
 // TestWorldSpawnsSpacecraft: NewWorld places the craft in a valid LEO
@@ -520,6 +521,44 @@ func TestPlantedBurnSpendsTheSamePropellantAtEveryWarp(t *testing.T) {
 			used1 = used
 		} else if math.Abs(used-used1)/used1 > 0.001 { // equal case: 0.1 % is within
 			t.Errorf("%vx: the burn used %.1f kg, 1x used %.1f", WarpFactors[idx], used, used1)
+		}
+	}
+}
+
+// Warp held at max through a Dragon landing (ADR 0069): the descent used to sit
+// at 1x for the air entry (30 s), 10x under the chute cap, and 1x again for the
+// fall and the whole canopy (the drag-free conic said it landed in 18 s; it
+// takes 225 s). 379 s on Earth and 160 s on Mars. The fall bound inside the air
+// (alt over max(speed, terminal speed)) and a 1 s air-entry lead bring it to
+// ~15 s. Budgets sit between the two with room for tuning: 40 s total, 20 s
+// above the air, and over 100x under an Earth canopy from 1.7 km to 600 m
+// (the bound there is 250 to 400x).
+func TestDragonFlightRealTimeAtHeldWarp(t *testing.T) {
+	for _, body := range []string{"earth", "mars"} {
+		w, c := dragonFromOrbit(t, body, map[string]float64{"earth": 200e3, "mars": 150e3}[body])
+		if _, err := w.PlanDeorbitAndEngage(); err != nil {
+			t.Fatal(err)
+		}
+		w.Clock.WarpIdx = len(WarpFactors) - 1
+		cutoff := c.Primary.Atmosphere.CutoffAltitude
+		real, aboveAir, minCanopy := 0.0, 0.0, math.Inf(1)
+		for i := 0; i < 6*3600*20 && !c.Landed && !c.Crashed; i++ {
+			eff, alt := w.clampedWarp(), c.Altitude()
+			real += w.Clock.BaseStep.Seconds()
+			if alt >= cutoff {
+				aboveAir += w.Clock.BaseStep.Seconds()
+			}
+			if body == "earth" && c.ChuteState == spacecraft.ChuteDeployed && alt < 1700 && alt > 600 && eff < minCanopy {
+				minCanopy = eff
+			}
+			w.Tick()
+		}
+		t.Logf("%s: %.0f s real, %.0f s above the air, slowest canopy tick %.0fx", body, real, aboveAir, minCanopy)
+		if !c.Landed || real >= 40 || aboveAir >= 20 {
+			t.Errorf("%s: landed=%v in %.0f s real (want under 40), %.0f s above the air (want under 20)", body, c.Landed, real, aboveAir)
+		}
+		if body == "earth" && minCanopy <= 100 {
+			t.Errorf("earth canopy ran at %.0fx at its slowest between 1.7 km and 600 m, want over 100x", minCanopy)
 		}
 	}
 }
