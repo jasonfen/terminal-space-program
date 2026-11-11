@@ -81,6 +81,7 @@ type apRuntime struct {
 	cueAt      time.Time
 	nextCheck  time.Time
 	outOfReach bool // the last brake tick saturated: remembered for the event
+	cueErrM    float64 // a chute worked to the light: how far the cue's stop lands from the aim
 	// navSite is the site key the computer's-site error was drawn for (transient:
 	// a reload keeps the saved offset).
 	navSite  uint64
@@ -220,6 +221,9 @@ func (w *World) landingCueInOn(c *spacecraft.Spacecraft) (in time.Duration, grou
 			rt.cueAt, rt.nextCheck = now, now
 		default:
 			rt.cueAt = now.Add(time.Duration(cue.InSec * float64(time.Second)))
+			if c.WorksChute() {
+				rt.cueErrM = w.cueStopErrM(c, cue)
+			}
 			wait := cue.InSec / 4
 			switch {
 			case cue.InSec < apCueNearSec:
@@ -231,6 +235,42 @@ func (w *World) landingCueInOn(c *spacecraft.Spacecraft) (in time.Duration, grou
 		}
 	}
 	return rt.cueAt.Sub(now), rt.ground, rt.late
+}
+
+// cueStopErrM is how far the brake lit at cue stops from the aim, metres.
+func (w *World) cueStopErrM(c *spacecraft.Spacecraft, cue BurnAtCue) float64 {
+	lat, lon, _, ok := w.apTarget(c)
+	if !ok {
+		return 0
+	}
+	pred, ok := predictPoweredStopFromAt(cue.State, c, deorbitHorizon-time.Duration(cue.InSec*float64(time.Second)), brakeThrottle(c))
+	if !ok {
+		return 0
+	}
+	tStop := w.Clock.SimTime.Add(time.Duration((cue.InSec + pred.ElapsedSec) * float64(time.Second)))
+	return math.Hypot(w.apStopErr(c, lat, lon, cue.State, pred.StopR, tStop))
+}
+
+// chuteAimCut is the cut rule (ADR 0069 decision 8), the chute's half of "as
+// late as possible": under an open canopy on a one-burn vessel the cut waits
+// for the cue (the latest instant the brake still stops, which the caller
+// tests), but not past the point the burn needs to put the touchdown on the
+// aim. Under a canopy the vessel cannot steer, so the cue's stop error e stands
+// until the cut; the one-burn law pulls e in with 6 e / tgo^2 sideways against
+// a tilt limit of g tan(apMaxTiltRad), so it wants a burn of at least
+// sqrt(6 e / (g tan(apMaxTiltRad))) seconds, lit that long before the cue.
+func (w *World) chuteAimCut(c *spacecraft.Spacecraft, f apFrame, in time.Duration) bool {
+	if c.ChuteState != spacecraft.ChuteDeployed || !c.WorksChute() || !oneBurn(c) || f.g <= 0 || c.Isp <= 0 {
+		return false
+	}
+	// seconds the burn needs to null the stop's error, and the most the tank
+	// can hover for (a share of it) so the landing itself keeps its fuel
+	need := math.Sqrt(6 * w.apRuntimeFor(c).cueErrM / (f.g * math.Tan(apMaxTiltRad)))
+	// the law slows to the contact speed, so the burn runs mean speed is (v+2)/2, so the
+	// burn lasts 2v/(v+2) times the lead
+	v := math.Max(-f.vz, OneBurnContactMps)
+	afford := ChuteAimFuelFrac * c.Isp * stdGravityMps2 * c.ActiveStageFuel() / (c.TotalMass() * f.g) * (v + OneBurnContactMps) / (2 * v)
+	return need <= afford && in.Seconds() <= need
 }
 
 // landingAutopilotWarpLimit is the warp ceiling the engaged autopilots impose
@@ -401,15 +441,23 @@ func (w *World) PlanDeorbitAndEngage() (*DeorbitPlan, error) {
 	if err != nil {
 		return nil, err
 	}
+	// ADR 0069 decision 8: on a chute vessel with landing engines N arms the chute
+	// before the plan, so the plan and the cue fly the canopy. A capsule that
+	// cannot brake (no landing engine) keeps the plain deorbit burn.
+	armed := c.HasParachute && c.CanSoftLand && c.Primary.Atmosphere != nil && !c.Landed && canBrakeAtSite(c) && c.ArmParachute()
 	plan, err := w.planDeorbitAndEngage()
+	if armed && !c.Landing.Owns() {
+		c.ChuteState = spacecraft.ChuteStowed // N did not engage: the chute is as it was
+	}
 	if plan == nil && err != nil && fresh {
 		c.LZClaim = spacecraft.LZClaim{} // nothing planted, nothing engaged
 	}
 	return plan, err
 }
 
-func (w *World) planDeorbitAndEngage() (*DeorbitPlan, error) {
-	plan, err := w.PlanDeorbitOntoSite()
+func (w *World) planDeorbitAndEngage() (plan *DeorbitPlan, err error) {
+	// the deorbit burn is N's own and flies on the landing engines (see UsesSuperDraco)
+	w.ActiveCraft().OnLandingBrake(func() { plan, err = w.PlanDeorbitOntoSite() })
 	if errors.Is(err, ErrDeorbitFalling) {
 		if err := w.EngageLandingAutopilot(); err != nil {
 			return nil, err
@@ -565,8 +613,11 @@ func (w *World) tickLandingAutopilotOn(c *spacecraft.Spacecraft) {
 			ap.TrackN = apTrackNormal(c, c.State)
 		} else {
 			in, ground, late := w.landingCueIn(c)
-			if !ground || (!late && in.Seconds() > w.lastSimDelta.Seconds()) {
+			if !(ground && w.chuteAimCut(c, f, in)) && (!ground || (!late && in.Seconds() > w.lastSimDelta.Seconds())) {
 				return
+			}
+			if c.WorksChute() {
+				c.ChuteState = spacecraft.ChuteCut // ADR 0069 decision 8: the canopy goes at the light
 			}
 			ap.Phase = spacecraft.PhaseBrake
 			ap.TrackN, ap.StopSpanM, ap.PitchUpRad = orbital.Vec3{}, 0, 0
@@ -847,11 +898,17 @@ func (w *World) apOneBurn(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopi
 		s := h * v / -f.vz // the path to the ground at the present angle
 		tv = tv.Add(f.retro().Scale((v*v - OneBurnContactMps*OneBurnContactMps) / (2 * s)))
 		tgo = math.Max(s/((v+OneBurnContactMps)/2), 1)
+	} else if f.vz > -OneBurnContactMps {
+		// slower than the contact speed (a steered burn that has shed its fall): let
+		// down to it, never hover on a tank that has a ground to reach
+		tv = f.up.Scale(math.Max(f.g-OneBurnLetDownGain*(OneBurnContactMps+f.vz), 0))
 	}
 	// the retrograde share already damps the drift by vh/tgo; the pull sideways
 	// makes that the 4 vh/tgo of the zero-effort-velocity law
 	aim := f.vh.Scale(-3 / tgo)
-	if ok && tgo > 3 { // the last seconds only null the drift: no late aim move
+	// the last seconds only null the drift (no late aim move), and so does a tank
+	// that no longer holds a hover to the ground with a half again to spare
+	if ok && tgo > 3 && c.Isp > 0 && c.ActiveStageFuel() >= 1.5*tgo*c.TotalMass()*f.g/(c.Isp*stdGravityMps2) {
 		aim = aim.Add(e.Scale(6 / (tgo * tgo)))
 	}
 	if lim := tv.Norm() * math.Tan(apMaxTiltRad); aim.Norm() > lim {

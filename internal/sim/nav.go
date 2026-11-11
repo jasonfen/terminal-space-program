@@ -388,5 +388,8 @@ func (w *World) siteHoldLabel(c *spacecraft.Spacecraft) string {
 	if ap.Nose {
 		return label + " " + ap.Phase.Word()
 	}
+	if ap.Phase == spacecraft.PhaseCoast && c.WorksChute() {
+		return label + " auto chute" // ADR 0069 decision 8: between wait and brake
+	}
 	return label + " auto " + ap.Phase.Word()
 }

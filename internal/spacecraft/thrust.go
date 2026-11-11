@@ -976,11 +976,12 @@ func (s *Spacecraft) HasSuperDraco() bool {
 
 // UsesSuperDraco: the manual engine and the landing brake fly on the
 // SuperDracos when the vessel has them and the pilot selected them or the
-// landing autopilot owns the engine (ADR 0069 decision 6). A planted burn
-// never does: it is on the Dracos whatever the mode.
+// landing autopilot owns the engine (ADR 0069 decision 6). A planted burn is
+// on the Dracos whatever the mode, except the deorbit burn N plants for its
+// own autopilot (decision 8): 1.6 kN cannot deorbit a Dragon before the burn
+// itself reaches the air.
 func (s *Spacecraft) UsesSuperDraco() bool {
-	return s.HasSuperDraco() && s.ActiveBurn == nil &&
-		(s.EngineMode == EngineSuperDraco || s.Landing.Owns())
+	return s.HasSuperDraco() && ((s.ActiveBurn == nil && s.EngineMode == EngineSuperDraco) || s.Landing.Owns())
 }
 
 // OnSuperDraco runs f on the SuperDracos when UsesSuperDraco (see onEngine).

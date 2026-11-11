@@ -87,3 +87,12 @@ func (s *Spacecraft) CutParachute() bool {
 	s.ChuteState = ChuteCut
 	return true
 }
+
+// WorksChute reports whether the vessel flies a chute-then-engines landing
+// (ADR 0069 decision 8): a chute that is armed or open, landing engines, and air
+// to open in. The forecasts then fly the canopy below ChuteOpenAltM and brake
+// bare, since the autopilot cuts the chute at the light.
+func (s *Spacecraft) WorksChute() bool {
+	return s.HasParachute && s.CanSoftLand && s.Primary.Atmosphere != nil &&
+		(s.ChuteState == ChuteArmed || s.ChuteState == ChuteDeployed)
+}

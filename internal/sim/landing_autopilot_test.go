@@ -934,6 +934,7 @@ func TestOneBurnMarksOnTheCatalogParts(t *testing.T) {
 func TestDragonLandsOnSuperDracos(t *testing.T) {
 	b := boosterFall{altM: 4600, downMps: 250, offN: 60, offE: -40, fuelKg: 2562}
 	w, c, lc13 := fallWorld(t, "dragon-crew", b)
+	noChute(c) // this pins the engine landing; the canopy has its own tests
 	massBefore := c.TotalMass()
 	if c.EngineMode != spacecraft.EngineMain {
 		t.Fatalf("mode %v, want main", c.EngineMode)
@@ -951,6 +952,7 @@ func TestDragonLandsOnSuperDracos(t *testing.T) {
 	}
 	// red without the SuperDracos
 	w2, c2, lc := fallWorld(t, "dragon-crew", b)
+	noChute(c2)
 	c2.Stages[0].SuperThrust, c2.Stages[0].SuperIsp = 0, 0
 	if _, err := w2.PlanDeorbitAndEngage(); err == nil {
 		v2, _, _, landed2 := flyBooster2(w2, c2, lc)
@@ -958,6 +960,12 @@ func TestDragonLandsOnSuperDracos(t *testing.T) {
 			t.Errorf("Dragon on its Dracos alone landed softly (%.2f m/s)", v2)
 		}
 	}
+}
+
+// noChute strips the canopy from c, leaving the engines.
+func noChute(c *spacecraft.Spacecraft) {
+	c.Stages[0].HasParachute = false
+	c.SyncFields()
 }
 
 func flyBooster2(w *World, c *spacecraft.Spacecraft, lc13 Site) (speed, distM, peak float64, landed bool) {

@@ -214,6 +214,18 @@ func forwardBallisticPathSampled(c *spacecraft.Spacecraft, horizon time.Duration
 		return ballisticForecast{}, false
 	}
 	bc := c.EffectiveBallisticCoefficient()
+	// a chute worked to the light (ADR 0069 decision 8): bare drag until the
+	// canopy opens at ChuteOpenAltM, the canopy's below it
+	pathBC := func(st physics.StateVector) float64 { return bc }
+	if c.WorksChute() {
+		bare := c.BareBallisticCoefficient()
+		pathBC = func(st physics.StateVector) float64 {
+			if st.R.Norm()-radius <= ChuteOpenAltM {
+				return spacecraft.ChuteDeployedBC
+			}
+			return bare
+		}
+	}
 
 	dt := predictMaxSubStep(orbitalPeriod(state, mu))
 	if dt > impactSubStepCap {
@@ -245,10 +257,11 @@ func forwardBallisticPathSampled(c *spacecraft.Spacecraft, horizon time.Duration
 		if air {
 			h = airSubStep(state, dt, primary)
 		}
-		state = predictStep(state, mu, h, primary, bc)
+		stepBC := pathBC(pre)
+		state = predictStep(state, mu, h, primary, stepBC)
 		if state.R.Norm() < radius {
-			hit, tau := refineSurfaceCrossing(pre, mu, h, primary, bc, radius)
-			if dense && elapsed > samples[len(samples)-1].elapsedSec {
+			hit, tau := refineSurfaceCrossing(pre, mu, h, primary, stepBC, radius)
+			if dense && (elapsed > samples[len(samples)-1].elapsedSec || len(samples) < 2) { // a fall inside its first step still has a start to light from
 				// the last state above the ground: a fall shorter than one cadence still has a cue to search
 				samples = append(samples, ballisticSample{state: pre, elapsedSec: elapsed})
 			}
@@ -717,6 +730,9 @@ func predictPoweredStopTraced(state physics.StateVector, c *spacecraft.Spacecraf
 		return PoweredStopPrediction{}, false
 	}
 	bc := c.EffectiveBallisticCoefficient()
+	if c.WorksChute() {
+		bc = c.BareBallisticCoefficient() // the autopilot cuts the chute at the light
+	}
 	thrustFull := c.Thrust * throttle
 	ispSec := c.Isp
 	massKg := c.TotalMass()
