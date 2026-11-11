@@ -42,16 +42,18 @@ func StepVerletWithAccel(s StateVector, mu, dt float64, extraAccel func(r, v orb
 		Y: s.R.Y + s.V.Y*dt + a.Y*halfDt*dt,
 		Z: s.R.Z + s.V.Z*dt + a.Z*halfDt*dt,
 	}
-	// Estimate v at the half-step for the velocity-dependent term in
-	// a'. v_half ≈ v + ½·a·dt (kick from the first half-step).
-	vHalf := orbital.Vec3{
-		X: s.V.X + a.X*halfDt,
-		Y: s.V.Y + a.Y*halfDt,
-		Z: s.V.Z + a.Z*halfDt,
+	// Estimate v at the END of the step for the velocity-dependent term in
+	// a' (a forward Euler predictor; the half-step estimate it replaces made
+	// the drag a half-step stale, a first-order error: a Dragon's Earth
+	// entry landed 1.1 km off at a 0.5 s step, 112 m at 0.05 s).
+	vEnd := orbital.Vec3{
+		X: s.V.X + a.X*dt,
+		Y: s.V.Y + a.Y*dt,
+		Z: s.V.Z + a.Z*dt,
 	}
 	aNew := Accel(rNew, mu)
 	if extraAccel != nil {
-		aNew = aNew.Add(extraAccel(rNew, vHalf))
+		aNew = aNew.Add(extraAccel(rNew, vEnd))
 	}
 	vNew := orbital.Vec3{
 		X: s.V.X + (a.X+aNew.X)*halfDt,

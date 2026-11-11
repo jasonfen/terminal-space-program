@@ -72,6 +72,29 @@ func maybeDeployParachute(c *spacecraft.Spacecraft) bool {
 	return false
 }
 
+// chuteOpeningWithin finds where one step of h from pre crosses ChuteOpenAltM
+// going down: the offset tau and the state there, just above the opening. ok
+// is false when pre is already at or under it, or the step ends above it.
+// The canopy opens at that instant, not at the start of the step that ends
+// below it, so the open does not depend on the step size: at 0.5 s a 950 m/s
+// entry opened up to 475 m late (and 48 m at 0.05 s), which moved the
+// touchdown by hundreds of metres with the warp (ADR 0069 slice 9).
+func chuteOpeningWithin(pre physics.StateVector, h, radius float64, step func(physics.StateVector, float64) physics.StateVector) (tau float64, mid physics.StateVector, ok bool) {
+	if pre.R.Norm()-radius <= ChuteOpenAltM || step(pre, h).R.Norm()-radius > ChuteOpenAltM {
+		return 0, pre, false
+	}
+	lo, hi := 0.0, h
+	for i := 0; i < 40; i++ {
+		m := (lo + hi) / 2
+		if step(pre, m).R.Norm()-radius > ChuteOpenAltM {
+			lo = m
+		} else {
+			hi = m
+		}
+	}
+	return lo, step(pre, lo), true
+}
+
 // surfaceArrivalOutcome encodes what the predicate decided. Local
 // to the lifecycle dispatch site; not exported. Every Surface
 // Contact resolves to exactly one of these two — v0.12.0 deleted

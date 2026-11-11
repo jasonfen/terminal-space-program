@@ -2207,11 +2207,27 @@ func (w *World) integrateOneCraftOn(c *spacecraft.Spacecraft, simDelta time.Dura
 			// (re-bound after each SOI rebase below by the loop var
 			// capture). Zero drag automatically when the primary has
 			// no atmosphere or the craft is above cutoff.
-			c.State = physics.StepDragSafe(c.State, dt, c.Primary, bc, func(s physics.StateVector, h float64) physics.StateVector {
-				return physics.StepVerletWithAccel(s, mu, h, func(r, v orbital.Vec3) orbital.Vec3 {
-					return physics.DragAccel(r, v, c.Primary, bc)
-				})
-			})
+			drag := func(b float64) func(physics.StateVector, float64) physics.StateVector {
+				return func(s physics.StateVector, h float64) physics.StateVector {
+					return physics.StepDragSafe(s, h, c.Primary, b, func(s physics.StateVector, h float64) physics.StateVector {
+						return physics.StepVerletWithAccel(s, mu, h, func(r, v orbital.Vec3) orbital.Vec3 {
+							return physics.DragAccel(r, v, c.Primary, b)
+						})
+					})
+				}
+			}
+			tau, mid, open := 0.0, c.State, false
+			if c.ChuteState == spacecraft.ChuteArmed && c.Primary.Atmosphere != nil {
+				tau, mid, open = chuteOpeningWithin(c.State, dt, c.Primary.RadiusMeters(), drag(bc))
+			}
+			if open {
+				c.State = mid // the canopy opens where the path crosses ChuteOpenAltM, not at the end of the step
+				c.ChuteState = spacecraft.ChuteDeployed
+				bc = c.EffectiveBallisticCoefficient()
+				c.State = drag(bc)(c.State, dt-tau)
+			} else {
+				c.State = drag(bc)(c.State, dt)
+			}
 		}
 		// v0.8.5: halt sub-stepping at surface contact. Without this,
 		// a craft that aerobrakes past altitude 0 keeps falling toward
