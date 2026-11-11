@@ -84,7 +84,7 @@ func predictMaxSubStep(period float64) float64 {
 // stay the caller's job: the sub-step loop's FindPrimary/Rebase runs
 // against each step's output regardless of which propagator produced it.
 func predictStep(state physics.StateVector, mu, dt float64, primary bodies.CelestialBody, bc float64) physics.StateVector {
-	if canKeplerStepState(state, mu, primary) {
+	if canKeplerStepState(state, mu, primary) || clearOfTheAir(state, dt, primary) {
 		if next, ok := physics.KeplerStep(state, mu, dt); ok {
 			return next
 		}
@@ -94,6 +94,17 @@ func predictStep(state physics.StateVector, mu, dt float64, primary bodies.Celes
 			return physics.DragAccel(r, v, primary, bc)
 		})
 	})
+}
+
+// clearOfTheAir is true when a step of dt from state cannot reach the
+// atmosphere's cutoff on a body that has one: above it there is no drag, so
+// the conic is exact even though its periapsis dips into the air (the live
+// integrator stays analytic the same way, airEntryIn). A 2 s Verlet step on
+// that coast walked the stop point 150 m by the time the burn that aims it
+// had been flown (ADR 0069 slice 9).
+func clearOfTheAir(state physics.StateVector, dt float64, primary bodies.CelestialBody) bool {
+	return primary.Atmosphere != nil &&
+		state.R.Norm()-primary.RadiusMeters()-primary.Atmosphere.CutoffAltitude > 1.5*state.V.Norm()*dt
 }
 
 // SOISegment is a contiguous run of predicted-trajectory samples that
