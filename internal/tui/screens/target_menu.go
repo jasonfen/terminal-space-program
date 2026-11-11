@@ -342,15 +342,15 @@ func (m *TargetMenu) Render() string {
 		top = max(0, min(top, len(lines)-targetMenuBodyLines))
 		lines = lines[top : top+targetMenuBodyLines]
 	}
-	footer, footer2 := "[↑/↓] pick  [enter] or [t] target", ""
+	footer := "[↑/↓] pick  [enter] or [t] target"
 	r, ok := m.Row()
 	switch {
 	case m.renaming:
 		footer = "name: " + string(m.input) + "▏"
 	case ok && r.Own && r.Group == sim.GroupSites && pickable(r):
-		footer, footer2 = "[←/→] LZ [+] LZ [-] LZ", "[r] rename [d] delete [esc] close"
+		footer = "[←/→] [+/-] LZ [r] rename [d] delete" // one line, Jason 2026-11-11: esc still closes
 	case ok && r.Own && r.Group == sim.GroupSites && !r.Wreck:
-		footer, footer2 = "[+] LZ [-] LZ", "[r] rename [d] delete [esc] close"
+		footer = "[+/-] LZ [r] rename [d] delete"
 	case ok && r.Own && r.Group == sim.GroupSites:
 		footer = "[r] rename [d] delete [esc] close"
 	case ok && pickable(r):
@@ -358,8 +358,5 @@ func (m *TargetMenu) Render() string {
 	}
 	body := append([]string{""}, lines...)
 	body = append(body, "", "  "+m.theme.Footer.Render(footer))
-	if footer2 != "" {
-		body = append(body, "  "+m.theme.Footer.Render(footer2))
-	}
 	return strings.Join(formBox(m.theme, "  "+m.theme.Title.Render("TARGET"), body, CardW), "\n")
 }
