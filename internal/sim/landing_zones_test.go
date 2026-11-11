@@ -379,6 +379,14 @@ func TestLZPlacesAndStandingOn(t *testing.T) {
 	if got := w.StandingOn(s); len(got) != 0 {
 		t.Errorf("a vessel 43.01 m from LZ-2 listed: %+v", got)
 	}
+	// A partner's parked lander on LZ-2 is listed with no colour (drawn dim);
+	// one still flying is not.
+	g := Ghost{Owner: "ansi", CraftID: 9, PrimaryID: c.Primary.ID, Landed: true, LatDeg: la, LonDeg: lo}
+	w.Ghosts = []Ghost{{Owner: "ansi", CraftID: 8, PrimaryID: c.Primary.ID, LatDeg: la, LonDeg: lo}, g}
+	got = w.StandingOn(s)
+	if len(got) != 1 || got[0].LZ != 2 || got[0].Color != "" || got[0].Pos.Sub(ps[1].Pos).Norm() > 0.01 {
+		t.Errorf("a partner's parked lander on LZ-2: %+v", got)
+	}
 }
 
 // ADR 0068 decision 6 (S4): a chosen LZ moves every reader together, N claims

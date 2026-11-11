@@ -383,6 +383,21 @@ func (w *World) StandingOn(s Site) []StandingVessel {
 			}
 		}
 	}
+	// A partner's parked lander too, with no colour so OVERHEAD draws it dim.
+	for _, g := range w.Ghosts {
+		b, ok := w.bodyInSystemByID(g.PrimaryID)
+		if !g.Landed || !ok || b.EnglishName != s.Body || w.System().Name != s.System {
+			continue
+		}
+		for n := 1; n <= s.LZs(); n++ {
+			lat, lon := s.lzLatLon(n, r)
+			if insideLZ(HaversineM(g.LatDeg, g.LonDeg, lat, lon, r)) {
+				p, _ := surfacePointState(b, g.LatDeg, g.LonDeg, w.Clock.SimTime)
+				out = append(out, StandingVessel{Pos: w.BodyPosition(b).Add(p), LZ: n})
+				break
+			}
+		}
+	}
 	return out
 }
 
