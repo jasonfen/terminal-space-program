@@ -54,6 +54,10 @@ func (w *World) StartManualBurn() {
 	if c == nil {
 		return
 	}
+	c.OnSuperDraco(func() { w.startManualBurn(c) })
+}
+
+func (w *World) startManualBurn(c *spacecraft.Spacecraft) {
 	if !w.canCommand(c) { // ADR 0027: igniting the engine is a command, gated without a connection
 		return
 	}
@@ -63,7 +67,7 @@ func (w *World) StartManualBurn() {
 	if c.ActiveStageFuel() <= 0 || c.Thrust <= 0 {
 		return
 	}
-	if c.EngineMode != spacecraft.EngineMain {
+	if c.EngineMode == spacecraft.EngineRCS {
 		return
 	}
 	if c.EffectiveThrottle() <= 0 {

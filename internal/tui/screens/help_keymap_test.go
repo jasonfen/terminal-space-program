@@ -256,6 +256,7 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 		"e (SITE) in SITE: hold straight up (Site−), no guidance; under N, e sinks",
 		"e / q (Site+ auto) under N, approach and final: e sinks 1 m/s slower, q faster; z x Z X take the throttle",
 		"q e w s a d (rcs) in SITE with RCS armed: pulse fwd / back, up / down, left / right; refused under N, free under q",
+		"r engine: main / rcs; a Dragon also has superdraco (landing burn, N uses it either way)",
 		"alt+e / alt+q under Site+ auto, approach and final: the same sink steps, 0.3 m/s a press",
 	} {
 		if !strings.Contains(f1, want) {
@@ -275,6 +276,7 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 		"It never lights, cuts or throttles the engine, never caps warp and holds no rate of descent",
 		"| `e` / `q` under `Site+ auto` | Under `N`'s autopilot, in approach and final, set the rate of descent:",
 		"| `q` `e` `w` `s` `a` `d` in Site with RCS armed | The six letters pulse along the site axes instead of selecting holds",
+		"| `r` | Switch between the main engine and RCS thrusters; a Dragon cycles main, superdraco, rcs.",
 		"Refused under `N` (`Site+ auto` owns the engine); free under the `q` nose hold and by hand",
 		"Under the `q` nose hold `e` is a plain hold key",
 		"| `B` | Plant the deorbit burn only: the same one retro node, footer line and refusals as `N`",

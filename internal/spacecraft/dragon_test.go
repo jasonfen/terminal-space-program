@@ -50,8 +50,12 @@ func TestDragonPartsDataTable(t *testing.T) {
 		} else if p.Antenna != nil {
 			t.Errorf("%s: antenna = %+v, want none", id, p.Antenna)
 		}
-		if p.HasParachute != w.chute || p.CanSoftLand {
-			t.Errorf("%s: chute/softland = %v/%v, want %v/false", id, p.HasParachute, p.CanSoftLand, w.chute)
+		// the capsules have legs and SuperDracos (ADR 0069 decision 6), the trunk neither
+		if p.HasParachute != w.chute || p.CanSoftLand != w.chute {
+			t.Errorf("%s: chute/softland = %v/%v, want %v/%v", id, p.HasParachute, p.CanSoftLand, w.chute, w.chute)
+		}
+		if wantSuper := map[bool]float64{true: 568000, false: 0}[w.chute]; p.SuperThrustN != wantSuper || (w.chute && p.SuperIspS != 235) {
+			t.Errorf("%s: super thrust/isp = %g/%g, want %g/235 (8 x 71 kN)", id, p.SuperThrustN, p.SuperIspS, wantSuper)
 		}
 		if p.BallisticCoefficient != 0 {
 			t.Errorf("%s: ballistic_coeff = %g, want absent", id, p.BallisticCoefficient)

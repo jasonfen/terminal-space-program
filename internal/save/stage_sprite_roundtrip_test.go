@@ -108,6 +108,9 @@ func TestLandingThrottleSurvivesTheWireAndOldSavesLoadOff(t *testing.T) {
 			if want.LandingThrottle > 0 {
 				marked++
 			}
+			if back[i].SuperThrust != want.SuperThrust || back[i].SuperIsp != want.SuperIsp {
+				t.Errorf("%s stage %d: SuperDraco %v/%v after the wire, want %v/%v", id, i, back[i].SuperThrust, back[i].SuperIsp, want.SuperThrust, want.SuperIsp)
+			}
 			if back[i].LandingThrottle != want.LandingThrottle {
 				t.Errorf("%s stage %d (%s): landing throttle %v after the wire, want %v", id, i, want.Name, back[i].LandingThrottle, want.LandingThrottle)
 			}

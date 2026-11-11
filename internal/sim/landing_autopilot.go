@@ -201,6 +201,11 @@ func apTrackNormal(c *spacecraft.Spacecraft, start physics.StateVector) orbital.
 // re-solved rarely, a near one every tick. ground=false when the coast never
 // meets the ground; late=true once the cue has passed.
 func (w *World) landingCueIn(c *spacecraft.Spacecraft) (in time.Duration, ground, late bool) {
+	c.OnLandingBrake(func() { in, ground, late = w.landingCueInOn(c) })
+	return
+}
+
+func (w *World) landingCueInOn(c *spacecraft.Spacecraft) (in time.Duration, ground, late bool) {
 	rt := w.apRuntimeFor(c)
 	now := w.Clock.SimTime
 	burning := c.ActiveBurn != nil
@@ -270,11 +275,16 @@ func (w *World) landingAutopilotWarpLimit() (float64, bool) {
 // The refusals are facts (decision 10): N's lines, thrust under weight, and the
 // signed shortfall when the reserve-throttle stop is further off the aim than
 // the brake can steer.
-func (w *World) EngageLandingAutopilot() error {
+func (w *World) EngageLandingAutopilot() (err error) {
 	c := w.ActiveCraft()
 	if c == nil {
 		return errors.New("no vessel")
 	}
+	c.OnLandingBrake(func() { err = w.engageLandingAutopilot(c) })
+	return err
+}
+
+func (w *World) engageLandingAutopilot(c *spacecraft.Spacecraft) error {
 	if c.Landed {
 		return ErrDeorbitLanded
 	}
@@ -512,6 +522,10 @@ func (w *World) LandingHandOverThrottle() bool {
 
 // tickLandingAutopilot runs one tick of c's autopilot, called for every vessel.
 func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
+	c.OnLandingBrake(func() { w.tickLandingAutopilotOn(c) })
+}
+
+func (w *World) tickLandingAutopilotOn(c *spacecraft.Spacecraft) {
 	ap := c.Landing
 	if ap == nil {
 		return

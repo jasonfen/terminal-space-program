@@ -126,7 +126,7 @@ var helpSections = []helpSection{
 		{"alt on a Mac", "Ghostty works as-is; Terminal.app: Profiles > Keyboard > Use Option as Meta key; iTerm2: Left Option = Esc+"},
 		{"|", "reset pitch trim and heading trim to 0 (in PORT, the port-face trims; Site+ auto: the aim)"},
 		{"b", "engage / cut the manual burn (main engine); lit, it cuts every liquid engine, never a lit solid"},
-		{"r", "engine: main / rcs"},
+		{"r", "engine: main / rcs; a Dragon also has superdraco (landing burn, N uses it either way)"},
 		{"p", "rcs pulse step: 0.1 / 0.01 / 0.001 m/s (fine trim)"},
 		{"k", "SAS model: slew / instant"},
 		{";", "NavMode cycle: Surface → Orbit → Target → Port → Site (a frame with nothing to aim at is skipped)"},

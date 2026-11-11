@@ -449,3 +449,36 @@ func TestEngineBoxRaiseForms(t *testing.T) {
 		t.Errorf("badge on a vessel with no order: %q", got)
 	}
 }
+
+// ADR 0069 decision 6: TWR reads the selected engine. A Dragon on Earth's
+// pad-free orbit reads its Dracos in main and 568 kN of SuperDracos in mode
+// superdraco; the ENGINE box fits its width with "superdraco" in mode:.
+func TestEngineBoxTWRReadsTheSuperDracos(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	c := w.ActiveCraft()
+	st, _ := spacecraft.BuildModule("dragon-crew")
+	c.Stages = st
+	c.DecouplePlan = nil
+	c.SyncFields()
+	c.Throttle = 1
+	g := c.Primary.GravitationalParameter() / (c.Primary.RadiusMeters() * c.Primary.RadiusMeters())
+	main := fmt.Sprintf("%.2f", 1600/(c.TotalMass()*g))
+	super := fmt.Sprintf("%.2f", 568000/(c.TotalMass()*g))
+	if lines := v.buildEngineBox(w); !strings.Contains(lines[2], main) {
+		t.Errorf("main TWR row %q, want %s", lines[2], main)
+	}
+	c.EngineMode = spacecraft.EngineSuperDraco
+	lines := v.buildEngineBox(w)
+	if !strings.Contains(lines[2], super) || !strings.Contains(lines[1], "superdraco") {
+		t.Errorf("superdraco rows %q / %q, want TWR %s and mode superdraco", lines[2], lines[1], super)
+	}
+	for _, l := range lines {
+		if lipgloss.Width(l) > tierTopLeftWidth {
+			t.Errorf("row %q is %d cells, over the box's %d", l, lipgloss.Width(l), tierTopLeftWidth)
+		}
+	}
+}
