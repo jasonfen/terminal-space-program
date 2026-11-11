@@ -549,6 +549,11 @@ type Stage struct {
 	// LandingThrottle (ADR 0069 decision 10, additive, NO bump: omitempty):
 	// the one-burn landing mark. Absent = 0 = unmarked, the schedule landing.
 	LandingThrottle float64 `json:"landing_throttle,omitempty"`
+
+	// SuperThrust / SuperIsp (ADR 0069 decision 6, additive, NO bump: omitempty):
+	// the SuperDraco engine of a Dragon. Absent = none.
+	SuperThrust float64 `json:"super_thrust,omitempty"`
+	SuperIsp    float64 `json:"super_isp,omitempty"`
 }
 
 // PortWire mirrors spacecraft.PartPort on the wire.

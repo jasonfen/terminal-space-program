@@ -87,6 +87,10 @@ type Part struct {
 	// landing and is the largest throttle the landing burn may use (a Falcon
 	// first stage lands on one engine of nine: 1/9). 0 = not marked.
 	LandingThrottle float64 `json:"landing_throttle,omitempty"`
+	// SuperThrustN / SuperIspS (ADR 0069 decision 6): a second engine on the
+	// same tank, selected by ENGINE mode superdraco. 0 = none.
+	SuperThrustN float64 `json:"super_thrust_n,omitempty"`
+	SuperIspS    float64 `json:"super_isp_s,omitempty"`
 
 	// Forward-compatible attributes consumed by cycle 2 (ADR 0027 — comms).
 	// Declared in the schema now so it stays stable; C1 ignores them.
@@ -274,6 +278,8 @@ func (p Part) ToStage() Stage {
 		CanSoftLand:          p.CanSoftLand,
 		HasParachute:         p.HasParachute,
 		LandingThrottle:      p.LandingThrottle,
+		SuperThrust:          p.SuperThrustN,
+		SuperIsp:             p.SuperIspS,
 		CommandSource:        p.CommandSource,
 		PartPorts:            topPorts(p.Ports),
 		CargoKg:              p.CargoKg,

@@ -3281,7 +3281,7 @@ func (a *App) dispatchNavballControl(ctrl screens.NavballControlID) {
 	case screens.NavballControlRadialIn:
 		a.handleAttitudeIntent(sim.IntentRadialIn)
 	case screens.NavballControlRCS:
-		a.world.CycleEngineMode()
+		a.world.ToggleRCS()
 		state := "off"
 		if a.world.RCSActive() {
 			state = "on"

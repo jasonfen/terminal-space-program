@@ -22,6 +22,9 @@ type EngineMode int
 const (
 	EngineMain EngineMode = iota
 	EngineRCS
+	// EngineSuperDraco (ADR 0069 decision 6) is appended so the saved
+	// numbers of main and rcs stay put (no schema bump).
+	EngineSuperDraco
 )
 
 // String returns the HUD label for the engine mode.
@@ -31,6 +34,8 @@ func (e EngineMode) String() string {
 		return "main"
 	case EngineRCS:
 		return "rcs"
+	case EngineSuperDraco:
+		return "superdraco"
 	}
 	return "?"
 }
@@ -959,4 +964,61 @@ func cross(a, b orbital.Vec3) orbital.Vec3 {
 		Y: a.Z*b.X - a.X*b.Z,
 		Z: a.X*b.Y - a.Y*b.X,
 	}
+}
+
+// HasSuperDraco reports whether the lit stage carries a SuperDraco engine.
+func (s *Spacecraft) HasSuperDraco() bool {
+	if len(s.Stages) == 0 {
+		return false
+	}
+	return s.Stages[s.LitStage()].SuperThrust > 0 && s.Stages[s.LitStage()].SuperIsp > 0
+}
+
+// UsesSuperDraco: the manual engine and the landing brake fly on the
+// SuperDracos when the vessel has them and the pilot selected them or the
+// landing autopilot owns the engine (ADR 0069 decision 6). A planted burn
+// never does: it is on the Dracos whatever the mode.
+func (s *Spacecraft) UsesSuperDraco() bool {
+	return s.HasSuperDraco() && s.ActiveBurn == nil &&
+		(s.EngineMode == EngineSuperDraco || s.Landing.Owns())
+}
+
+// OnSuperDraco runs f on the SuperDracos when UsesSuperDraco (see onEngine).
+func (s *Spacecraft) OnSuperDraco(f func()) { s.onEngine(s.UsesSuperDraco(), f) }
+
+// OnLandingBrake runs f on the SuperDracos whenever the vessel has them: the
+// landing brake is the autopilot's, whatever mode: says (ADR 0069 decision 6).
+func (s *Spacecraft) OnLandingBrake(f func()) { s.onEngine(s.HasSuperDraco(), f) }
+
+// onEngine runs f with the lit stage's engine swapped to the SuperDraco
+// figures when use, then swaps back. Same tank, same mass. Nests: an inner
+// call inside a swap leaves it to the outer one.
+// shortcut: a stage dropped inside f takes its swap with it, restore skips it.
+func (s *Spacecraft) onEngine(use bool, f func()) {
+	if !use || !s.HasSuperDraco() || s.Stages[s.LitStage()].Thrust == s.Stages[s.LitStage()].SuperThrust {
+		f()
+		return
+	}
+	i := s.LitStage()
+	st := &s.Stages[i]
+	mainT, mainI, superT := st.Thrust, st.Isp, st.SuperThrust
+	st.Thrust, st.Isp = st.SuperThrust, st.SuperIsp
+	s.SyncFields()
+	defer func() {
+		if i < len(s.Stages) && s.Stages[i].Thrust == superT && s.Stages[i].SuperThrust == superT {
+			s.Stages[i].Thrust, s.Stages[i].Isp = mainT, mainI
+			s.SyncFields()
+		}
+	}()
+	f()
+}
+
+// ManualEngine is the thrust and Isp the pilot's engine delivers: the
+// SuperDracos while selected, else the lit set (what TWR and stop: read).
+func (s *Spacecraft) ManualEngine() (thrust, isp float64) {
+	if s.UsesSuperDraco() {
+		st := s.Stages[s.LitStage()]
+		return st.SuperThrust, st.SuperIsp
+	}
+	return s.Thrust, s.Isp
 }

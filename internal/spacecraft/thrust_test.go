@@ -443,3 +443,41 @@ func TestBurnInertialHoldsTheNoseThroughTrims(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0069 decision 6: with superdraco selected the manual engine reads 568 kN
+// at 235 s on the same tank, mass unchanged; a planted burn (ActiveBurn) and
+// the other modes stay on the Dracos; the swap is undone afterwards.
+func TestSuperDracoEngineFigures(t *testing.T) {
+	st, ok := BuildModule("dragon-crew")
+	if !ok {
+		t.Fatal("no dragon-crew")
+	}
+	s := &Spacecraft{Stages: st}
+	s.SyncFields()
+	mass := s.TotalMass()
+	if th, isp := s.ManualEngine(); th != 1600 || isp != 300 {
+		t.Fatalf("main engine %v N %v s, want 1600 N 300 s", th, isp)
+	}
+	s.EngineMode = EngineSuperDraco
+	if th, isp := s.ManualEngine(); th != 568000 || isp != 235 {
+		t.Errorf("superdraco %v N %v s, want 568000 N 235 s", th, isp)
+	}
+	s.OnSuperDraco(func() {
+		if s.Thrust != 568000 || s.Isp != 235 {
+			t.Errorf("inside the swap %v N %v s, want 568000 N 235 s", s.Thrust, s.Isp)
+		}
+	})
+	if s.Thrust != 1600 || s.Isp != 300 || s.TotalMass() != mass {
+		t.Errorf("after the swap %v N %v s %v kg, want 1600 N 300 s %v kg", s.Thrust, s.Isp, s.TotalMass(), mass)
+	}
+	t.Logf("hover TWR on Earth %.2f, dv %.0f m/s (wet %.0f kg)", 568000/(mass*9.80665), 235*g0*math.Log(mass/(mass-s.ActiveStageFuel())), mass)
+	s.ActiveBurn = &ActiveBurn{}
+	if th, _ := s.ManualEngine(); th != 1600 {
+		t.Errorf("planted burn with superdraco selected reads %v N, want the Dracos' 1600", th)
+	}
+	s.OnSuperDraco(func() {
+		if s.Thrust != 1600 {
+			t.Errorf("planted burn inside OnSuperDraco thrust %v, want 1600", s.Thrust)
+		}
+	})
+}

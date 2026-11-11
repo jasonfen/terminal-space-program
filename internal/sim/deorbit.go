@@ -156,7 +156,12 @@ func brakeThrottle(c *spacecraft.Spacecraft) float64 {
 	return DeorbitBrakeThrottle
 }
 
-func canBrakeAtSite(c *spacecraft.Spacecraft) bool {
+func canBrakeAtSite(c *spacecraft.Spacecraft) (ok bool) {
+	c.OnLandingBrake(func() { ok = canBrakeAtSiteOn(c) })
+	return ok
+}
+
+func canBrakeAtSiteOn(c *spacecraft.Spacecraft) bool {
 	if c.Thrust <= 0 || c.Isp <= 0 || c.ActiveStageFuel() <= 0 || c.TotalMass() <= 0 {
 		return false
 	}
@@ -265,6 +270,11 @@ type stopForecast struct {
 // ground=false when the coast never meets the ground in the horizon;
 // ok=false when it meets it but the brake cannot stop above it.
 func stopPointFor(v *spacecraft.Spacecraft, horizon time.Duration) (sf stopForecast, ground, ok bool) {
+	v.OnLandingBrake(func() { sf, ground, ok = stopPointForOn(v, horizon) })
+	return
+}
+
+func stopPointForOn(v *spacecraft.Spacecraft, horizon time.Duration) (sf stopForecast, ground, ok bool) {
 	cue, ground, hasCue := burnAtCue(v, horizon, brakeThrottle(v), deorbitRefineIters)
 	if !ground {
 		return stopForecast{}, false, false

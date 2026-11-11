@@ -185,12 +185,16 @@ func (v *OrbitView) engineTWRCell(c *spacecraft.Spacecraft) string {
 // engineTWRValue is the TWR figure's text, shared with the LANDING chip's
 // twr: row so the two cannot drift.
 func engineTWRValue(c *spacecraft.Spacecraft) string {
-	if c == nil || c.Thrust <= 0 || c.TotalMass() <= 0 {
+	if c == nil || c.TotalMass() <= 0 {
+		return "—"
+	}
+	thrust, _ := c.ManualEngine()
+	if thrust <= 0 {
 		return "—"
 	}
 	g := c.Primary.GravitationalParameter() / (c.Primary.RadiusMeters() * c.Primary.RadiusMeters())
-	cur := c.Thrust * c.LitThrottle(c.EffectiveThrottle()) / (c.TotalMass() * g)
-	max := c.Thrust / (c.TotalMass() * g)
+	cur := thrust * c.LitThrottle(c.EffectiveThrottle()) / (c.TotalMass() * g)
+	max := thrust / (c.TotalMass() * g)
 	curLabel := fmt.Sprintf("%.2f", cur)
 	maxLabel := fmt.Sprintf("%.2f", max)
 	if curLabel == maxLabel {

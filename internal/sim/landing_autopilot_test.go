@@ -731,14 +731,20 @@ type boosterFall struct{ altM, downMps, offN, offE, driftN, driftE, fuelKg float
 // vessel yet (ADR 0069 slice 8), so the fixture builds the vessel itself.
 func boosterWorld(t *testing.T, b boosterFall) (*World, *spacecraft.Spacecraft, Site) {
 	t.Helper()
+	return fallWorld(t, spacecraft.StageModuleF9S1ID, b)
+}
+
+// fallWorld is boosterWorld for any catalog module: the stage alone, falling.
+func fallWorld(t *testing.T, module string, b boosterFall) (*World, *spacecraft.Spacecraft, Site) {
+	t.Helper()
 	w, err := NewWorld()
 	if err != nil {
 		t.Fatal(err)
 	}
 	w.navErrorOff = true
-	st, ok := spacecraft.BuildModule(spacecraft.StageModuleF9S1ID)
+	st, ok := spacecraft.BuildModule(module)
 	if !ok {
-		t.Fatal("no f9-s1 module")
+		t.Fatalf("no %s module", module)
 	}
 	st[0].FuelMass = b.fuelKg
 	c, err := w.SpawnCraft(SpawnSpec{CustomStages: st, ParentBodyID: "earth", AltitudeM: 200e3})
@@ -887,9 +893,8 @@ func TestOneBurnMarkReplacesTheScheduleOnlyWhereMarked(t *testing.T) {
 	}
 }
 
-// The marks ship on the Falcon and Packet stages and Dragon, and a Dragon (no
-// landing engine until ADR 0069 slice 6) is marked but cannot fly it yet: N
-// refuses on thrust under weight, as for any vessel that cannot brake.
+// The marks ship on the Falcon and Packet stages and Dragon. A Dragon's
+// Dracos cannot brake (1.6 kN), its SuperDracos can (ADR 0069 slice 6).
 func TestOneBurnMarksOnTheCatalogParts(t *testing.T) {
 	want := map[string]float64{spacecraft.StageModuleF9S1ID: 1.0 / 9, "fh-boosters": 1.0 / 9, "packet-1": 0.4, "dragon-crew": 1, "dragon-cargo": 1}
 	for id, lt := range want {
@@ -912,9 +917,55 @@ func TestOneBurnMarksOnTheCatalogParts(t *testing.T) {
 	if c.LandingThrottle() != 1 {
 		t.Fatalf("Dragon landing throttle %v, want 1", c.LandingThrottle())
 	}
-	if err := w.EngageLandingAutopilot(); !errors.Is(err, ErrSiteHoldUnderWeight) {
-		t.Errorf("Dragon engage: %v, want %v until the SuperDracos exist", err, ErrSiteHoldUnderWeight)
+	if err := w.EngageLandingAutopilot(); err != nil {
+		t.Errorf("Dragon engage: %v, want engaged on the SuperDracos", err)
 	}
+	// sabotage: without the SuperDracos the same vessel refuses on thrust under weight
+	c.Landing = nil
+	c.Stages[0].SuperThrust, c.Stages[0].SuperIsp = 0, 0
+	if err := w.EngageLandingAutopilot(); !errors.Is(err, ErrSiteHoldUnderWeight) {
+		t.Errorf("Dragon without SuperDracos engage: %v, want %v", err, ErrSiteHoldUnderWeight)
+	}
+}
+
+// ADR 0069 decision 6: a Dragon falling over Earth lands under N on the
+// SuperDracos at under 10 m/s with its engine mode untouched, burning on the
+// SuperDraco figures; the same fall without them cannot stop.
+func TestDragonLandsOnSuperDracos(t *testing.T) {
+	b := boosterFall{altM: 4600, downMps: 250, offN: 60, offE: -40, fuelKg: 2562}
+	w, c, lc13 := fallWorld(t, "dragon-crew", b)
+	massBefore := c.TotalMass()
+	if c.EngineMode != spacecraft.EngineMain {
+		t.Fatalf("mode %v, want main", c.EngineMode)
+	}
+	v, d, peak, landed := flyBooster(t, w, c, lc13)
+	t.Logf("Dragon: contact %.2f m/s, %.1f m from LZ-1, peak throttle %.3f, landed=%v, mass %.0f -> %.0f kg", v, d, peak, landed, massBefore, c.TotalMass())
+	if !landed || v >= CrashVCritMps {
+		t.Errorf("landed=%v contact %.2f m/s, want landed under %v", landed, v, CrashVCritMps)
+	}
+	if c.EngineMode != spacecraft.EngineMain {
+		t.Errorf("mode %v after the landing, want main (N does not switch it)", c.EngineMode)
+	}
+	if c.Thrust != 1600 {
+		t.Errorf("thrust %v after the landing, want the Dracos' 1600 back", c.Thrust)
+	}
+	// red without the SuperDracos
+	w2, c2, lc := fallWorld(t, "dragon-crew", b)
+	c2.Stages[0].SuperThrust, c2.Stages[0].SuperIsp = 0, 0
+	if _, err := w2.PlanDeorbitAndEngage(); err == nil {
+		v2, _, _, landed2 := flyBooster2(w2, c2, lc)
+		if landed2 && v2 < CrashVCritMps {
+			t.Errorf("Dragon on its Dracos alone landed softly (%.2f m/s)", v2)
+		}
+	}
+}
+
+func flyBooster2(w *World, c *spacecraft.Spacecraft, lc13 Site) (speed, distM, peak float64, landed bool) {
+	for i := 0; i < 20*60*4 && !c.Landed && !c.Crashed; i++ {
+		speed = physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary).Norm()
+		w.Tick()
+	}
+	return speed, 0, 0, c.Landed
 }
 
 // The profile at its edges, 100 m up and straight down: at exactly the contact
