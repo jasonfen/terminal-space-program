@@ -1330,6 +1330,29 @@ func TestLaunchViewOrbitRendersAsLine(t *testing.T) {
 	}
 }
 
+// Jason 2026-11-11: while the descent forecast is on screen the orbit is the
+// lesser line, so it drops to the faint dotted backdrop style; climbing or in
+// orbit (TestLaunchViewOrbitRendersAsLine) it stays bright yellow.
+func TestLaunchViewOrbitFaintWhileDescending(t *testing.T) {
+	w, c := spawnSaturnVOnPad(t)
+	mu := c.Primary.GravitationalParameter()
+	r := c.Primary.RadiusMeters() + 200_000.0
+	c.Landed = false
+	c.State.R = orbital.Vec3{X: r}
+	c.State.V = orbital.Vec3{X: -150, Y: 0.97 * math.Sqrt(mu/r)}
+	if dc, ok := sim.DescentCorridorFor(c, sim.DescentPredictHorizon); !ok || len(dc.Impact.GroundPath) < 2 {
+		t.Fatalf("setup: not a descent with a forecast (ok=%v, %d points)", ok, len(dc.Impact.GroundPath))
+	}
+	v := NewLaunchView(launchThemeForTest(), nil)
+	v.Render(w, 120, 40)
+	if cells := v.canvas.CountColor(render.ColorCurrentOrbit); cells > 4 {
+		t.Errorf("orbit still bright yellow on %d cells while descending; want the faint backdrop style", cells)
+	}
+	if v.canvas.CountColor(render.ColorDim) == 0 {
+		t.Error("no faint ink at all: the orbit was dropped instead of dimmed")
+	}
+}
+
 // TestLaunchViewRendersDescentWithNilHud (ADR 0051 slice 1 fix-up): a
 // bare test fixture with no OrbitView (NewLaunchView(th, nil), the same
 // nil hudSource pattern the tests above use to isolate the canvas) must

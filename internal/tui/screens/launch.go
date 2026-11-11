@@ -541,7 +541,9 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft, cor
 	// Drawn after the body fill so the near arc paints over the disk and
 	// the far arc is depth-culled behind it; drawn before the surface
 	// markers + rocket so those layer on top. v0.14+.
-	v.drawOrbitPath(craft, bodyCentre)
+	// While the descent forecast is on screen the orbit is the lesser line:
+	// faint dotted backdrop (Jason 2026-11-11), bright again climbing or in orbit.
+	v.drawOrbitPath(craft, bodyCentre, descending && len(corridor.Impact.GroundPath) >= 2)
 	v.drawTargetOrbitPath(w, craft, bodyCentre)
 
 	// Descent half (ADR 0043 §3): the dashed arc down to the ground and
@@ -1067,7 +1069,7 @@ func launchOcclusionPxR(b bodies.CelestialBody, scale float64) int {
 	return int(math.Round(b.RadiusMeters() * scale))
 }
 
-func (v *LaunchView) drawOrbitPath(craft *spacecraft.Spacecraft, bodyCentre orbital.Vec3) {
+func (v *LaunchView) drawOrbitPath(craft *spacecraft.Spacecraft, bodyCentre orbital.Vec3, faint bool) {
 	if craft.Landed {
 		return
 	}
@@ -1080,7 +1082,11 @@ func (v *LaunchView) drawOrbitPath(craft *spacecraft.Spacecraft, bodyCentre orbi
 	primaryPxR := launchOcclusionPxR(craft.Primary, scale)
 	// Real class, bright (ADR 0041 §2) — same treatment as the orbit map's
 	// own-craft ellipse.
-	v.canvas.DrawEllipseClass(el, bodyCentre, 360, widgets.ClassReal, bodyCentre, primaryPxR, render.ColorCurrentOrbit)
+	class, col := widgets.ClassReal, render.ColorCurrentOrbit
+	if faint {
+		class, col = widgets.ClassScenery, render.ColorDim
+	}
+	v.canvas.DrawEllipseClass(el, bodyCentre, 360, class, bodyCentre, primaryPxR, col)
 	peri := bodyCentre.Add(orbital.PositionAtTrueAnomaly(el, 0))
 	apo := bodyCentre.Add(orbital.PositionAtTrueAnomaly(el, math.Pi))
 	// Unified single-glyph apsis markers (ADR 0020) — same ▼/▲ as the
