@@ -2153,6 +2153,13 @@ func (w *World) integrateOneCraftOn(c *spacecraft.Spacecraft, simDelta time.Dura
 	if inAtmosphere(c) && maxStep > atmosphereMaxStepSec {
 		maxStep = atmosphereMaxStepSec
 	}
+	// A thrusting tick steps at most the 1x tick: the thrust acceleration is
+	// held at the step's start mass, so a 0.5 s step at 10x burned 0.5 % more
+	// propellant for the same dv than twenty 0.05 s steps, and the lighter
+	// vessel then flew a different entry (48 m at the stop point).
+	if base := w.Clock.BaseStep.Seconds(); (c.ActiveBurn != nil || c.ManualBurn != nil) && base > 0 && maxStep > base {
+		maxStep = base
+	}
 	nSteps := int(math.Ceil(secs / maxStep))
 	if nSteps < 1 {
 		nSteps = 1
