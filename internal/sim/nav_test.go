@@ -305,6 +305,26 @@ func TestSiteHoldLabelNamesEveryPhase(t *testing.T) {
 			}
 		}
 	}
+	// ADR 0069 decision 8: a vessel working its chute reads `chute` between wait
+	// and brake, under N only and only while the phase is the wait
+	c.HasParachute, c.CanSoftLand = true, true
+	for state, want := range map[spacecraft.ChuteState]string{
+		spacecraft.ChuteStowed: "wait", spacecraft.ChuteArmed: "chute", spacecraft.ChuteDeployed: "chute", spacecraft.ChuteCut: "wait",
+	} {
+		c.ChuteState = state
+		c.Landing.Nose, c.Landing.Phase = false, spacecraft.PhaseCoast
+		if got := w.siteHoldLabel(c); got != "Site+ auto "+want {
+			t.Errorf("chute %v: hold %q, want %q", state, got, "Site+ auto "+want)
+		}
+		c.Landing.Nose = true
+		if got := w.siteHoldLabel(c); got != "Site+ wait" {
+			t.Errorf("chute %v under the nose hold: %q, want Site+ wait", state, got)
+		}
+		c.Landing.Nose, c.Landing.Phase = false, spacecraft.PhaseBrake
+		if got := w.siteHoldLabel(c); got != "Site+ auto brake" {
+			t.Errorf("chute %v in the brake: %q, want Site+ auto brake", state, got)
+		}
+	}
 }
 
 // twoVessels returns a world with two crafts; craft 0 is active.

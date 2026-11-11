@@ -480,4 +480,38 @@ func TestSuperDracoEngineFigures(t *testing.T) {
 			t.Errorf("planted burn inside OnSuperDraco thrust %v, want 1600", s.Thrust)
 		}
 	})
+	// N's own deorbit burn (the autopilot owns the engine) flies on the SuperDracos
+	// (ADR 0069 decision 8): 1.6 kN cannot deorbit a Dragon before the burn reaches the air
+	s.Landing = &LandingAutopilot{Engaged: true}
+	if th, _ := s.ManualEngine(); th != 568000 {
+		t.Errorf("planted burn under N reads %v N, want the SuperDracos' 568000", th)
+	}
+	s.Landing.Nose = true // the q nose hold owns no engine
+	if th, _ := s.ManualEngine(); th != 1600 {
+		t.Errorf("planted burn under the nose hold reads %v N, want the Dracos' 1600", th)
+	}
+}
+
+// WorksChute: the chute-then-engines landing needs a chute that is armed or
+// open, landing engines, and air (ADR 0069 decision 8).
+func TestWorksChuteNeedsChuteEnginesAndAir(t *testing.T) {
+	st, _ := BuildModule("dragon-crew")
+	s := &Spacecraft{Stages: st, Primary: bodies.CelestialBody{Atmosphere: &bodies.Atmosphere{}}}
+	s.SyncFields()
+	for state, want := range map[ChuteState]bool{ChuteStowed: false, ChuteArmed: true, ChuteDeployed: true, ChuteCut: false} {
+		s.ChuteState = state
+		if got := s.WorksChute(); got != want {
+			t.Errorf("chute %v: WorksChute %v, want %v", state, got, want)
+		}
+	}
+	s.ChuteState = ChuteArmed
+	s.CanSoftLand = false
+	if s.WorksChute() {
+		t.Error("a chute capsule with no landing engine works the chute")
+	}
+	s.CanSoftLand = true
+	s.Primary.Atmosphere = nil
+	if s.WorksChute() {
+		t.Error("an airless body works the chute")
+	}
 }

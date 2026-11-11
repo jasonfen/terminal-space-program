@@ -169,6 +169,12 @@ func TestGuidanceSiteHoldIsAccentedOnlyWhileEngaged(t *testing.T) {
 	if want := th.Warning.Render("Site+ auto wait"); !strings.Contains(row(), want) {
 		t.Errorf("engaged coast: want %q accented in %q", "Site+ auto wait", row())
 	}
+	// ADR 0069 decision 8: the chute phase word reads in the same accent
+	c.HasParachute, c.CanSoftLand, c.ChuteState = true, true, spacecraft.ChuteArmed
+	if want := th.Warning.Render("Site+ auto chute"); !strings.Contains(row(), want) {
+		t.Errorf("engaged under the canopy: want %q accented in %q", "Site+ auto chute", row())
+	}
+	c.HasParachute, c.CanSoftLand, c.ChuteState = false, false, spacecraft.ChuteStowed
 	c.Landing.Nose = true // fix E: the nose hold is the pilot's, not the armed autopilot
 	if r := row(); strings.Contains(r, th.Warning.Render("Site+ wait")) || !strings.Contains(r, "Site+ wait") {
 		t.Errorf("nose hold should read plain %q: %q", "Site+ wait", r)

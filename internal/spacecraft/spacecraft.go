@@ -612,6 +612,12 @@ func (s *Spacecraft) EffectiveBallisticCoefficient() float64 {
 	if s.ChuteState == ChuteDeployed {
 		return ChuteDeployedBC
 	}
+	return s.BareBallisticCoefficient()
+}
+
+// BareBallisticCoefficient is the drag of the hull with no canopy: what
+// EffectiveBallisticCoefficient reports for every chute state but DEPLOYED.
+func (s *Spacecraft) BareBallisticCoefficient() float64 {
 	if len(s.Stages) > 0 {
 		b := s.Stages[0]
 		m := s.TotalMass()

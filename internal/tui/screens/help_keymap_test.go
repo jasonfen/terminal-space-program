@@ -285,6 +285,8 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 		"(`alt+e` / `alt+q` 0.3 m/s)",
 		"| `Site+` / `Site+ auto` / `ROD` | `q` in SITE holds the guidance nose",
 		"`N` flies everything (`Site+ auto wait` in amber until the brake lights",
+		"a Dragon reads `Site+ auto chute` between `wait` and `brake`",
+		"reads `hold: Site+ auto chute` under the canopy until it cuts the chute and lands on the flag",
 		"It also puts the navball on SITE and engages the full landing autopilot (`hold: Site+ auto wait`, amber)",
 		"engages it from the current state with no new burn (footer `Site+ auto: landing from here`)",
 		"the orbit is too low for your brake (`deorbit: brake needs 66 km, orbit 50 km`",

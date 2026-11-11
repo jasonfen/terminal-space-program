@@ -20,6 +20,15 @@ const (
 	// reconstructions). Playtest-tuned.
 	OneBurnContactMps = 2.0
 
+	// OneBurnLetDownGain is how hard (1/s) a one-burn landing lets a fall
+	// slower than OneBurnContactMps back down to it: m/s^2 off gravity's share
+	// per m/s of shortfall.
+	OneBurnLetDownGain = 1.0
+
+	// ChuteAimFuelFrac is the share of the tank an aim-correcting burn under
+	// the chute-cut rule may hover on (ADR 0069 decision 8). Retunable.
+	ChuteAimFuelFrac = 0.65
+
 	// SiteShiftFarRangeM / SiteShiftMidRangeM: where the aim rung changes
 	// (ground range to the computer's site). ADR 0067 row 2; Q6.
 	SiteShiftFarRangeM = 50000.0
