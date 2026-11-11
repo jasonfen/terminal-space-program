@@ -61,8 +61,7 @@ type Target struct {
 	SiteID uint64 `json:"site_id,omitempty"`
 
 	// LZ is the LZ chosen on the t card for a TargetSite (ADR 0068
-	// decision 6): 0 is auto, n is LZ-n. Never saved (S6 owns the
-	// schema): CraftToWire copies fields by hand and leaves it out.
+	// decision 6): 0 is auto, n is LZ-n. Saved from schema 24.
 	LZ int `json:"-"`
 }
 

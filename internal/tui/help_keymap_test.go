@@ -34,6 +34,7 @@ func TestControlsDocNamesBatchRow(t *testing.T) {
 		// ADR 0066 S2: the target menu rows and the quick start.
 		"| `t` / `T` | Open the target menu / clear your target. The menu lists VESSELS, SITES on this body, PARTNERS and BODIES",
 		"| `r` / `d` (target menu) |",
+		"| `+` / `-` (target menu) | On a flag you own: `+` adds an LZ (nine at most)",
 		"| `←` / `→` (target menu) | On a site with more than one LZ: choose which, `auto` then `LZ-1` up.",
 		// ADR 0066 S3: the y card and the flag and wreck markers.
 		"| `F3` | **Surface marks** card: show or hide landed vessels (`v`), flags (`f`), wrecks (`w`), partners' marks (`p`) and coverage now (`c`)",

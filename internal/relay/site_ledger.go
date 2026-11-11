@@ -1,6 +1,7 @@
 package relay
 
 import (
+	"reflect"
 	"sort"
 	"sync"
 
@@ -28,6 +29,8 @@ type SiteRecord struct {
 	CraftID            uint64
 	PlantedAtNano      int64
 	UpdatedAtNano      int64
+	LZCount            int // ADR 0068 (meta 7): 0 = one LZ
+	LZNames            []string
 	SaveID             string // #891: the owner's save that planted it; "" (pre-#891) matches any
 }
 
@@ -50,7 +53,7 @@ func (l *SiteLedger) Plant(r SiteRecord) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	k := siteKey{r.Owner, r.ID}
-	if old, ok := l.recs[k]; ok && (r.UpdatedAtNano < old.UpdatedAtNano || old == r) {
+	if old, ok := l.recs[k]; ok && (r.UpdatedAtNano < old.UpdatedAtNano || reflect.DeepEqual(old, r)) {
 		return false
 	}
 	l.recs[k] = r
@@ -153,6 +156,7 @@ func SiteRecordOf(w *sim.World, s sim.Site, owner, handle string) (SiteRecord, b
 					Owner: owner, OwnerHandle: handle, ID: s.ID, BodyID: b.ID, System: s.System,
 					LatDeg: s.LatDeg, LonDeg: s.LonDeg, Kind: int(s.Kind), Name: s.Name,
 					CraftID: s.CraftID, PlantedAtNano: s.PlantedAtNano, UpdatedAtNano: s.UpdatedAtNano, SaveID: w.SaveID,
+					LZCount: s.LZCount, LZNames: s.LZNames,
 				}, true
 			}
 		}
@@ -173,6 +177,7 @@ func siteOf(w *sim.World, r SiteRecord) (sim.Site, bool) {
 					ID: r.ID, Body: b.EnglishName, System: r.System, LatDeg: r.LatDeg, LonDeg: r.LonDeg,
 					Kind: sim.SiteKind(r.Kind), Name: r.Name, CraftID: r.CraftID,
 					PlantedAtNano: r.PlantedAtNano, UpdatedAtNano: r.UpdatedAtNano,
+					LZCount: r.LZCount, LZNames: r.LZNames,
 				}, true
 			}
 		}

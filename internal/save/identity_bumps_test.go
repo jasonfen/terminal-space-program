@@ -39,9 +39,11 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 	w.GameFolder = "2026-10-27-1843"                  // v19
 	hold := spacecraft.BurnPortIn                     // v20: a docked piece's pre-latch hold
 	c.DockedComponents = []spacecraft.DockedComponent{{Name: "Core"}, {Name: "Tug", AttitudeMode: &hold}}
-	c.NewestSeam = 1 // v20: where the block docked last begins
+	c.NewestSeam = 1                                                                                                                              // v20: where the block docked last begins
 	w.Sites = []sim.Site{{ID: 3, Body: "Moon", System: "Sol", LatDeg: 1.5, LonDeg: -2.5, Kind: sim.SiteWreck, Name: "Probe-1 wreck", CraftID: 1}} // v21
 	w.NextSiteID = 3
+	w.Sites[0].LZCount, w.Sites[0].LZNames = 3, []string{"", "", "Alpha"}              // v24: a site's LZs
+	c.Target.LZ, c.LZClaim = 2, spacecraft.LZClaim{Owner: "SHA256:x", SiteID: 3, N: 2} // v24: the card's LZ and the held claim
 
 	path := filepath.Join(t.TempDir(), "save.json")
 	if err := Save(w, path); err != nil {
@@ -51,7 +53,8 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 	if want.Payload.Crafts[0].BatchID != 9 || want.Payload.Crafts[0].LiftoffSimTimeNano == 0 || want.Payload.GameFolder == "" || want.Payload.NameCounters == nil ||
 		want.Payload.Crafts[0].RendezvousPlan == nil || want.Payload.Crafts[0].BoosterThrottle == nil ||
 		want.Payload.Crafts[0].HeadingTrim == 0 || want.Payload.Crafts[0].Target == nil ||
-		want.Payload.Crafts[0].DockedComponents[1].AttitudeMode == nil || want.Payload.Crafts[0].NewestSeam == 0 || len(want.Payload.Sites) != 1 {
+		want.Payload.Crafts[0].DockedComponents[1].AttitudeMode == nil || want.Payload.Crafts[0].NewestSeam == 0 || len(want.Payload.Sites) != 1 ||
+		want.Payload.Sites[0].LZCount != 3 || want.Payload.Crafts[0].Target.LZ != 2 || want.Payload.Crafts[0].LZClaim == nil {
 		t.Fatalf("setup: a bump's key is missing: batch=%v counters=%v plan=%v booster=%v trim=%v target=%v", want.Payload.Crafts[0].BatchID, want.Payload.NameCounters, want.Payload.Crafts[0].RendezvousPlan, want.Payload.Crafts[0].BoosterThrottle, want.Payload.Crafts[0].HeadingTrim, want.Payload.Crafts[0].Target)
 	}
 
@@ -66,8 +69,11 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 		19: func(p *Payload) { p.GameFolder = "" },
 		20: func(p *Payload) { p.Crafts[0].DockedComponents[1].AttitudeMode, p.Crafts[0].NewestSeam = nil, 0 },
 		21: func(p *Payload) { p.Sites, p.NextSiteID = nil, 0 },
+		24: func(p *Payload) {
+			p.Sites[0].LZCount, p.Sites[0].LZNames, p.Crafts[0].Target.LZ, p.Crafts[0].LZClaim = 0, nil, 0, nil
+		},
 	}
-	for _, bump := range []int{10, 11, 14, 16, 17, 18, 19, 20, 21} {
+	for _, bump := range []int{10, 11, 14, 16, 17, 18, 19, 20, 21, 24} {
 		roundTrip(t, want, bump, "keys present")
 		absent := want
 		absent.Payload = Payload{}
@@ -197,13 +203,13 @@ func TestSitesAndSiteTargetRoundTrip(t *testing.T) {
 	if back, err := Load(path); err != nil || back.Target.SiteID != zoneID || !back.TargetSiteResolves() {
 		t.Errorf("a shipped-zone target did not survive: %v %+v", err, back.Target)
 	}
-	// ADR 0068 S4: a chosen LZ is forgotten on reload until S6 owns the schema.
+	// ADR 0068 S6 (schema 24): the LZ chosen on the card survives a reload.
 	w.SetTargetSiteLZ(zoneID, 2)
 	if err := Save(w, path); err != nil {
 		t.Fatal(err)
 	}
-	if back, err := Load(path); err != nil || back.Target.SiteID != zoneID || back.Target.LZ != 0 || back.ActiveCraft().Target.LZ != 0 {
-		t.Errorf("a chosen LZ survived the reload: %v %+v", err, back.Target)
+	if back, err := Load(path); err != nil || back.Target.SiteID != zoneID || back.Target.LZ != 2 || back.ActiveCraft().Target.LZ != 2 {
+		t.Errorf("a chosen LZ did not survive the reload: %v %+v", err, back.Target)
 	}
 	w.SetTargetSite(2)
 	if err := Save(w, path); err != nil {

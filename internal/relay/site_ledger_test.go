@@ -183,3 +183,39 @@ func TestSyncSitesConnectFromDifferentSave(t *testing.T) {
 		})
 	}
 }
+
+// ADR 0068 decisions 11, 13 and guard 7: a partner sees the base as its owner
+// laid it out; a + after the plant reaches the ledger on the next tick; a
+// record from an older peer (no count) reads one LZ; no shipped zone is ever
+// in the ledger.
+func TestLedgerCarriesLZCountAndNamesAndNeverAZone(t *testing.T) {
+	w := ledgerWorld(t)
+	l := NewSiteLedger()
+	known := map[uint64]int64{}
+	w.Sites = []sim.Site{moonSite(1, "Base", 5)}
+	l.SyncSites(w, "A", "ann", known, false)
+	w.AddLZ(1)
+	w.AddLZ(1)
+	w.Sites[0].LZNames = []string{"", "", "Alpha"}
+	if !l.SyncSites(w, "A", "ann", known, false) {
+		t.Fatal("a + did not reach the ledger")
+	}
+	ps := l.PartnerSitesFor(w, "B", nil)
+	if len(ps) != 1 || ps[0].LZs() != 3 || ps[0].LZNames[2] != "Alpha" {
+		t.Fatalf("partner sees %+v, want 3 LZs named ,,Alpha", ps)
+	}
+	l.Plant(SiteRecord{Owner: "C", ID: 9, BodyID: "moon", System: "Sol", Name: "old peer", UpdatedAtNano: 1})
+	for _, p := range l.PartnerSitesFor(w, "B", nil) {
+		if p.Owner == "C" && p.LZs() != 1 {
+			t.Errorf("a record with no count reads %d LZs, want 1", p.LZs())
+		}
+	}
+	for _, r := range l.Snapshot() {
+		if r.ID >= 1<<62 {
+			t.Errorf("a shipped zone is in the ledger: %+v", r)
+		}
+	}
+	if len(w.AllSites()) <= len(w.Sites) {
+		t.Fatal("setup: no shipped zones to leave out")
+	}
+}
