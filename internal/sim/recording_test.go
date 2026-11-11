@@ -662,7 +662,7 @@ func TestRealisticFlightFile(t *testing.T) {
 			t.Errorf("bad row %q", l)
 		}
 	}
-	if want := w.holdText(w.ActiveCraft()); want != "Radial+ (ORBIT)" {
+	if want := w.holdText(w.ActiveCraft()); want != "Radial+ (SURF)" { // launched from the pad: nav SURF
 		t.Errorf("holdText = %q", want)
 	}
 	w.ActiveCraft().AttitudeMode = spacecraft.BurnInertial // ADR 0063: the hold column follows
