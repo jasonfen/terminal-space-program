@@ -1127,3 +1127,47 @@ func TestChuteCutRuleBoundaries(t *testing.T) {
 		t.Error("cut a chute that has not opened")
 	}
 }
+
+// ADR 0069 slice 9: N lands a Dragon inside the 43 m LZ circle at every warp,
+// on Earth with and without the canopy and on Mars, from orbit, and over LC-13
+// from 4.6 km at 250 m/s and 72 m off; the tank is never run dry. Before the
+// entry stopped depending on the tick it was 678 m (Earth at 1x), 150-196 m
+// (engines only) and 67 m (the LC-13 fall).
+func TestDragonLandsInsideTheCircleAtEveryWarp(t *testing.T) {
+	const circle = 43.0 // equal case: 43 m is inside
+	check := func(label string, w *World, c *spacecraft.Spacecraft) {
+		t.Helper()
+		for i := 0; i < 6*3600*20 && !c.Landed && !c.Crashed; i++ {
+			w.Tick()
+		}
+		d := w.PendingLandingEvents[len(w.PendingLandingEvents)-1].DistanceM
+		fuel := c.ActiveStageFuel()
+		t.Logf("%s: landed=%v %.1f m from the flag, fuel left %.0f kg", label, c.Landed, d, fuel)
+		if !c.Landed || d > circle || fuel <= 0 {
+			t.Errorf("%s: landed=%v %.1f m from the flag (want within %v m), fuel left %.0f kg", label, c.Landed, d, circle, fuel)
+		}
+	}
+	for idx, f := range WarpFactors {
+		for _, tc := range []struct {
+			body  string
+			chute bool
+		}{{"earth", true}, {"earth", false}, {"mars", true}} {
+			w, c := dragonFromOrbit(t, tc.body, 200e3)
+			if !tc.chute {
+				noChute(c)
+			}
+			if _, err := w.PlanDeorbitAndEngage(); err != nil {
+				t.Fatalf("%s chute=%v %vx: N: %v", tc.body, tc.chute, f, err)
+			}
+			w.Clock.WarpIdx = idx
+			check(fmt.Sprintf("%s chute=%v %vx", tc.body, tc.chute, f), w, c)
+		}
+		w, c, _ := fallWorld(t, "dragon-crew", boosterFall{altM: 4600, downMps: 250, offN: 60, offE: -40, fuelKg: 2562})
+		noChute(c)
+		if plan, err := w.PlanDeorbitAndEngage(); err != nil || plan != nil {
+			t.Fatalf("LC-13 fall %vx: N: plan=%v err=%v", f, plan, err)
+		}
+		w.Clock.WarpIdx = idx
+		check(fmt.Sprintf("LC-13 fall %vx", f), w, c)
+	}
+}
