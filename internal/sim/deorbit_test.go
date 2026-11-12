@@ -833,12 +833,12 @@ func jasonDrop(t *testing.T, offE, fuelKg float64) (*World, *spacecraft.Spacecra
 // bracket used to read an unjudgeable burn at its low edge as "too steep" and
 // back away from the root (90 t refused at 60 and 30 km while 107 km landed).
 // Within the grid, once a plan exists at some propellant every heavier load plans
-// too (up to 120 t: past it the entry burn cap of 1,100 m/s ends the plans (burns that long run into the dense air, which the forecast leaves out, and flew 10 km off)). Two
+// too (up to 160 t: past ~180 t the 1,100 m/s entry burn cap leaves the stage over the ~77 t one engine can hover, and N refuses (a longer entry burn runs into the dense air, which the forecast leaves out, and flew 10 km off)). Two
 // of the newly planned cases are flown to touchdown at 1x and at max warp.
 func TestBoostbackPlansAtEveryHeavierLoad(t *testing.T) {
 	for _, offE := range []float64{107e3, 60e3, 30e3} {
 		planned := false
-		for _, tons := range []float64{70, 90, 120} {
+		for _, tons := range []float64{70, 90, 160} {
 			w, c, _ := jasonDrop(t, offE, tons*1e3)
 			plan, err := w.PlanDeorbitAndEngage()
 			if planned && plan == nil {
@@ -850,13 +850,13 @@ func TestBoostbackPlansAtEveryHeavierLoad(t *testing.T) {
 			}
 		}
 	}
-	// the stated limit: 160 t is past the entry burn cap, and says so
-	if w, _, _ := jasonDrop(t, 30e3, 160e3); true {
-		if plan, err := w.PlanDeorbitAndEngage(); plan != nil || err == nil {
-			t.Errorf("160 t at 30 km: plan=%+v err=%v, want a refusal past the entry burn cap", plan, err)
-		}
+	// the stated limit: 190 t at 107 km is past the entry burn cap, and says so
+	w, _, _ := jasonDrop(t, 107e3, 190e3)
+	var nl *BoostbackNoLandingError
+	if plan, err := w.PlanDeorbitAndEngage(); plan != nil || !errors.As(err, &nl) {
+		t.Errorf("190 t at 107 km: plan=%+v err=%v, want the landing burn's height past the entry burn cap", plan, err)
 	}
-	for _, tc := range []struct{ offE, tons float64 }{{60e3, 90}, {30e3, 120}} {
+	for _, tc := range []struct{ offE, tons float64 }{{60e3, 90}, {30e3, 160}} {
 		for _, idx := range []int{0, len(WarpFactors) - 1} {
 			w, c, lc13 := jasonDrop(t, tc.offE, tc.tons*1e3)
 			plan, err := w.PlanDeorbitAndEngage()
