@@ -294,7 +294,7 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 		"`N` plans a **boostback** instead (footer `boostback onto LZ-1 → 1343 m/s in 12s, stop 12 m short, entry 670 m/s`)",
 		"then an entry burn on three engines of nine on the way down when the fall needs one (`entry` in the footer)",
 		"(`landing burn lights 11.8 km up`)",
-		"Off orbit it plants the boostback only",
+		"Off orbit it plants the boostback and its entry burn",
 		"`hold:` reads `Site+ wait` until the engine is lit",
 		"`b` (surface retrograde, the engine yours: footer `Site+ off: engine lit by hand`) switches it off",
 	} {
