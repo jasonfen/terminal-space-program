@@ -305,8 +305,8 @@ func (w *World) landingAutopilotWarpLimit() (float64, bool) {
 			take(AutopilotWarpCap)
 			continue
 		}
-		if c.ActiveBurn != nil {
-			continue // the planted burn's own cap governs
+		if c.ActiveBurn != nil || landingNodePending(c) {
+			continue // the planted burn's own cap governs, and a planted one ramps warp down to itself
 		}
 		in, ground, late := w.landingCueIn(c)
 		if !ground {
@@ -665,6 +665,9 @@ func (w *World) tickLandingAutopilotOn(c *spacecraft.Spacecraft) {
 			ap.TrackN, ap.StopSpanM, ap.PitchUpRad = orbital.Vec3{}, 0, 0
 			ap.TrackN = apTrackNormal(c, c.State)
 		} else {
+			if landingNodePending(c) {
+				return // N's burns come first: the fall to brake is the one after them (a boostback's pre-burn cue is not it)
+			}
 			in, ground, late := w.landingCueIn(c)
 			if !(ground && w.chuteAimCut(c, f, in)) && (!ground || (!late && in.Seconds() > w.lastSimDelta.Seconds())) {
 				return

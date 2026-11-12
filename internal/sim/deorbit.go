@@ -53,6 +53,12 @@ const (
 	// gravity-loss hover on the landing throttle that runs the tank dry
 	// (measured: lit 76 km up, crash at 100 m/s).
 	BoostbackMaxCueAltM = 20e3
+	// The entry burn (ADR 0069 decision 14, amended): three engines of nine,
+	// lit as the fall passes EntryAltM, sized to the smallest burn that leaves
+	// the landing burn lighting under EntryTargetCueAltM.
+	EntryThrottle = 3.0 / 9
+	entryDVStep   = 100.0
+	entryDVMax    = 2000.0
 )
 
 // The refusal lines, verbatim (decision 21). "vessel not in this system" and
@@ -67,6 +73,19 @@ var (
 	ErrDeorbitNoSolution = errors.New("no solution from this orbit")
 	ErrDeorbitNoEngine   = errors.New("no engine")
 )
+
+// ErrBoostbackNoSolution: no boostback, with any entry burn, lets the stage land
+// on the site.
+var ErrBoostbackNoSolution = errors.New("no boostback lands on the site")
+
+// noLanding is the refusal for a fall that reaches the site but cannot land:
+// where the landing burn would light, or none when no burn gets that far.
+func noLanding(cueAlt float64) error {
+	if cueAlt <= 0 || math.IsInf(cueAlt, 0) || math.IsNaN(cueAlt) {
+		return ErrBoostbackNoSolution
+	}
+	return &BoostbackNoLandingError{CueAltM: cueAlt}
+}
 
 // BoostbackNoLandingError: a boostback would put the fall on the site, but the
 // one-burn landing that follows cannot end at the ground (decision 14's refusal):
@@ -162,6 +181,10 @@ type DeorbitPlan struct {
 	// Boostback: the burn is a boostback (ADR 0069 decision 14) from a suborbital
 	// arc, not a deorbit from a circle.
 	Boostback bool
+	// EntryDV / EntryIn: the entry burn behind it (0 when the fall needs none) and
+	// how long after the boostback ends it starts.
+	EntryDV, EntryAltM float64
+	EntryIn            time.Duration
 	// CueAltM: the height the landing burn after a boostback lights.
 	CueAltM float64
 }
@@ -265,8 +288,9 @@ func vec3(v render.Vec3) orbital.Vec3 { return orbital.Vec3{X: v.X, Y: v.Y, Z: v
 func burnState(c *spacecraft.Spacecraft, st0 physics.StateVector, mu, dv float64, n spacecraft.ManeuverNode) (physics.StateVector, float64) {
 	dir := func(r, v orbital.Vec3) orbital.Vec3 { return spacecraft.NodeBurnDirection(n, r, v) }
 	if c.Thrust > 0 && c.Isp > 0 && st0.M > 0 {
-		s := planner.SimulateFiniteBurn(st0, mu, c.Thrust, c.Isp, dv, dir)
-		return s, (st0.M - s.M) / (c.Thrust / (c.Isp * stdGravityMps2))
+		thrust := c.Thrust * n.EffectiveThrottle() // an entry burn flies on three engines of nine
+		s := planner.SimulateFiniteBurn(st0, mu, thrust, c.Isp, dv, dir)
+		return s, (st0.M - s.M) / (thrust / (c.Isp * stdGravityMps2))
 	}
 	s := st0
 	s.V = st0.V.Add(dir(st0.R, st0.V).Scale(dv))
@@ -357,11 +381,22 @@ type deorbitOffset struct {
 // lands: the 90 % stop point for a vessel that can stop, the free-fall impact
 // otherwise. status: 0 fine, +1 too shallow (no ground), -1 too steep to stop, -2 (boostAimLand
 // only) a stop that ends with altitude in hand, whose brake lights off.cueAlt up.
-func (w *World) aimOffset(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, dv float64, node spacecraft.ManeuverNode, stop bool, boost boostMode, site [2]float64) (off deorbitOffset, status int) {
+func (w *World) aimOffset(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, dv float64, node spacecraft.ManeuverNode, stop bool, boost boostMode, entry entryBurn, site [2]float64) (off deorbitOffset, status int) {
 	mu := c.Primary.GravitationalParameter()
 	s, dur := burnState(c, st0, mu, dv, node)
 	tEnd := tS.Add(time.Duration(dur * float64(time.Second)))
 	v := afterBurnCraft(c, s)
+	if entry.dv > 0 { // the entry burn on the way down, between the boostback and the landing
+		te, ok := entryDelay(s, mu, c.Primary.RadiusMeters(), entry.alt)
+		se, ok2 := physics.KeplerStep(s, mu, te)
+		if !ok || !ok2 {
+			return off, 1
+		}
+		se.M = v.TotalMass()
+		s2, dur2 := burnState(v, se, mu, entry.dv, entryNodeFor(v, se, tEnd, entry.dv))
+		tEnd = tEnd.Add(time.Duration((te + dur2) * float64(time.Second)))
+		v = afterBurnCraft(v, s2)
+	}
 	var aim orbital.Vec3
 	var tAim time.Time
 	if stop {
@@ -441,11 +476,11 @@ func vGrazeSpeed(c *spacecraft.Spacecraft, st0 physics.StateVector) float64 {
 // solveRetro finds the size and out-of-plane tilt of the retro burn from st0 at
 // tS that puts the aim on site: Newton on the size along the track, a secant on
 // the tilt to close the cross-track offset. hint seeds the size.
-func (w *World) solveRetro(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, stop bool, boost boostMode, site [2]float64, hint float64) (dv, tilt float64, lastOff deorbitOffset, noLandAlt float64, ok bool) {
+func (w *World) solveRetro(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, stop bool, boost boostMode, entry entryBurn, site [2]float64, hint float64) (dv, tilt float64, lastOff deorbitOffset, noLandAlt float64, ok bool) {
 	solveDv := func(tilt, hint float64) (float64, bool) {
 		f := func(dv float64) float64 {
 			n := nodeFor(c, st0, tS, dv, tilt, boost != boostOff)
-			off, status := w.aimOffset(c, st0, tS, dv, n, stop, boost, site)
+			off, status := w.aimOffset(c, st0, tS, dv, n, stop, boost, entry, site)
 			switch {
 			case status > 0:
 				return math.Inf(1)
@@ -601,13 +636,14 @@ func (w *World) planDeorbitOntoSite() (*DeorbitPlan, error) {
 	}
 	st0.M = c.TotalMass()
 	stop := canBrakeAtSite(c)
-	dv, tilt, lastOff, _, ok := w.solveRetro(c, st0, tS, stop, boostOff, [2]float64{lat, lon}, 2.5*math.Max(st0.V.Norm()-vGrazeSpeed(c, st0), 1))
+	dv, tilt, lastOff, _, ok := w.solveRetro(c, st0, tS, stop, boostOff, entryBurn{}, [2]float64{lat, lon}, 2.5*math.Max(st0.V.Norm()-vGrazeSpeed(c, st0), 1))
 	if !ok {
 		return nil, ErrDeorbitNoSolution
 	}
 
 	n := nodeFor(c, st0, tS, dv, tilt, false)
 	w.replaceAdvisoryNode(c, AdvisoryKeyDeorbit)
+	w.replaceAdvisoryNode(c, AdvisoryKeyEntry) // a stale entry burn goes with the boostback it belonged to
 	w.PlanNode(n)
 	plan := &DeorbitPlan{
 		Site: name, DV: dv, In: tS.Sub(now), LongM: lastOff.long, CrossM: lastOff.cross,
@@ -863,28 +899,170 @@ func (w *World) planBoostback(c *spacecraft.Spacecraft, lat, lon float64, name s
 	st0.M = c.TotalMass()
 	site := [2]float64{lat, lon}
 	hint := 0.6 * st0.V.Norm()
-	dv, tilt, off, noLand, ok := w.solveRetro(c, st0, tS, true, boostAimLand, site, hint)
+	// the boostback that aims the fall, then the entry burn that lets it land,
+	// then the boostback again with that entry burn in the fall; repeat until
+	// the entry burn stops moving (it moves the fall a little each time)
+	// the first aim is the impact point (no brake yet: that is what the entry burn buys)
+	dv, tilt, _, _, ok := w.solveRetro(c, st0, tS, false, boostAim, entryBurn{}, site, hint)
 	if !ok {
-		if noLand > 0 {
-			// some burns put the fall on the site, but none of them lands: say where it lights
-			if dv, tilt, _, _, aimed := w.solveRetro(c, st0, tS, true, boostAim, site, hint); aimed {
-				o, status := w.aimOffset(c, st0, tS, dv, nodeFor(c, st0, tS, dv, tilt, true), true, boostAimLand, site)
-				if status == -2 {
-					return nil, &BoostbackNoLandingError{CueAltM: o.cueAlt}
-				}
-			}
-		}
 		return nil, nil
 	}
+	var entry entryBurn
+	for i := 0; i < entryRounds; i++ {
+		e, cue := w.entryFor(c, st0, tS, dv, tilt)
+		entry = e
+		if cue > BoostbackMaxCueAltM {
+			return nil, noLanding(cue) // not even the longest entry burn lets it land
+		}
+		d2, t2, _, _, ok := w.solveRetro(c, st0, tS, true, boostAimLand, entry, site, dv)
+		if !ok {
+			if cue <= EntryTargetCueAltM {
+				return nil, ErrBoostbackNoSolution // an entry burn closes the landing, but not on the aim
+			}
+			return nil, noLanding(cue)
+		}
+		moved := math.Abs(d2-dv) < 5 && math.Abs(t2-tilt) < 1e-3
+		dv, tilt = d2, t2
+		if moved {
+			break
+		}
+	}
 	n := nodeFor(c, st0, tS, dv, tilt, true)
+	off, status := w.aimOffset(c, st0, tS, dv, n, true, boostAimLand, entry, site)
+	if status != 0 {
+		return nil, noLanding(off.cueAlt)
+	}
 	w.replaceAdvisoryNode(c, AdvisoryKeyDeorbit)
+	w.replaceAdvisoryNode(c, AdvisoryKeyEntry)
 	w.PlanNode(n)
 	plan := &DeorbitPlan{
 		Site: name, DV: dv, In: tS.Sub(now), LongM: off.long, CrossM: off.cross,
 		TiltDeg: tilt / rad, Boostback: true, CueAltM: off.cueAlt,
 	}
+	if entry.dv > 0 {
+		s, dur := burnState(c, st0, mu, dv, n)
+		te, _ := entryDelay(s, mu, c.Primary.RadiusMeters(), entry.alt)
+		v := afterBurnCraft(c, s)
+		se, _ := physics.KeplerStep(s, mu, te)
+		se.M = v.TotalMass()
+		en := entryNodeFor(v, se, tS.Add(time.Duration((dur+te)*float64(time.Second))), entry.dv)
+		w.PlanNode(en)
+		plan.EntryDV, plan.EntryAltM, plan.EntryIn = entry.dv, entry.alt, time.Duration(te*float64(time.Second))
+	}
 	w.recordDeorbit(plan)
 	return plan, nil
+}
+
+var EntryTargetCueAltM = 10e3
+
+// EntryAltsM are the heights the planner tries lighting the entry burn at,
+// highest first (the real one lights about 70 km up; the game has no heat, so a
+// lower one that costs less propellant is taken when it is the one that closes).
+var EntryAltsM = []float64{70e3, 50e3, 40e3, 30e3, 25e3, 20e3, 15e3}
+
+// entryBurn is the entry burn a boostback solve flies behind it: dv zero is none,
+// alt the height the fall lights it at.
+type entryBurn struct{ dv, alt float64 }
+
+// entryRounds bounds the boostback / entry-burn alternation.
+const entryRounds = 4
+
+// entryNodeFor is the entry burn: retrograde on three engines of nine, starting
+// at tS (the node's trigger is its middle, as nodeFor's).
+func entryNodeFor(c *spacecraft.Spacecraft, st physics.StateVector, tS time.Time, dv float64) spacecraft.ManeuverNode {
+	n := spacecraft.ManeuverNode{
+		Mode:        spacecraft.BurnRetrograde,
+		DV:          dv,
+		Throttle:    EntryThrottle,
+		Event:       spacecraft.TriggerAbsolute,
+		PrimaryID:   c.Primary.ID,
+		AdvisoryKey: AdvisoryKeyEntry,
+	}
+	n.Duration = c.BurnTimeForDVAt(dv, EntryThrottle)
+	n.TriggerTime = tS.Add(n.Duration / 2)
+	return n
+}
+
+// entryDelay is the seconds after s (the state the boostback leaves) until the
+// coast first falls down through EntryAltM, on the Kepler arc (the air is
+// thin that high). ok=false when it never does inside the horizon.
+func entryDelay(s physics.StateVector, mu, radius, entryAlt float64) (float64, bool) {
+	alt := func(t float64) float64 {
+		st, ok := physics.KeplerStep(s, mu, t)
+		if !ok {
+			return math.NaN()
+		}
+		return st.R.Norm() - radius
+	}
+	const step, horizon = 2.0, 1500.0
+	prev := alt(0)
+	if math.IsNaN(prev) {
+		return 0, false
+	}
+	for t := step; t <= horizon; t += step {
+		cur := alt(t)
+		if prev > entryAlt && cur <= entryAlt {
+			lo, hi := t-step, t
+			for k := 0; k < 30; k++ {
+				if mid := (lo + hi) / 2; alt(mid) > entryAlt {
+					lo = mid
+				} else {
+					hi = mid
+				}
+			}
+			return (lo + hi) / 2, true
+		}
+		prev = cur
+	}
+	return 0, false
+}
+
+// entryFor is the entry burn for the boostback (dv, tilt): at each height in
+// EntryAltsM the smallest burn (steps of entryDVStep, then bisected) after
+// which the landing burn lights under EntryTargetCueAltM; the smallest of
+// those wins (least propellant). cue is the height the landing burn lights at
+// with it, or the best height reached when no burn closes.
+func (w *World) entryFor(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, dv, tilt float64) (best entryBurn, cue float64) {
+	n := nodeFor(c, st0, tS, dv, tilt, true)
+	cueAt := func(e entryBurn) float64 {
+		off, status := w.aimOffset(c, st0, tS, dv, n, true, boostAim, e, [2]float64{})
+		if status != 0 {
+			return math.Inf(1) // no stop: fuel gone or no ground
+		}
+		return off.cueAlt
+	}
+	if c0 := cueAt(entryBurn{}); c0 <= BoostbackMaxCueAltM {
+		return entryBurn{}, c0 // the landing burn lights low enough as it falls: no entry burn
+	}
+	cue = math.Inf(1)
+	closed := false
+	for _, alt := range EntryAltsM {
+		prev := 0.0
+		for e := entryDVStep; e <= entryDVMax; e += entryDVStep {
+			if closed && e >= best.dv {
+				break // cannot beat the burn already found
+			}
+			cc := cueAt(entryBurn{e, alt})
+			if cc > EntryTargetCueAltM {
+				if !closed && cc < cue {
+					best, cue = entryBurn{e, alt}, cc
+				}
+				prev = e
+				continue
+			}
+			lo, hi := prev, e
+			for k := 0; k < 6; k++ {
+				if mid := (lo + hi) / 2; cueAt(entryBurn{mid, alt}) <= EntryTargetCueAltM {
+					hi = mid
+				} else {
+					lo = mid
+				}
+			}
+			best, cue, closed = entryBurn{hi, alt}, cueAt(entryBurn{hi, alt}), true
+			break
+		}
+	}
+	return best, cue
 }
 
 // boostbackLead is the seconds the stage needs to swing its nose from where it
@@ -903,9 +1081,20 @@ func boostbackLead(c *spacecraft.Spacecraft) float64 {
 // boostbackPending: c has a planted deorbit burn and a fall already under it,
 // so the node is a boostback (an orbit has no ground path).
 func boostbackPending(c *spacecraft.Spacecraft) bool {
-	if _, pending := deorbitNode(c); !pending {
+	if !landingNodePending(c) {
 		return false
 	}
 	_, falling := PredictImpact(c, DescentPredictHorizon)
 	return falling
+}
+
+// landingNodePending: a burn N planted (the deorbit or boostback, or the entry
+// burn behind it) has not fired yet.
+func landingNodePending(c *spacecraft.Spacecraft) bool {
+	for _, n := range c.Nodes {
+		if n.AdvisoryKey == AdvisoryKeyDeorbit || n.AdvisoryKey == AdvisoryKeyEntry {
+			return true
+		}
+	}
+	return false
 }

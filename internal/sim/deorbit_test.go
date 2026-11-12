@@ -3,6 +3,7 @@ package sim
 import (
 	"errors"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -661,24 +662,116 @@ func TestBoostbackBPlantsOnly(t *testing.T) {
 	}
 }
 
-// The nominal case the ADR measured: a real Falcon 9 launch, first stage dropped
-// at T+135 s with 10 % of its propellant kept. Its boostback reaches LZ-1
-// (1,3xx m/s), but the one-engine landing burn that follows would light 160 km
-// up and run the tank dry, so N refuses with that fact and plants nothing.
-func TestBoostbackRefusedWhenTheLandingCannotEnd(t *testing.T) {
-	w, _, b := falcon9Drop(t, 0.10)
+// planFalcon9Drop launches a Falcon 9, drops its first stage with keep of the
+// propellant left, switches to it, targets LC-13 LZ-1 and presses N.
+func planFalcon9Drop(t *testing.T, keep float64, before func(*World)) (*World, *spacecraft.Spacecraft, *DeorbitPlan, error) {
+	t.Helper()
+	w, _, b := falcon9Drop(t, keep)
 	w.CycleActiveCraft(1)
 	w.SetTargetSiteLZ(lc13ID(t), 1)
 	w.Tick()
+	if before != nil {
+		before(w)
+	}
 	plan, err := w.PlanDeorbitAndEngage()
-	var nl *BoostbackNoLandingError
-	if plan != nil || !errors.As(err, &nl) || nl.CueAltM <= BoostbackMaxCueAltM {
-		t.Fatalf("N: plan=%+v err=%v, want a BoostbackNoLandingError lit above %v m", plan, err, BoostbackMaxCueAltM)
+	return w, b, plan, err
+}
+
+// ADR 0069 decision 14, amended (slice 9b): N brings a real Falcon 9 first stage
+// home in three burns, a boostback, an entry burn on three engines of nine on the
+// way down, and the one-burn landing. Dropped with 11, 12 and 16 % of its
+// propellant left (11 is the least that closes; 16 lights its entry burn lower, at 50 km), at every warp: inside the 43 m
+// circle under 10 m/s, with propellant left. The boostback and the entry burn
+// both fire; the entry burn is its own row in the recording.
+func TestEntryBurnBringsAFalcon9Home(t *testing.T) {
+	for _, keep := range []float64{0.11, 0.12, 0.16} {
+		for _, idx := range []int{0, 1, len(WarpFactors) - 1} {
+			var dir string
+			w, b, plan, err := planFalcon9Drop(t, keep, func(w *World) {
+				if idx == 0 {
+					dir = recAttach(t, w)
+				}
+			})
+			if err != nil || plan == nil || !plan.Boostback || plan.EntryDV <= 0 || len(b.Nodes) != 2 {
+				t.Fatalf("%v kept: N: plan=%+v err=%v nodes=%d, want a boostback and an entry burn planted", keep, plan, err, len(b.Nodes))
+			}
+			if e := b.Nodes[1]; e.AdvisoryKey != AdvisoryKeyEntry || e.Throttle != EntryThrottle || e.Mode != spacecraft.BurnRetrograde {
+				t.Errorf("%v kept: second node = key %q throttle %v mode %v, want the entry burn, retrograde on three engines of nine", keep, e.AdvisoryKey, e.Throttle, e.Mode)
+			}
+			if again, err := w.PlanDeorbitAndEngage(); err != nil || again == nil || len(b.Nodes) != 2 { // N again re-solves, it does not stack
+				t.Errorf("%v kept: second N: plan=%+v err=%v nodes=%d, want the two burns replaced", keep, again, err, len(b.Nodes))
+			}
+			if _, capped := w.landingAutopilotWarpLimit(); capped {
+				t.Errorf("%v kept: the autopilot caps warp while N's burns are planted (they ramp it down themselves)", keep)
+			}
+			w.PendingBurnFiredEvents = nil
+			d, v, landed := flyBoostback(t, w, b, lc13ForTest(t), idx)
+			var fired []float64
+			for _, e := range w.PendingBurnFiredEvents {
+				if e.CraftName == b.Name {
+					fired = append(fired, e.DV)
+				}
+			}
+			t.Logf("%v kept, warp %vx: boostback %.0f m/s, entry %.0f m/s from %.0f km, cue %.1f km; landed=%v %.1f m from LZ-1 at %.2f m/s, %.0f kg left", keep, WarpFactors[idx], plan.DV, plan.EntryDV, plan.EntryAltM/1e3, plan.CueAltM/1e3, landed, d, v, b.ActiveStageFuel())
+			if !landed || d > 43 || v >= CrashVCritMps || b.ActiveStageFuel() <= 0 {
+				t.Errorf("%v kept, warp %vx: landed=%v %.1f m from LZ-1 at %.2f m/s, %.0f kg left, want inside the 43 m circle under %v m/s with propellant", keep, WarpFactors[idx], landed, d, v, b.ActiveStageFuel(), CrashVCritMps)
+			}
+			if len(fired) != 2 || math.Abs(fired[0]-plan.DV) > 0.5 || math.Abs(fired[1]-plan.EntryDV) > 0.5 {
+				t.Errorf("%v kept, warp %vx: burns fired %v, want the boostback %.0f then the entry burn %.0f", keep, WarpFactors[idx], fired, plan.DV, plan.EntryDV)
+			}
+			if dir != "" {
+				ev := strings.Join(allEv(t, recFile(t, dir)), "|")
+				for _, want := range []string{"boostback: ", "entry burn: ", "entry burn start: node "} {
+					if !strings.Contains(ev, want) {
+						t.Errorf("%v kept: recording lacks %q: %s", keep, want, ev)
+					}
+				}
+			}
+		}
 	}
-	if len(b.Nodes) != 0 || b.Landing.Owns() || b.LZClaim != (spacecraft.LZClaim{}) {
-		t.Errorf("a refused N left nodes=%d owns=%v claim=%+v", len(b.Nodes), b.Landing.Owns(), b.LZClaim)
+}
+
+// The edge of the window, on a real Falcon 9: 10 % kept is refused with a fact
+// and plants nothing (boostback, entry burn and the landing do not fit what is
+// left), 11 % closes. 35 % kept reaches the site but its landing burn would
+// light 11.8 km up, over the entry burn's 10 km target, and says where.
+func TestEntryBurnWindowOnARealFalcon9(t *testing.T) {
+	for _, tc := range []struct {
+		keep    float64
+		wantErr error // nil: a plan
+		noLand  bool
+	}{{0.10, ErrBoostbackNoSolution, false}, {0.11, nil, false}, {0.35, nil, true}} {
+		_, b, plan, err := planFalcon9Drop(t, tc.keep, nil)
+		var nl *BoostbackNoLandingError
+		switch {
+		case tc.noLand:
+			if plan != nil || !errors.As(err, &nl) || nl.CueAltM <= EntryTargetCueAltM {
+				t.Errorf("%v kept: plan=%+v err=%v, want a BoostbackNoLandingError lit above %v m", tc.keep, plan, err, EntryTargetCueAltM)
+			}
+		case tc.wantErr == nil:
+			if err != nil || plan == nil {
+				t.Errorf("%v kept: plan=%+v err=%v, want a plan", tc.keep, plan, err)
+			}
+		default:
+			if plan != nil || !errors.Is(err, tc.wantErr) {
+				t.Errorf("%v kept: plan=%+v err=%v, want %v", tc.keep, plan, err, tc.wantErr)
+			}
+		}
+		if (plan == nil) && (len(b.Nodes) != 0 || b.Landing.Owns() || b.LZClaim != (spacecraft.LZClaim{})) {
+			t.Errorf("%v kept: a refused N left nodes=%d owns=%v claim=%+v", tc.keep, len(b.Nodes), b.Landing.Owns(), b.LZClaim)
+		}
 	}
-	t.Logf("N at 10%% kept: %v", err)
+}
+
+func lc13ForTest(t *testing.T) Site {
+	t.Helper()
+	for _, z := range shippedZones {
+		if z.Name == "LC-13" {
+			return z
+		}
+	}
+	t.Fatal("no LC-13")
+	return Site{}
 }
 
 // falcon9Drop launches a Falcon 9 from the Cape pad (vertical for 8 s, a 0.015 rad

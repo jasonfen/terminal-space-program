@@ -938,4 +938,8 @@ func (w *World) recordDeorbit(p *DeorbitPlan) {
 	}
 	w.recordRow(fmt.Sprintf("%s: %s, \u0394v %s m/s retro in %s, %s %s %s", verb, p.Site, recorder.Grouped(p.DV),
 		recorder.TPlus(p.In), aim, readout.Distance(long), side))
+	if p.EntryDV > 0 { // the entry burn is its own event
+		w.recordRow(fmt.Sprintf("entry burn: \u0394v %s m/s from %s, %s after the boostback", recorder.Grouped(p.EntryDV),
+			readout.Distance(p.EntryAltM), recorder.TPlus(p.EntryIn)))
+	}
 }
