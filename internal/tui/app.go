@@ -4771,7 +4771,7 @@ func (a *App) plantedBurnSummaryExcept(skipKey string) string {
 	var n spacecraft.ManeuverNode
 	found := false
 	for _, q := range c.Nodes {
-		if skipKey == "" || q.AdvisoryKey != skipKey {
+		if skipKey == "" || (q.AdvisoryKey != skipKey && !(skipKey == sim.AdvisoryKeyDeorbit && q.AdvisoryKey == sim.AdvisoryKeyEntry)) { // N's entry burn goes with its boostback
 			n, found = q, true
 			break
 		}
@@ -4917,8 +4917,12 @@ func deorbitFlash(plan *sim.DeorbitPlan) string {
 		side, long = "short", -long
 	}
 	if plan.Boostback { // ADR 0069 decision 14: no "retro", the burn is not against the whole velocity
-		return fmt.Sprintf("boostback onto %s → %s in %s, %s %s %s",
-			plan.Site, readout.DeltaV(plan.DV), readout.Duration(plan.In), aim, readout.Distance(long), side)
+		entry := ""
+		if plan.EntryDV > 0 {
+			entry = ", entry " + readout.DeltaV(plan.EntryDV)
+		}
+		return fmt.Sprintf("boostback onto %s → %s in %s, %s %s %s%s",
+			plan.Site, readout.DeltaV(plan.DV), readout.Duration(plan.In), aim, readout.Distance(long), side, entry)
 	}
 	return fmt.Sprintf("deorbit onto %s → %s retro in %s, %s %s %s",
 		plan.Site, readout.DeltaV(plan.DV), readout.Duration(plan.In), aim, readout.Distance(long), side)

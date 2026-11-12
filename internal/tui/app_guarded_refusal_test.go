@@ -506,7 +506,8 @@ func TestDeorbitKeyFlashAndRefusals(t *testing.T) {
 	if len(c.Nodes) != 1 {
 		t.Fatalf("%d nodes, want 1", len(c.Nodes))
 	}
-	pressKey(a, 'N') // its own node does not block it
+	w.PlanNode(sim.ManeuverNode{Mode: spacecraft.BurnRetrograde, DV: 10, Event: spacecraft.TriggerNextApo, AdvisoryKey: sim.AdvisoryKeyEntry}) // a boostback's entry burn is N's too
+	pressKey(a, 'N')                                                                                                                           // its own node does not block it
 	if len(c.Nodes) != 1 || strings.Contains(a.statusMsg, "already planted") {
 		t.Errorf("second N: %d nodes, %q, want it to replace its own node", len(c.Nodes), a.statusMsg)
 	}
@@ -531,6 +532,7 @@ func TestDeorbitRefusalWords(t *testing.T) {
 		{&sim.DeorbitOffTrackError{OffDeg: 80, LatDeg: -78, ReachDeg: 51.6}, "site at 78°S, your orbit reaches 51.6°"},
 		{sim.ErrDeorbitFalling, "already falling, fly miss:"},
 		{&sim.BoostbackNoLandingError{CueAltM: 163225}, "landing burn lights 163.2 km up"}, // ADR 0069 decision 14
+		{sim.ErrBoostbackNoSolution, "no boostback lands on the site"},
 	} {
 		if got := deorbitRefusal(tc.err); got != tc.want {
 			t.Errorf("deorbitRefusal = %q, want %q", got, tc.want)
@@ -542,6 +544,7 @@ func TestDeorbitRefusalWords(t *testing.T) {
 		want string
 	}{
 		{sim.DeorbitPlan{Site: "LZ-1", DV: 1343, In: 4 * time.Second, LongM: -12, Boostback: true}, "boostback onto LZ-1 → 1343 m/s in 4s, stop 12 m short"},
+		{sim.DeorbitPlan{Site: "LZ-1", DV: 1343, In: 4 * time.Second, LongM: -12, Boostback: true, EntryDV: 670}, "boostback onto LZ-1 → 1343 m/s in 4s, stop 12 m short, entry 670 m/s"},
 		{sim.DeorbitPlan{Site: "LZ-1", DV: 1343, In: 4 * time.Second, LongM: -12}, "deorbit onto LZ-1 → 1343 m/s retro in 4s, stop 12 m short"},
 	} {
 		if got := deorbitFlash(&tc.plan); got != tc.want {

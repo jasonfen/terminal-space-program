@@ -68,6 +68,9 @@ const (
 	AdvisoryKeyRendezvousBurn = "rendezvous-burn"
 	// AdvisoryKeyDeorbit (ADR 0066 decision 21) tags the node N plants.
 	AdvisoryKeyDeorbit = "deorbit"
+	// AdvisoryKeyEntry tags the entry burn N plants behind a boostback
+	// (ADR 0069 decision 14, amended); N and B replace it with the deorbit node.
+	AdvisoryKeyEntry = "entry"
 )
 
 // replaceAdvisoryNode removes every node on c whose AdvisoryKey matches
