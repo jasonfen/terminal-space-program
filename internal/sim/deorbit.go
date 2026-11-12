@@ -1112,7 +1112,7 @@ func (w *World) boostbackShortfall(c *spacecraft.Spacecraft, st0 physics.StateVe
 	hi := lo
 	var vHi *spacecraft.Spacecraft
 	for step := 0.1; ; step *= 1.6 { // grow the tank until a plan closes
-		hi = math.Min(capacity, hi+step*lo)
+		hi = math.Min(capacity, hi+step*math.Max(lo, 0.01*capacity)) // an empty tank grows too
 		v, ok := closes(hi)
 		if ok {
 			vHi = v

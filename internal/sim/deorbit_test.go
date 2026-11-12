@@ -902,4 +902,10 @@ func TestBoostbackShortStageSaysNeedAndHave(t *testing.T) {
 		}
 	}
 	t.Logf("51.5 t at 107 km: %v", err)
+	// a stage burned dry answers too (the need search grew the tank by a share
+	// of what it held, so an empty one never grew: N froze the game)
+	w3, _, _ := jasonDrop(t, 107e3, 0)
+	if p, e := w3.PlanDeorbitAndEngage(); p != nil || e == nil {
+		t.Errorf("empty stage: plan=%v err=%v, want a refusal", p != nil, e)
+	}
 }
