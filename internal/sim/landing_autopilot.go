@@ -454,7 +454,7 @@ func (w *World) PlanDeorbitAndEngage() (*DeorbitPlan, error) {
 	// ADR 0069 decision 8: on a chute vessel with landing engines N arms the chute
 	// before the plan, so the plan and the cue fly the canopy. A capsule that
 	// cannot brake (no landing engine) keeps the plain deorbit burn.
-	armed := c.HasParachute && c.CanSoftLand && c.Primary.Atmosphere != nil && !c.Landed && canBrakeAtSite(c) && c.ArmParachute()
+	armed := armLandingChute(c)
 	plan, err := w.planDeorbitAndEngage()
 	if armed && !c.Landing.Owns() {
 		c.ChuteState = spacecraft.ChuteStowed // N did not engage: the chute is as it was
@@ -580,7 +580,40 @@ func (w *World) LandingHandOverThrottle() bool {
 
 // tickLandingAutopilot runs one tick of c's autopilot, called for every vessel.
 func (w *World) tickLandingAutopilot(c *spacecraft.Spacecraft) {
+	w.dropForLanding(c) // outside the engine swap: staging re-indexes the stage it restores
 	c.OnLandingBrake(func() { w.tickLandingAutopilotOn(c) })
+}
+
+// landingDrop: c carries stages below a landing stage that cannot land with
+// them (a Dragon's Trunk). N flies its deorbit burn with them on and drops them
+// once it is done (Jason 2026-11-12: the Crew Dragon order).
+func landingDrop(c *spacecraft.Spacecraft) bool {
+	n := len(c.Stages)
+	return n > 1 && !c.CanSoftLand && c.Stages[n-1].CanSoftLand
+}
+
+// armLandingChute arms the chute N arms on a chute vessel with landing engines
+// (ADR 0069 decision 8).
+func armLandingChute(c *spacecraft.Spacecraft) bool {
+	return c.HasParachute && c.CanSoftLand && c.Primary.Atmosphere != nil && !c.Landed && canBrakeAtSite(c) && c.ArmParachute()
+}
+
+// dropForLanding stages off what landingDrop names once the engaged
+// autopilot's deorbit burn is flown, then arms the chute.
+func (w *World) dropForLanding(c *spacecraft.Spacecraft) {
+	ap := c.Landing
+	if ap == nil || !ap.Engaged || ap.Phase != spacecraft.PhaseCoast || c.ActiveBurn != nil || !landingDrop(c) {
+		return
+	}
+	if _, pending := deorbitNode(c); pending {
+		return
+	}
+	for landingDrop(c) {
+		if _, _, err := w.StageActive(w.craftIndex(c)); err != nil {
+			return // no signal: try again next tick
+		}
+	}
+	armLandingChute(c)
 }
 
 func (w *World) tickLandingAutopilotOn(c *spacecraft.Spacecraft) {

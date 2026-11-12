@@ -1013,6 +1013,42 @@ func dragonFromOrbit(t *testing.T, body string, altM float64) (*World, *spacecra
 	return w, c
 }
 
+// Playtest 2026-11-12 (Jason's pick: the Crew Dragon order): N on a Dragon with
+// its Trunk still on flies the deorbit burn with the trunk, drops it once the
+// burn is done, arms the chute and lands on the flag. Before: no chute, no
+// brake, a 116 m/s crash 22 m from the flag.
+func TestNDropsTheTrunkAfterTheBurn(t *testing.T) {
+	for _, tc := range []struct {
+		body string
+		alt  float64
+	}{{"earth", 200e3}, {"mars", 150e3}} {
+		w, c := entryWorld(t, "", tc.body, "Dragon", tc.alt, true)
+		if len(c.Stages) != 2 {
+			t.Fatalf("%s: %d stages, want Trunk + Dragon", tc.body, len(c.Stages))
+		}
+		if _, err := w.PlanDeorbitAndEngage(); err != nil {
+			t.Fatalf("%s: N: %v", tc.body, err)
+		}
+		w.Clock.WarpIdx = 4
+		burnStages := 0
+		for i := 0; i < 6*3600*20 && !c.Landed && !c.Crashed; i++ {
+			w.Tick()
+			if c.ActiveBurn != nil && burnStages == 0 {
+				burnStages = len(c.Stages)
+			}
+		}
+		if burnStages != 2 {
+			t.Errorf("%s: the deorbit burn flew with %d stages, want the trunk on (2)", tc.body, burnStages)
+		}
+		s, _ := w.targetSite()
+		lat, lon := c.SurfaceLatLon()
+		d := HaversineM(lat, lon, s.LatDeg, s.LonDeg, c.Primary.RadiusMeters())
+		if !c.Landed || len(c.Stages) != 1 || d > 50 {
+			t.Errorf("%s: landed=%v crashed=%v stages=%d, %.0f m from the flag: want landed, trunk gone, within 50 m", tc.body, c.Landed, c.Crashed, len(c.Stages), d)
+		}
+	}
+}
+
 // ADR 0069 decision 8 (T7): N on a Dragon over Mars runs arm, open, cut, land on
 // the flag with no other key, at every warp. The deorbit burn is N's own and
 // flies on the SuperDracos (seconds, not the Dracos' 17 minutes). The hold row
