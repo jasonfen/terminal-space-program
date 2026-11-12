@@ -595,3 +595,131 @@ func TestEntryLandsOnFlagAtEveryWarp(t *testing.T) {
 		}
 	}
 }
+
+// flyBoostback plants N on a dropped stage, ticks to contact at warp index idx
+// and returns the touchdown distance from LZ-1, the contact speed (ground
+// relative, the tick before contact) and whether it landed.
+func flyBoostback(t *testing.T, w *World, c *spacecraft.Spacecraft, lc13 Site, idx int) (distM, speed float64, landed bool) {
+	t.Helper()
+	w.Clock.WarpIdx = idx
+	for i := 0; i < 4*3600*20 && !c.Landed && !c.Crashed; i++ {
+		speed = physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary).Norm()
+		w.Tick()
+	}
+	la, lo := lc13.lzLatLon(1, c.Primary.RadiusMeters())
+	return HaversineM(c.LandedLatDeg, c.LandedLonDeg, la, lo, c.Primary.RadiusMeters()), speed, c.Landed
+}
+
+// ADR 0069 decision 14 (T13): N on a dropped Falcon 9 first stage that is not in
+// orbit plans a boostback onto LZ-1, engages Site+ and the stage lands inside
+// the 43 m LZ circle at every warp. The rows are a stage that could not hover
+// before the burn (52 t of propellant: 79 t on 760 kN of landing thrust) and one with the idle
+// manual burn a dropped stage inherits from the core.
+func TestBoostbackThenLandingBurnAtEveryWarp(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		fall boosterFall
+		idle bool
+		fwd  bool // the nose points along the velocity (as the core flew it), so the burn waits for the swing
+	}{
+		{"24 t kept", boosterFall{altM: 20e3, downMps: -300, offE: 20e3, driftE: 400, fuelKg: 24000}, false, false},
+		{"18 t kept, higher and slower", boosterFall{altM: 30e3, downMps: -100, offE: 20e3, driftE: 200, fuelKg: 18000}, false, false},
+		{"52 t kept: too heavy to hover before the burn", boosterFall{altM: 20e3, downMps: -300, offE: 20e3, driftE: 400, fuelKg: 52000}, false, false},
+		{"idle manual burn from the core", boosterFall{altM: 20e3, downMps: -300, offE: 20e3, driftE: 400, fuelKg: 24000}, true, false},
+		{"nose forward: the swing sets the lead", boosterFall{altM: 20e3, downMps: -300, offE: 20e3, driftE: 400, fuelKg: 24000}, false, true},
+	} {
+		for _, idx := range []int{0, 1, len(WarpFactors) - 1} {
+			w, c, lc13 := fallWorld(t, spacecraft.StageModuleF9S1ID, tc.fall)
+			if tc.idle {
+				c.ManualBurn, c.Throttle = &spacecraft.ManualBurn{StartTime: w.Clock.SimTime}, 0 // as dropped: lit state, throttle shut
+			}
+			if tc.fwd {
+				c.CurrentAttitudeDir = physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary).Unit()
+			}
+			plan, err := w.PlanDeorbitAndEngage()
+			if err != nil || plan == nil || !plan.Boostback || len(c.Nodes) != 1 || !c.Landing.Owns() {
+				t.Fatalf("%s: N: plan=%+v err=%v nodes=%d owns=%v, want a boostback planted and Site+ engaged", tc.name, plan, err, len(c.Nodes), c.Landing.Owns())
+			}
+			d, v, landed := flyBoostback(t, w, c, lc13, idx)
+			t.Logf("%s, warp %vx: boostback %.0f m/s in %.1f s, cue %.1f km; landed=%v %.1f m from LZ-1 at %.2f m/s", tc.name, WarpFactors[idx], plan.DV, plan.In.Seconds(), plan.CueAltM/1e3, landed, d, v)
+			if !landed || d > 43 || v >= CrashVCritMps {
+				t.Errorf("%s, warp %vx: landed=%v %.1f m from LZ-1 at %.2f m/s, want inside the 43 m circle under %v m/s", tc.name, WarpFactors[idx], landed, d, v, CrashVCritMps)
+			}
+		}
+	}
+}
+
+// B on a dropped stage plants the same boostback and engages nothing.
+func TestBoostbackBPlantsOnly(t *testing.T) {
+	w, c, _ := fallWorld(t, spacecraft.StageModuleF9S1ID, boosterFall{altM: 20e3, downMps: -300, offE: 20e3, driftE: 400, fuelKg: 24000})
+	plan, err := w.PlanDeorbitOnly()
+	if err != nil || plan == nil || !plan.Boostback || len(c.Nodes) != 1 {
+		t.Fatalf("B: plan=%+v err=%v nodes=%d, want a boostback planted", plan, err, len(c.Nodes))
+	}
+	if c.Landing.Owns() {
+		t.Error("B engaged the autopilot")
+	}
+}
+
+// The nominal case the ADR measured: a real Falcon 9 launch, first stage dropped
+// at T+135 s with 10 % of its propellant kept. Its boostback reaches LZ-1
+// (1,3xx m/s), but the one-engine landing burn that follows would light 160 km
+// up and run the tank dry, so N refuses with that fact and plants nothing.
+func TestBoostbackRefusedWhenTheLandingCannotEnd(t *testing.T) {
+	w, _, b := falcon9Drop(t, 0.10)
+	w.CycleActiveCraft(1)
+	w.SetTargetSiteLZ(lc13ID(t), 1)
+	w.Tick()
+	plan, err := w.PlanDeorbitAndEngage()
+	var nl *BoostbackNoLandingError
+	if plan != nil || !errors.As(err, &nl) || nl.CueAltM <= BoostbackMaxCueAltM {
+		t.Fatalf("N: plan=%+v err=%v, want a BoostbackNoLandingError lit above %v m", plan, err, BoostbackMaxCueAltM)
+	}
+	if len(b.Nodes) != 0 || b.Landing.Owns() || b.LZClaim != (spacecraft.LZClaim{}) {
+		t.Errorf("a refused N left nodes=%d owns=%v claim=%+v", len(b.Nodes), b.Landing.Owns(), b.LZClaim)
+	}
+	t.Logf("N at 10%% kept: %v", err)
+}
+
+// falcon9Drop launches a Falcon 9 from the Cape pad (vertical for 8 s, a 0.015 rad
+// kick east, then surface prograde) and drops the first stage with `space` when
+// keep of its propellant is left. Returns the world, the core and the stage.
+func falcon9Drop(t *testing.T, keep float64) (*World, *spacecraft.Spacecraft, *spacecraft.Spacecraft) {
+	t.Helper()
+	w := mustWorld(t)
+	w.Crafts, w.ActiveCraftIdx = nil, -1
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9", ParentBodyID: "earth", Launchpad: true,
+		Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.RecomputeCommGraph()
+	c.Throttle, c.EngineMode, c.AttitudeMode = 1, spacecraft.EngineMain, spacecraft.BurnRadialOut
+	w.StartManualBurn()
+	f0, t0 := c.Stages[0].FuelMass, w.Clock.SimTime
+	for i := 0; i < 20000 && c.Stages[0].FuelMass > keep*f0; i++ {
+		switch el := w.Clock.SimTime.Sub(t0).Seconds(); {
+		case el > 8 && el < 14:
+			c.PitchTrim = 0.015
+		case el >= 14 && c.AttitudeMode == spacecraft.BurnRadialOut:
+			c.PitchTrim, c.AttitudeMode = 0, spacecraft.BurnSurfacePrograde
+		}
+		w.Tick()
+	}
+	n := len(w.Crafts)
+	if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+		t.Fatal(err)
+	}
+	return w, c, w.Crafts[n]
+}
+
+func lc13ID(t *testing.T) uint64 {
+	t.Helper()
+	for _, z := range shippedZones {
+		if z.Name == "LC-13" {
+			return z.ID
+		}
+	}
+	t.Fatal("no LC-13")
+	return 0
+}

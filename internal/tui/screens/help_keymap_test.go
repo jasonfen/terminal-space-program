@@ -291,6 +291,9 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 		"engages it from the current state with no new burn (footer `Site+ auto: landing from here`)",
 		"the orbit is too low for your brake (`deorbit: brake needs 66 km, orbit 50 km`",
 		"Each refused `N` or `B` press also writes a `deorbit refused:` row to the recording",
+		"`N` plans a **boostback** instead (footer `boostback onto LZ-1 → 1343 m/s in 12s, stop 12 m short`)",
+		"(`landing burn lights 120.9 km up`)",
+		"Off orbit it plants the boostback only",
 		"`hold:` reads `Site+ wait` until the engine is lit",
 		"`b` (surface retrograde, the engine yours: footer `Site+ off: engine lit by hand`) switches it off",
 	} {

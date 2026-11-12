@@ -4905,7 +4905,7 @@ func (a *App) refuseDeorbit(reason string) {
 	a.world.RecordDeorbitRefusal(reason)
 }
 
-// deorbitFlash is the footer line for a planted deorbit (`N` and `B`).
+// deorbitFlash is the footer line for a planted deorbit or boostback (`N` and `B`).
 func deorbitFlash(plan *sim.DeorbitPlan) string {
 	aim := "stop"
 	if plan.Impact {
@@ -4915,6 +4915,10 @@ func deorbitFlash(plan *sim.DeorbitPlan) string {
 	long := plan.LongM
 	if long < 0 {
 		side, long = "short", -long
+	}
+	if plan.Boostback { // ADR 0069 decision 14: no "retro", the burn is not against the whole velocity
+		return fmt.Sprintf("boostback onto %s → %s in %s, %s %s %s",
+			plan.Site, readout.DeltaV(plan.DV), readout.Duration(plan.In), aim, readout.Distance(long), side)
 	}
 	return fmt.Sprintf("deorbit onto %s → %s retro in %s, %s %s %s",
 		plan.Site, readout.DeltaV(plan.DV), readout.Duration(plan.In), aim, readout.Distance(long), side)
