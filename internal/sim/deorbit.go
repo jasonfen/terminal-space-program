@@ -255,6 +255,13 @@ func afterBurnCraft(c *spacecraft.Spacecraft, s physics.StateVector) *spacecraft
 		v.BurnFuel(burned)
 	}
 	v.State = s
+	if landingDrop(&v) {
+		// N drops these once the burn is done: the fall flies the landing stage
+		v.Stages = v.Stages[len(v.Stages)-1:]
+		v.SyncFields()
+		v.State.M = v.TotalMass()
+		armLandingChute(&v)
+	}
 	return &v
 }
 
