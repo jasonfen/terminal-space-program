@@ -364,7 +364,10 @@ func (w *World) engageLandingAutopilot(c *spacecraft.Spacecraft) error {
 	if c.Thrust <= 0 || c.Isp <= 0 {
 		return ErrDeorbitNoEngine
 	}
-	if !canBrakeAtSite(c) {
+	// a planted boostback was solved on the lighter, post-burn stage, and judged
+	// the fall it leaves; the reach test and the weight test read the fall before it
+	boostback := boostbackPending(c)
+	if !boostback && !canBrakeAtSite(c) {
 		return ErrSiteHoldUnderWeight
 	}
 	w.drawNavError(c, false) // a vessel that never pressed N draws at q
@@ -378,6 +381,8 @@ func (w *World) engageLandingAutopilot(c *spacecraft.Spacecraft) error {
 	switch {
 	case wasNose:
 		// N over the nose hold keeps the phase it reached
+	case boostback:
+		ap.Phase = spacecraft.PhaseCoast // the boostback flies first; a dropped stage's idle manual burn is not a brake
 	case f.sh < FinalPhaseGroundSpeedMps && !(oneBurn(c) && c.ManualBurn == nil):
 		ap.Phase = spacecraft.PhaseFinal // a hover: nothing to brake (a one-burn vessel falling straight down waits for its cue)
 	case c.ManualBurn != nil:
@@ -389,7 +394,7 @@ func (w *World) engageLandingAutopilot(c *spacecraft.Spacecraft) error {
 	if ap.Phase == spacecraft.PhaseFinal && ap.TrackN.Norm() == 0 {
 		ap.TrackN = apTrackNormal(c, c.State) // a hover has no brake light to fix the aim's plane; zero drift leaves it unset
 	}
-	if ap.Phase != spacecraft.PhaseFinal {
+	if ap.Phase != spacecraft.PhaseFinal && !boostback {
 		if err := w.apReachTest(c, lat, lon); err != nil {
 			ap.Engaged, ap.Nose = wasNose, wasNose
 			return err

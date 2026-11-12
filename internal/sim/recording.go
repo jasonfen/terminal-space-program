@@ -932,6 +932,10 @@ func (w *World) recordDeorbit(p *DeorbitPlan) {
 	if long < 0 {
 		side, long = "short", -long
 	}
-	w.recordRow(fmt.Sprintf("deorbit: %s, \u0394v %s m/s retro in %s, %s %s %s", p.Site, recorder.Grouped(p.DV),
+	verb := "deorbit"
+	if p.Boostback {
+		verb = "boostback"
+	}
+	w.recordRow(fmt.Sprintf("%s: %s, \u0394v %s m/s retro in %s, %s %s %s", verb, p.Site, recorder.Grouped(p.DV),
 		recorder.TPlus(p.In), aim, readout.Distance(long), side))
 }
