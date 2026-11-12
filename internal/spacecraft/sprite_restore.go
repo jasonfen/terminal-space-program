@@ -1,6 +1,9 @@
 package spacecraft
 
-import "sort"
+import (
+	"math"
+	"sort"
+)
 
 // Restoring a stage's launch-sprite dimensions after a load.
 //
@@ -22,12 +25,13 @@ type spriteDims struct {
 	legs        bool
 	derived     bool
 	fuelType    string
+	thrust      float64
 }
 
 func spriteDimsOf(s Stage) spriteDims {
 	return spriteDims{
 		rows: s.LaunchSpriteRowsPx, width: s.LaunchSpriteWidthPx, diameter: s.DiameterM, color: s.LaunchSpriteColor,
-		legs: s.LaunchSpriteHasLegs, derived: s.LaunchSpriteDerived, fuelType: s.FuelType,
+		legs: s.LaunchSpriteHasLegs, derived: s.LaunchSpriteDerived, fuelType: s.FuelType, thrust: s.Thrust,
 	}
 }
 
@@ -95,6 +99,11 @@ func (s *Stage) RestoreSprite() {
 	}
 	if d, ok := spriteIdx.lookup(s.LoadoutID, s.Name); ok {
 		s.LaunchSpriteRowsPx, s.LaunchSpriteWidthPx, s.LaunchSpriteColor = d.rows, d.width, d.color
+		// A booster half (ADR 0058) carries half the pair's thrust and one side
+		// column of its width; the save keeps neither mark, so the thrust says which.
+		if d.thrust > 0 && math.Abs(2*s.Thrust-d.thrust) <= 0.01*d.thrust {
+			s.LaunchSpriteWidthPx = max(1, d.width/2)
+		}
 		s.LaunchSpriteHasLegs, s.LaunchSpriteDerived = d.legs, d.derived
 		s.DiameterM = d.diameter
 		if s.FuelType == "" {

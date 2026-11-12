@@ -127,3 +127,23 @@ func TestLandingThrottleSurvivesTheWireAndOldSavesLoadOff(t *testing.T) {
 		t.Errorf("a stage saved without the key loads with landing throttle %v, want 0 (off)", got)
 	}
 }
+
+// ADR 0069 decision 11 build note (ADR 0064 review F1): a dropped Falcon Heavy
+// side booster is one column of the pair, 3 px, and reloads at 3, not the
+// pair's 6. The equal case: the whole pair, still in the stack, stays 6.
+func TestBoosterHalfSpriteWidthSurvivesTheWire(t *testing.T) {
+	fh := spacecraft.NewFromLoadout("Falcon-Heavy")
+	pair := fh.Stages[0]
+	if pair.LaunchSpriteWidthPx != 6 {
+		t.Fatalf("setup: Side Boosters width = %d, want 6", pair.LaunchSpriteWidthPx)
+	}
+	if got := wireStagesToSim(simStagesToWire([]spacecraft.Stage{pair}))[0].LaunchSpriteWidthPx; got != 6 {
+		t.Errorf("the whole pair reloads at %d px, want 6", got)
+	}
+	half := pair
+	half.Thrust /= 2 // what sim.splitBoosterStage does to the stage
+	half.LaunchSpriteWidthPx = 3
+	if got := wireStagesToSim(simStagesToWire([]spacecraft.Stage{half}))[0].LaunchSpriteWidthPx; got != 3 {
+		t.Errorf("a dropped half reloads at %d px, want 3", got)
+	}
+}

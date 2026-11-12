@@ -118,7 +118,7 @@ func TestFalconHeavyPadAndBoosterDrop(t *testing.T) {
 		h := w.Crafts[i+1]
 		s := h.Stages[0]
 		if h.Name != name || s.DryMass != 25600 || s.Thrust != 7607000 || !s.CanSoftLand || s.FuelMass <= 0 ||
-			h.Role != spacecraft.RoleJettisonedStage || h.Controllable {
+			h.Role != spacecraft.RoleJettisonedStage || !h.Controllable { // ADR 0069 decision 11: a half that can land keeps its core
 			t.Errorf("half %d = %q dry %g thrust %g soft-land %v fuel %g role %v controllable %v", i, h.Name,
 				s.DryMass, s.Thrust, s.CanSoftLand, s.FuelMass, h.Role, h.Controllable)
 		}

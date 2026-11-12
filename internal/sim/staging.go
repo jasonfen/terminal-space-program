@@ -441,7 +441,9 @@ func splitBoosterStage(s spacecraft.Stage) [2]spacecraft.Stage {
 	s.HoldKg /= 2
 	s.LaunchSpriteWidthPx = max(1, s.LaunchSpriteWidthPx/2) // one side column of the pair (decision 10)
 	s.LitWithAbove = false
-	s.CommandSource = spacecraft.CommandNone
+	if !(s.CanSoftLand && s.Thrust > 0 && spacecraft.IsCommandSource(s.CommandSource)) {
+		s.CommandSource = spacecraft.CommandNone
+	}
 	return [2]spacecraft.Stage{s, s}
 }
 
