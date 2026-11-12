@@ -76,11 +76,12 @@ type LandingEvent struct {
 type apRuntime struct {
 	checked    bool
 	burning    bool
-	ground     bool // the coast meets the ground in the horizon
-	late       bool // ...and the cue has already passed
+	ground     bool  // the coast meets the ground in the horizon
+	late       bool  // ...and the cue has already passed
+	energy     int64 // the orbit the no-path answer was solved for (qz of specific energy)
 	cueAt      time.Time
 	nextCheck  time.Time
-	outOfReach bool // the last brake tick saturated: remembered for the event
+	outOfReach bool    // the last brake tick saturated: remembered for the event
 	cueErrM    float64 // a chute worked to the light: how far the cue's stop lands from the aim
 	// navSite is the site key the computer's-site error was drawn for (transient:
 	// a reload keeps the saved offset).
@@ -210,8 +211,11 @@ func (w *World) landingCueInOn(c *spacecraft.Spacecraft) (in time.Duration, grou
 	rt := w.apRuntimeFor(c)
 	now := w.Clock.SimTime
 	burning := c.ActiveBurn != nil
-	if !rt.checked || rt.burning != burning || !now.Before(rt.nextCheck) {
-		rt.checked, rt.burning = true, burning
+	// a burn nobody read the cue through (a planted one owns the engine) changes
+	// the orbit: a cached no-path answer is stale the moment the energy moves
+	energy := qz(c.State.V.Dot(c.State.V)/2-c.Primary.GravitationalParameter()/c.State.R.Norm(), 200)
+	if !rt.checked || rt.burning != burning || !now.Before(rt.nextCheck) || (!rt.ground && rt.energy != energy) {
+		rt.checked, rt.burning, rt.energy = true, burning, energy
 		cue, g, ok := burnAtCue(c, deorbitHorizon, brakeThrottle(c), deorbitRefineIters)
 		rt.ground, rt.late = g, g && !ok
 		switch {
@@ -614,6 +618,7 @@ func (w *World) dropForLanding(c *spacecraft.Spacecraft) {
 		}
 	}
 	armLandingChute(c)
+	w.apRuntimeFor(c).checked = false // a new stack: a cue the HUD read with the trunk on is stale
 }
 
 func (w *World) tickLandingAutopilotOn(c *spacecraft.Spacecraft) {
@@ -985,7 +990,7 @@ func apRodThrottle(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilot, f 
 func (w *World) landingEnded(c *spacecraft.Spacecraft) {
 	ap := c.Landing
 	rt := w.apRuntimeFor(c)
-	defer ap.ClearAttempt() // one offset per landing attempt
+	defer ap.ClearAttempt()                             // one offset per landing attempt
 	defer func() { c.LZClaim = spacecraft.LZClaim{} }() // spent at contact, after the flash below reads it (ADR 0068 decision 5)
 
 	if ap.Nose { // no flash: the pilot flew it
