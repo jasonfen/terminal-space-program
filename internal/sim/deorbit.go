@@ -58,7 +58,11 @@ const (
 	// the landing burn lighting under EntryTargetCueAltM.
 	EntryThrottle = 3.0 / 9
 	entryDVStep   = 100.0
-	entryDVMax    = 2000.0
+	// entryDVMax is the longest entry burn offered. Longer ones (1,180 m/s and up,
+	// a minute or two on three engines) run down into the dense air that the
+	// finite-burn forecast leaves out: flown, they landed 1.4 km to 13 km off
+	// at several warps; capped, the planner takes a bigger boostback instead.
+	entryDVMax = 1100.0
 )
 
 // The refusal lines, verbatim (decision 21). "vessel not in this system" and
@@ -477,6 +481,7 @@ func vGrazeSpeed(c *spacecraft.Spacecraft, st0 physics.StateVector) float64 {
 // tS that puts the aim on site: Newton on the size along the track, a secant on
 // the tilt to close the cross-track offset. hint seeds the size.
 func (w *World) solveRetro(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, stop bool, boost boostMode, entry entryBurn, site [2]float64, hint float64) (dv, tilt float64, lastOff deorbitOffset, noLandAlt float64, ok bool) {
+	maxDV := stageDV(c) // what the stage has
 	solveDv := func(tilt, hint float64) (float64, bool) {
 		f := func(dv float64) float64 {
 			n := nodeFor(c, st0, tS, dv, tilt, boost != boostOff)
@@ -495,7 +500,14 @@ func (w *World) solveRetro(c *spacecraft.Spacecraft, st0 physics.StateVector, tS
 			lastOff = off
 			return off.long
 		}
-		return bracketRoot(f, hint, deorbitLongTolM)
+		if x, ok := bracketRoot(f, hint, deorbitLongTolM); ok || boost == boostOff {
+			return x, ok
+		}
+		// A boostback's feasible burns can sit between two infeasible ones (too
+		// small and the fall arrives too fast to land, too big and the tank is
+		// gone), which the one-sided bracket reads as "too steep" and backs away
+		// from: scan the whole range for the sign change instead.
+		return scanRoot(f, 0.2*hint, math.Min(3*hint, maxDV), 60, deorbitLongTolM)
 	}
 	if dv, ok = solveDv(0, hint); !ok {
 		return
@@ -756,6 +768,79 @@ func bracketRoot(f func(float64) float64, hint, tol float64) (float64, bool) {
 	return 0, false
 }
 
+// scanRoot finds dv in [lo, hi] where f (decreasing; +Inf and -Inf mark burns
+// that cannot be judged) is within tol of zero: sample n+1 points and bisect
+// the first neighbouring pair that straddles zero. Where a judged point meets
+// an unjudged one the edge of the judged range is found first (the root can
+// sit in a sliver of it narrower than the sample step).
+func scanRoot(f func(float64) float64, lo, hi float64, n int, tol float64) (float64, bool) {
+	if hi <= lo {
+		return 0, false
+	}
+	bisect := func(a, fa, b, fb float64) (float64, bool) { // fa > 0 > fb, both judged
+		for k := 0; k < 40; k++ {
+			m := (a + b) / 2
+			fm := f(m)
+			if math.Abs(fm) <= tol {
+				return m, true
+			}
+			switch {
+			case math.IsInf(fm, 0):
+				return 0, false
+			case fm > 0:
+				a = m
+			default:
+				b = m
+			}
+		}
+		return 0, false
+	}
+	// edge walks from a judged point toward an unjudged one to the last judged point.
+	edge := func(good, bad float64) (float64, float64) {
+		for k := 0; k < 30 && math.Abs(bad-good) > 0.5; k++ {
+			m := (good + bad) / 2
+			if math.IsInf(f(m), 0) {
+				bad = m
+			} else {
+				good = m
+			}
+		}
+		return good, f(good)
+	}
+	pa, fa := lo, f(lo)
+	for i := 1; i <= n; i++ {
+		pb := lo + (hi-lo)*float64(i)/float64(n)
+		fb := f(pb)
+		switch {
+		case math.IsInf(fa, 0) && math.IsInf(fb, 0):
+		case math.IsInf(fa, 0): // judged range starts between pa and pb
+			if q, fq := edge(pb, pa); math.Abs(fq) <= tol {
+				return q, true
+			} else if fq > 0 && fb < 0 {
+				if x, ok := bisect(q, fq, pb, fb); ok {
+					return x, true
+				}
+			}
+		case math.IsInf(fb, 0): // and ends between them
+			if q, fq := edge(pa, pb); math.Abs(fq) <= tol {
+				return q, true
+			} else if fa > 0 && fq < 0 {
+				if x, ok := bisect(pa, fa, q, fq); ok {
+					return x, true
+				}
+			}
+		case math.Abs(fb) <= tol:
+			return pb, true
+		case fa > 0 && fb < 0:
+			if x, ok := bisect(pa, fa, pb, fb); ok {
+				return x, true
+			}
+		}
+		pa, fa = pb, fb
+	}
+	return 0, false
+}
+
 // deorbitNode is the queued node N planted, if any.
 func deorbitNode(c *spacecraft.Spacecraft) (spacecraft.ManeuverNode, bool) {
 	for _, n := range c.Nodes {
@@ -898,40 +983,18 @@ func (w *World) planBoostback(c *spacecraft.Spacecraft, lat, lon float64, name s
 	}
 	st0.M = c.TotalMass()
 	site := [2]float64{lat, lon}
-	hint := 0.6 * st0.V.Norm()
-	// the boostback that aims the fall, then the entry burn that lets it land,
-	// then the boostback again with that entry burn in the fall; repeat until
-	// the entry burn stops moving (it moves the fall a little each time)
-	// the first aim is the impact point (no brake yet: that is what the entry burn buys)
-	dv, tilt, _, _, ok := w.solveRetro(c, st0, tS, false, boostAim, entryBurn{}, site, hint)
-	if !ok {
-		return nil, nil
+	sol, err := w.solveBoostback(c, st0, tS, site)
+	if errors.Is(err, errNoAim) {
+		return nil, nil // no burn aims the fall at the site at all: the fall is reported as it was
 	}
-	var entry entryBurn
-	for i := 0; i < entryRounds; i++ {
-		e, cue := w.entryFor(c, st0, tS, dv, tilt)
-		entry = e
-		if cue > BoostbackMaxCueAltM {
-			return nil, noLanding(cue) // not even the longest entry burn lets it land
+	if err != nil {
+		if sf := w.boostbackShortfall(c, st0, tS, site); sf != nil {
+			return nil, sf
 		}
-		d2, t2, _, _, ok := w.solveRetro(c, st0, tS, true, boostAimLand, entry, site, dv)
-		if !ok {
-			if cue <= EntryTargetCueAltM {
-				return nil, ErrBoostbackNoSolution // an entry burn closes the landing, but not on the aim
-			}
-			return nil, noLanding(cue)
-		}
-		moved := math.Abs(d2-dv) < 5 && math.Abs(t2-tilt) < 1e-3
-		dv, tilt = d2, t2
-		if moved {
-			break
-		}
+		return nil, err
 	}
+	dv, tilt, entry, off := sol.dv, sol.tilt, sol.entry, sol.off
 	n := nodeFor(c, st0, tS, dv, tilt, true)
-	off, status := w.aimOffset(c, st0, tS, dv, n, true, boostAimLand, entry, site)
-	if status != 0 {
-		return nil, noLanding(off.cueAlt)
-	}
 	w.replaceAdvisoryNode(c, AdvisoryKeyDeorbit)
 	w.replaceAdvisoryNode(c, AdvisoryKeyEntry)
 	w.PlanNode(n)
@@ -953,7 +1016,123 @@ func (w *World) planBoostback(c *spacecraft.Spacecraft, lat, lon float64, name s
 	return plan, nil
 }
 
-var EntryTargetCueAltM = 10e3
+const EntryTargetCueAltM = 10e3
+
+// errNoAim: no boostback puts even the impact point on the site.
+var errNoAim = errors.New("no aim")
+
+// boostbackSolution is a planned boostback and the entry burn behind it.
+type boostbackSolution struct {
+	dv, tilt float64
+	entry    entryBurn
+	off      deorbitOffset
+}
+
+// solveBoostback finds the boostback (and the entry burn that lets the fall
+// land) for c from st0 at tS: aim the impact point, pick the entry burn, re-aim
+// with it in the fall, repeat until it stops moving, then close the exact aim
+// on the brake's stop point. It plants nothing.
+func (w *World) solveBoostback(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, site [2]float64) (boostbackSolution, error) {
+	var sol boostbackSolution
+	hint := 0.6 * st0.V.Norm()
+	// the first aim is the impact point (no brake yet: that is what the entry burn buys)
+	dv, tilt, _, _, ok := w.solveRetro(c, st0, tS, false, boostAim, entryBurn{}, site, hint)
+	if !ok {
+		return sol, errNoAim
+	}
+	var entry entryBurn
+	var cue float64
+	for i := 0; i < entryRounds; i++ {
+		entry, cue = w.entryFor(c, st0, tS, dv, tilt)
+		if cue > BoostbackMaxCueAltM {
+			return sol, noLanding(cue) // not even the longest entry burn lets it land
+		}
+		// re-aim on the impact point with the entry burn in the fall (a brake
+		// stop is infeasible over part of the range, the impact point never is)
+		d2, t2, _, _, ok := w.solveRetro(c, st0, tS, false, boostAim, entry, site, dv)
+		if !ok {
+			return sol, ErrBoostbackNoSolution
+		}
+		moved := math.Abs(d2-dv) < 5 && math.Abs(t2-tilt) < 1e-3
+		dv, tilt = d2, t2
+		if moved {
+			break
+		}
+	}
+	// then the exact aim, on the brake's stop point, from there
+	dv, tilt, off, _, ok := w.solveRetro(c, st0, tS, true, boostAimLand, entry, site, dv)
+	if !ok {
+		if cue <= EntryTargetCueAltM {
+			return sol, ErrBoostbackNoSolution // an entry burn closes the landing, but not on the aim
+		}
+		return sol, noLanding(cue)
+	}
+	return boostbackSolution{dv, tilt, entry, off}, nil
+}
+
+// stageDV is the Δv the lit stage's propellant gives it: Isp g ln(m / (m - fuel)).
+func stageDV(c *spacecraft.Spacecraft) float64 {
+	m, f := c.TotalMass(), c.ActiveStageFuel()
+	if f <= 0 || m <= f || c.Isp <= 0 {
+		return 0
+	}
+	return c.Isp * stdGravityMps2 * math.Log(m/(m-f))
+}
+
+// BoostbackShortError is the refusal for a stage that has the geometry but not
+// the Δv: Need is the Δv of the smallest tank of the same stage that closes a
+// plan, Have the Δv of the tank it has.
+type BoostbackShortError struct{ Need, Have float64 }
+
+func (e *BoostbackShortError) Error() string {
+	return fmt.Sprintf("needs %s, stage has %s", readout.DeltaV(e.Need), readout.DeltaV(e.Have))
+}
+
+// boostbackShortfall says how far short the stage is. Method: re-solve the same
+// plan on copies of the stage with more propellant (up to the tank's capacity),
+// bracket and bisect the smallest tank that closes, and report that tank's Δv
+// (Isp g ln(mass / mass less the lit tank)) against the real one's. nil when no tank closes
+// (the fault is not propellant) or the stage has none to add.
+func (w *World) boostbackShortfall(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, site [2]float64) error {
+	idx := spacecraft.LitStageIdx(c.Stages)
+	if idx >= len(c.Stages) || c.Stages[idx].FuelCapacity <= c.Stages[idx].FuelMass {
+		return nil
+	}
+	closes := func(fuel float64) (*spacecraft.Spacecraft, bool) {
+		v := *c
+		v.Stages = append([]spacecraft.Stage(nil), c.Stages...)
+		v.Stages[idx].FuelMass = fuel
+		v.SyncFields()
+		st := st0
+		st.M = v.TotalMass()
+		_, err := w.solveBoostback(&v, st, tS, site)
+		return &v, err == nil
+	}
+	lo, capacity := c.Stages[idx].FuelMass, c.Stages[idx].FuelCapacity
+	hi := lo
+	var vHi *spacecraft.Spacecraft
+	for step := 0.1; ; step *= 1.6 { // grow the tank until a plan closes
+		hi = math.Min(capacity, hi+step*math.Max(lo, 0.01*capacity)) // an empty tank grows too
+		v, ok := closes(hi)
+		if ok {
+			vHi = v
+			break
+		}
+		if hi >= capacity {
+			return nil
+		}
+		lo = hi
+	}
+	for k := 0; k < 6; k++ {
+		mid := (lo + hi) / 2
+		if v, ok := closes(mid); ok {
+			hi, vHi = mid, v
+		} else {
+			lo = mid
+		}
+	}
+	return &BoostbackShortError{Need: stageDV(vHi), Have: stageDV(c)}
+}
 
 // EntryAltsM are the heights the planner tries lighting the entry burn at,
 // highest first (the real one lights about 70 km up; the game has no heat, so a
