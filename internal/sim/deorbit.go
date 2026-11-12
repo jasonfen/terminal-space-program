@@ -58,7 +58,11 @@ const (
 	// the landing burn lighting under EntryTargetCueAltM.
 	EntryThrottle = 3.0 / 9
 	entryDVStep   = 100.0
-	entryDVMax    = 1100.0
+	// entryDVMax is the longest entry burn offered. Longer ones (1,180 m/s and up,
+	// a minute or two on three engines) run down into the dense air that the
+	// finite-burn forecast leaves out: flown, they landed 1.4 km to 13 km off
+	// at several warps; capped, the planner takes a bigger boostback instead.
+	entryDVMax = 1100.0
 )
 
 // The refusal lines, verbatim (decision 21). "vessel not in this system" and

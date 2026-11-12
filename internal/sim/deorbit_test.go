@@ -850,11 +850,11 @@ func TestBoostbackPlansAtEveryHeavierLoad(t *testing.T) {
 			}
 		}
 	}
-	// the stated limit: 190 t at 107 km is past the entry burn cap, and says so
-	w, _, _ := jasonDrop(t, 107e3, 190e3)
+	// the stated limit: 250 t at 107 km is past the entry burn cap (a plan existed before the cap, and crashed), and says so
+	w, _, _ := jasonDrop(t, 107e3, 250e3)
 	var nl *BoostbackNoLandingError
 	if plan, err := w.PlanDeorbitAndEngage(); plan != nil || !errors.As(err, &nl) {
-		t.Errorf("190 t at 107 km: plan=%+v err=%v, want the landing burn's height past the entry burn cap", plan, err)
+		t.Errorf("250 t at 107 km: plan=%+v err=%v, want the landing burn's height past the entry burn cap", plan, err)
 	}
 	for _, tc := range []struct{ offE, tons float64 }{{60e3, 90}, {30e3, 160}} {
 		for _, idx := range []int{0, len(WarpFactors) - 1} {
