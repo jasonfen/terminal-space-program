@@ -728,8 +728,8 @@ func TestLandingFlashNotOutOfReachWhenOnTheFlag(t *testing.T) {
 type boosterFall struct{ altM, downMps, offN, offE, driftN, driftE, fuelKg float64 }
 
 // boosterWorld is a Falcon 9 first stage (part f9-s1) as its own vessel, falling
-// over Earth at b, with LC-13 LZ-1 as its target. There is no dropped-stage
-// vessel yet (ADR 0069 slice 8), so the fixture builds the vessel itself.
+// over Earth at b, with LC-13 LZ-1 as its target. A real drop makes the same
+// vessel (ADR 0069 slice 8); the fixture skips the drop to place it at a chosen fall.
 func boosterWorld(t *testing.T, b boosterFall) (*World, *spacecraft.Spacecraft, Site) {
 	t.Helper()
 	return fallWorld(t, spacecraft.StageModuleF9S1ID, b)

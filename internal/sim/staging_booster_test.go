@@ -212,3 +212,101 @@ func TestBoosterHalvesHalveTheSpriteWidth(t *testing.T) {
 		t.Errorf("SLS SRB half width = %d, want 2 (full stage is 5)", got)
 	}
 }
+
+// dropWorld puts catalog loadout id in the active slot, in orbit, burns its
+// bottom stage down to fuel kg (so the booster gate lets it go) and drops it.
+// Returns the world and the vessels the drop added.
+func dropWorld(t *testing.T, id string, fuel float64) (*World, []*spacecraft.Spacecraft) {
+	t.Helper()
+	w := mustWorld(t)
+	c := spacecraft.NewFromLoadout(id)
+	c.Primary = w.Crafts[0].Primary
+	c.State = w.Crafts[0].State
+	w.Crafts[0] = c
+	w.ActiveCraftIdx = 0
+	crewTendActive(w)
+	c.Stages[0].FuelMass = fuel
+	c.SyncFields()
+	c.State.M = c.TotalMass()
+	n := len(w.Crafts)
+	if _, _, err := w.StageActive(0); err != nil {
+		t.Fatalf("%s: StageActive: %v", id, err)
+	}
+	return w, w.Crafts[n:]
+}
+
+// ADR 0069 decision 11 (slice 8): a dropped stage whose part has legs, an
+// engine and a command source keeps its core and antenna and is a vessel; any
+// other stage is debris as before. Table covers both sides of the rule.
+func TestDroppedStageThatCanLandIsAVessel(t *testing.T) {
+	for _, tc := range []struct {
+		id      string
+		n       int
+		vessel  bool
+		wantAnt bool
+	}{
+		{"Falcon-9", 1, true, true},
+		{"Falcon-Heavy", 2, true, true},
+		{"Packet-9", 1, true, true},
+		{"Saturn-V", 1, false, false},
+		{"SLS-Block1", 2, false, false},
+		{"Raster-LS", 2, false, false},
+		{"Vector-V", 1, false, false},
+	} {
+		w, drops := dropWorld(t, tc.id, 1000)
+		if len(drops) != tc.n {
+			t.Fatalf("%s: %d vessels dropped, want %d", tc.id, len(drops), tc.n)
+		}
+		for _, d := range drops {
+			if d.Controllable != tc.vessel {
+				t.Errorf("%s %s: Controllable = %v, want %v", tc.id, d.Name, d.Controllable, tc.vessel)
+			}
+			if (d.AntennaKind != spacecraft.AntennaNone) != tc.wantAnt {
+				t.Errorf("%s %s: antenna %q, want present=%v", tc.id, d.Name, d.AntennaKind, tc.wantAnt)
+			}
+			if tc.vessel && !w.CanCommandCraft(d) {
+				t.Errorf("%s %s: no link, a vessel next to the core should have one", tc.id, d.Name)
+			}
+			if !tc.vessel && w.CanCommandCraft(d) {
+				t.Errorf("%s %s: debris takes commands", tc.id, d.Name)
+			}
+		}
+	}
+}
+
+// The effect, not the flag: switch to the dropped stage with the vessel keys,
+// throttle it, aim it at a site and press N. A vessel gets no capability
+// refusal; the Saturn S-IC, the control for this check, gets NO SIGNAL.
+func TestDroppedStageTakesCommandsAndN(t *testing.T) {
+	for _, tc := range []struct {
+		id   string
+		want bool
+	}{{"Falcon-9", true}, {"Falcon-Heavy", true}, {"Packet-9", true}, {"Saturn-V", false}} {
+		w, drops := dropWorld(t, tc.id, 1000)
+		d := drops[0]
+		w.CycleActiveCraft(1)
+		if w.ActiveCraft() != d {
+			t.Fatalf("%s: [ ] cycle did not reach the dropped stage", tc.id)
+		}
+		var lc13 Site
+		for _, z := range shippedZones {
+			if z.Name == "LC-13" {
+				lc13 = z
+			}
+		}
+		w.SetTargetSiteLZ(lc13.ID, 1)
+		_, err := w.PlanDeorbitAndEngage()
+		refused := errors.Is(err, ErrDeorbitNoSignal) || errors.Is(err, ErrDeorbitNoEngine) || errors.Is(err, ErrDeorbitNoSite)
+		if tc.want && refused {
+			t.Errorf("%s: N refused a vessel: %v", tc.id, err)
+		}
+		if !tc.want && !errors.Is(err, ErrDeorbitNoSignal) {
+			t.Errorf("%s: debris N err = %v, want NO SIGNAL (the check must be able to refuse)", tc.id, err)
+		}
+		d.Throttle = 0
+		w.SetThrottle(0.5)
+		if got := d.Throttle == 0.5; got != tc.want {
+			t.Errorf("%s: throttle took = %v, want %v", tc.id, got, tc.want)
+		}
+	}
+}
