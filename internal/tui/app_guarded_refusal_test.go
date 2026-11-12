@@ -533,6 +533,7 @@ func TestDeorbitRefusalWords(t *testing.T) {
 		{sim.ErrDeorbitFalling, "already falling, fly miss:"},
 		{&sim.BoostbackNoLandingError{CueAltM: 163225}, "landing burn lights 163.2 km up"}, // ADR 0069 decision 14
 		{sim.ErrBoostbackNoSolution, "no boostback lands on the site"},
+		{&sim.BoostbackShortError{Need: 3742, Have: 2934}, "needs 3742 m/s, stage has 2934 m/s"},
 	} {
 		if got := deorbitRefusal(tc.err); got != tc.want {
 			t.Errorf("deorbitRefusal = %q, want %q", got, tc.want)

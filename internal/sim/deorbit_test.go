@@ -731,16 +731,15 @@ func TestEntryBurnBringsAFalcon9Home(t *testing.T) {
 	}
 }
 
-// The edge of the window, on a real Falcon 9: 10 % kept is refused with a fact
-// and plants nothing (boostback, entry burn and the landing do not fit what is
-// left), 11 % closes. 35 % kept reaches the site but its landing burn would
+// The edge of the window, on a real Falcon 9: 10 % kept is refused (1 m/s
+// short: the need/have line) and plants nothing, 11 % closes. 35 % kept reaches the site but its landing burn would
 // light 11.8 km up, over the entry burn's 10 km target, and says where.
 func TestEntryBurnWindowOnARealFalcon9(t *testing.T) {
 	for _, tc := range []struct {
 		keep    float64
 		wantErr error // nil: a plan
 		noLand  bool
-	}{{0.10, ErrBoostbackNoSolution, false}, {0.11, nil, false}, {0.35, nil, true}} {
+	}{{0.10, &BoostbackShortError{}, false}, {0.11, nil, false}, {0.35, nil, true}} {
 		_, b, plan, err := planFalcon9Drop(t, tc.keep, nil)
 		var nl *BoostbackNoLandingError
 		switch {
@@ -751,6 +750,11 @@ func TestEntryBurnWindowOnARealFalcon9(t *testing.T) {
 		case tc.wantErr == nil:
 			if err != nil || plan == nil {
 				t.Errorf("%v kept: plan=%+v err=%v, want a plan", tc.keep, plan, err)
+			}
+		case tc.keep == 0.10: // 1 m/s short of closing: says so
+			var sh *BoostbackShortError
+			if plan != nil || !errors.As(err, &sh) || sh.Need <= sh.Have || sh.Need-sh.Have > 20 {
+				t.Errorf("%v kept: plan=%+v err=%v, want a BoostbackShortError within 20 m/s", tc.keep, plan, err)
 			}
 		default:
 			if plan != nil || !errors.Is(err, tc.wantErr) {
@@ -815,4 +819,87 @@ func lc13ID(t *testing.T) uint64 {
 	}
 	t.Fatal("no LC-13")
 	return 0
+}
+
+// Jason's playtest drop (2026-11-12, recording): 59.4 km up, 741 m/s down, 1,462
+// m/s east of the pad-side LZ, a Falcon 9 first stage with 51.5 t of propellant,
+// the LZ offE metres behind it. Used by the 9c guards below.
+func jasonDrop(t *testing.T, offE, fuelKg float64) (*World, *spacecraft.Spacecraft, Site) {
+	t.Helper()
+	return fallWorld(t, spacecraft.StageModuleF9S1ID, boosterFall{altM: 59.4e3, downMps: -741, offE: offE, driftE: 1462, fuelKg: fuelKg})
+}
+
+// Slice 9c guard 1: more propellant on a closer drop never loses the plan. The
+// bracket used to read an unjudgeable burn at its low edge as "too steep" and
+// back away from the root (90 t refused at 60 and 30 km while 107 km landed).
+// Within the grid, once a plan exists at some propellant every heavier load plans
+// too (up to 120 t: past it the entry burn cap of 1,100 m/s ends the plans (burns that long run into the dense air, which the forecast leaves out, and flew 10 km off)). Two
+// of the newly planned cases are flown to touchdown at 1x and at max warp.
+func TestBoostbackPlansAtEveryHeavierLoad(t *testing.T) {
+	for _, offE := range []float64{107e3, 60e3, 30e3} {
+		planned := false
+		for _, tons := range []float64{70, 90, 120} {
+			w, c, _ := jasonDrop(t, offE, tons*1e3)
+			plan, err := w.PlanDeorbitAndEngage()
+			if planned && plan == nil {
+				t.Errorf("%.0f km out, %.0f t: refused (%v) though a lighter load planned", offE/1e3, tons, err)
+			}
+			planned = planned || plan != nil
+			if plan != nil && plan.DV+plan.EntryDV > stageDV(c) {
+				t.Errorf("%.0f km out, %.0f t: plans %.0f + %.0f m/s, more than the stage has", offE/1e3, tons, plan.DV, plan.EntryDV)
+			}
+		}
+	}
+	// the stated limit: 160 t is past the entry burn cap, and says so
+	if w, _, _ := jasonDrop(t, 30e3, 160e3); true {
+		if plan, err := w.PlanDeorbitAndEngage(); plan != nil || err == nil {
+			t.Errorf("160 t at 30 km: plan=%+v err=%v, want a refusal past the entry burn cap", plan, err)
+		}
+	}
+	for _, tc := range []struct{ offE, tons float64 }{{60e3, 90}, {30e3, 120}} {
+		for _, idx := range []int{0, len(WarpFactors) - 1} {
+			w, c, lc13 := jasonDrop(t, tc.offE, tc.tons*1e3)
+			plan, err := w.PlanDeorbitAndEngage()
+			if err != nil || plan == nil {
+				t.Fatalf("%.0f km, %.0f t: N: %v", tc.offE/1e3, tc.tons, err)
+			}
+			d, v, landed := flyBoostback(t, w, c, lc13, idx)
+			t.Logf("%.0f km out, %.0f t, warp %vx: boostback %.0f, entry %.0f from %.0f km; landed=%v %.1f m from LZ-1 at %.2f m/s", tc.offE/1e3, tc.tons, WarpFactors[idx], plan.DV, plan.EntryDV, plan.EntryAltM/1e3, landed, d, v)
+			if !landed || d > 43 || v >= CrashVCritMps {
+				t.Errorf("%.0f km, %.0f t, warp %vx: landed=%v %.1f m at %.2f m/s, want inside the 43 m circle under %v m/s", tc.offE/1e3, tc.tons, WarpFactors[idx], landed, d, v, CrashVCritMps)
+			}
+		}
+	}
+}
+
+// Slice 9c guard 2: Jason's exact drop (51.5 t, 107 km out) is refused with the
+// Δv it lacks, and the figure is honest: a tank of the stage with that much Δv
+// plans, one 0.5 % short of it does not.
+func TestBoostbackShortStageSaysNeedAndHave(t *testing.T) {
+	w, c, _ := jasonDrop(t, 107e3, 51536)
+	plan, err := w.PlanDeorbitAndEngage()
+	var sh *BoostbackShortError
+	if plan != nil || !errors.As(err, &sh) {
+		t.Fatalf("N: plan=%+v err=%v, want a BoostbackShortError", plan, err)
+	}
+	have := stageDV(c)
+	if math.Abs(sh.Have-have) > 1 || sh.Need <= sh.Have {
+		t.Errorf("need %.0f have %.0f, want have %.0f and need above it", sh.Need, sh.Have, have)
+	}
+	if len(c.Nodes) != 0 || c.Landing.Owns() {
+		t.Errorf("a refused N left nodes=%d owns=%v", len(c.Nodes), c.Landing.Owns())
+	}
+	// the stage with exactly dv m/s: fuel f with Isp g ln((d + f) / d) = dv, d the mass with the tank empty
+	d := c.TotalMass() - c.ActiveStageFuel()
+	fuelFor := func(dv float64) float64 { return d*math.Exp(dv/(c.Isp*stdGravityMps2)) - d }
+	for _, tc := range []struct {
+		scale float64
+		plans bool
+	}{{1.005, true}, {0.995, false}} {
+		w2, _, _ := jasonDrop(t, 107e3, fuelFor(sh.Need*tc.scale))
+		if p, e := w2.PlanDeorbitAndEngage(); (p != nil) != tc.plans {
+			t.Errorf("%.3f x Need (%.0f t): plan=%v err=%v, want plans=%v", tc.scale, fuelFor(sh.Need*tc.scale)/1e3, p != nil, e, tc.plans)
+		}
+	}
+	t.Logf("51.5 t at 107 km: %v", err)
 }
