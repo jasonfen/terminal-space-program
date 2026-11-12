@@ -1049,6 +1049,30 @@ func TestNDropsTheTrunkAfterTheBurn(t *testing.T) {
 	}
 }
 
+// Playtest 2026-11-12: [»Burn] (auto-warp to the brake cue) lights on the tick
+// after the deorbit burn ends, trunk or no trunk. Before: the pre-burn "no path
+// to the ground" cue was cached for 30 s, so the button sat dim 11-12 s at 1x.
+func TestBrakeCueWarpReadyWhenTheDeorbitBurnEnds(t *testing.T) {
+	for _, trunk := range []bool{true, false} {
+		w, c := entryWorld(t, "", "earth", "Dragon", 200e3, true)
+		if !trunk {
+			c.Stages = c.Stages[len(c.Stages)-1:]
+			c.SyncFields()
+		}
+		if _, err := w.PlanDeorbitAndEngage(); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 1e6 && (len(c.Nodes) > 0 || c.ActiveBurn != nil); i++ {
+			w.Tick()
+		}
+		w.Clock.WarpIdx = 0
+		w.Tick()
+		if !w.AutoWarpEligible() {
+			t.Errorf("trunk=%v: one tick after the deorbit burn, [»Burn] is dim, want it lit for the brake cue", trunk)
+		}
+	}
+}
+
 // ADR 0069 decision 8 (T7): N on a Dragon over Mars runs arm, open, cut, land on
 // the flag with no other key, at every warp. The deorbit burn is N's own and
 // flies on the SuperDracos (seconds, not the Dracos' 17 minutes). The hold row
