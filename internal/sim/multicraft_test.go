@@ -98,6 +98,28 @@ func TestCycleActiveCraftWraps(t *testing.T) {
 	}
 }
 
+// Playtest 2026-11-12: switching vessels leaves every hand burn lit. A burning
+// second stage kept burning in the background, then died when [ ] cycled back
+// through it on the way to its dropped booster.
+func TestSwitchingKeepsHandBurnsLit(t *testing.T) {
+	w, _ := NewWorld()
+	earth := w.Systems[0].FindBody("Earth")
+	w.Crafts = append(w.Crafts, spacecraft.NewInLEO(*earth), spacecraft.NewInLEO(*earth))
+	burner := w.Crafts[0]
+	w.SetThrottle(1.0)
+	w.StartManualBurn()
+	w.CycleActiveCraft(1)  // away
+	w.CycleActiveCraft(-1) // back onto it
+	w.CycleActiveCraft(1)  // and past it again
+	w.SwitchToCraftIdx(0)
+	w.SwitchToCraftIdx(2)
+	f0 := burner.Fuel
+	w.Tick()
+	if burner.ManualBurn == nil || burner.Fuel >= f0 {
+		t.Errorf("after switching through it: burn lit=%v, fuel %v -> %v, want it still burning", burner.ManualBurn != nil, f0, burner.Fuel)
+	}
+}
+
 // TestCycleSingleCraftIsNoOp: with only one craft, [/] can't cycle.
 func TestCycleSingleCraftIsNoOp(t *testing.T) {
 	w, _ := NewWorld()

@@ -726,14 +726,7 @@ func (w *World) CycleActiveCraft(delta int) {
 	if idx < 0 {
 		idx += n
 	}
-	w.SetActiveCraftIdx(idx)
-	// Engine state is per-active-craft in v0.8.1 (planted nodes,
-	// manual burn, attitude all live on World as "what the active
-	// craft is doing"). Cycling resets the live RCS-or-main mode
-	// so the new active craft starts in a known state. Manual burn
-	// is dropped since it was tied to the prior active craft's
-	// engine.
-	w.StopManualBurn()
+	w.SetActiveCraftIdx(idx) // a hand burn lives on its vessel and keeps burning (playtest 2026-11-12)
 }
 
 // SwitchToCraftIdx jumps control directly to the craft at idx
@@ -741,15 +734,12 @@ func (w *World) CycleActiveCraft(delta int) {
 // 0..8). Unlike CycleActiveCraft it does not wrap: a slot key with
 // no craft behind it (idx ≥ len(Crafts)) or a request for the
 // already-active craft is a no-op. Returns true only when the
-// active craft actually changed. Mirrors CycleActiveCraft's
-// StopManualBurn so the newly-selected craft starts in a known
-// engine state. v0.12.0+.
+// active craft actually changed. v0.12.0+.
 func (w *World) SwitchToCraftIdx(idx int) bool {
 	if idx < 0 || idx >= len(w.Crafts) || idx == w.ActiveCraftIdx {
 		return false
 	}
 	w.SetActiveCraftIdx(idx)
-	w.StopManualBurn()
 	return true
 }
 
