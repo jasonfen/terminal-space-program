@@ -1700,8 +1700,8 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the pointer-receiver Scale() is callable).
 			sys := a.world.System()
 			a.spawn.Reset(sys.Bodies, defaultParentID, designs, sys.Scale(), sys.Name, a.world.CommBandCoverage)
-			a.spawn.SetRecoverLZ(func(parentID string, lat, lon float64) (string, bool) {
-				s, ok := a.world.RecoveryLZNear(parentID, lat, lon)
+			a.spawn.SetRecoverLZ(func(parentID string, lat, lon float64, need int) (string, bool) {
+				s, ok := a.world.RecoveryLZNear(parentID, lat, lon, need)
 				return s.Name, ok
 			})
 			a.active = screenSpawn

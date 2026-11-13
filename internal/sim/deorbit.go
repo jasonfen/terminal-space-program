@@ -396,6 +396,7 @@ type deorbitOffset struct {
 // otherwise. status: 0 fine, +1 too shallow (no ground), -1 too steep to stop, -2 (boostAimLand
 // only) a stop that ends with altitude in hand, whose brake lights off.cueAlt up.
 func (w *World) aimOffset(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, dv float64, node spacecraft.ManeuverNode, stop bool, boost boostMode, entry entryBurn, site [2]float64) (off deorbitOffset, status int) {
+	w.aimEvals++
 	mu := c.Primary.GravitationalParameter()
 	s, dur := burnState(c, st0, mu, dv, node)
 	tEnd := tS.Add(time.Duration(dur * float64(time.Second)))
@@ -490,9 +491,9 @@ func vGrazeSpeed(c *spacecraft.Spacecraft, st0 physics.StateVector) float64 {
 // solveRetro finds the size and out-of-plane tilt of the retro burn from st0 at
 // tS that puts the aim on site: Newton on the size along the track, a secant on
 // the tilt to close the cross-track offset. hint seeds the size.
-func (w *World) solveRetro(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, stop bool, boost boostMode, entry entryBurn, site [2]float64, hint float64) (dv, tilt float64, lastOff deorbitOffset, noLandAlt float64, ok bool) {
+func (w *World) solveRetro(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, stop bool, boost boostMode, entry entryBurn, site [2]float64, hint float64, warm bool) (dv, tilt float64, lastOff deorbitOffset, noLandAlt float64, ok bool) {
 	maxDV := stageDV(c) // what the stage has
-	solveDv := func(tilt, hint float64) (float64, bool) {
+	solveDv := func(tilt, hint float64, warm bool) (float64, bool) {
 		f := func(dv float64) float64 {
 			n := nodeFor(c, st0, tS, dv, tilt, boost != boostOff)
 			off, status := w.aimOffset(c, st0, tS, dv, n, stop, boost, entry, site)
@@ -510,6 +511,18 @@ func (w *World) solveRetro(c *spacecraft.Spacecraft, st0 physics.StateVector, tS
 			lastOff = off
 			return off.long
 		}
+		// the hint is a root already and this aim has needed the full scan before (a
+		// rising aim: a site ahead on the track, a drone ship, which the Illinois
+		// bracket below reads as too steep): the next root sits near the hint, so look
+		// there first (R5). A falling aim (an LZ behind the stage) brackets in a few
+		// flights as before, and N presses never take this path.
+		if warm && boost != boostOff && w.boostRising {
+			for _, win := range [][3]float64{{0.85, 1.25, 8}, {0.7, 1.6, 12}} {
+				if x, ok := scanRoot(f, win[0]*hint, math.Min(win[1]*hint, maxDV), int(win[2]), deorbitLongTolM); ok {
+					return x, ok
+				}
+			}
+		}
 		if x, ok := bracketRoot(f, hint, deorbitLongTolM); ok || boost == boostOff {
 			return x, ok
 		}
@@ -517,9 +530,10 @@ func (w *World) solveRetro(c *spacecraft.Spacecraft, st0 physics.StateVector, tS
 		// small and the fall arrives too fast to land, too big and the tank is
 		// gone), which the one-sided bracket reads as "too steep" and backs away
 		// from: scan the whole range for the sign change instead.
+		w.boostRisingSeen = true
 		return scanRoot(f, 0.01*hint, math.Min(3*hint, maxDV), 60, deorbitLongTolM)
 	}
-	if dv, ok = solveDv(0, hint); !ok {
+	if dv, ok = solveDv(0, hint, warm); !ok {
 		return
 	}
 	if math.Abs(lastOff.cross) > deorbitCrossTolM {
@@ -527,7 +541,7 @@ func (w *World) solveRetro(c *spacecraft.Spacecraft, st0 physics.StateVector, tS
 		t1 := 0.5 * rad
 		converged := false
 		for i := 0; i < 8; i++ {
-			d1, ok1 := solveDv(t1, dv)
+			d1, ok1 := solveDv(t1, dv, true)
 			if !ok1 {
 				return 0, 0, lastOff, noLandAlt, false
 			}
@@ -658,7 +672,7 @@ func (w *World) planDeorbitOntoSite() (*DeorbitPlan, error) {
 	}
 	st0.M = c.TotalMass()
 	stop := canBrakeAtSite(c)
-	dv, tilt, lastOff, _, ok := w.solveRetro(c, st0, tS, stop, boostOff, entryBurn{}, [2]float64{lat, lon}, 2.5*math.Max(st0.V.Norm()-vGrazeSpeed(c, st0), 1))
+	dv, tilt, lastOff, _, ok := w.solveRetro(c, st0, tS, stop, boostOff, entryBurn{}, [2]float64{lat, lon}, 2.5*math.Max(st0.V.Norm()-vGrazeSpeed(c, st0), 1), false)
 	if !ok {
 		return nil, ErrDeorbitNoSolution
 	}
@@ -999,15 +1013,29 @@ func (w *World) planBoostback(c *spacecraft.Spacecraft, lat, lon float64, name s
 	}
 	st0.M = c.TotalMass()
 	site := [2]float64{lat, lon}
+	if out, ok := w.shortfalls[shortfallKey{c.ID, site, int(c.ActiveStageFuel() / 100), now.Unix()}]; ok {
+		return nil, out // the same refused press again: the same answer, free (R6)
+	}
 	sol, err := w.solveBoostback(c, st0, tS, site)
 	if errors.Is(err, errNoAim) {
 		return nil, nil // no burn aims the fall at the site at all: the fall is reported as it was
 	}
 	if err != nil {
-		if sf := w.boostbackShortfall(c, st0, tS, site); sf != nil {
-			return nil, sf
+		if w.skipShortfall {
+			return nil, err // the drop's own N: the figure is one press away (R6)
 		}
-		return nil, err
+		out := err
+		if sf := w.boostbackShortfall(c, st0, tS, site); sf != nil {
+			out = sf
+		}
+		if len(w.shortfalls) > 16 {
+			w.shortfalls = nil
+		}
+		if w.shortfalls == nil {
+			w.shortfalls = map[shortfallKey]error{}
+		}
+		w.shortfalls[shortfallKey{c.ID, site, int(c.ActiveStageFuel() / 100), w.Clock.SimTime.Unix()}] = out
+		return nil, out
 	}
 	dv, tilt, entry, off := sol.dv, sol.tilt, sol.entry, sol.off
 	n := nodeFor(c, st0, tS, dv, tilt, true)
@@ -1051,8 +1079,11 @@ type boostbackSolution struct {
 func (w *World) solveBoostback(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, site [2]float64) (boostbackSolution, error) {
 	var sol boostbackSolution
 	hint := 0.6 * st0.V.Norm()
+	if w.boostWarmDV > 0 {
+		hint = w.boostWarmDV
+	}
 	// the first aim is the impact point (no brake yet: that is what the entry burn buys)
-	dv, tilt, _, _, ok := w.solveRetro(c, st0, tS, false, boostAim, entryBurn{}, site, hint)
+	dv, tilt, _, _, ok := w.solveRetro(c, st0, tS, false, boostAim, entryBurn{}, site, hint, w.boostWarmDV > 0)
 	if !ok {
 		return sol, errNoAim
 	}
@@ -1065,7 +1096,7 @@ func (w *World) solveBoostback(c *spacecraft.Spacecraft, st0 physics.StateVector
 		}
 		// re-aim on the impact point with the entry burn in the fall (a brake
 		// stop is infeasible over part of the range, the impact point never is)
-		d2, t2, _, _, ok := w.solveRetro(c, st0, tS, false, boostAim, entry, site, dv)
+		d2, t2, _, _, ok := w.solveRetro(c, st0, tS, false, boostAim, entry, site, dv, true)
 		if !ok {
 			return sol, ErrBoostbackNoSolution
 		}
@@ -1076,7 +1107,7 @@ func (w *World) solveBoostback(c *spacecraft.Spacecraft, st0 physics.StateVector
 		}
 	}
 	// then the exact aim, on the brake's stop point, from there
-	dv, tilt, off, _, ok := w.solveRetro(c, st0, tS, true, boostAimLand, entry, site, dv)
+	dv, tilt, off, _, ok := w.solveRetro(c, st0, tS, true, boostAimLand, entry, site, dv, true)
 	if !ok {
 		if cue <= EntryTargetCueAltM {
 			return sol, ErrBoostbackNoSolution // an entry burn closes the landing, but not on the aim
@@ -1104,6 +1135,16 @@ func (e *BoostbackShortError) Error() string {
 	return fmt.Sprintf("needs %s, stage has %s", readout.DeltaV(e.Need), readout.DeltaV(e.Have))
 }
 
+// shortfallKey is one refused press: the vessel, the aim, the propellant to the
+// nearest 100 kg and the sim second. The search costs 0.5 s and a pilot who
+// presses N again in the same second is asking the same question.
+type shortfallKey struct {
+	craft uint64
+	site  [2]float64
+	fuel  int
+	sec   int64
+}
+
 // boostbackShortfall says how far short the stage is. Method: re-solve the same
 // plan on copies of the stage with more propellant (up to the tank's capacity),
 // bracket and bisect the smallest tank that closes, and report that tank's Δv
@@ -1114,6 +1155,9 @@ func (w *World) boostbackShortfall(c *spacecraft.Spacecraft, st0 physics.StateVe
 	if idx >= len(c.Stages) || c.Stages[idx].FuelCapacity <= c.Stages[idx].FuelMass {
 		return nil
 	}
+	// the first plan that closes seeds the rest: a tank a few kg either side has
+	// its root a few m/s from it, so the solves after it start there (R6)
+	defer func() { w.boostWarmDV = 0 }()
 	closes := func(fuel float64) (*spacecraft.Spacecraft, bool) {
 		v := *c
 		v.Stages = append([]spacecraft.Stage(nil), c.Stages...)
@@ -1121,13 +1165,16 @@ func (w *World) boostbackShortfall(c *spacecraft.Spacecraft, st0 physics.StateVe
 		v.SyncFields()
 		st := st0
 		st.M = v.TotalMass()
-		_, err := w.solveBoostback(&v, st, tS, site)
+		sol, err := w.solveBoostback(&v, st, tS, site)
+		if err == nil {
+			w.boostWarmDV = sol.dv
+		}
 		return &v, err == nil
 	}
 	lo, capacity := c.Stages[idx].FuelMass, c.Stages[idx].FuelCapacity
 	hi := lo
 	var vHi *spacecraft.Spacecraft
-	for step := 0.1; ; step *= 1.6 { // grow the tank until a plan closes
+	for step := 0.1; ; step *= 2.2 { // grow the tank until a plan closes
 		hi = math.Min(capacity, hi+step*math.Max(lo, 0.01*capacity)) // an empty tank grows too
 		v, ok := closes(hi)
 		if ok {
@@ -1139,7 +1186,7 @@ func (w *World) boostbackShortfall(c *spacecraft.Spacecraft, st0 physics.StateVe
 		}
 		lo = hi
 	}
-	for k := 0; k < 6; k++ {
+	for k := 0; k < 4; k++ {
 		mid := (lo + hi) / 2
 		if v, ok := closes(mid); ok {
 			hi, vHi = mid, v

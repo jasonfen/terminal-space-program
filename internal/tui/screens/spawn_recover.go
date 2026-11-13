@@ -22,7 +22,8 @@ const maxShipKmDigits = 4
 // SetRecoverLZ injects the lookup the row uses to offer `LZ`: the LZ site nearest
 // the pad (its name), or false when none is near. nil (tests, no world) offers
 // only ship and none.
-func (s *SpawnCraft) SetRecoverLZ(f func(parentID string, latDeg, lonDeg float64) (name string, ok bool)) {
+// need is how many LZs must be free (0: the site whether or not it has room).
+func (s *SpawnCraft) SetRecoverLZ(f func(parentID string, latDeg, lonDeg float64, need int) (name string, ok bool)) {
 	s.recoverLZ = f
 }
 
@@ -38,14 +39,27 @@ func (s *SpawnCraft) recoverGroups() []int {
 // recoverOffered reports whether the row exists for the current craft and position.
 func (s *SpawnCraft) recoverOffered() bool { return len(s.recoverGroups()) > 0 }
 
-// recoverLZName is the LZ site the `LZ` choice would resolve to at the selected
-// launch site, "" when none is near.
-func (s *SpawnCraft) recoverLZName() string {
+// recoverHalves is how many LZs group k needs: one a half, two for a booster pair.
+func (s *SpawnCraft) recoverHalves(k int) int {
+	if groups, stages := s.recoverGroups(), s.selectedCraftStages(); k >= 0 && k < len(groups) {
+		return sim.StageHalves(stages[groups[k]])
+	}
+	return 1
+}
+
+// recoverLZName is the LZ site the `LZ` choice would resolve to for group k at
+// the selected launch site with room for its halves, "" when none is near or the
+// site is full (k < 0: the site whether or not it has room).
+func (s *SpawnCraft) recoverLZName(k int) string {
 	if s.recoverLZ == nil || s.latIdx < 0 || s.latIdx >= len(sim.LaunchSites) {
 		return ""
 	}
 	site := sim.LaunchSites[s.latIdx]
-	if name, ok := s.recoverLZ(s.SelectedParentID(), site.LatitudeDeg, site.LongitudeEastDeg); ok {
+	need := 0
+	if k >= 0 {
+		need = s.recoverHalves(k)
+	}
+	if name, ok := s.recoverLZ(s.SelectedParentID(), site.LatitudeDeg, site.LongitudeEastDeg, need); ok {
 		return name
 	}
 	return ""
@@ -58,10 +72,10 @@ func (s *SpawnCraft) recoverPick(k int) spacecraft.RecoverPick {
 	if k < 0 || k >= len(groups) {
 		return spacecraft.RecoverPick{}
 	}
-	if p, ok := s.recoverSet[groups[k]]; ok && s.recoverModeOffered(p.Mode) {
+	if p, ok := s.recoverSet[groups[k]]; ok && s.recoverModeOffered(k, p.Mode) {
 		return p
 	}
-	lz := s.recoverLZName() != ""
+	lz := s.recoverLZName(k) != ""
 	switch {
 	case k == 0 && lz:
 		return spacecraft.RecoverPick{Mode: spacecraft.RecoverLZ}
@@ -72,8 +86,8 @@ func (s *SpawnCraft) recoverPick(k int) spacecraft.RecoverPick {
 }
 
 // recoverModeOffered: LZ needs a site near the pad.
-func (s *SpawnCraft) recoverModeOffered(m spacecraft.RecoverMode) bool {
-	return m != spacecraft.RecoverLZ || s.recoverLZName() != ""
+func (s *SpawnCraft) recoverModeOffered(k int, m spacecraft.RecoverMode) bool {
+	return m != spacecraft.RecoverLZ || s.recoverLZName(k) != ""
 }
 
 // SelectedRecover is the row's choices indexed by stage, for the spawn spec;
@@ -100,8 +114,8 @@ func (s *SpawnCraft) recoverLabel(k int) string {
 }
 
 // recoverModes are the choices the row cycles, in order.
-func (s *SpawnCraft) recoverModes() []spacecraft.RecoverMode {
-	if s.recoverLZName() != "" {
+func (s *SpawnCraft) recoverModes(k int) []spacecraft.RecoverMode {
+	if s.recoverLZName(k) != "" {
 		return []spacecraft.RecoverMode{spacecraft.RecoverLZ, spacecraft.RecoverShip, spacecraft.RecoverNone}
 	}
 	return []spacecraft.RecoverMode{spacecraft.RecoverShip, spacecraft.RecoverNone}
@@ -115,7 +129,7 @@ func (s *SpawnCraft) stepRecover(step int) {
 	}
 	s.recCur = min(s.recCur, len(groups)-1)
 	p := s.recoverPick(s.recCur)
-	modes := s.recoverModes()
+	modes := s.recoverModes(s.recCur)
 	at := 0
 	for i, m := range modes {
 		if m == p.Mode {
@@ -196,7 +210,9 @@ func (s *SpawnCraft) recoverLines() []string {
 		lines = append(lines, "            "+p)
 	}
 	if hasLZ {
-		lines = append(lines, "  "+s.theme.Dim.Render("LZ: "+s.recoverLZName()))
+		lines = append(lines, "  "+s.theme.Dim.Render("LZ: "+s.recoverLZName(-1)))
+	} else if name := s.recoverLZName(-1); name != "" && s.recoverLZName(0) == "" {
+		lines = append(lines, "  "+s.theme.Dim.Render(name+": no free LZ")) // R2: a full site is not offered
 	}
 	return lines
 }

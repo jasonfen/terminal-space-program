@@ -259,6 +259,11 @@ func (w *World) cueStopErrM(c *spacecraft.Spacecraft, cue BurnAtCue) float64 {
 	return math.Hypot(w.apStopErr(c, lat, lon, cue.State, pred.StopR, tStop))
 }
 
+// earlyLightMaxMps is the fastest fall at the cue for which a no-canopy vessel
+// may light its brake early to steer (a capsule at terminal speed falls at 50 to
+// 100 m/s; a booster at its cue falls at 700).
+const earlyLightMaxMps = 150.0
+
 // chuteAimCut is the cut rule (ADR 0069 decision 8), the chute's half of "as
 // late as possible": under an open canopy on a one-burn vessel the cut waits
 // for the cue (the latest instant the brake still stops, which the caller
@@ -283,7 +288,10 @@ func (w *World) chuteAimCut(c *spacecraft.Spacecraft, f apFrame, in time.Duratio
 		// now than at the cue, and the current speed read 20 s early and 1.4 t of
 		// propellant over the plan)
 		rt := w.apRuntimeFor(c)
-		if 2*rt.cueAltM/(math.Max(rt.cueDownMps, OneBurnContactMps)+OneBurnContactMps) >= need {
+		// the early light prices the lead as a hover at 1 g, which is true of a
+		// capsule at terminal speed and false of a booster at 700 m/s: a stage that
+		// lit 24 s early at 30 km ran dry 3 km short (R3)
+		if rt.cueDownMps > earlyLightMaxMps || 2*rt.cueAltM/(math.Max(rt.cueDownMps, OneBurnContactMps)+OneBurnContactMps) >= need {
 			return false
 		}
 	}

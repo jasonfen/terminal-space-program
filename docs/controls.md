@@ -546,6 +546,7 @@ inclination, and direction. `F1` here opens the SPAWN FORM help page and `F1` / 
 | `Enter` (box open) | Keep the typed number; the next `Enter` spawns (the form says so beside the number) |
 | `recover:` | Pad spawn: where each droppable stage flies home from the drop; `←` / `→` LZ, ship or none, `Space` the next stage |
 | `recover:` ship | `Enter` types its km downrange, due east of the pad; a stage with a place set cuts off at its landing reserve |
+| `recover:` heavy | Falcon Heavy: run the core at 50 to 70 % until BECO, or no boostback closes |
 | `Esc` (box open) | Put the old number back; `Esc` again leaves the form |
 | `0-9` / `Backspace` | In the box: type / erase the number (INCLINATION also takes one decimal point) |
 | `Esc` | Leave the form without spawning anything |

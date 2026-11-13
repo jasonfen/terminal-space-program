@@ -194,7 +194,7 @@ func padSpawn(t *testing.T, loadout string) *SpawnCraft {
 	t.Helper()
 	s := NewSpawnCraft(chipTestTheme())
 	s.Reset([]bodies.CelestialBody{earthLike()}, "earth", nil, bodies.ScaleReal, "Sol", nil)
-	s.SetRecoverLZ(func(_ string, lat, lon float64) (string, bool) { return "LC-13", lat > 28 && lat < 29 })
+	s.SetRecoverLZ(func(_ string, lat, lon float64, _ int) (string, bool) { return "LC-13", lat > 28 && lat < 29 })
 	s.loadoutIdx = loadoutIndex(t, s, loadout)
 	s.posMode, s.latIdx = posLaunchpad, 1
 	return s
@@ -260,7 +260,7 @@ func TestPadCardRecoverRow(t *testing.T) {
 	if got := s.SelectedRecover(); got[0].ShipKm != 3000 {
 		t.Errorf("typed 9999 -> %v km, want the 3000 km cap", got[0].ShipKm)
 	}
-	s.SetRecoverLZ(func(string, float64, float64) (string, bool) { return "", false })
+	s.SetRecoverLZ(func(string, float64, float64, int) (string, bool) { return "", false })
 	if got := s.SelectedRecover(); got[0].Mode == spacecraft.RecoverLZ || got[1].Mode == spacecraft.RecoverLZ {
 		t.Errorf("no LZ near the pad but the row offers one: %+v", got)
 	}
@@ -276,5 +276,18 @@ func TestPadCardRecoverRow(t *testing.T) {
 		if w := lipgloss.Width(l); w > 140 {
 			t.Errorf("a card line is %d cells at 140 wide: %q", w, l)
 		}
+	}
+	// R2: the site is near but has one LZ free: a single stage still gets it, the
+	// booster pair (two halves) does not, and the row says why
+	s = padSpawn(t, "Falcon-Heavy")
+	s.SetRecoverLZ(func(_ string, _, _ float64, need int) (string, bool) { return "LC-13", need <= 1 })
+	if got := s.SelectedRecover(); got[0].Mode != spacecraft.RecoverNone || got[1].Mode != spacecraft.RecoverShip {
+		t.Errorf("one LZ free: %+v, want the pair none and the core ship", got)
+	}
+	if out := ansi.Strip(s.Render(140, 40)); !strings.Contains(out, "boosters none") || !strings.Contains(out, "LC-13: no free LZ") {
+		t.Errorf("140x40 card with a full site lacks the reason:\n%s", out)
+	}
+	if s := padSpawn(t, "Falcon-9"); s.SelectedRecover()[0].Mode != spacecraft.RecoverLZ {
+		t.Error("a free site is not the default for a single stage")
 	}
 }

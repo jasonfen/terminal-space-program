@@ -88,6 +88,7 @@ func helpPhraseRows() []helpPhrase {
 		{name: "glossary names MECO / BECO", section: "READOUT GLOSSARY", token: "MECO / BECO", has: []string{"recovery place", "landing reserve", "core", "side boosters", "T-", "space still drops it", "none burns to dry"}},
 		{name: "spawn form names the recover row", section: "SPAWN FORM (n)", token: "recover:", has: []string{"flies home", "LZ, ship or none", "next stage"}},
 		{name: "spawn form names the ship distance", section: "SPAWN FORM (n)", token: "recover: ship", has: []string{"km downrange", "due east", "landing reserve"}},
+		{name: "spawn form names the Falcon Heavy core throttle", section: "SPAWN FORM (n)", token: "recover: heavy", has: []string{"Falcon Heavy", "core", "50 to 70 %", "until BECO"}},
 		{name: "E ends a crashed flight", token: "E", anyFold: []string{"end flight", "crashed"}},
 		// ADR 0051: F2 hides all eight boxes and the navball.
 		{name: "F2 declutter", token: "F2", has: []string{"instrument boxes", "navball", "Centerline scope", "OVERHEAD inset", "ENGINE", "PROPELLANT"}, not: []string{"core column", "chips"}},

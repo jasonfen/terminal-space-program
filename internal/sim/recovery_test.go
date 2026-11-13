@@ -19,6 +19,25 @@ func padClimb(t *testing.T, loadout string, picks []RecoverPick, coreThrottle fl
 	t.Helper()
 	w := mustWorld(t)
 	w.Crafts, w.ActiveCraftIdx = nil, -1
+	return w, padClimbIn(t, w, loadout, picks, coreThrottle, tweak...)
+}
+
+// standOnLZ parks a landed vessel in LZ n of site id (a booster already home).
+func standOnLZ(t *testing.T, w *World, id uint64, n int) {
+	t.Helper()
+	o, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9", ParentBodyID: "earth", Launchpad: true,
+		Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := w.siteByID(id)
+	lat, lon := s.lzLatLon(n, o.Primary.RadiusMeters())
+	o.Landed, o.LandedLatDeg, o.LandedLonDeg = true, lat, lon
+}
+
+// padClimbIn is padClimb in a world that may already hold vessels.
+func padClimbIn(t *testing.T, w *World, loadout string, picks []RecoverPick, coreThrottle float64, tweak ...func(*spacecraft.Spacecraft)) *spacecraft.Spacecraft {
+	t.Helper()
 	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: loadout, ParentBodyID: "earth", Launchpad: true,
 		Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast, Recover: picks})
 	if err != nil {
@@ -46,7 +65,7 @@ func padClimb(t *testing.T, loadout string, picks []RecoverPick, coreThrottle fl
 	if c.Stages[0].HeldKg > 0 {
 		w.Tick() // the tick after the cutoff ends the burn
 	}
-	return w, c
+	return c
 }
 
 // flyDown ticks until every vessel in bs is down, or an hour of flight.
@@ -184,7 +203,7 @@ func TestRecoveryShipIsAnLZSiteDownrange(t *testing.T) {
 	if !found {
 		t.Error("the ship is not a row of the t menu's SITES")
 	}
-	if id2 := w.stationShip(c, DefaultLaunchpadLatitude, DefaultLaunchpadLongitudeEast, 100); id2 == id {
+	if id2 := w.stationShip(c, DefaultLaunchpadLatitude, DefaultLaunchpadLongitudeEast, 100, 1); id2 == id {
 		t.Error("a second ship reused the first's site")
 	} else if s2, _ := w.siteByID(id2); s2.Name != "Drone Ship 2" {
 		t.Errorf("second ship = %q, want Drone Ship 2", s2.Name)
@@ -251,7 +270,7 @@ func TestRecoveryLZPickNeedsASiteNearThePad(t *testing.T) {
 	if baikonur.Stages[0].RecoverMode != spacecraft.RecoverNone || noKm.Stages[0].RecoverMode != spacecraft.RecoverNone {
 		t.Errorf("Baikonur %v, ship with no km %v, want none", baikonur.Stages[0].RecoverMode, noKm.Stages[0].RecoverMode)
 	}
-	if _, ok := w.RecoveryLZNear("earth", DefaultLaunchpadLatitude, DefaultLaunchpadLongitudeEast); !ok {
+	if _, ok := w.RecoveryLZNear("earth", DefaultLaunchpadLatitude, DefaultLaunchpadLongitudeEast, 1); !ok {
 		t.Error("no LZ near the Cape")
 	}
 }
@@ -357,9 +376,308 @@ func BenchmarkRecoveryReserveSolve(b *testing.B) {
 	c.SyncFields()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		if _, err := w.recoverySlack(c, c.Stages[0].FuelMass); err != nil {
+		if _, _, _, err := w.recoverySlack(c, c.Stages[0].FuelMass, 0, false); err != nil {
 			b.Fatal(err)
 		}
 	}
 	_ = time.Second
+}
+
+// R3: a plan N accepts must land. Ship distances 150 to 350 km in 50 km steps and
+// the LZ, dropped at the cutoff or 16 s and 30 s after it, flown at 1x or the top
+// warp (alternating: the failure was the same at both): the drop is accepted and the
+// stage stands inside the circle with propellant left. Ship 300 and 350 were
+// accepted, lit the brake 24 s early at 30 km and crashed 3 km out dry. Cost about
+// 5 s of the sim suite.
+func TestRecoveryAcceptedPlanLands(t *testing.T) {
+	type tc struct {
+		name  string
+		pick  RecoverPick
+		after int   // seconds after the cutoff the pilot drops
+		warps []int // flight-home warp indices
+	}
+	one, max := []int{0}, []int{len(WarpFactors) - 1} // one warp each, alternating: the failure was the same at both
+	ship := func(km float64) RecoverPick { return RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: km} }
+	cases := []tc{
+		{"ship150", ship(150), 0, one}, {"ship200", ship(200), 0, one}, {"ship250", ship(250), 0, max},
+		{"ship300", ship(300), 0, one}, {"ship350", ship(350), 0, max}, {"ship350+16s", ship(350), 16, one},
+		{"lz+30s", RecoverPick{Mode: spacecraft.RecoverLZ}, 30, max},
+	}
+	for _, k := range cases {
+		for _, warp := range k.warps {
+			w, c := padClimb(t, "Falcon-9-Dragon", []RecoverPick{k.pick}, 1)
+			for i := 0; i < 20*k.after; i++ {
+				w.Tick()
+			}
+			id := c.Stages[0].RecoverSiteID
+			n := len(w.Crafts)
+			if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+				t.Fatal(err)
+			}
+			if len(w.PendingRecoveryEvents) != 0 {
+				t.Errorf("%s: refused %v, want an accepted plan (every distance here closes)", k.name, w.PendingRecoveryEvents)
+				continue
+			}
+			b := w.Crafts[n]
+			w.Clock.WarpIdx = warp
+			flyDown(w, b)
+			if d := distToLZ(t, w, b, id, 1); !b.Landed || d > SiteLZRadiusM || b.ActiveStageFuel() <= 0 {
+				t.Errorf("%s warp %d: accepted, landed=%v crashed=%v %.1f m out with %.0f kg, want inside %v m with propellant", k.name, warp, b.Landed, b.Crashed, d, b.ActiveStageFuel(), SiteLZRadiusM)
+			}
+		}
+	}
+}
+
+// R2: a full LZ site is not an LZ choice. Two boosters already stand on LC-13: the
+// pad's LZ pick falls to none, the climb burns to dry (no cutoff held 50 t for a
+// drop that is then refused `no free LZ`), and a site that fills during the climb
+// stops the cutoff too. The equal case: one LZ free for a single stage is enough.
+func TestRecoveryFullLZSiteIsNotChosenAndNotReserved(t *testing.T) {
+	lz := []RecoverPick{{Mode: spacecraft.RecoverLZ}}
+	w := mustWorld(t)
+	w.Crafts, w.ActiveCraftIdx = nil, -1
+	standOnLZ(t, w, lc13ID(t), 1)
+	if _, ok := w.RecoveryLZNear("earth", DefaultLaunchpadLatitude, DefaultLaunchpadLongitudeEast, 1); !ok {
+		t.Error("LZ-2 is free: one half should still be offered")
+	}
+	if _, ok := w.RecoveryLZNear("earth", DefaultLaunchpadLatitude, DefaultLaunchpadLongitudeEast, 2); ok {
+		t.Error("one LZ free: a booster pair needs two")
+	}
+	standOnLZ(t, w, lc13ID(t), 2)
+	if _, ok := w.RecoveryLZNear("earth", DefaultLaunchpadLatitude, DefaultLaunchpadLongitudeEast, 1); ok {
+		t.Error("both LZs taken: the LZ is still offered")
+	}
+	c := padClimbIn(t, w, "Falcon-9-Dragon", lz, 1)
+	if st := c.Stages[0]; st.RecoverMode != spacecraft.RecoverNone || st.HeldKg != 0 || st.FuelMass != 0 {
+		t.Errorf("full site: mode %v held %.0f fuel %.0f, want none and burned to dry", st.RecoverMode, st.HeldKg, st.FuelMass)
+	}
+	// the site fills after the pad: the cutoff checks again
+	w2 := mustWorld(t)
+	w2.Crafts, w2.ActiveCraftIdx = nil, -1
+	c2 := padClimbIn(t, w2, "Falcon-9-Dragon", lz, 1, func(c *spacecraft.Spacecraft) {
+		if c.Stages[0].RecoverMode != spacecraft.RecoverLZ {
+			t.Fatalf("free site: mode %v, want LZ", c.Stages[0].RecoverMode)
+		}
+		standOnLZ(t, w2, lc13ID(t), 1)
+		standOnLZ(t, w2, lc13ID(t), 2)
+		w2.ActiveCraftIdx = len(w2.Crafts) - 3 // the climbing vessel stays the Active Vessel
+	})
+	if st := c2.Stages[0]; st.HeldKg != 0 || st.FuelMass != 0 {
+		t.Errorf("site filled on the climb: held %.0f fuel %.0f, want burned to dry with no reserve held", st.HeldKg, st.FuelMass)
+	}
+}
+
+// R1: Falcon Heavy's boosters to a drone ship: the ship stationed for a pair has
+// two LZs, so both halves are accepted and land inside their circles (one ship, one
+// LZ refused the second half `no free LZ`). A single stage's ship keeps one.
+func TestRecoveryFalconHeavyBoostersShareAShip(t *testing.T) {
+	w, c := padClimb(t, "Falcon-Heavy", []RecoverPick{{Mode: spacecraft.RecoverShip, ShipKm: 250}}, 0.5)
+	id := c.Stages[0].RecoverSiteID
+	if s, ok := w.siteByID(id); !ok || s.LZs() != 2 {
+		t.Fatalf("pair ship site = %+v (%v), want two LZs", s, ok)
+	}
+	if c.Stages[0].HeldKg <= 0 {
+		t.Fatal("no BECO")
+	}
+	n := len(w.Crafts)
+	if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+		t.Fatal(err)
+	}
+	bs := w.Crafts[n:]
+	if len(bs) != 2 || len(w.PendingRecoveryEvents) != 0 || bs[0].LZClaim.N == bs[1].LZClaim.N {
+		t.Fatalf("drop: %d vessels, events %v, want both boosters accepted on different LZs", len(bs), w.PendingRecoveryEvents)
+	}
+	lz := []int{bs[0].LZClaim.N, bs[1].LZClaim.N}
+	flyDown(w, bs...)
+	for i, b := range bs {
+		if d := distToLZ(t, w, b, id, lz[i]); !b.Landed || d > SiteLZRadiusM {
+			t.Errorf("%s landed=%v %.1f m from ship LZ-%d, want inside %v m", b.Name, b.Landed, d, lz[i], SiteLZRadiusM)
+		}
+	}
+}
+
+// climbStats is what a timed climb cost (R5): the worst tick and the total of
+// w.Tick(), the reserve solves and the aim flights they ran, the smallest gap
+// between two solves in real seconds (a tick is BaseStep of real time), and the
+// reserve held at the cutoff.
+type climbStats struct {
+	worst, total time.Duration
+	solves       int
+	evals        int
+	minGapRealS  float64
+	held         float64
+}
+
+// climbTimed flies padClimb's ascent at warp index warpIdx from 20 s up (a burn
+// clamps it to 10x) and times every w.Tick().
+func climbTimed(t testing.TB, loadout string, picks []RecoverPick, warpIdx int) (st climbStats, w *World, c *spacecraft.Spacecraft) {
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Crafts, w.ActiveCraftIdx = nil, -1
+	c, err = w.SpawnCraft(SpawnSpec{LoadoutID: loadout, ParentBodyID: "earth", Launchpad: true,
+		Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast, Recover: picks})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.RecomputeCommGraph()
+	c.Throttle, c.EngineMode, c.AttitudeMode = 1, spacecraft.EngineMain, spacecraft.BurnRadialOut
+	w.StartManualBurn()
+	t0 := w.Clock.SimTime
+	var lastSolve time.Time
+	st.minGapRealS = math.Inf(1)
+	for i := 0; i < 60000 && c.Stages[0].HeldKg == 0 && c.ManualBurn != nil; i++ {
+		switch el := w.Clock.SimTime.Sub(t0).Seconds(); {
+		case el > 8 && el < 14:
+			c.PitchTrim = 0.015
+		case el >= 14 && c.AttitudeMode == spacecraft.BurnRadialOut:
+			c.PitchTrim, c.AttitudeMode = 0, spacecraft.BurnSurfacePrograde
+		}
+		if w.Clock.SimTime.Sub(t0).Seconds() > 20 {
+			w.Clock.WarpIdx = warpIdx
+		}
+		n0 := w.recoverySolves
+		start := time.Now()
+		w.Tick()
+		d := time.Since(start)
+		st.total += d
+		st.worst = max(st.worst, d)
+		if w.recoverySolves > n0 {
+			if !lastSolve.IsZero() {
+				st.minGapRealS = math.Min(st.minGapRealS, w.Clock.SimTime.Sub(lastSolve).Seconds()/(float64(w.lastSimDelta)/float64(w.Clock.BaseStep)))
+			}
+			lastSolve = w.Clock.SimTime
+		}
+	}
+	st.solves, st.evals, st.held = w.recoverySolves, w.aimEvals, c.Stages[0].HeldKg
+	return st, w, c
+}
+
+// BenchmarkRecoveryClimb: per-tick worst case and total of a recovered climb, LZ
+// and ship, at 1x and 10x (R5). Run with -benchtime=1x.
+func BenchmarkRecoveryClimb(b *testing.B) {
+	for _, tc := range []struct {
+		name string
+		pick RecoverPick
+		warp int
+	}{
+		{"lz_1x", RecoverPick{Mode: spacecraft.RecoverLZ}, 0}, {"lz_10x", RecoverPick{Mode: spacecraft.RecoverLZ}, 1},
+		{"ship250_1x", RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: 250}, 0}, {"ship250_10x", RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: 250}, 1},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				st, _, _ := climbTimed(b, "Falcon-9-Dragon", []RecoverPick{tc.pick}, tc.warp)
+				b.ReportMetric(float64(st.worst.Milliseconds()), "worst_tick_ms")
+				b.ReportMetric(float64(st.total.Milliseconds()), "total_ms")
+				b.ReportMetric(float64(st.solves), "solves")
+				b.ReportMetric(st.held, "held_kg")
+				b.ReportMetric(float64(st.evals), "evals")
+			}
+		})
+	}
+}
+
+// shortDrop flies a Falcon 9 + Dragon LZ climb, keeps only keep of the tank's
+// capacity as the held reserve and drops it: the stage is a refused booster.
+func shortDrop(t *testing.T, keep float64) (*World, *spacecraft.Spacecraft, int, time.Duration) {
+	t.Helper()
+	w, c := padClimb(t, "Falcon-9-Dragon", []RecoverPick{{Mode: spacecraft.RecoverLZ}}, 1)
+	c.Stages[0].HeldKg = keep * c.Stages[0].FuelCapacity
+	n, e0 := len(w.Crafts), w.aimEvals
+	start := time.Now()
+	if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+		t.Fatal(err)
+	}
+	return w, w.Crafts[n], w.aimEvals - e0, time.Since(start)
+}
+
+// R6: a refused N on a booster is cheap. The shortfall search ("needs 3452 m/s,
+// stage has 1712 m/s") re-solved the plan a dozen times with a cold start each (0.6 s,
+// 3,500 flights); the drop no longer runs it at all (the flash is the plain refusal)
+// and a repeated N press on the same stage in the same second is answered from the
+// cache. Pin: the drop under 200 flights, the first N press under 1,500 (measured
+// 2,400 before), the second press zero, and the figure unchanged within 1 %.
+func TestRecoveryRefusedNIsCheap(t *testing.T) {
+	w, b, dropEvals, dropWall := shortDrop(t, 0.10)
+	if len(w.PendingRecoveryEvents) != 1 {
+		t.Fatalf("events %v, want the one refusal", w.PendingRecoveryEvents)
+	}
+	press := func() (string, int, time.Duration) {
+		e0, start := w.aimEvals, time.Now()
+		var msg string
+		w.asVessel(b, func() {
+			if _, err := w.PlanDeorbitAndEngage(); err != nil {
+				msg = err.Error()
+			}
+		})
+		return msg, w.aimEvals - e0, time.Since(start)
+	}
+	msg1, e1, d1 := press()
+	msg2, e2, d2 := press()
+	t.Logf("drop %d flights %v, press 1 %d flights %v, press 2 %d flights %v: %s", dropEvals, dropWall, e1, d1, e2, d2, msg1)
+	if msg1 == "" || msg1 != msg2 {
+		t.Fatalf("N said %q then %q, want the same refusal twice", msg1, msg2)
+	}
+	if dropEvals > 200 || e1 > 1500 || e2 != 0 {
+		t.Errorf("drop %d, first press %d, second press %d flights, want under 200, under 1,500 and 0", dropEvals, e1, e2)
+	}
+}
+
+// R5: the cutoff's reserve solves are cheap and spaced in real time. A ship climb
+// ran 6,100 aim flights over 7 solves (0.4 s a tick, four ticks before MECO) and at
+// 10x the same sim-time schedule solved ten times as often in real time (a solve
+// every 0.1 to 0.3 real seconds). Pins, per config: flights under 2,000 at 10x and
+// 3,400 for a ship at 1x (the LZ is unchanged at about 1,050), and at least one real
+// second between solves. The cutoff must not move: 1x holds exactly the old reserve
+// (50,658 and 43,369 kg) and 10x within 5 t (1.2 % of the 411 t tank) either way,
+// and the stage dropped there still lands inside the circle with propellant.
+func TestRecoveryReserveSolvesAreCheapAndSpaced(t *testing.T) {
+	lz, ship := RecoverPick{Mode: spacecraft.RecoverLZ}, RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: 250}
+	one := map[string]float64{}
+	for _, tc := range []struct {
+		name      string
+		pick      RecoverPick
+		warp      int
+		maxEvals  int
+		held1x    float64 // the reserve before this change, kg
+		fixedHeld bool
+	}{
+		{"lz 1x", lz, 0, 1300, 50658, true}, {"ship 1x", ship, 0, 3400, 43369, true},
+		{"lz 10x", lz, 1, 700, 50658, false}, {"ship 10x", ship, 1, 2000, 43369, false},
+	} {
+		st, w, c := climbTimed(t, "Falcon-9-Dragon", []RecoverPick{tc.pick}, tc.warp)
+		one[tc.name] = st.held
+		t.Logf("%s: %d solves, %d flights, held %.0f kg, worst tick %v, min gap %.2f real s", tc.name, st.solves, st.evals, st.held, st.worst, st.minGapRealS)
+		if st.evals > tc.maxEvals {
+			t.Errorf("%s: %d aim flights, want at most %d", tc.name, st.evals, tc.maxEvals)
+		}
+		if st.minGapRealS < 1-1e-6 {
+			t.Errorf("%s: two solves %.2f real s apart, want at least 1", tc.name, st.minGapRealS)
+		}
+		if tol := 5000.0; math.Abs(st.held-tc.held1x) > tol {
+			t.Errorf("%s: held %.0f kg, was %.0f: the cutoff moved by more than %.0f", tc.name, st.held, tc.held1x, tol)
+		}
+		if tc.fixedHeld && math.Abs(st.held-tc.held1x) > 1 {
+			t.Errorf("%s: held %.0f kg, want exactly the old %.0f (1x is unchanged)", tc.name, st.held, tc.held1x)
+		}
+		if tc.warp == 0 {
+			continue
+		}
+		id := c.Stages[0].RecoverSiteID
+		n := len(w.Crafts)
+		if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+			t.Fatal(err)
+		}
+		if len(w.PendingRecoveryEvents) != 0 {
+			t.Errorf("%s: the drop was refused: %v", tc.name, w.PendingRecoveryEvents)
+			continue
+		}
+		b := w.Crafts[n]
+		w.Clock.WarpIdx = 0
+		flyDown(w, b)
+		if d := distToLZ(t, w, b, id, 1); !b.Landed || d > SiteLZRadiusM || b.ActiveStageFuel() <= 0 {
+			t.Errorf("%s: landed=%v %.1f m out with %.0f kg, want inside %v m with propellant", tc.name, b.Landed, d, b.ActiveStageFuel(), SiteLZRadiusM)
+		}
+	}
 }
