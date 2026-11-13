@@ -133,6 +133,17 @@ type SpawnCraft struct {
 	// render frame.
 	bandCoverage func(bodyID string, altM, antennaRangeM float64) (float64, bool)
 	bandCache    map[bandCacheKey]float64
+
+	// The `recover:` row (ADR 0069 decision 12, spawn_recover.go). recoverSet holds
+	// the player's choices by stage index (absent = the default); recCur is the
+	// focused stage group; recEditing / recInput / recLeftBox are the ship-distance
+	// box, as ALTITUDE's.
+	recoverLZ  func(parentID string, latDeg, lonDeg float64) (string, bool)
+	recoverSet map[int]spacecraft.RecoverPick
+	recCur     int
+	recEditing bool
+	recInput   string
+	recLeftBox bool
 }
 
 type bandCacheKey struct {
@@ -198,6 +209,7 @@ func (s *SpawnCraft) Reset(systemBodies []bodies.CelestialBody, defaultParentID 
 		s.designStages[i] = l.Stages
 	}
 	s.groupsValid = false // invalidate the grouping memo for the new system/scale
+	s.recoverSet, s.recCur, s.recEditing, s.recInput, s.recLeftBox = nil, 0, false, "", false
 	s.systemScale = systemScale
 	s.showAll = false
 	s.posMode = posOrbit
@@ -527,7 +539,11 @@ func (s *SpawnCraft) fieldOrder() []int {
 	if s.posMode == posOrbit {
 		order = append(order, inclFieldIdx) // #566: the row under POSITION
 	}
-	return append(order, 2, 3, 4)
+	order = append(order, 2, 3, 4)
+	if s.recoverOffered() {
+		order = append(order, recoverFieldIdx) // ADR 0069: the row under DIRECTION on the pad
+	}
+	return order
 }
 
 // SelectedInclinationDeg is the typed orbit inclination (degrees, parent
@@ -541,7 +557,7 @@ func (s *SpawnCraft) SelectedInclinationDeg() float64 { return s.inclDeg }
 // way they already are for the boss shell and the Saves browser's
 // name-entry field. Named/shaped to match SavesScreen.CapturingText and
 // SessionScreen.CapturingText.
-func (s *SpawnCraft) CapturingText() bool { return s.altEditing || s.inclEditing }
+func (s *SpawnCraft) CapturingText() bool { return s.altEditing || s.inclEditing || s.recEditing }
 
 // HandleKey maps a raw key string to a SpawnAction. Tab cycles
 // fields; ←/→ edit the focused field; Enter commits; Esc cancels.
@@ -557,6 +573,9 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 	}
 	if s.inclEditing {
 		return s.handleInclInputKey(key)
+	}
+	if s.recEditing {
+		return s.handleRecoverInputKey(key)
 	}
 	// Navigation follows fieldOrder (visual order). Locate the current
 	// field in it; if the focus is no longer reachable — e.g. the player
@@ -581,6 +600,7 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 	if key != "enter" {
 		s.altLeftBox = false
 		s.inclLeftBox = false
+		s.recLeftBox = false
 	}
 	switch key {
 	case "esc":
@@ -612,7 +632,17 @@ func (s *SpawnCraft) HandleKey(key string) SpawnAction {
 			s.inclInput = ""
 			return SpawnActionNone
 		}
+		// ADR 0069 decision 13: on a `ship` choice Enter opens the distance box,
+		// as ALTITUDE's; stepped back out, the next Enter launches.
+		if s.fieldIdx == recoverFieldIdx && s.recoverOffered() && !s.recLeftBox && s.recoverPick(min(s.recCur, len(s.recoverGroups())-1)).Mode == spacecraft.RecoverShip {
+			s.recEditing, s.recInput = true, ""
+			return SpawnActionNone
+		}
 		return SpawnActionConfirm
+	case " ", "space":
+		if s.fieldIdx == recoverFieldIdx && s.recoverOffered() {
+			s.recCur = (s.recCur + 1) % len(s.recoverGroups())
+		}
 	case "tab", "down":
 		s.fieldIdx = order[(cur+1)%len(order)]
 	case "shift+tab", "up":
@@ -722,6 +752,7 @@ func (s *SpawnCraft) cycleField(step int) {
 	case 0:
 		// +1 row for "Custom…", + the saved designs (v0.24). v0.10.1+.
 		s.loadoutIdx = wrapIdx(s.loadoutIdx+step, s.loadoutChoiceCount())
+		s.recoverSet, s.recCur = nil, 0 // the stages changed: the choices go with them
 	case stackFieldIdx:
 		// STACK field: ←/→ moves the catalog part-picker cursor.
 		s.partIdx = wrapIdx(s.partIdx+step, len(spacecraft.StageCatalogOrder))
@@ -758,6 +789,8 @@ func (s *SpawnCraft) cycleField(step int) {
 		if s.preset == nil {
 			s.setInclination(s.inclDeg + float64(step)*inclStepDeg)
 		}
+	case recoverFieldIdx:
+		s.stepRecover(step)
 	}
 	// ADR 0031 / S9: a launchpad selection the new craft/parent can't support
 	// (after cycling CRAFT TYPE or PARENT) snaps back to orbit, so the form
@@ -1292,6 +1325,8 @@ const spawnLegend = "[tab] field · [←/→] cycle · [f] system filter · [ent
 // follows what Enter and Esc do right now.
 const (
 	spawnLegendNumberField = "[tab] field · [←/→] step · [enter] type a number · [f] system filter · [esc] cancel"
+	spawnLegendRecover     = "[tab] field · [←/→] LZ · ship · none · [space] next stage · [f] system filter · [enter] spawn · [esc] cancel"
+	spawnLegendRecoverShip = "[tab] field · [←/→] LZ · ship · none · [space] next stage · [enter] type km · [esc] cancel"
 	spawnLegendNumberBox   = "[0-9] type · [backspace] erase · [enter] keep this number · [esc] put the old one back"
 )
 
@@ -1300,8 +1335,12 @@ const (
 // INCLINATION with Enter about to open a box; otherwise Enter spawns.
 func (s *SpawnCraft) legend() string {
 	switch {
-	case s.altEditing || s.inclEditing:
+	case s.altEditing || s.inclEditing || s.recEditing:
 		return spawnLegendNumberBox
+	case s.fieldIdx == recoverFieldIdx && s.recoverOffered() && !s.recLeftBox && s.recoverPick(min(s.recCur, len(s.recoverGroups())-1)).Mode == spacecraft.RecoverShip:
+		return spawnLegendRecoverShip
+	case s.fieldIdx == recoverFieldIdx:
+		return spawnLegendRecover
 	case s.posMode == posOrbit && !s.altBandEmpty &&
 		((s.fieldIdx == 3 && !s.altLeftBox) || (s.fieldIdx == inclFieldIdx && !s.inclLeftBox)):
 		return spawnLegendNumberField
@@ -1579,6 +1618,9 @@ func (s *SpawnCraft) positionBoxes(rw int) []string {
 		dirLine = s.theme.Dim.Render("prograde  set by the " + s.preset.Label)
 	}
 	box(4, "DIRECTION", []string{"  " + dirLine})
+	if s.recoverOffered() {
+		box(recoverFieldIdx, "RECOVER", s.recoverLines())
+	}
 	return out
 }
 

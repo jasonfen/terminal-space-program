@@ -895,6 +895,23 @@ standing in the circle, or holding a claim, takes it. On screen the name is the
 site's, a space, the LZ's (`Flag-1 LZ-2`).
 _Avoid_: Pad (the launch pad only), Landing site.
 
+**Recovery place / `recover:`** (ADR 0069 decisions 12, 13):
+The pad card's choice per droppable stage (one that can land: legs, a command
+source and an engine): an **LZ** at a site near the pad, a **drone ship**, or
+none. Saved on the stage. At the drop the stage takes the place as its own
+target and `N` is pressed on it, the pilot's `t` target untouched. A drone ship
+is a site with one LZ stationed a typed distance downrange of the pad (due east),
+named `Drone Ship`; it does not move.
+_Avoid_: Booster target, Return site.
+
+**Landing reserve / MECO / BECO** (ADR 0069 decision 15):
+With a recovery place set, the bottom stage's engines cut off by themselves when it
+has just enough propellant left for the way home (boostback, entry burn, landing
+burn, the landing margin and `RecoveryPadKg`). The reserve is held in the stage's
+dry mass until the drop. The ENGINE badge counts `T-` to the cutoff and reads
+`MECO` for the core, `BECO` for side boosters, where it reads `DRY` otherwise.
+Recovery none burns to dry.
+
 **Landing Autopilot** (ADR 0067; `Site+`):
 The vessel flies its own landing on the targeted **Site**: `N` plants the
 deorbit burn, puts the navball on `[SITE]` and engages it; it coasts to the

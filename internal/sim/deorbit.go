@@ -517,7 +517,7 @@ func (w *World) solveRetro(c *spacecraft.Spacecraft, st0 physics.StateVector, tS
 		// small and the fall arrives too fast to land, too big and the tank is
 		// gone), which the one-sided bracket reads as "too steep" and backs away
 		// from: scan the whole range for the sign change instead.
-		return scanRoot(f, 0.2*hint, math.Min(3*hint, maxDV), 60, deorbitLongTolM)
+		return scanRoot(f, 0.01*hint, math.Min(3*hint, maxDV), 60, deorbitLongTolM)
 	}
 	if dv, ok = solveDv(0, hint); !ok {
 		return
@@ -778,16 +778,19 @@ func bracketRoot(f func(float64) float64, hint, tol float64) (float64, bool) {
 	return 0, false
 }
 
-// scanRoot finds dv in [lo, hi] where f (decreasing; +Inf and -Inf mark burns
+// scanRoot finds dv in [lo, hi] where f (monotone; +Inf and -Inf mark burns
 // that cannot be judged) is within tol of zero: sample n+1 points and bisect
-// the first neighbouring pair that straddles zero. Where a judged point meets
-// an unjudged one the edge of the judged range is found first (the root can
-// sit in a sliver of it narrower than the sample step).
+// the first neighbouring pair that straddles zero, falling or rising (a site
+// ahead of the stage on its track, a drone ship, is a rising f: more burn
+// brings the aim in from beyond it; a site behind it, a falling one). Where a
+// judged point meets an unjudged one the edge of the judged range is found first
+// (the root can sit in a sliver of it narrower than the sample step).
 func scanRoot(f func(float64) float64, lo, hi float64, n int, tol float64) (float64, bool) {
 	if hi <= lo {
 		return 0, false
 	}
-	bisect := func(a, fa, b, fb float64) (float64, bool) { // fa > 0 > fb, both judged
+	straddle := func(fa, fb float64) bool { return (fa > 0 && fb < 0) || (fa < 0 && fb > 0) }
+	bisect := func(a, fa, b, fb float64) (float64, bool) { // fa and fb opposite signs, both judged
 		for k := 0; k < 40; k++ {
 			m := (a + b) / 2
 			fm := f(m)
@@ -797,8 +800,8 @@ func scanRoot(f func(float64) float64, lo, hi float64, n int, tol float64) (floa
 			switch {
 			case math.IsInf(fm, 0):
 				return 0, false
-			case fm > 0:
-				a = m
+			case (fm > 0) == (fa > 0):
+				a, fa = m, fm
 			default:
 				b = m
 			}
@@ -818,6 +821,9 @@ func scanRoot(f func(float64) float64, lo, hi float64, n int, tol float64) (floa
 		return good, f(good)
 	}
 	pa, fa := lo, f(lo)
+	if math.Abs(fa) <= tol {
+		return lo, true // a root at the low edge is a root (the equal case)
+	}
 	for i := 1; i <= n; i++ {
 		pb := lo + (hi-lo)*float64(i)/float64(n)
 		fb := f(pb)
@@ -826,7 +832,7 @@ func scanRoot(f func(float64) float64, lo, hi float64, n int, tol float64) (floa
 		case math.IsInf(fa, 0): // judged range starts between pa and pb
 			if q, fq := edge(pb, pa); math.Abs(fq) <= tol {
 				return q, true
-			} else if fq > 0 && fb < 0 {
+			} else if straddle(fq, fb) {
 				if x, ok := bisect(q, fq, pb, fb); ok {
 					return x, true
 				}
@@ -834,14 +840,14 @@ func scanRoot(f func(float64) float64, lo, hi float64, n int, tol float64) (floa
 		case math.IsInf(fb, 0): // and ends between them
 			if q, fq := edge(pa, pb); math.Abs(fq) <= tol {
 				return q, true
-			} else if fa > 0 && fq < 0 {
+			} else if straddle(fa, fq) {
 				if x, ok := bisect(pa, fa, q, fq); ok {
 					return x, true
 				}
 			}
 		case math.Abs(fb) <= tol:
 			return pb, true
-		case fa > 0 && fb < 0:
+		case straddle(fa, fb):
 			if x, ok := bisect(pa, fa, pb, fb); ok {
 				return x, true
 			}

@@ -114,6 +114,9 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 	// resharing c.Stages so the jettisoned craft and the active craft
 	// don't alias the same underlying array.
 	dropped := append([]spacecraft.Stage(nil), c.Stages[:groupSize]...)
+	for i := range dropped {
+		dropped[i].ReleaseReserve() // decision 15: the reserve held at cutoff goes back in the tank
+	}
 	c.Stages = c.Stages[groupSize:]
 	// Advance the plan positionally — this press consumed its head
 	// entry. A released multi-stage craft inherits no plan (set in
@@ -161,6 +164,7 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 			w.stampCraftID(b)
 			w.Crafts = append(w.Crafts, b)
 			jettisonedIdx = len(w.Crafts) - 1
+			w.flyHome(b) // ADR 0069 decision 12: a stage with a recovery place goes there by itself
 		}
 	} else {
 		jettisoned := buildJettisonedCraft(dropped, c)
@@ -169,6 +173,9 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 		w.stampCraftID(jettisoned) // the jettisoned stage is a new vessel (ADR 0012)
 		w.Crafts = append(w.Crafts, jettisoned)
 		jettisonedIdx = len(w.Crafts) - 1
+		if groupSize == 1 {
+			w.flyHome(jettisoned)
+		}
 	}
 
 	// Active craft stays in place (the player keeps flying the
@@ -443,6 +450,7 @@ func splitBoosterStage(s spacecraft.Stage) [2]spacecraft.Stage {
 	s.HoldKg /= 2
 	s.LaunchSpriteWidthPx = max(1, s.LaunchSpriteWidthPx/2) // one side column of the pair (decision 10)
 	s.LitWithAbove = false
+	s.BoosterHalf = true // the mark a save keeps (schema 25)
 	if !(s.CanSoftLand && s.Thrust > 0 && spacecraft.IsCommandSource(s.CommandSource)) {
 		s.CommandSource = spacecraft.CommandNone
 	}

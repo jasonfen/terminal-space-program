@@ -44,6 +44,9 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 	w.NextSiteID = 3
 	w.Sites[0].LZCount, w.Sites[0].LZNames = 3, []string{"", "", "Alpha"}              // v24: a site's LZs
 	c.Target.LZ, c.LZClaim = 2, spacecraft.LZClaim{Owner: "SHA256:x", SiteID: 3, N: 2} // v24: the card's LZ and the held claim
+	st := &c.Stages[0]                                                                 // v25: recovery, the held reserve, the half mark and a stage's own engine curve
+	st.RecoverMode, st.RecoverSiteID, st.HeldKg, st.BoosterHalf = spacecraft.RecoverShip, 3, 1250, true
+	st.ThrustVac, st.IspSL, st.IspVac = st.Thrust*1.1, st.Isp*0.9, st.Isp*1.1
 
 	path := filepath.Join(t.TempDir(), "save.json")
 	if err := Save(w, path); err != nil {
@@ -54,7 +57,8 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 		want.Payload.Crafts[0].RendezvousPlan == nil || want.Payload.Crafts[0].BoosterThrottle == nil ||
 		want.Payload.Crafts[0].HeadingTrim == 0 || want.Payload.Crafts[0].Target == nil ||
 		want.Payload.Crafts[0].DockedComponents[1].AttitudeMode == nil || want.Payload.Crafts[0].NewestSeam == 0 || len(want.Payload.Sites) != 1 ||
-		want.Payload.Sites[0].LZCount != 3 || want.Payload.Crafts[0].Target.LZ != 2 || want.Payload.Crafts[0].LZClaim == nil {
+		want.Payload.Sites[0].LZCount != 3 || want.Payload.Crafts[0].Target.LZ != 2 || want.Payload.Crafts[0].LZClaim == nil ||
+		want.Payload.Crafts[0].Stages[0].RecoverMode == 0 || want.Payload.Crafts[0].Stages[0].HeldKg == 0 || want.Payload.Crafts[0].Stages[0].IspVac == 0 || !want.Payload.Crafts[0].Stages[0].BoosterHalf {
 		t.Fatalf("setup: a bump's key is missing: batch=%v counters=%v plan=%v booster=%v trim=%v target=%v", want.Payload.Crafts[0].BatchID, want.Payload.NameCounters, want.Payload.Crafts[0].RendezvousPlan, want.Payload.Crafts[0].BoosterThrottle, want.Payload.Crafts[0].HeadingTrim, want.Payload.Crafts[0].Target)
 	}
 
@@ -72,8 +76,15 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 		24: func(p *Payload) {
 			p.Sites[0].LZCount, p.Sites[0].LZNames, p.Crafts[0].Target.LZ, p.Crafts[0].LZClaim = 0, nil, 0, nil
 		},
+		25: func(p *Payload) {
+			s := &p.Crafts[0].Stages[0]
+			// the engine figures are not stripped: a catalog stage gets them back from
+			// the catalog on load, so their absence is not an identity (the VAB-built case
+			// is TestStageEngineSurvivesTheWire)
+			s.RecoverMode, s.RecoverSiteID, s.HeldKg, s.BoosterHalf = 0, 0, 0, false
+		},
 	}
-	for _, bump := range []int{10, 11, 14, 16, 17, 18, 19, 20, 21, 24} {
+	for _, bump := range []int{10, 11, 14, 16, 17, 18, 19, 20, 21, 24, 25} {
 		roundTrip(t, want, bump, "keys present")
 		absent := want
 		absent.Payload = Payload{}
@@ -230,5 +241,59 @@ func TestSitesAndSiteTargetRoundTrip(t *testing.T) {
 	}
 	if len(loaded.Sites) != 0 || loaded.Target.Kind != sim.TargetNone {
 		t.Errorf("v20 save loaded with sites %+v target %+v, want none", loaded.Sites, loaded.Target)
+	}
+}
+
+// ADR 0069 S11 (schema 25): a Falcon 9 cut off at its landing reserve and saved before
+// the drop reloads with the reserve still held and its recovery place, and the drop
+// after the load flies it home (the held kg go back in the tank, the LZ is resolved).
+func TestCutOffStageSurvivesASaveAndFliesHomeAfterTheLoad(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Crafts, w.ActiveCraftIdx = nil, -1
+	c, err := w.SpawnCraft(sim.SpawnSpec{LoadoutID: "Falcon-9-Dragon", ParentBodyID: "earth", Launchpad: true,
+		Latitude: sim.DefaultLaunchpadLatitude, LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
+		Recover: []sim.RecoverPick{{Mode: spacecraft.RecoverLZ}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.RecomputeCommGraph()
+	c.Throttle, c.EngineMode, c.AttitudeMode = 1, spacecraft.EngineMain, spacecraft.BurnRadialOut
+	w.StartManualBurn()
+	t0 := w.Clock.SimTime
+	for i := 0; i < 60000 && c.Stages[0].HeldKg == 0; i++ {
+		switch el := w.Clock.SimTime.Sub(t0).Seconds(); {
+		case el > 8 && el < 14:
+			c.PitchTrim = 0.015
+		case el >= 14 && c.AttitudeMode == spacecraft.BurnRadialOut:
+			c.PitchTrim, c.AttitudeMode = 0, spacecraft.BurnSurfacePrograde
+		}
+		w.Tick()
+	}
+	held, site := c.Stages[0].HeldKg, c.Stages[0].RecoverSiteID
+	if held <= 0 || site == 0 {
+		t.Fatalf("setup: held %v site %v, want a cut stage with a recovery place", held, site)
+	}
+	path := filepath.Join(t.TempDir(), "save.json")
+	if err := Save(w, path); err != nil {
+		t.Fatal(err)
+	}
+	back, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bc := back.ActiveCraft()
+	if st := bc.Stages[0]; st.HeldKg != held || st.RecoverMode != spacecraft.RecoverLZ || st.RecoverSiteID != site || st.FuelMass != 0 {
+		t.Fatalf("reloaded stage: held %v mode %v site %v fuel %v, want %v / LZ / %v / 0", st.HeldKg, st.RecoverMode, st.RecoverSiteID, st.FuelMass, held, site)
+	}
+	n := len(back.Crafts)
+	if _, _, err := back.StageActive(back.ActiveCraftIdx); err != nil {
+		t.Fatal(err)
+	}
+	b := back.Crafts[n]
+	if len(back.PendingRecoveryEvents) != 0 || len(b.Nodes) != 2 || !b.Landing.Owns() || b.Stages[0].FuelMass != held {
+		t.Errorf("after the load the drop: events %v nodes %d owns %v tank %v (want %v), want a boostback and entry burn planted", back.PendingRecoveryEvents, len(b.Nodes), b.Landing.Owns(), b.Stages[0].FuelMass, held)
 	}
 }

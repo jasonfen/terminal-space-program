@@ -73,3 +73,27 @@ func TestSpaceRefusedFlashWhileSolidsBurn(t *testing.T) {
 		t.Errorf("stages %d -> %d: the refused press dropped something", n, len(sls.Stages))
 	}
 }
+
+// ADR 0069 decision 12: a stage the drop could not send home flashes what N said,
+// once; a booster cut at its landing reserve (decision 15, held kg) is BECO on the
+// badge, not "burned out" on the flash.
+func TestRecoveryRefusalFlashesOnceAndBECOIsNotBurnout(t *testing.T) {
+	a, sls := burningSLSApp(t)
+	a.world.PendingRecoveryEvents = []sim.RecoveryEvent{{CraftName: "F9-S1-1", Refusal: "needs 2733 m/s, stage has 2701 m/s"}}
+	a.Update(sim.TickMsg(time.Now()))
+	if want := "F9-S1-1: needs 2733 m/s, stage has 2701 m/s"; a.statusMsg != want || len(a.world.PendingRecoveryEvents) != 0 {
+		t.Fatalf("statusMsg = %q (events left %d), want %q and the queue drained", a.statusMsg, len(a.world.PendingRecoveryEvents), want)
+	}
+	a.statusMsg = ""
+	a.Update(sim.TickMsg(time.Now()))
+	if a.statusMsg != "" {
+		t.Errorf("flashed again: %q", a.statusMsg)
+	}
+	sls.Stages[0].HeldKg, sls.Stages[0].FuelMass = 5000, 18000 // a reserve held aside, the rest burning out
+	for i := 0; i < 40 && sls.Stages[0].FuelMass > 0; i++ {
+		a.Update(sim.TickMsg(time.Now()))
+	}
+	if sls.Stages[0].FuelMass > 0 || strings.Contains(a.statusMsg, "burned out") {
+		t.Errorf("fuel %v, flash %q: a held reserve means BECO on the badge, no burnout line", sls.Stages[0].FuelMass, a.statusMsg)
+	}
+}

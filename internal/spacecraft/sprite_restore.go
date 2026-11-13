@@ -102,7 +102,7 @@ func (s *Stage) RestoreSprite() {
 		s.LaunchSpriteRowsPx, s.LaunchSpriteWidthPx, s.LaunchSpriteColor = d.rows, d.width, d.color
 		// A booster half (ADR 0058) carries half the pair's thrust and one side
 		// column of its width; the save keeps neither mark, so the thrust says which.
-		if d.thrust > 0 && math.Abs(2*s.Thrust-d.thrust) <= 0.01*d.thrust {
+		if s.BoosterHalf || (d.thrust > 0 && math.Abs(2*s.Thrust-d.thrust) <= 0.01*d.thrust) { // the mark; the thrust says which for a save from before schema 25
 			s.LaunchSpriteWidthPx = max(1, d.width/2)
 		}
 		s.LaunchSpriteHasLegs, s.LaunchSpriteDerived = d.legs, d.derived

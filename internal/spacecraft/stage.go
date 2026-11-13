@@ -309,6 +309,66 @@ type Stage struct {
 	// edited stack has no catalog run to re-derive it from. A save that stored
 	// zero (older) falls back to the catalog run: see Spacecraft.NavSigma.
 	NavSigmaAlongM, NavSigmaAcrossM float64
+
+	// RecoverMode / RecoverSiteID (ADR 0069 decision 12) are the pad's `recover:`
+	// choice for this stage: where it flies home from the drop. The site is the
+	// LZ site (or the drone ship's) the choice resolved to at launch. Saved
+	// (schema 25); absent = RecoverNone.
+	RecoverMode   RecoverMode `json:",omitempty"`
+	RecoverSiteID uint64      `json:",omitempty"`
+
+	// HeldKg (ADR 0069 decision 15) is the landing reserve held back at
+	// cutoff: moved out of FuelMass into DryMass, so the engine reads dry
+	// and the mass stays whole. The drop moves it back. Saved (schema 25).
+	HeldKg float64 `json:",omitempty"`
+
+	// BoosterHalf (ADR 0069 decision 11) marks one half of a split booster
+	// pair, so a reload draws it one column wide without inferring it from
+	// the thrust. Saved (schema 25).
+	BoosterHalf bool `json:",omitempty"`
+}
+
+// RecoverMode is where a stage flies home to (ADR 0069 decision 12).
+type RecoverMode int
+
+const (
+	RecoverNone RecoverMode = iota // burns to dry, falls as debris or by hand
+	RecoverLZ                      // an LZ at a site
+	RecoverShip                    // a drone ship stationed downrange
+)
+
+// RecoverPick is the pad's `recover:` choice for one stage before launch: the
+// mode and, for a ship, how far downrange it is stationed.
+type RecoverPick struct {
+	Mode   RecoverMode
+	ShipKm float64
+}
+
+// CanRecover is ADR 0069 decision 11's rule read for the pad: the stage has
+// legs, a command source and an engine, so it can land under its own power.
+func (s Stage) CanRecover() bool {
+	return s.CanSoftLand && s.Thrust > 0 && IsCommandSource(s.CommandSource)
+}
+
+// HoldReserve moves the stage's remaining propellant out of the tank and into
+// its dry mass (decision 15: the cutoff). The total is unchanged.
+func (s *Stage) HoldReserve() {
+	if s.FuelMass <= 0 {
+		return
+	}
+	s.HeldKg += s.FuelMass
+	s.DryMass += s.FuelMass
+	s.FuelMass = 0
+}
+
+// ReleaseReserve puts the held propellant back in the tank (the drop).
+func (s *Stage) ReleaseReserve() {
+	if s.HeldKg <= 0 {
+		return
+	}
+	s.DryMass -= s.HeldKg
+	s.FuelMass += s.HeldKg
+	s.HeldKg = 0
 }
 
 // SumDryMass returns the total dry mass across every stage in kg.

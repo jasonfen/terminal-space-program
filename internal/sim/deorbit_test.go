@@ -961,3 +961,40 @@ func TestEveryAcceptedFalcon9DropLandsWithPropellant(t *testing.T) {
 		}
 	}
 }
+
+// scanRoot finds a root whether f falls or rises with dv: a drone ship ahead of the
+// stage on its track is a rising f (more retro brings the aim in from beyond it),
+// a site behind it a falling one. Unjudged (infinite) samples are walked over, and
+// an f that only touches zero at the edge of the judged range is found there.
+func TestScanRootFindsRisingAndFallingRoots(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		f    func(float64) float64
+	}{
+		{"falling", func(x float64) float64 { return 300 - x }},
+		{"rising", func(x float64) float64 { return x - 300 }},
+		{"rising, unjudged below 100", func(x float64) float64 {
+			if x < 100 {
+				return math.Inf(-1)
+			}
+			return x - 300
+		}},
+		{"falling, unjudged above 500", func(x float64) float64 {
+			if x > 500 {
+				return math.Inf(-1)
+			}
+			return 300 - x
+		}},
+	} {
+		x, ok := scanRoot(tc.f, 10, 900, 60, 1)
+		if !ok || math.Abs(tc.f(x)) > 1 {
+			t.Errorf("%s: root %v ok %v, want 300", tc.name, x, ok)
+		}
+	}
+	if _, ok := scanRoot(func(x float64) float64 { return x + 5 }, 10, 900, 60, 1); ok {
+		t.Error("a function with no root in range returned one")
+	}
+	if x, ok := scanRoot(func(x float64) float64 { return x - 10 }, 10, 900, 60, 1); !ok || x != 10 {
+		t.Errorf("a root exactly on the low edge: %v %v, want 10 (the equal case)", x, ok)
+	}
+}

@@ -601,8 +601,13 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			burnMsgs = append(burnMsgs, landingFlash(e))
 		}
 		a.world.PendingLandingEvents = nil
+		// ADR 0069 decision 12: a dropped stage N could not send home says why.
+		for _, e := range a.world.PendingRecoveryEvents {
+			burnMsgs = append(burnMsgs, e.CraftName+": "+e.Refusal)
+		}
+		a.world.PendingRecoveryEvents = nil
 		for c := range boostersLit {
-			if !sim.BoosterSolidsLit(c) && len(c.Stages) > 0 && c.Stages[0].LitWithAbove && c.Stages[0].FuelMass <= 0 {
+			if !sim.BoosterSolidsLit(c) && len(c.Stages) > 0 && c.Stages[0].LitWithAbove && c.Stages[0].FuelMass <= 0 && c.Stages[0].HeldKg <= 0 {
 				burnMsgs = append(burnMsgs, "boosters burned out")
 				break
 			}
@@ -1201,6 +1206,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					Launchpad:       a.spawn.SelectedLaunchpad(),
 					Latitude:        a.spawn.SelectedLatitudeDeg(),
 					LongitudeOffset: a.spawn.SelectedLongitudeEastDeg(),
+					Recover:         a.spawn.SelectedRecover(),
 				}
 				if c, err := a.world.SpawnCraft(spec); err == nil {
 					a.flash(fmt.Sprintf("spawned vessel %d (%s)", a.world.ActiveCraftIdx+1, c.Name))
@@ -1694,6 +1700,10 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// the pointer-receiver Scale() is callable).
 			sys := a.world.System()
 			a.spawn.Reset(sys.Bodies, defaultParentID, designs, sys.Scale(), sys.Name, a.world.CommBandCoverage)
+			a.spawn.SetRecoverLZ(func(parentID string, lat, lon float64) (string, bool) {
+				s, ok := a.world.RecoveryLZNear(parentID, lat, lon)
+				return s.Name, ok
+			})
 			a.active = screenSpawn
 			a.world.RecordAction(missions.ActionSpawnCraft) // ADR 0025 §7
 			return a, nil

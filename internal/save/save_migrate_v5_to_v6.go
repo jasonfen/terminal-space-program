@@ -48,6 +48,13 @@ func wireStagesToSim(wire []Stage) []spacecraft.Stage {
 			LandingThrottle:      s.LandingThrottle,
 			SuperThrust:          s.SuperThrust,
 			SuperIsp:             s.SuperIsp,
+			RecoverMode:          spacecraft.RecoverMode(s.RecoverMode),
+			RecoverSiteID:        s.RecoverSiteID,
+			HeldKg:               s.HeldKg,
+			BoosterHalf:          s.BoosterHalf,
+			ThrustVac:            s.ThrustVac,
+			IspSL:                s.IspSL,
+			IspVac:               s.IspVac,
 		}
 		// The save does not carry the launch-sprite dimensions; the hull,
 		// and the docking port derived from it (ADR 0053), come back from
@@ -107,6 +114,13 @@ func simStagesToWire(stages []spacecraft.Stage) []Stage {
 			LandingThrottle:      s.LandingThrottle,
 			SuperThrust:          s.SuperThrust,
 			SuperIsp:             s.SuperIsp,
+			RecoverMode:          int(s.RecoverMode),
+			RecoverSiteID:        s.RecoverSiteID,
+			HeldKg:               s.HeldKg,
+			BoosterHalf:          s.BoosterHalf,
+			ThrustVac:            s.ThrustVac,
+			IspSL:                s.IspSL,
+			IspVac:               s.IspVac,
 		}
 	}
 	return out

@@ -32,7 +32,7 @@ import (
 func (v *OrbitView) buildEngineBox(w *sim.World) []string {
 	c := w.ActiveCraft()
 	title := v.theme.Primary.Render("ENGINE") + v.vesselBurnBadge(w) + v.vesselRaiseBadge(c)
-	title += v.engineBoosterBadge(c)
+	title += v.engineBoosterBadge(w, c)
 	title = v.engineTitleWithQueue(title, w, c)
 	if c == nil {
 		return []string{
@@ -141,30 +141,49 @@ func engineThrottleTarget(c *spacecraft.Spacecraft) (label string, throttle floa
 // the percentage pads to four cells so the clock keeps its column. The
 // clock is the group's lowest lit tank at its own flow; nothing is shown
 // for a group at 0%.
-func (v *OrbitView) engineBoosterBadge(c *spacecraft.Spacecraft) string {
-	if c == nil || !sim.StackMidBurn(c) {
+//
+// With a recovery place set on the bottom stage (ADR 0069 decision 15) the
+// stage cuts off at its landing reserve: its clock counts to the cutoff once
+// the climb has found the window, and where DRY reads the call-out reads, BECO
+// for side boosters and MECO for the core. A lone stage reads as the core.
+func (v *OrbitView) engineBoosterBadge(w *sim.World, c *spacecraft.Spacecraft) string {
+	if c == nil {
 		return ""
 	}
 	set := spacecraft.LitStages(c.Stages)
-	if len(set) < 2 {
+	recov := len(c.Stages) > 0 && (c.Stages[0].RecoverMode != spacecraft.RecoverNone || c.Stages[0].HeldKg > 0)
+	if len(set) < 2 && !recov {
+		return ""
+	}
+	if !sim.StackMidBurn(c) && !(recov && c.Stages[0].HeldKg > 0) {
 		return ""
 	}
 	idx, label, th, liquid := set[0], "boosters", c.BoosterThrottleEff(), c.Stages[set[0]].FuelType != spacecraft.FuelTypeSolid
-	if c.EffectiveThrottleTarget() == spacecraft.ThrottleBoosters {
+	if len(set) < 2 {
+		label, th = "core", c.EffectiveThrottle()
+	} else if c.EffectiveThrottleTarget() == spacecraft.ThrottleBoosters {
 		idx, label, th, liquid = set[len(set)-1], "core", c.EffectiveThrottle(), true
 	}
 	if !liquid {
 		th = 1 // a solid is pinned at 100% and shows no percentage
 	}
+	cut := idx == 0 && recov // the stage whose reserve the solve tracks
 	text := " · " + label
 	if c.Stages[idx].FuelMass <= 0 {
+		if cut && c.Stages[idx].HeldKg > 0 {
+			return v.theme.Warning.Render(text + " " + sim.CutoffWord(c.Stages[idx]))
+		}
 		return v.theme.Warning.Render(text + " DRY")
 	}
 	if liquid {
 		pct := fmt.Sprintf("%.0f%%", th*100)
 		text += " " + pct + strings.Repeat(" ", max(0, 4-len(pct)))
 	}
-	if secs, ok := c.StageTimeToDry(idx, th); ok {
+	if cut {
+		if secs, ok := w.RecoveryCutIn(c); ok {
+			text += " " + readout.Countdown(time.Duration(secs*float64(time.Second)))
+		}
+	} else if secs, ok := c.StageTimeToDry(idx, th); ok {
 		text += " " + readout.Countdown(time.Duration(secs*float64(time.Second)))
 	}
 	return v.theme.Warning.Render(strings.TrimRight(text, " "))
