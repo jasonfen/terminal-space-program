@@ -162,6 +162,9 @@ func TestPartToStage(t *testing.T) {
 		FuelCapacity:         2100000,
 		Thrust:               34000000,
 		Isp:                  263,
+		ThrustVac:            34000000, // flat part (isp_s only): vacuum thrust and both Isps are the stated ones
+		IspSL:                263,
+		IspVac:               263,
 		MonopropMass:         50,
 		MonopropCap:          60,
 		RCSThrust:            1000,

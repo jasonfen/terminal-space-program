@@ -296,3 +296,24 @@ func TestStepDragSafeNeverReverses(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0070: pressure ratio derived from the density model (p = rho g H).
+func TestPressureRatio(t *testing.T) {
+	earth := earthWithAtm()
+	if got := PressureRatio(earth, 0); math.Abs(got-1) > 0.01 {
+		t.Errorf("Earth surface p/p_sl = %.4f, want 1 within 1 %%", got)
+	}
+	// one scale height up the isothermal model drops by exactly e
+	if r := PressureRatio(earth, 8500) / PressureRatio(earth, 0); math.Abs(r-math.Exp(-1)) > 1e-9 {
+		t.Errorf("one scale height: ratio %.6f, want e^-1", r)
+	}
+	if got := PressureRatio(earth, -50); got != PressureRatio(earth, 0) {
+		t.Errorf("below the surface reads %.4f, want the surface's %.4f", got, PressureRatio(earth, 0))
+	}
+	if got := PressureRatio(earth, 150000); got != 0 { // the cutoff altitude itself is vacuum
+		t.Errorf("at the cutoff = %v, want 0", got)
+	}
+	if got := PressureRatio(luna(), 0); got != 0 {
+		t.Errorf("airless body = %v, want 0", got)
+	}
+}

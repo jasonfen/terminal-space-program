@@ -19,19 +19,20 @@ import (
 // (LoadoutID, Name), then a name-only fallback.
 
 type spriteDims struct {
-	rows, width int
-	diameter    float64
-	color       string
-	legs        bool
-	derived     bool
-	fuelType    string
-	thrust      float64
+	rows, width   int
+	diameter      float64
+	color         string
+	legs          bool
+	derived       bool
+	fuelType      string
+	thrust        float64
+	ispSL, ispVac float64 // ADR 0070
 }
 
 func spriteDimsOf(s Stage) spriteDims {
 	return spriteDims{
 		rows: s.LaunchSpriteRowsPx, width: s.LaunchSpriteWidthPx, diameter: s.DiameterM, color: s.LaunchSpriteColor,
-		legs: s.LaunchSpriteHasLegs, derived: s.LaunchSpriteDerived, fuelType: s.FuelType, thrust: s.Thrust,
+		legs: s.LaunchSpriteHasLegs, derived: s.LaunchSpriteDerived, fuelType: s.FuelType, thrust: s.Thrust, ispSL: s.IspSL, ispVac: s.IspVac,
 	}
 }
 

@@ -104,6 +104,15 @@ type Stage struct {
 	// by the rocket equation in finite-burn integration.
 	Isp float64
 
+	// ThrustVac / IspSL / IspVac (ADR 0070) are the engine's catalog figures:
+	// its thrust in vacuum and its Isp at sea level and in vacuum. Mass flow is
+	// fixed (ThrustVac / (g0 IspVac)); SetAmbient sets Thrust and Isp from them
+	// for the air the stage is in. Not saved: RestoreEngine rebuilds them on
+	// load. Zero IspVac = a flat engine whose Thrust / Isp never move.
+	ThrustVac float64 `json:",omitempty"`
+	IspSL     float64 `json:",omitempty"`
+	IspVac    float64 `json:",omitempty"`
+
 	// MonopropMass is the current RCS-pool propellant mass in kg.
 	// Per-stage: each stage carries its own RCS budget. The
 	// active craft's RCS reads from Stages[0].MonopropMass when

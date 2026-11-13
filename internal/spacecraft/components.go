@@ -50,6 +50,10 @@ type Component struct {
 	// Engine fields.
 	ThrustN float64 `json:"thrust_n,omitempty"`
 	IspS    float64 `json:"isp_s,omitempty"`
+	// IspSLS / IspVacS / ThrustAt: see Part (ADR 0070).
+	IspSLS   float64 `json:"isp_sl_s,omitempty"`
+	IspVacS  float64 `json:"isp_vac_s,omitempty"`
+	ThrustAt string  `json:"thrust_at,omitempty"`
 
 	// FuelType is shared by engine + tank: every fuelled component in a
 	// stage must agree on chemistry (ADR 0029 §3, the single-fuel-pool
@@ -181,6 +185,7 @@ func aggregateComponents(parts map[string]Part, comps map[string]Component) (map
 func composePart(p Part, comps map[string]Component) (Part, error) {
 	out := p // preserves identity, sprite, RCS, BC; Components list retained
 	var dryMass, fuelCap, totalThrust, sumThrustOverIsp float64
+	var sumTVac, sumFlow, sumFlowSL float64 // ADR 0070: vacuum thrust, kg/s·g0 flow, SL-Isp-weighted flow
 	var fuelType, commandSource, antennaKind string
 	var antennaRange float64
 	var canSoftLand, hasParachute bool
@@ -214,9 +219,13 @@ func composePart(p Part, comps map[string]Component) (Part, error) {
 		monoprop += c.MonopropMassKg
 		switch c.Kind {
 		case ComponentEngine:
-			if c.ThrustN > 0 && c.IspS > 0 {
+			if tv, sl, vac, basis := engineFigures(c.ThrustN, c.IspS, c.IspSLS, c.IspVacS, c.ThrustAt); tv > 0 && basis > 0 {
 				totalThrust += c.ThrustN
-				sumThrustOverIsp += c.ThrustN / c.IspS
+				sumThrustOverIsp += c.ThrustN / basis
+				flow := tv / vac // mass flow x g0
+				sumTVac += tv
+				sumFlow += flow
+				sumFlowSL += flow * sl
 			}
 			if err := setFuel(c.FuelType); err != nil {
 				return Part{}, err
@@ -258,6 +267,10 @@ func composePart(p Part, comps map[string]Component) (Part, error) {
 	} else {
 		out.IspS = 0
 	}
+	out.ThrustVacN, out.IspSLS, out.IspVacS, out.ThrustAt = 0, 0, 0, ""
+	if sumFlow > 0 {
+		out.ThrustVacN, out.IspVacS, out.IspSLS = sumTVac, sumTVac/sumFlow, sumFlowSL/sumFlow
+	}
 	out.FuelType = fuelType
 	out.CommandSource = commandSource
 	out.CanSoftLand = canSoftLand
@@ -282,4 +295,58 @@ func composePart(p Part, comps map[string]Component) (Part, error) {
 	}
 	applyDerivedSprite(&out)
 	return out, nil
+}
+
+// engineFigures reads one engine's published figures (ADR 0070): thrustN at
+// the condition thrustAt names ("sl" or "vac"; absent means vacuum), isp as the
+// flat fallback, and the sea-level / vacuum Isp pair. It returns the thrust in
+// vacuum, both Isps (an unstated side takes the other, or the flat isp) and the
+// Isp at the thrust's own condition. Mass flow is thrustN/(g0*basis) either way.
+func engineFigures(thrustN, isp, sl, vac float64, thrustAt string) (thrustVac, ispSL, ispVac, basis float64) {
+	if sl <= 0 {
+		sl = vac
+	}
+	if vac <= 0 {
+		vac = sl
+	}
+	if sl <= 0 {
+		sl, vac = isp, isp
+	}
+	basis = vac
+	if thrustAt == "sl" {
+		basis = sl
+	}
+	if basis <= 0 {
+		return thrustN, sl, vac, 0
+	}
+	return thrustN * vac / basis, sl, vac, basis
+}
+
+// engine is the part's engine figures: a composed part carries them from
+// composePart (ThrustVacN set), an atomic one states them in the file. isp is
+// the rated Isp, at the condition the thrust is rated at.
+func (p Part) engine() (thrustVac, ispSL, ispVac, isp float64) {
+	if p.ThrustVacN > 0 {
+		return p.ThrustVacN, p.IspSLS, p.IspVacS, p.IspS
+	}
+	if p.ThrustN <= 0 && p.IspS <= 0 && p.IspSLS <= 0 && p.IspVacS <= 0 {
+		return 0, 0, 0, 0
+	}
+	thrustVac, ispSL, ispVac, isp = engineFigures(p.ThrustN, p.IspS, p.IspSLS, p.IspVacS, p.ThrustAt)
+	if p.IspS > 0 {
+		isp = p.IspS
+	}
+	return
+}
+
+// RatedIsp is the Isp at the condition the part's thrust is rated at.
+func (p Part) RatedIsp() float64 { _, _, _, i := p.engine(); return i }
+
+// RatedIsp is the component engine's Isp at the condition its thrust is rated at.
+func (c Component) RatedIsp() float64 {
+	_, _, _, i := engineFigures(c.ThrustN, c.IspS, c.IspSLS, c.IspVacS, c.ThrustAt)
+	if c.IspS > 0 {
+		return c.IspS
+	}
+	return i
 }

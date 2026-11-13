@@ -138,14 +138,14 @@ func TestOrionLoadouts(t *testing.T) {
 // from the part data (rocket equation, boosters and core lit together).
 func TestOrionStackStatsPins(t *testing.T) {
 	vs := StackStats(Loadouts["SLS-Orion"].Stages)
-	for i, w := range []float64{2478, 8258, 2781, 1295, 0} {
+	for i, w := range []float64{2118.15, 6778.85, 2781, 1295, 0} {
 		if i >= len(vs.StageDV) {
 			t.Fatalf("StageDV = %v", vs.StageDV)
 		}
 		near(t, "SLS-Orion stage dv", vs.StageDV[i], w, 1)
 	}
-	near(t, "SLS-Orion Σ Δv", vs.TotalDV, 14812, 2)
-	near(t, "SLS-Orion TWR", vs.LiftoffTWR, 1.61, 0.005)
+	near(t, "SLS-Orion Σ Δv", vs.TotalDV, 12972.46, 2)
+	near(t, "SLS-Orion TWR", vs.LiftoffTWR, 1.5426, 0.005)
 	// Hand sum: 2,587,228 kg dry+fuel plus 19,909.7 kg derived RCS monoprop
 	// (stageRCS scales with dry mass, so the ICPS pool is 282.5 kg, not the
 	// 229 kg the ADR carried over). The ADR's 2,607,084 is 54 kg low.

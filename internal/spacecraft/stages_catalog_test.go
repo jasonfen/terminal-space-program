@@ -25,6 +25,9 @@ func TestBuildStageGoldenByteIdentical(t *testing.T) {
 		FuelCapacity:         109000,
 		Thrust:               1023000,
 		Isp:                  421,
+		ThrustVac:            1023000, // ADR 0070: J-2 421 s vac, 200 s SL, thrust rated in vacuum
+		IspSL:                200,
+		IspVac:               421,
 		MonopropMass:         sivbMono,
 		MonopropCap:          sivbCap,
 		RCSThrust:            sivbThr,
@@ -55,7 +58,7 @@ func TestBuildStageGoldenByteIdentical(t *testing.T) {
 		DiameterM:           3.91,
 		LaunchSpriteColor:   "#C8C8D0",
 		HasParachute:        true,
-		CommandSource:       CommandCrewed, // v0.23/ADR 0027: the capsule is a crewed pod
+		CommandSource:       CommandCrewed,                 // v0.23/ADR 0027: the capsule is a crewed pod
 		PartPorts:           []PartPort{{End: PortEndTop}}, // ADR 0053 decision 3 / ADR 0056: stored on the Stage
 	}
 	if got, ok := BuildStage(StageModuleCapsuleID); !ok || !reflect.DeepEqual(got, wantCapsule) {

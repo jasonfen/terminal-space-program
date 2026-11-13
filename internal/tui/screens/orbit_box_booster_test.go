@@ -89,13 +89,13 @@ func TestEngineBoxSLSAtT42(t *testing.T) {
 	v := NewOrbitView(launchThemeForTest())
 	w := slsAtT42(t)
 	lines := v.buildEngineBox(w)
-	if want := "ENGINE  ● BURN · boosters T-1m02s"; lines[0] != want {
+	if want := "ENGINE  ● BURN · boosters T-56s"; lines[0] != want {
 		t.Errorf("title = %q, want %q", lines[0], want)
 	}
 	if !strings.HasPrefix(strings.TrimLeft(lines[1], " "), "throttle: 100% ● FIRING T+42s") {
 		t.Errorf("throttle row = %q", lines[1])
 	}
-	if want := "  TWR:      2.14"; !strings.HasPrefix(lines[2], "  TWR:") || strings.TrimRight(lines[2], " ") != want {
+	if want := "  TWR:      2.05"; !strings.HasPrefix(lines[2], "  TWR:") || strings.TrimRight(lines[2], " ") != want {
 		t.Errorf("TWR row = %q, want %q", lines[2], want)
 	}
 	assertFits(t, "SLS T+42", lines)
@@ -103,13 +103,13 @@ func TestEngineBoxSLSAtT42(t *testing.T) {
 	// x with the target on all: the core is cut, the solids keep burning.
 	w.ActiveCraft().Throttle = 0
 	lines = v.buildEngineBox(w)
-	if want := "ENGINE  ● BURN · boosters T-1m02s"; lines[0] != want {
+	if want := "ENGINE  ● BURN · boosters T-56s"; lines[0] != want {
 		t.Errorf("core cut: title = %q, want %q", lines[0], want)
 	}
 	if !strings.Contains(lines[1], "0% ● FIRING T+42s") {
 		t.Errorf("core cut: throttle row = %q", lines[1])
 	}
-	if want := "  TWR:      1.66 (max 2.14)"; strings.TrimRight(lines[2], " ") != want {
+	if want := "  TWR:      1.66 (max 2.05)"; strings.TrimRight(lines[2], " ") != want {
 		t.Errorf("core cut: TWR row = %q, want %q", lines[2], want)
 	}
 	assertFits(t, "SLS T+42 core cut", lines)

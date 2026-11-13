@@ -199,6 +199,7 @@ func TestDeorbitCannotStopAimsTheFreeFall(t *testing.T) {
 	w, c := deorbitWorld(t, 150, 0)
 	for i := range c.Stages {
 		c.Stages[i].Thrust *= 0.4 // 18 kN on 15 t: cannot hover on the Moon
+		c.Stages[i].ThrustVac *= 0.4 // the catalog thrust scales with it (ADR 0070)
 	}
 	c.SyncFields()
 	c.Crewed, c.Controllable = true, true
@@ -921,9 +922,9 @@ func TestBoostbackShortStageSaysNeedAndHave(t *testing.T) {
 // planned a 770 m/s entry burn and then lit its brake at 29 km instead of 10
 // (the aim allowance read the speed now, 1,000 m/s, as the speed at the cue,
 // 600 m/s, and led the light by 20 s), burned the 1.4 t of spare in the gravity
-// loss and hit 3 km off. Kept 10 to 16 % in 1 % steps, 1x and max warp: 10 and
-// 11 % are refused with the Δv they lack (the stop forecast must leave 1.5 t:
-// the flown landing ends ~1 t under it), 12 % and up land. The Dragon loadout
+// loss and hit 3 km off. Kept 10 to 16 % in 1 % steps, 1x and max warp: 10 %
+// is refused (was 10 and 11 %: ADR 0070 moved the edge) with the Δv it lacks (the stop forecast must leave 1.5 t:
+// the flown landing ends ~1 t under it), 11 % and up land. The Dragon loadout
 // takes the same drop at 12 and 14 %.
 func TestEveryAcceptedFalcon9DropLandsWithPropellant(t *testing.T) {
 	type row struct {
@@ -942,8 +943,8 @@ func TestEveryAcceptedFalcon9DropLandsWithPropellant(t *testing.T) {
 			w.SetTargetSiteLZ(lc13ID(t), 1)
 			w.RecomputeCommGraph()
 			plan, err := w.PlanDeorbitAndEngage()
-			if wantPlan := r.keep >= 0.115; (plan != nil) != wantPlan {
-				t.Fatalf("%s %.0f %%: plan=%+v err=%v, want a plan: %v (the 1.5 t margin puts the edge between 11 and 12 %%)", r.loadout, r.keep*100, plan, err, wantPlan)
+			if wantPlan := r.keep >= 0.105; (plan != nil) != wantPlan {
+				t.Fatalf("%s %.0f %%: plan=%+v err=%v, want a plan: %v (ADR 0070: the boostback burns at the vacuum Isp now, so the 1.5 t margin puts the edge between 10 and 11 %%)", r.loadout, r.keep*100, plan, err, wantPlan)
 			}
 			if plan == nil {
 				var sh *BoostbackShortError

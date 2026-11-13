@@ -2075,6 +2075,7 @@ var liveSOIShortcut = true
 // Multi-craft (v0.8.1+): each craft is integrated independently via
 // this helper. Tick loops over Crafts.
 func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Duration) {
+	c.SetAmbient(physics.PressureRatio(c.Primary, c.Altitude())) // ADR 0070: engine Isp at this air
 	c.OnSuperDraco(func() { w.integrateOneCraftOn(c, simDelta) })
 }
 

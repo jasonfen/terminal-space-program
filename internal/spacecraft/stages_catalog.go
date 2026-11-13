@@ -40,6 +40,7 @@ type StageModule struct {
 	// dry / fuel / thrust / isp / bc are the stage's physical
 	// numbers (kg, kg, N, s, m²/kg) — same units as stageWithBC.
 	dry, fuel, thrust, isp, bc float64
+	thrustVac, ispSL, ispVac   float64 // ADR 0070
 	// launchSpriteRowsPx is the per-stage height (in braille
 	// sub-pixels) of this stage's ViewLaunch silhouette. Rendered
 	// as a `launchSpriteWidthPx × launchSpriteRowsPx` filled
@@ -88,7 +89,7 @@ type StageModule struct {
 	// canSoftLand — a capsule has no engine landing route, only the chute.
 	hasParachute bool
 	// landingThrottle (ADR 0069 decision 10) populates Stage.LandingThrottle.
-	landingThrottle float64
+	landingThrottle       float64
 	superThrust, superIsp float64
 	// commandSource / antenna (v0.23 / ADR 0027): comms part attributes,
 	// carried onto the built Stage by BuildStage so a configurator-picked
@@ -214,6 +215,7 @@ func buildStageCatalog() map[string]StageModule {
 // here — it is derived from dry mass at BuildStage time (the catalog
 // convention, via DefaultRCSLoadout), exactly as before the migration.
 func (p Part) toStageModule() StageModule {
+	tv, sl, vac, isp := p.engine()
 	return StageModule{
 		ID:                  p.ID,
 		Name:                p.Name,
@@ -224,7 +226,10 @@ func (p Part) toStageModule() StageModule {
 		dry:                 p.DryMassKg,
 		fuel:                p.FuelMassKg,
 		thrust:              p.ThrustN,
-		isp:                 p.IspS,
+		isp:                 isp,
+		thrustVac:           tv,
+		ispSL:               sl,
+		ispVac:              vac,
 		bc:                  p.BallisticCoefficient,
 		launchSpriteRowsPx:  p.LaunchSpriteRowsPx,
 		launchSpriteWidthPx: p.LaunchSpriteWidthPx,
@@ -325,6 +330,9 @@ func BuildStage(id string) (Stage, bool) {
 		FuelCapacity:         m.fuel,
 		Thrust:               m.thrust,
 		Isp:                  m.isp,
+		ThrustVac:            m.thrustVac,
+		IspSL:                m.ispSL,
+		IspVac:               m.ispVac,
 		MonopropMass:         mp,
 		MonopropCap:          monoCap,
 		RCSThrust:            rcsThrust,

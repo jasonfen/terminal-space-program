@@ -22,7 +22,8 @@ func TestNewFromLoadoutResolvedGolden(t *testing.T) {
 	mono, cap, thr, isp := DefaultRCSLoadout(130000)
 	wantSIC := Stage{
 		LoadoutID: LoadoutSaturnVID, Name: "S-IC", Glyph: VesselGlyph, Color: "#FF8C42",
-		DryMass: 130000, FuelMass: 2160000, FuelCapacity: 2160000, Thrust: 35100000, Isp: 263,
+		DryMass: 130000, FuelMass: 2160000, FuelCapacity: 2160000, Thrust: 35100000, Isp: 263, ThrustVac: 35100000.0 * 304 / 263, IspSL: 263, IspVac: 304, // ADR 0070: F-1 263 s SL, 304 s vac, thrust rated at SL
+
 		MonopropMass: mono, MonopropCap: cap, RCSThrust: thr, RCSIsp: isp,
 		BallisticCoefficient: 8e-6, LaunchSpriteRowsPx: 24, LaunchSpriteWidthPx: 5, DiameterM: 10.06,
 		LaunchSpriteColor: "#F0EAD6", FuelType: FuelTypeKerolox, // #424 / ADR 0048 §4: widened colour spread

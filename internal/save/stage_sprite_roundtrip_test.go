@@ -2,6 +2,7 @@ package save
 
 import (
 	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -145,5 +146,31 @@ func TestBoosterHalfSpriteWidthSurvivesTheWire(t *testing.T) {
 	half.LaunchSpriteWidthPx = 3
 	if got := wireStagesToSim(simStagesToWire([]spacecraft.Stage{half}))[0].LaunchSpriteWidthPx; got != 3 {
 		t.Errorf("a dropped half reloads at %d px, want 3", got)
+	}
+}
+
+// ADR 0070: the save keeps only the live Thrust and Isp; a loaded stage gets
+// its sea-level / vacuum pair and vacuum thrust back from the catalog, so the
+// engine goes on following the air after a reload (no schema bump).
+func TestStageEngineSurvivesTheWire(t *testing.T) {
+	checked := 0
+	for _, id := range spacecraft.LoadoutOrder {
+		c := spacecraft.NewFromLoadout(id)
+		c.SetAmbient(0.3) // a vessel saved partway up
+		back := wireStagesToSim(simStagesToWire(c.Stages))
+		for i, want := range c.Stages {
+			if want.IspSL == want.IspVac {
+				continue
+			}
+			checked++
+			got := back[i]
+			if got.IspSL != want.IspSL || got.IspVac != want.IspVac || math.Abs(got.ThrustVac-want.ThrustVac) > 1e-9*want.ThrustVac {
+				t.Errorf("%s stage %d (%s): engine %v/%v vac thrust %v after the wire, want %v/%v %v",
+					id, i, want.Name, got.IspSL, got.IspVac, got.ThrustVac, want.IspSL, want.IspVac, want.ThrustVac)
+			}
+		}
+	}
+	if checked < 20 {
+		t.Fatalf("only %d pressure-sensitive stages checked: the loop is not reaching the catalog", checked)
 	}
 }
