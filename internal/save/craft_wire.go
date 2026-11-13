@@ -500,6 +500,19 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 	}
 	c.BatchID, c.BatchLead, c.Raise = wc.BatchID, wc.BatchLead, raiseFromWire(wc.Raise)
 	c.Landing = landingFromWire(wc.Landing)
+	// R9: a burn's engine is not on the wire (no schema bump). N's own nodes
+	// (AdvisoryKey "deorbit"/"entry") were planned on the SuperDracos, and a
+	// burn running under an engaged autopilot is N's.
+	if c.HasSuperDraco() {
+		for i := range c.Nodes {
+			if k := c.Nodes[i].AdvisoryKey; k == sim.AdvisoryKeyDeorbit || k == sim.AdvisoryKeyEntry {
+				c.Nodes[i].Engine = spacecraft.EngineSuperDraco
+			}
+		}
+		if c.ActiveBurn != nil && c.Landing.Owns() {
+			c.ActiveBurn.Engine = spacecraft.EngineSuperDraco
+		}
+	}
 	c.NavFrame = wc.NavMode
 	c.BatchClampExemptUntil = timeFromNano(wc.BatchClampExemptUntilNano)
 	c.LiftoffSimTime = timeFromNano(wc.LiftoffSimTimeNano) // schema v18

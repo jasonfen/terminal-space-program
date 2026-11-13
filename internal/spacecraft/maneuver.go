@@ -113,6 +113,10 @@ type ManeuverNode struct {
 	// planted burns from live `Craft.Throttle` so adjusting throttle
 	// mid-coast doesn't slow an in-flight planted burn.
 	Throttle float64
+	// Engine is the engine the node was planned for (R9: decided at plan time,
+	// stamped by World.PlanNode; zero = main). Not on the wire: save/load
+	// restores it from AdvisoryKey (N's deorbit and entry nodes).
+	Engine EngineMode `json:"-"`
 	// TargetCraftID (v0.14.x / ADR 0012; was the one-based slate index
 	// TargetCraftIdx) is the stable Spacecraft.ID of the target craft
 	// this node was planted against, captured at plant time. Populated
@@ -344,6 +348,8 @@ type ActiveBurn struct {
 	EndTime     time.Time
 	PrimaryID   string
 	Throttle    float64
+	// Engine mirrors ManeuverNode.Engine onto the running burn.
+	Engine EngineMode `json:"-"`
 	// TargetCraftID (v0.14.x / ADR 0012; was TargetCraftIdx) is the
 	// stable Spacecraft.ID of the burn's target — zero means no target
 	// bound. Populated when a target-relative finite-burn node fires;
