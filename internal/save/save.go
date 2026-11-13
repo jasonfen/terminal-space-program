@@ -600,6 +600,8 @@ type Node struct {
 	DurationNano    int64   `json:"duration_nano"`
 	PrimaryID       string  `json:"primary_id"`
 	Event           int     `json:"event,omitempty"`
+	// Engine (R9, additive under schema 25, no bump): the engine the burn was planned for; absent = main, then the load rule.
+	Engine int `json:"engine,omitempty"`
 	Throttle        float64 `json:"throttle,omitempty"`
 	// TargetCraftIdx is the retired pre-v7 one-based slate idx the node
 	// was bound to. Retained only to read v6 saves; migrateV6PayloadToV7
@@ -717,6 +719,7 @@ type DockedComponent struct {
 // cleanly: absent → 0.0 unmarshals → world.go's stepThrust defaults
 // to 1.0 (the universal pre-v0.7.6 behaviour).
 type ActiveBurn struct {
+	Engine      int     `json:"engine,omitempty"` // as Node.Engine
 	Mode        int     `json:"mode"`
 	DVRemaining float64 `json:"dv_remaining"`
 	EndTimeNano int64   `json:"end_time_unix_nano"`

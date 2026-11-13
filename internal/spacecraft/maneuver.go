@@ -114,8 +114,8 @@ type ManeuverNode struct {
 	// mid-coast doesn't slow an in-flight planted burn.
 	Throttle float64
 	// Engine is the engine the node was planned for (R9: decided at plan time,
-	// stamped by World.PlanNode; zero = main). Not on the wire: save/load
-	// restores it from AdvisoryKey (N's deorbit and entry nodes).
+	// stamped by World.PlanNode; zero = main). Saved as `engine` (omitempty);
+	// a save without it falls back to AdvisoryKey on load (see craft_wire.go).
 	Engine EngineMode `json:"-"`
 	// TargetCraftID (v0.14.x / ADR 0012; was the one-based slate index
 	// TargetCraftIdx) is the stable Spacecraft.ID of the target craft
