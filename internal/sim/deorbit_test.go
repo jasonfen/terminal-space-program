@@ -624,7 +624,7 @@ func TestBoostbackThenLandingBurnAtEveryWarp(t *testing.T) {
 		fwd  bool // the nose points along the velocity (as the core flew it), so the burn waits for the swing
 	}{
 		{"24 t kept", boosterFall{altM: 20e3, downMps: -300, offE: 20e3, driftE: 400, fuelKg: 24000}, false, false},
-		{"18 t kept, higher and slower", boosterFall{altM: 30e3, downMps: -100, offE: 20e3, driftE: 200, fuelKg: 18000}, false, false},
+		{"22 t kept, higher and slower", boosterFall{altM: 30e3, downMps: -100, offE: 20e3, driftE: 200, fuelKg: 22000}, false, false},
 		{"52 t kept: too heavy to hover before the burn", boosterFall{altM: 20e3, downMps: -300, offE: 20e3, driftE: 400, fuelKg: 52000}, false, false},
 		{"idle manual burn from the core", boosterFall{altM: 20e3, downMps: -300, offE: 20e3, driftE: 400, fuelKg: 24000}, true, false},
 		{"nose forward: the swing sets the lead", boosterFall{altM: 20e3, downMps: -300, offE: 20e3, driftE: 400, fuelKg: 24000}, false, true},
@@ -679,12 +679,12 @@ func planFalcon9Drop(t *testing.T, keep float64, before func(*World)) (*World, *
 
 // ADR 0069 decision 14, amended (slice 9b): N brings a real Falcon 9 first stage
 // home in three burns, a boostback, an entry burn on three engines of nine on the
-// way down, and the one-burn landing. Dropped with 11, 12 and 16 % of its
-// propellant left (11 is the least that closes; 16 lights its entry burn lower, at 50 km), at every warp: inside the 43 m
+// way down, and the one-burn landing. Dropped with 12, 14 and 16 % of its
+// propellant left (12 is the least that closes with the 1.5 t margin; 14 and 16 light the entry burn lower, at 50 km), at every warp: inside the 43 m
 // circle under 10 m/s, with propellant left. The boostback and the entry burn
 // both fire; the entry burn is its own row in the recording.
 func TestEntryBurnBringsAFalcon9Home(t *testing.T) {
-	for _, keep := range []float64{0.11, 0.12, 0.16} {
+	for _, keep := range []float64{0.12, 0.14, 0.16} {
 		for _, idx := range []int{0, 1, len(WarpFactors) - 1} {
 			var dir string
 			w, b, plan, err := planFalcon9Drop(t, keep, func(w *World) {
@@ -731,15 +731,15 @@ func TestEntryBurnBringsAFalcon9Home(t *testing.T) {
 	}
 }
 
-// The edge of the window, on a real Falcon 9: 10 % kept is refused (1 m/s
-// short: the need/have line) and plants nothing, 11 % closes. 35 % kept reaches the site but its landing burn would
+// The edge of the window, on a real Falcon 9: 10 % kept is refused (the need/have line)
+// and plants nothing, 12 % closes (11 % lands too, but with under the 1.5 t margin). 35 % kept reaches the site but its landing burn would
 // light 11.8 km up, over the entry burn's 10 km target, and says where.
 func TestEntryBurnWindowOnARealFalcon9(t *testing.T) {
 	for _, tc := range []struct {
 		keep    float64
 		wantErr error // nil: a plan
 		noLand  bool
-	}{{0.10, &BoostbackShortError{}, false}, {0.11, nil, false}, {0.35, nil, true}} {
+	}{{0.10, &BoostbackShortError{}, false}, {0.12, nil, false}, {0.35, nil, true}} {
 		_, b, plan, err := planFalcon9Drop(t, tc.keep, nil)
 		var nl *BoostbackNoLandingError
 		switch {
@@ -753,8 +753,8 @@ func TestEntryBurnWindowOnARealFalcon9(t *testing.T) {
 			}
 		case tc.keep == 0.10: // 1 m/s short of closing: says so
 			var sh *BoostbackShortError
-			if plan != nil || !errors.As(err, &sh) || sh.Need <= sh.Have || sh.Need-sh.Have > 20 {
-				t.Errorf("%v kept: plan=%+v err=%v, want a BoostbackShortError within 20 m/s", tc.keep, plan, err)
+			if plan != nil || !errors.As(err, &sh) || sh.Need <= sh.Have {
+				t.Errorf("%v kept: plan=%+v err=%v, want a BoostbackShortError", tc.keep, plan, err)
 			}
 		default:
 			if plan != nil || !errors.Is(err, tc.wantErr) {
@@ -783,9 +783,15 @@ func lc13ForTest(t *testing.T) Site {
 // keep of its propellant is left. Returns the world, the core and the stage.
 func falcon9Drop(t *testing.T, keep float64) (*World, *spacecraft.Spacecraft, *spacecraft.Spacecraft) {
 	t.Helper()
+	return falcon9DropOf(t, "Falcon-9", keep)
+}
+
+// falcon9DropOf is falcon9Drop for any Falcon 9 loadout (the Dragon ones too).
+func falcon9DropOf(t *testing.T, loadout string, keep float64) (*World, *spacecraft.Spacecraft, *spacecraft.Spacecraft) {
+	t.Helper()
 	w := mustWorld(t)
 	w.Crafts, w.ActiveCraftIdx = nil, -1
-	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9", ParentBodyID: "earth", Launchpad: true,
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: loadout, ParentBodyID: "earth", Launchpad: true,
 		Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast})
 	if err != nil {
 		t.Fatal(err)
@@ -907,5 +913,50 @@ func TestBoostbackShortStageSaysNeedAndHave(t *testing.T) {
 	w3, _, _ := jasonDrop(t, 107e3, 0)
 	if p, e := w3.PlanDeorbitAndEngage(); p != nil || e == nil {
 		t.Errorf("empty stage: plan=%v err=%v, want a refusal", p != nil, e)
+	}
+}
+
+// Slice 9d: every N a real Falcon 9 drop accepts lands, with propellant left.
+// Pressed in the tick of the drop (as the playtest recording does): 12 % kept
+// planned a 770 m/s entry burn and then lit its brake at 29 km instead of 10
+// (the aim allowance read the speed now, 1,000 m/s, as the speed at the cue,
+// 600 m/s, and led the light by 20 s), burned the 1.4 t of spare in the gravity
+// loss and hit 3 km off. Kept 10 to 16 % in 1 % steps, 1x and max warp: 10 and
+// 11 % are refused with the Δv they lack (the stop forecast must leave 1.5 t:
+// the flown landing ends ~1 t under it), 12 % and up land. The Dragon loadout
+// takes the same drop at 12 and 14 %.
+func TestEveryAcceptedFalcon9DropLandsWithPropellant(t *testing.T) {
+	type row struct {
+		loadout string
+		keep    float64
+	}
+	var rows []row
+	for k := 10; k <= 16; k++ {
+		rows = append(rows, row{"Falcon-9", float64(k) / 100})
+	}
+	rows = append(rows, row{"Falcon-9-Dragon", 0.12}, row{"Falcon-9-Dragon", 0.14})
+	for _, r := range rows {
+		for _, idx := range []int{0, len(WarpFactors) - 1} {
+			w, _, b := falcon9DropOf(t, r.loadout, r.keep)
+			w.CycleActiveCraft(1)
+			w.SetTargetSiteLZ(lc13ID(t), 1)
+			w.RecomputeCommGraph()
+			plan, err := w.PlanDeorbitAndEngage()
+			if wantPlan := r.keep >= 0.115; (plan != nil) != wantPlan {
+				t.Fatalf("%s %.0f %%: plan=%+v err=%v, want a plan: %v (the 1.5 t margin puts the edge between 11 and 12 %%)", r.loadout, r.keep*100, plan, err, wantPlan)
+			}
+			if plan == nil {
+				var sh *BoostbackShortError
+				if !errors.As(err, &sh) || sh.Need <= sh.Have {
+					t.Errorf("%s %.0f %%: refused with %v, want the Δv it lacks", r.loadout, r.keep*100, err)
+				}
+				break // the refusal does not depend on the warp
+			}
+			d, v, landed := flyBoostback(t, w, b, lc13ForTest(t), idx)
+			t.Logf("%s %.0f %%, warp %vx: forecast %.0f kg left; landed=%v %.1f m at %.2f m/s, %.0f kg left", r.loadout, r.keep*100, WarpFactors[idx], plan.FuelLeftKg, landed, d, v, b.ActiveStageFuel())
+			if !landed || d > 43 || v >= CrashVCritMps || b.ActiveStageFuel() < 300 {
+				t.Errorf("%s %.0f %%, warp %vx: landed=%v %.1f m at %.2f m/s with %.0f kg, want inside the 43 m circle under %v m/s with 300 kg or more", r.loadout, r.keep*100, WarpFactors[idx], landed, d, v, b.ActiveStageFuel(), CrashVCritMps)
+			}
+		}
 	}
 }
