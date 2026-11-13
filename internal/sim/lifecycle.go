@@ -257,6 +257,7 @@ func (w *World) applySurfaceArrival(c *spacecraft.Spacecraft, clamped physics.St
 			}
 		} else {
 			w.plantSite(c, SiteFlag, "site", lat, lon) // ADR 0066 decision 3
+			w.flashUnwatched(c)
 		}
 		// Soft-landed vessels do NOT route to ViewLaunch (OnPad is
 		// cleared on liftoff and stays cleared after touchdown).
@@ -282,5 +283,21 @@ func (w *World) applySurfaceArrival(c *spacecraft.Spacecraft, clamped physics.St
 		c.LandedLatDeg = lat
 		c.LandedLonDeg = lon
 		w.plantSite(c, SiteWreck, "wreck", lat, lon)
+		w.flashUnwatched(c)
+	}
+}
+
+// flashUnwatched is ADR 0069 decision 16: a vessel that lands outside an LZ or
+// crashes while the pilot is on another one (a booster nobody flew by N) raises
+// the Event Flash an autopilot landing raises, with the true distance from the
+// site it was aimed at. An engaged autopilot flashes in landingEnded; the
+// active vessel was watched.
+func (w *World) flashUnwatched(c *spacecraft.Spacecraft) {
+	if c == w.ActiveCraft() || (c.Landing != nil && c.Landing.Engaged) {
+		return
+	}
+	if lat, lon, name, ok := w.apTarget(c); ok {
+		w.PendingLandingEvents = append(w.PendingLandingEvents, LandingEvent{CraftName: c.Name, SiteName: name, Crashed: c.Crashed,
+			DistanceM: HaversineM(c.LandedLatDeg, c.LandedLonDeg, lat, lon, c.Primary.RadiusMeters()), Background: true})
 	}
 }

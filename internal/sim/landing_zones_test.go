@@ -494,3 +494,44 @@ func TestPartnerGhostsOccupyOnlyWhenLanded(t *testing.T) {
 		t.Errorf("landed ghost at 0N 0E: lowest free %d, want 2", n)
 	}
 }
+
+// ADR 0069 decision 16 (T15): a booster nobody flew by N that lands outside, or
+// crashes, while the pilot is on another vessel raises the same Event Flash as an
+// unattended lander, with the true distance from the site it was aimed at. The
+// active vessel (the pilot watched it) raises none; the equal case is the
+// vessel on screen.
+func TestUnflownBoosterLandingOrCrashFlashesWithTheDistance(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		fuelKg float64
+		active bool
+		crash  bool
+		want   int
+	}{
+		{"crash in the background", 500, false, true, 1},
+		{"crash on screen", 500, true, true, 0},
+	} {
+		w, c, _ := fallWorld(t, spacecraft.StageModuleF9S1ID, boosterFall{altM: 10e3, downMps: -300, offE: 5e3, driftE: 100, fuelKg: tc.fuelKg})
+		if !tc.active {
+			core, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9", ParentBodyID: "earth", Launchpad: true,
+				Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.SetActiveCraftIdx(w.craftIndex(core))
+		}
+		w.PendingLandingEvents = nil
+		for i := 0; i < 4*3600*20 && !c.Landed && !c.Crashed; i++ {
+			w.Tick()
+		}
+		if c.Crashed != tc.crash || len(w.PendingLandingEvents) != tc.want {
+			t.Fatalf("%s: crashed=%v events %+v, want %d", tc.name, c.Crashed, w.PendingLandingEvents, tc.want)
+		}
+		if tc.want == 1 {
+			e := w.PendingLandingEvents[0]
+			if e.CraftName != c.Name || !e.Crashed || e.SiteName != "LC-13 LZ-1" || e.DistanceM < 1000 {
+				t.Errorf("%s: event %+v, want %s crashed km from LC-13 LZ-1", tc.name, e, c.Name)
+			}
+		}
+	}
+}
