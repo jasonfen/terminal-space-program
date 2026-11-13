@@ -836,7 +836,7 @@ func (v *VAB) inspectComponent(id string, inner int, add func(string), addText f
 	switch c.Kind {
 	case spacecraft.ComponentEngine:
 		addText(fmt.Sprintf("engine · %s", c.FuelType))
-		addText(fmt.Sprintf("%.0f kN · Isp %.0f s · dry %.0f kg", c.ThrustN/1000, c.IspS, c.DryMassKg))
+		addText(fmt.Sprintf("%.0f kN · Isp %.0f s · dry %.0f kg", c.ThrustN/1000, c.RatedIsp(), c.DryMassKg))
 	case spacecraft.ComponentTank:
 		addText(fmt.Sprintf("tank · %s", c.FuelType))
 		addText(fmt.Sprintf("%.0f kg fuel · dry %.0f kg", c.FuelCapacityKg, c.DryMassKg))

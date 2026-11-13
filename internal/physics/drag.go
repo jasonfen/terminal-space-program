@@ -30,6 +30,28 @@ func AtmosphericDensity(primary bodies.CelestialBody, altitude float64) float64 
 	return atm.SurfaceDensity * math.Exp(-altitude/atm.ScaleHeight)
 }
 
+// seaLevelPressurePa is Earth's sea-level pressure, the p_sl the engine Isp
+// blend (ADR 0070) is scaled by.
+const seaLevelPressurePa = 101325.0
+
+// PressureRatio is the ambient pressure at altitude over Earth's sea-level
+// pressure. The density model has no pressure, so it is derived from it the
+// way the model's own exponential implies: hydrostatic balance in an
+// isothermal atmosphere gives p = rho g H, with g the body's surface gravity
+// and H its scale height (Earth: 1.225 x 9.81 x 8500 = 102 kPa, within 1 % of
+// 101.3). Zero for no atmosphere, above the cutoff, and below the surface
+// reads as the surface.
+func PressureRatio(primary bodies.CelestialBody, altitude float64) float64 {
+	atm := primary.Atmosphere
+	r := primary.RadiusMeters()
+	if atm == nil || r <= 0 {
+		return 0
+	}
+	rho := AtmosphericDensity(primary, math.Max(altitude, 0))
+	g := primary.GravitationalParameter() / (r * r)
+	return rho * g * atm.ScaleHeight / seaLevelPressurePa
+}
+
 // MinSpinPeriodSeconds is the floor on a body's rotation period when
 // computing its spin vector. No physical body rotates faster than once
 // per second; clamping here prevents corrupt catalog data from producing

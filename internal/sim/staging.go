@@ -434,6 +434,7 @@ func splitBoosterStage(s spacecraft.Stage) [2]spacecraft.Stage {
 	s.FuelMass /= 2
 	s.FuelCapacity /= 2
 	s.Thrust /= 2
+	s.ThrustVac /= 2
 	s.MonopropMass /= 2
 	s.MonopropCap /= 2
 	s.RCSThrust /= 2

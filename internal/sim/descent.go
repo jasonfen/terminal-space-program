@@ -761,6 +761,10 @@ func predictPoweredStopTraced(state physics.StateVector, c *spacecraft.Spacecraf
 	}
 	mdot := thrustFull / (ispSec * stdGravityMps2)
 	startMassKg, startFuelKg := massKg, fuelKg
+	// ADR 0070: mass flow is fixed, thrust follows the air the burn is in.
+	// Read the engine at each step's altitude, so a stop that ends at the
+	// ground is forecast with the ground's thrust, not the vacuum's.
+	engine := c.EngineCurve()
 
 	dt := stopSubStepSeconds
 	steps := int(math.Ceil(total / dt))
@@ -781,6 +785,9 @@ func predictPoweredStopTraced(state physics.StateVector, c *spacecraft.Spacecraf
 	}
 
 	for i := 0; i < steps; i++ {
+		if tAt, _ := engine(physics.PressureRatio(primary, state.R.Norm()-radius)); tAt > 0 {
+			thrustFull = tAt * throttle
+		}
 		speedPre := physics.AirRelativeVelocity(state.R, state.V, primary).Norm()
 		aAvail := thrustFull / massKg
 		stepDt := stopStepSizeSeconds(dt, fuelKg/mdot, speedPre, aAvail)

@@ -150,12 +150,12 @@ func TestOnlyBoosterLoadoutsAreMarked(t *testing.T) {
 			}
 		}
 	}
-	// The shipped SLS is the ADR's: lit set {SRBs, Core}, TWR 1.64 on the pad.
+	// The shipped SLS is the ADR's: lit set {SRBs, Core}, TWR 1.56 on the pad (ADR 0070: core at its 4 x 1.86 MN sea-level thrust; was 1.64 with the core at 9.29 MN).
 	l := Loadouts["SLS-Block1"]
 	if got := LitStages(l.Stages); len(got) != 2 {
 		t.Errorf("SLS lit set = %v, want 2 stages", got)
 	}
-	near(t, "SLS pad TWR", StackStats(l.Stages).LiftoffTWR, 1.64, 0.01)
+	near(t, "SLS pad TWR", StackStats(l.Stages).LiftoffTWR, 1.5583, 0.001)
 }
 
 // ADR 0058 decision 1: a second mark directly above a mark is dropped with a
@@ -184,18 +184,18 @@ func TestDropDoubleMarks(t *testing.T) {
 // 94-99) is the lit set's sum, and gives the same TWR as the VAB's LiftoffTWR.
 func TestMarkedSLSLiftoffThrustAgreesWithStats(t *testing.T) {
 	c := NewFromLoadout("SLS-Block1")
-	near(t, "c.Thrust", c.Thrust, 41.29e6, 1)
+	near(t, "c.Thrust", c.Thrust, 39.44e6, 1)
 	got := c.Thrust / (c.TotalMass() * g0)
 	near(t, "canLiftOff-basis TWR", got, StackStats(c.Stages).LiftoffTWR, 1e-9)
-	near(t, "TWR vs ADR 1.64", got, 1.64, 0.01)
+	near(t, "TWR (ADR 0070 pad thrust)", got, 1.5583, 0.001)
 }
 
-// Loadout.Thrust/Isp/Fuel read the lit set, so a marked SLS is 41.29 MN /
-// 295 s / SRB + core fuel, and an empty loadout reads zero.
+// Loadout.Thrust/Isp/Fuel read the lit set, so a marked SLS is 39.44 MN /
+// 258.5 s / SRB + core fuel, and an empty loadout reads zero.
 func TestLoadoutReadsTheLitSet(t *testing.T) {
 	l := Loadouts["SLS-Block1"]
-	near(t, "Thrust", l.Thrust(), 41.29e6, 1)
-	near(t, "Isp", l.Isp(), 295.02, 0.01)
+	near(t, "Thrust", l.Thrust(), 39.44e6, 1)
+	near(t, "Isp", l.Isp(), 258.52, 0.01)
 	near(t, "Fuel", l.Fuel(), 1_270_000+979_452, 1e-6)
 	if th, isp := LitEngine(nil); th != 0 || isp != 0 {
 		t.Errorf("LitEngine(nil) = %g, %g, want 0, 0", th, isp)

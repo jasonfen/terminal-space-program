@@ -135,15 +135,16 @@ func padSLS(t *testing.T, weightN float64) (*World, *spacecraft.Spacecraft) {
 }
 
 // #716 reconcile: with the SRBs lit and the core throttled, lift is
-// ΣT_i·θ_i, not (ΣT)·θ_core. Weight 37 MN: core 60% gives 32+5.57 = 37.57 MN
-// and lifts; core 50% gives 36.65 MN and stays seated. The old formula read
-// 41.29·0.6 = 24.8 MN and kept both seated.
+// ΣT_i·θ_i, not (ΣT)·θ_core. Weight 36 MN: core 60% gives 32+4.46 = 36.46 MN
+// and lifts; core 50% gives 35.72 MN and stays seated. The old formula read
+// 39.44·0.6 = 23.7 MN and kept both seated. (ADR 0070: the core's pad thrust is
+// its 4 x 1.86 MN sea-level figure; it was 9.29 MN.)
 func TestPadLiftUsesPerGroupThrust(t *testing.T) {
 	for _, tc := range []struct {
 		core float64
 		lift bool
 	}{{0.6, true}, {0.5, false}} {
-		w, c := padSLS(t, 37e6)
+		w, c := padSLS(t, 36e6)
 		w.SetThrottle(tc.core)
 		w.StartManualBurn()
 		if c.ManualBurn == nil {
@@ -170,8 +171,8 @@ func TestSeatedBurnDebitsPerGroup(t *testing.T) {
 		t.Fatal("setup: should stay seated")
 	}
 	dt := w.Clock.SimTime.Sub(t0).Seconds()
-	litNear(t, "SRB debit", c.Stages[0].FuelCapacity-c.Stages[0].FuelMass, 32.0e6/(268*testG0)*dt, 1)
-	litNear(t, "core debit", c.Stages[1].FuelCapacity-c.Stages[1].FuelMass, 0.5*9.29e6/(452*testG0)*dt, 1)
+	litNear(t, "SRB debit", c.Stages[0].FuelCapacity-c.Stages[0].FuelMass, 32.0e6/(242*testG0)*dt, 1)
+	litNear(t, "core debit", c.Stages[1].FuelCapacity-c.Stages[1].FuelMass, 0.5*7.44e6/(366*testG0)*dt, 1)
 }
 
 // ADR 0058 guard 15.[3] through the integrator: a liquid pair with the

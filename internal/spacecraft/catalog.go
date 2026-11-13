@@ -56,11 +56,19 @@ type Part struct {
 	Description string `json:"description,omitempty"`
 
 	// Physical numbers (units mirror Stage exactly).
-	DryMassKg            float64 `json:"dry_mass_kg"`
-	FuelMassKg           float64 `json:"fuel_mass_kg,omitempty"`
-	FuelCapacityKg       float64 `json:"fuel_capacity_kg,omitempty"`
-	ThrustN              float64 `json:"thrust_n,omitempty"`
-	IspS                 float64 `json:"isp_s,omitempty"`
+	DryMassKg      float64 `json:"dry_mass_kg"`
+	FuelMassKg     float64 `json:"fuel_mass_kg,omitempty"`
+	FuelCapacityKg float64 `json:"fuel_capacity_kg,omitempty"`
+	ThrustN        float64 `json:"thrust_n,omitempty"`
+	IspS           float64 `json:"isp_s,omitempty"`
+	// IspSLS / IspVacS / ThrustAt (ADR 0070): the engine's sea-level and
+	// vacuum Isp, and which one ThrustN is rated at ("sl" or "vac"). A part
+	// that states only isp_s is flat (both equal it). Part.engine fills the
+	// unstated side; ThrustVacN is set only by composePart.
+	IspSLS               float64 `json:"isp_sl_s,omitempty"`
+	IspVacS              float64 `json:"isp_vac_s,omitempty"`
+	ThrustAt             string  `json:"thrust_at,omitempty"`
+	ThrustVacN           float64 `json:"-"`
 	MonopropMassKg       float64 `json:"monoprop_mass_kg,omitempty"`
 	MonopropCapacityKg   float64 `json:"monoprop_capacity_kg,omitempty"`
 	RCSThrustN           float64 `json:"rcs_thrust_n,omitempty"`
@@ -254,12 +262,16 @@ func (w CatalogWarning) Error() string {
 // counterpart and is dropped. The comms attributes (command_source /
 // antenna, ADR 0027) DO ride onto the Stage now (cycle 2 / C2-1).
 func (p Part) ToStage() Stage {
+	tv, sl, vac, isp := p.engine()
 	st := Stage{
 		DryMass:              p.DryMassKg,
 		FuelMass:             p.FuelMassKg,
 		FuelCapacity:         p.FuelCapacityKg,
 		Thrust:               p.ThrustN,
-		Isp:                  p.IspS,
+		Isp:                  isp,
+		ThrustVac:            tv,
+		IspSL:                sl,
+		IspVac:               vac,
 		MonopropMass:         p.MonopropMassKg,
 		MonopropCap:          p.MonopropCapacityKg,
 		RCSThrust:            p.RCSThrustN,

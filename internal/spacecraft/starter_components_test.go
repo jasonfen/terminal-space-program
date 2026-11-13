@@ -127,6 +127,9 @@ func TestProbeSatComposedFromComponents(t *testing.T) {
 		FuelCapacityKg: 1000,
 		ThrustN:        50000,
 		IspS:           320,
+		IspSLS:         176, // the LT-50 component's figures (ADR 0070)
+		IspVacS:        320,
+		ThrustAt:       "vac",
 		FuelType:       FuelTypeKerolox, // derived up from the engine/tank chemistry
 		CommandSource:  CommandProbe,
 		Antenna:        &Antenna{Kind: AntennaDirect, RangeM: 1e7},

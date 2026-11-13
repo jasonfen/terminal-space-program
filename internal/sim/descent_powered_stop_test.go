@@ -578,3 +578,26 @@ func TestMissReadoutSteadyBrakeHasNoJumps(t *testing.T) {
 		t.Errorf("miss: stepped %.1f m in 1 s on a steady brake, want under 25 m", maxStep)
 	}
 }
+
+// ADR 0070: the stop forecast reads the engine where the burn is. A booster
+// falling in from vacuum, whose live Isp and thrust are the vacuum's, still
+// stops later than the same figures held flat, because the low air costs it
+// thrust.
+func TestPoweredStopForecastReadsTheGroundAirNotTheLiveVacuum(t *testing.T) {
+	_, _, b := falcon9Drop(t, 0.2)
+	b.SetAmbient(0)
+	st := physics.StateVector{
+		R: b.State.R.Unit().Scale(b.Primary.RadiusMeters() + 2500),
+		V: b.State.R.Unit().Scale(-200), M: b.TotalMass(),
+	}
+	curve, ok1 := predictPoweredStopFromAt(st, b, DescentPredictHorizon, 1)
+	flat := *b
+	flat.Stages = append([]spacecraft.Stage(nil), b.Stages...)
+	for i := range flat.Stages {
+		flat.Stages[i].IspVac, flat.Stages[i].IspSL, flat.Stages[i].ThrustVac = 0, 0, 0
+	}
+	other, ok2 := predictPoweredStopFromAt(st, &flat, DescentPredictHorizon, 1)
+	if !ok1 || !ok2 || curve.ElapsedSec <= other.ElapsedSec {
+		t.Errorf("stop with the air's thrust %.3f s (ok %v), with the vacuum's held %.3f s (ok %v), want the first longer", curve.ElapsedSec, ok1, other.ElapsedSec, ok2)
+	}
+}

@@ -53,6 +53,7 @@ func wireStagesToSim(wire []Stage) []spacecraft.Stage {
 		// and the docking port derived from it (ADR 0053), come back from
 		// the catalog.
 		out[i].RestoreSprite()
+		out[i].RestoreEngine() // ADR 0070: catalog Isp pair, not saved
 		// Save-compat (ADR 0027 §2 amendment): a pre-amendment save stored the
 		// antenna's legacy power in antenna_power_w (now an ignored key), so
 		// AntennaRangeM loads as 0 even though the antenna kind survives. A real

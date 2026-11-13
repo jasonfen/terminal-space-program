@@ -432,6 +432,8 @@ func TestNewWorldDefaults(t *testing.T) {
 // next representable thrust lifts and stamps.
 func TestLiftoffStampsSimTime(t *testing.T) {
 	w, c := padSaturn(t, 1)
+	// the tick sets the engine for the pad's air (ADR 0070); do it first so the bisection below is what flies
+	c.SetAmbient(physics.PressureRatio(c.Primary, c.Altitude()))
 	// Bisect to adjacent float64s: lo cannot lift, hi can. That is TWR == 1.
 	lo, hi := c.Thrust*0.5, c.Thrust*2
 	for math.Nextafter(lo, hi) < hi {
@@ -560,5 +562,32 @@ func TestDragonFlightRealTimeAtHeldWarp(t *testing.T) {
 		if body == "earth" && minCanopy <= 100 {
 			t.Errorf("earth canopy ran at %.0fx at its slowest between 1.7 km and 600 m, want over 100x", minCanopy)
 		}
+	}
+}
+
+// ADR 0070: a first stage climbing out of the air gains Isp and thrust along a
+// fixed mass flow; the integrator's fuel debit is that flow.
+func TestFirstStageGainsIspAndThrustAsTheAirThins(t *testing.T) {
+	w := mustWorld(t)
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9", ParentBodyID: "earth", Launchpad: true,
+		Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.ActiveCraftIdx = len(w.Crafts) - 1
+	w.Tick()
+	if math.Abs(c.Isp-282) > 1.5 { // the pad's air is 1.009 of Earth's sea level in the density model
+		t.Fatalf("pad Isp = %v, want about 282", c.Isp)
+	}
+	flow := c.Thrust / (c.Isp * 9.80665)
+	c.Stages[0].FuelMass = c.Stages[0].FuelCapacity * 0.5
+	c.State.R = c.State.R.Unit().Scale(c.Primary.RadiusMeters() + 80000) // above the air
+	c.Landed, c.OnPad = false, false
+	w.integrateOneCraft(c, w.Clock.BaseStep)
+	if math.Abs(c.Isp-311) > 0.05 || c.Thrust <= 7607000*1.09 {
+		t.Errorf("above the air: %v s %v N, want 311 s and over 9 percent more thrust than the pad's", c.Isp, c.Thrust)
+	}
+	if got := c.Thrust / (c.Isp * 9.80665); math.Abs(got-flow) > 1e-6*flow {
+		t.Errorf("mass flow %v, want the pad's %v", got, flow)
 	}
 }

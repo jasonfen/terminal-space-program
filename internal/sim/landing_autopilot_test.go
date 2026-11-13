@@ -948,8 +948,8 @@ func TestDragonLandsOnSuperDracos(t *testing.T) {
 	if c.EngineMode != spacecraft.EngineMain {
 		t.Errorf("mode %v after the landing, want main (N does not switch it)", c.EngineMode)
 	}
-	if c.Thrust != 1600 {
-		t.Errorf("thrust %v after the landing, want the Dracos' 1600 back", c.Thrust)
+	if c.Thrust < 860 || c.Thrust > 880 { // the Dracos' 1600 N rated in vacuum, at Earth's sea-level 165 s (ADR 0070)
+		t.Errorf("thrust %v after the landing, want the Dracos back at their sea-level ~880 N", c.Thrust)
 	}
 	// red without the SuperDracos
 	w2, c2, lc := fallWorld(t, "dragon-crew", b)

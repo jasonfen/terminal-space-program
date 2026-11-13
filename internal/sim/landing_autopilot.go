@@ -290,7 +290,8 @@ func (w *World) chuteAimCut(c *spacecraft.Spacecraft, f apFrame, in time.Duratio
 	// the law slows to the contact speed, so the burn runs mean speed is (v+2)/2, so the
 	// burn lasts 2v/(v+2) times the lead
 	v := math.Max(-f.vz, OneBurnContactMps)
-	afford := ChuteAimFuelFrac * c.Isp * stdGravityMps2 * c.ActiveStageFuel() / (c.TotalMass() * f.g) * (v + OneBurnContactMps) / (2 * v)
+	_, ispGround := c.EngineAt(physics.PressureRatio(c.Primary, 0)) // ADR 0070: the aim burn runs low
+	afford := ChuteAimFuelFrac * ispGround * stdGravityMps2 * c.ActiveStageFuel() / (c.TotalMass() * f.g) * (v + OneBurnContactMps) / (2 * v)
 	return need <= afford && in <= time.Duration(need*float64(time.Second))
 }
 

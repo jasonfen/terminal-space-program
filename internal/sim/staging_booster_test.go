@@ -310,3 +310,18 @@ func TestDroppedStageTakesCommandsAndN(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0070: a half carries half the catalog thrust, so its engine still reads
+// the half thrust after the next tick sets it for the air.
+func TestBoosterHalvesHalveTheCatalogThrust(t *testing.T) {
+	_, c := slsWorld(t)
+	full := c.Stages[0]
+	half := splitBoosterStage(full)[0]
+	if full.ThrustVac <= 0 || half.ThrustVac != full.ThrustVac/2 {
+		t.Fatalf("half ThrustVac = %v, want %v", half.ThrustVac, full.ThrustVac/2)
+	}
+	half.SetAmbient(0)
+	if want := full.ThrustVac / 2; math.Abs(half.Thrust-want) > 1e-6*want {
+		t.Errorf("half in vacuum thrusts %v, want %v", half.Thrust, want)
+	}
+}

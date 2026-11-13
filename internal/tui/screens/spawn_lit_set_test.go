@@ -17,11 +17,11 @@ func TestSpawnFormReadsTheLitSet(t *testing.T) {
 	s.Reset([]bodies.CelestialBody{superEarthLike()}, "superearth", nil, "", "", nil)
 	s.loadoutIdx = loadoutIndex(t, s, "SLS-Block1")
 	if !s.launchpadAllowed() {
-		t.Error("launchpadAllowed false: SLS lit set 41.29 MN lifts 2.56 Mt on g=13; the gate read the SRBs alone")
+		t.Error("launchpadAllowed false: SLS lit set 39.44 MN lifts 2.56 Mt on g=13; the gate read the SRBs alone")
 	}
 	stages := spacecraft.Loadouts["SLS-Block1"].Stages
 	rows := layoutCatalog([]catalogRow{{name: "SLS", stages: stages}}, 0)
-	if len(rows) != 1 || !strings.Contains(rows[0].head, "41290kN @ Isp 295s") {
-		t.Errorf("grid row head = %q, want 41290kN @ Isp 295s", rows[0].head)
+	if len(rows) != 1 || !strings.Contains(rows[0].head, "39440kN @ Isp 259s") {
+		t.Errorf("grid row head = %q, want 39440kN @ Isp 259s", rows[0].head)
 	}
 }
