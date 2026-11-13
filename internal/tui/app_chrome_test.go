@@ -102,7 +102,7 @@ func TestFormScreensWearTheSharedTitleRow(t *testing.T) {
 			if !strings.Contains(row, tc.want) {
 				t.Errorf("%s %dx%d: row 0 %q missing screen name %q", tc.name, sz[0], sz[1], row, tc.want)
 			}
-			if !strings.Contains(row, "T+") || !strings.Contains(row, "warp") {
+			if !clockDateRe.MatchString(row) || !strings.Contains(row, "warp") {
 				t.Errorf("%s %dx%d: row 0 %q has no clock/warp", tc.name, sz[0], sz[1], row)
 			}
 			if !strings.Contains(row, "[Back]") {
@@ -127,11 +127,11 @@ func TestTitleRowClockStaysInOneColumn(t *testing.T) {
 	a := newChromeApp(t, 140, 40)
 	fromRight := func() int {
 		row := []rune(firstRow(a))
-		idx := strings.Index(string(row), "T+")
-		if idx < 0 {
+		loc := clockDateRe.FindStringIndex(string(row))
+		if loc == nil {
 			t.Fatalf("no clock in %q", string(row))
 		}
-		return a.width - len([]rune(string(row)[:idx]))
+		return a.width - len([]rune(string(row)[:loc[0]]))
 	}
 	mapDist := fromRight()
 	a.active = screenSettings

@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var simDateRE = regexp.MustCompile(`T\+(\d{4}-\d{2}-\d{2})`)
+var simDateRE = regexp.MustCompile(`(\d{4}-\d{2}-\d{2})  (?:T\+\S+ +)?warp`) // the title row clock: date, optional T+, warp
 
 func lastSimDate(out string) string {
 	m := simDateRE.FindAllStringSubmatch(stripANSI(out), -1)

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -87,6 +88,9 @@ func TestTitleRowNeverExceedsTheTerminalWidth(t *testing.T) {
 	}
 }
 
+// clockDateRe finds the title row's clock, which starts with the sim date.
+var clockDateRe = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
+
 // The clock must sit in the same column on every screen, overflowing left
 // field or not.
 func TestTitleRowClockColumnIsFixedOnEveryScreen(t *testing.T) {
@@ -96,12 +100,12 @@ func TestTitleRowClockColumnIsFixedOnEveryScreen(t *testing.T) {
 			a := newChromeApp(t, sz[0], sz[1])
 			tc.set(a)
 			row := firstRow(a)
-			idx := strings.Index(row, "T+")
-			if idx < 0 {
+			idx := clockDateRe.FindStringIndex(row) // the clock starts at the sim date
+			if idx == nil {
 				t.Errorf("%s %dx%d: no clock in %q", tc.name, sz[0], sz[1], row)
 				continue
 			}
-			col := lipgloss.Width(row[:idx])
+			col := lipgloss.Width(row[:idx[0]])
 			if want < 0 {
 				want = col
 			} else if col != want {

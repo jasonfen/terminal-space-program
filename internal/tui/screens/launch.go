@@ -1621,7 +1621,9 @@ func (v *LaunchView) composeHUDLine(w *sim.World, c *spacecraft.Spacecraft) stri
 		return v.theme.Primary.Render("[b] ignite · [space] stage · [z/x] throttle")
 	}
 	tPlus := time.Duration(0)
-	if w.LaunchSessionActive && !w.LaunchT0.IsZero() {
+	if met, ok := w.MissionElapsed(); ok { // since liftoff, not since the view opened
+		tPlus = met
+	} else if w.LaunchSessionActive && !w.LaunchT0.IsZero() {
 		tPlus = w.Clock.SimTime.Sub(w.LaunchT0)
 	}
 	downrange := -1.0 // no launch site: formatLaunchHUD omits the field (#611)

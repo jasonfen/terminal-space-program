@@ -307,3 +307,14 @@ func (w *World) routeToLaunchView() {
 	w.LaunchTrail = w.LaunchTrail[:0]
 	w.LaunchZoom = 0
 }
+
+// MissionElapsed is the active vessel's time since its liftoff (T+), which a
+// dropped stage inherits from the vessel it left. ok=false for a vessel that
+// never lifted off (spawned in orbit, or still on the pad).
+func (w *World) MissionElapsed() (time.Duration, bool) {
+	c := w.ActiveCraft()
+	if c == nil || c.LiftoffSimTime.IsZero() {
+		return 0, false
+	}
+	return w.Clock.SimTime.Sub(c.LiftoffSimTime), true
+}

@@ -3,6 +3,7 @@ package screens
 import (
 	"fmt"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/jasonfen/terminal-space-program/internal/recorder"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -73,13 +74,20 @@ type titleLayout struct {
 // measured with lipgloss.Width, never rune counts (» and ■ are
 // ambiguous-width). Below the Design Size the row clips from the right
 // (ADR 0046 decision 3): the pad never goes under one cell.
+// metFieldWidth holds T+ up to 9d23:59:59.
+const metFieldWidth = len("T+9d23:59:59")
+
 func renderTitleRow(th Theme, sp titleSpec, cols int) titleLayout {
 	const gap = "  "
 	const clockGap = "    "
 
 	clockPlain, clockRendered := "", ""
 	if sp.w != nil {
-		datePlain := "T+" + sp.w.Clock.SimTime.Format("2006-01-02") + "  "
+		datePlain := sp.w.Clock.SimTime.Format("2006-01-02") + "  "
+		if met, ok := sp.w.MissionElapsed(); ok { // mission elapsed time since the active vessel's liftoff
+			f := "T+" + recorder.TPlus(met)
+			datePlain += f + strings.Repeat(" ", max(0, metFieldWidth-len(f))) + "  " // fixed width: warp and buttons hold still as it counts (#499)
+		}
 		if sp.w.Clock.Paused {
 			// Paused: the warp you will resume at, then PAUSED, inside the
 			// same fixed-width field so the clock never changes column.
