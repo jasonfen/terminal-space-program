@@ -185,12 +185,18 @@ type World struct {
 	impactCache impactCache
 	// apRT: the landing autopilot's transient per-vessel cue cache (ADR 0067);
 	// lastSimDelta is the sim step of the tick in progress, for its light test.
-	apRT         map[uint64]*apRuntime
-	recRT        map[uint64]*recoveryRuntime // the cutoff solver's per-vessel state (recovery.go)
-	recoverySolves int                       // reserve solves actually run, for the count test
-	navErrorOff  bool // test seam: no computer's-site error, so geometry guards read the site itself
-	lastSimDelta time.Duration
-	impactSolves int // forecasts actually run, for the hit-count test
+	apRT            map[uint64]*apRuntime
+	recRT           map[uint64]*recoveryRuntime // the cutoff solver's per-vessel state (recovery.go)
+	recoverySolves  int                         // reserve solves actually run, for the count test
+	aimEvals        int                         // aimOffset flights run, for the cost test (R5)
+	shortfalls      map[shortfallKey]error      // refused N presses already searched (deorbit.go)
+	skipShortfall   bool                        // set while the drop presses N: no need search
+	boostRising     bool                        // the cutoff's aim has needed the full scan: windowed solves (deorbit.go)
+	boostRisingSeen bool                        // set by a solve that fell through to it
+	boostWarmDV     float64                     // the cutoff's last root, the next solve's start (0: cold); recovery.go
+	navErrorOff     bool                        // test seam: no computer's-site error, so geometry guards read the site itself
+	lastSimDelta    time.Duration
+	impactSolves    int // forecasts actually run, for the hit-count test
 
 	// planChain memoises the HUD's chained node walk (plan_chain.go).
 	planChain planChainCache
@@ -2258,7 +2264,7 @@ func (w *World) integrateOneCraftOn(c *spacecraft.Spacecraft, simDelta time.Dura
 		// point inverse projection has access to the live sim clock.
 		if clamped, hit := physics.ClampToSurface(c.State, c.Primary); hit {
 			outcome, lat, lon := classifySurfaceArrival(c, c.State.R, c.State.V, clock.Add(stepDur)) // contact is at the END of this sub-step
-			impactMS := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary).Norm() // vs the ground, not the spin
+			impactMS := physics.AirRelativeVelocity(c.State.R, c.State.V, c.Primary).Norm()          // vs the ground, not the spin
 			w.applySurfaceArrival(c, clamped, outcome, lat, lon)
 			w.recordSurface(c, impactMS, lat, lon)
 			// The Landed/Crashed early returns above skip the burn

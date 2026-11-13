@@ -138,7 +138,7 @@ type SpawnCraft struct {
 	// the player's choices by stage index (absent = the default); recCur is the
 	// focused stage group; recEditing / recInput / recLeftBox are the ship-distance
 	// box, as ALTITUDE's.
-	recoverLZ  func(parentID string, latDeg, lonDeg float64) (string, bool)
+	recoverLZ  func(parentID string, latDeg, lonDeg float64, need int) (string, bool)
 	recoverSet map[int]spacecraft.RecoverPick
 	recCur     int
 	recEditing bool

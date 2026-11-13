@@ -67,7 +67,9 @@ func RecoverableStages(stages []spacecraft.Stage) []int {
 // RecoveryLZNear is the LZ site the pad's `LZ` choice means: the nearest site
 // (yours or a shipped zone, never a wreck) on the body within RecoveryLZMaxM of
 // the pad. ok is false when there is none, and the row then offers ship and none.
-func (w *World) RecoveryLZNear(bodyID string, latDeg, lonDeg float64) (Site, bool) {
+// need is how many LZs of that site must be free (one per half of a booster pair,
+// 0 for the site whether or not it has room): a full site is not an LZ choice (R2).
+func (w *World) RecoveryLZNear(bodyID string, latDeg, lonDeg float64, need int) (Site, bool) {
 	sys := w.System()
 	b := sys.FindBody(bodyID)
 	if b == nil {
@@ -82,7 +84,17 @@ func (w *World) RecoveryLZNear(bodyID string, latDeg, lonDeg float64) (Site, boo
 			best, bestD = s, d
 		}
 	}
-	return best, best.ID != 0
+	return best, best.ID != 0 && w.freeLZs(best) >= need
+}
+
+// freeLZs counts the LZs of s nobody holds.
+func (w *World) freeLZs(s Site) (free int) {
+	for n := 1; n <= s.LZs(); n++ {
+		if !w.lzTaken(s, n, nil) {
+			free++
+		}
+	}
+	return free
 }
 
 // applyRecovery stamps the pad's choices on the stages of a freshly spawned
@@ -91,6 +103,7 @@ func (w *World) RecoveryLZNear(bodyID string, latDeg, lonDeg float64) (Site, boo
 // with no site near the pad, is dropped (recovery none).
 func (w *World) applyRecovery(c *spacecraft.Spacecraft, picks []RecoverPick, latDeg, lonDeg float64) {
 	elig := RecoverableStages(c.Stages)
+	claimed := map[uint64]int{} // LZs the earlier stages of this vessel already count on, per site
 	for _, i := range elig {
 		if i >= len(picks) {
 			break
@@ -98,21 +111,32 @@ func (w *World) applyRecovery(c *spacecraft.Spacecraft, picks []RecoverPick, lat
 		st := &c.Stages[i]
 		switch p := picks[i]; p.Mode {
 		case spacecraft.RecoverLZ:
-			if s, ok := w.RecoveryLZNear(c.Primary.ID, latDeg, lonDeg); ok {
+			halves := StageHalves(*st)
+			if s, ok := w.RecoveryLZNear(c.Primary.ID, latDeg, lonDeg, halves); ok && w.freeLZs(s) >= claimed[s.ID]+halves {
 				st.RecoverMode, st.RecoverSiteID = spacecraft.RecoverLZ, s.ID
+				claimed[s.ID] += halves
 			}
 		case spacecraft.RecoverShip:
 			if p.ShipKm > 0 {
-				st.RecoverMode, st.RecoverSiteID = spacecraft.RecoverShip, w.stationShip(c, latDeg, lonDeg, math.Min(p.ShipKm, RecoveryShipMaxKm))
+				st.RecoverMode, st.RecoverSiteID = spacecraft.RecoverShip, w.stationShip(c, latDeg, lonDeg, math.Min(p.ShipKm, RecoveryShipMaxKm), StageHalves(*st))
 			}
 		}
 	}
 }
 
+// StageHalves is how many vessels a stage drops as: two for a booster pair.
+func StageHalves(st spacecraft.Stage) int {
+	if st.LitWithAbove {
+		return 2
+	}
+	return 1
+}
+
 // stationShip creates a drone ship km downrange of the pad along the launch
 // heading (due east, the way the pad's ascent goes) as a site with one LZ, named
-// "Drone Ship" and numbered on repeat. It does not move (decision 13).
-func (w *World) stationShip(c *spacecraft.Spacecraft, latDeg, lonDeg, km float64) uint64 {
+// "Drone Ship" and numbered on repeat. It does not move (decision 13). A ship for
+// a booster pair has an LZ per half (R1).
+func (w *World) stationShip(c *spacecraft.Spacecraft, latDeg, lonDeg, km float64, lzs int) uint64 {
 	lat, lon := downrangePoint(latDeg, lonDeg, 90, km*1e3, c.Primary.RadiusMeters())
 	base := "Drone Ship"
 	if w.NameCounters == nil {
@@ -132,7 +156,7 @@ func (w *World) stationShip(c *spacecraft.Spacecraft, latDeg, lonDeg, km float64
 	now := time.Now().UnixNano()
 	w.Sites = append(w.Sites, Site{
 		ID: w.NextSiteID, Body: c.Primary.EnglishName, System: sys.Name,
-		LatDeg: lat, LonDeg: lon, Kind: SitePoint, Name: name, CraftID: c.ID,
+		LatDeg: lat, LonDeg: lon, Kind: SitePoint, Name: name, CraftID: c.ID, LZCount: lzs,
 		PlantedAtNano: now, UpdatedAtNano: now,
 	})
 	return w.NextSiteID
@@ -192,6 +216,8 @@ func (w *World) flyHome(b *spacecraft.Spacecraft) {
 		return
 	}
 	w.RecomputeCommGraph() // the stage is a new vessel: its link is part of N's refusals
+	w.skipShortfall = true // R6: the drop's refusal is the plain one; N on the stage gives the figure
+	defer func() { w.skipShortfall = false }()
 	w.asVessel(b, func() {
 		w.SetTargetSite(st.RecoverSiteID)
 		if _, err := w.PlanDeorbitAndEngage(); err != nil {
@@ -211,6 +237,8 @@ type recoveryRuntime struct {
 	havePrev     bool
 	rate         float64 // kg of slack lost per second, measured between solves
 	haveCut      bool    // a closing plan has been solved: the cutoff can be predicted
+	warmDV       float64 // the last closing plan's burn size: the next solve starts there
+	rising       bool    // the aim needed the full scan (a ship): the next solves window it
 }
 
 func (w *World) recoveryRTFor(c *spacecraft.Spacecraft) *recoveryRuntime {
@@ -260,7 +288,7 @@ func recoveryTooHeavy(b *spacecraft.Spacecraft) bool {
 // now with fuel in its tank: decision 14's boostback solve, run on a copy.
 // slack is the propellant the plan leaves above the landing margin; err says why
 // no plan closes. It plants nothing and does not run the shortfall search.
-func (w *World) recoverySlack(c *spacecraft.Spacecraft, fuel float64) (slack float64, err error) {
+func (w *World) recoverySlack(c *spacecraft.Spacecraft, fuel, warm float64, rising bool) (slack, dv float64, risen bool, err error) {
 	st := c.Stages[0]
 	st.FuelMass = fuel
 	if st.LitWithAbove { // a pair drops as two halves; one half has the same need
@@ -268,11 +296,11 @@ func (w *World) recoverySlack(c *spacecraft.Spacecraft, fuel float64) (slack flo
 	}
 	site, ok := w.siteByID(st.RecoverSiteID)
 	if !ok {
-		return 0, ErrDeorbitNoSite
+		return 0, 0, rising, ErrDeorbitNoSite
 	}
 	b := buildJettisonedCraft([]spacecraft.Stage{st}, c)
 	if recoveryTooHeavy(b) {
-		return 0, errRecoveryHeavy
+		return 0, 0, rising, errRecoveryHeavy
 	}
 	w.recoverySolves++ // the solve itself, not the weight test
 	b.State = c.State
@@ -282,15 +310,18 @@ func (w *World) recoverySlack(c *spacecraft.Spacecraft, fuel float64) (slack flo
 	tS := w.Clock.SimTime.Add(time.Duration(lead * float64(time.Second)))
 	st0, ok := physics.KeplerStep(b.State, mu, lead)
 	if !ok {
-		return 0, ErrBoostbackNoSolution
+		return 0, 0, rising, ErrBoostbackNoSolution
 	}
 	st0.M = b.TotalMass()
 	lat, lon := site.lzLatLon(1, b.Primary.RadiusMeters())
+	w.boostWarmDV, w.boostRising, w.boostRisingSeen = warm, rising, false
 	sol, err := w.solveBoostback(b, st0, tS, [2]float64{lat, lon})
+	risen = rising || w.boostRisingSeen
+	w.boostWarmDV, w.boostRising, w.boostRisingSeen = 0, false, false
 	if err != nil {
-		return 0, err
+		return 0, 0, risen, err
 	}
-	return sol.off.fuelLeft - BoostbackFuelMarginKg, nil
+	return sol.off.fuelLeft - BoostbackFuelMarginKg, sol.dv, risen, nil
 }
 
 // recoveryCutoff is decision 15, run once a tick on every vessel: while the
@@ -307,20 +338,25 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 	if st.FuelMass <= 0 || st.Thrust <= 0 || st.Isp <= 0 || (len(c.DecouplePlan) > 0 && c.DecouplePlan[0] > 1) {
 		return
 	}
+	if site, ok := w.siteByID(st.RecoverSiteID); ok && w.freeLZs(site) < StageHalves(*st) {
+		return // R2: the LZs filled since the pad; a held reserve would buy a refused drop
+	}
 	rt := w.recoveryRTFor(c)
 	now := w.Clock.SimTime
-	near := func() bool { // the line says the reserve is reached within this tick plus the lead
+	tickWarp := float64(simDelta) / float64(w.Clock.BaseStep) // sim seconds per real second at this tick's warp
+	near := func() bool {                                     // the line says the reserve is reached within this tick plus the lead
 		ahead := now.Sub(rt.at).Seconds() + simDelta.Seconds() + RecoveryCutLeadS
 		return rt.haveCut && rt.rate > 0 && rt.slack-rt.rate*ahead <= RecoveryPadKg
 	}
 	if !now.Before(rt.nextSolve) {
-		slack, err := w.recoverySlack(c, st.FuelMass)
+		slack, dv, rising, err := w.recoverySlack(c, st.FuelMass, rt.warmDV, rt.rising)
+		rt.rising = rising
 		switch {
 		case err == nil:
 			if rt.haveCut {
 				rt.prevSlack, rt.prevAt, rt.havePrev = rt.slack, rt.at, true
 			}
-			rt.slack, rt.at, rt.seenFeasible, rt.haveCut = slack, now, true, true
+			rt.slack, rt.at, rt.seenFeasible, rt.haveCut, rt.warmDV = slack, now, true, true, dv
 			if rt.havePrev && now.After(rt.prevAt) {
 				rt.rate = (rt.prevSlack - slack) / now.Sub(rt.prevAt).Seconds()
 			}
@@ -337,6 +373,10 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 			if rt.rate > 0 {
 				dt = math.Min(recoveryMaxSec, math.Max(recoveryMinSec*slow, 0.4*slack/rt.rate))
 			}
+			// the schedule is sim time, a solve stalls the tick in real time: at 10x
+			// the same gap came ten times as often (R5). One per real second at most,
+			// a tick being BaseStep of real time.
+			dt = math.Max(dt, recoveryMinSec*tickWarp)
 			rt.nextSolve = now.Add(time.Duration(dt * float64(time.Second)))
 		case rt.seenFeasible:
 			// a plan closed before and none does now: the reserve was passed between
@@ -346,7 +386,7 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 		case errors.Is(err, errRecoveryHeavy):
 			rt.nextSolve = now.Add(time.Duration(recoveryHeavySec * float64(time.Second)))
 		default:
-			rt.nextSolve = now.Add(time.Duration(recoveryRetrySec * float64(time.Second)))
+			rt.nextSolve = now.Add(time.Duration(math.Max(recoveryRetrySec, recoveryMinSec*tickWarp) * float64(time.Second)))
 		}
 	}
 	if near() {

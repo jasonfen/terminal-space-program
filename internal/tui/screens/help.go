@@ -223,6 +223,7 @@ var helpSections = []helpSection{
 		{"0-9 / backspace", "in the box: type / erase the number (INCLINATION also takes one decimal point)"},
 		{"recover:", "pad spawn: where each droppable stage flies home from the drop; ← / → LZ, ship or none, space the next stage"},
 		{"recover: ship", "enter types its km downrange, due east of the pad; a stage with a place set cuts off at its landing reserve"},
+		{"recover: heavy", "Falcon Heavy: run the core at 50 to 70 % until BECO, or no boostback closes"},
 		{"esc", "leave the form without spawning anything"},
 		{"f", "show every system's vessels / only this system's"},
 		{"a / x / d", "Custom stack: add the picked module / remove the top stage / cycle the dock seam (nose payload)"},
