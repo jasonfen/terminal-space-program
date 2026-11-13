@@ -53,6 +53,12 @@ const (
 	// gravity-loss hover on the landing throttle that runs the tank dry
 	// (measured: lit 76 km up, crash at 100 m/s).
 	BoostbackMaxCueAltM = 20e3
+	// BoostbackFuelMarginKg: the propellant the stop forecast must leave. The
+	// forecast stops at the ground on a constant 0.9 of the landing throttle, the
+	// flown law steers and lets down to 2 m/s, and ends 0.9 t to 1.2 t lighter in
+	// the tank than the forecast (measured, 11 to 16 % kept); 1.5 t leaves 0.3 t to
+	// 0.6 t of spare after that.
+	BoostbackFuelMarginKg = 1500.0
 	// The entry burn (ADR 0069 decision 14, amended): three engines of nine,
 	// lit as the fall passes EntryAltM, sized to the smallest burn that leaves
 	// the landing burn lighting under EntryTargetCueAltM.
@@ -189,8 +195,9 @@ type DeorbitPlan struct {
 	// how long after the boostback ends it starts.
 	EntryDV, EntryAltM float64
 	EntryIn            time.Duration
-	// CueAltM: the height the landing burn after a boostback lights.
-	CueAltM float64
+	// CueAltM: the height the landing burn after a boostback lights; FuelLeftKg
+	// the propellant the forecast leaves at touchdown.
+	CueAltM, FuelLeftKg float64
 }
 
 // canBrakeAtSite: an engine that, at the brake throttle, out-thrusts gravity at
@@ -325,8 +332,9 @@ func afterBurnCraft(c *spacecraft.Spacecraft, s physics.StateVector) *spacecraft
 type stopForecast struct {
 	R     orbital.Vec3
 	After time.Duration
-	// CueAltM is the height the brake lights at.
-	CueAltM float64
+	// CueAltM is the height the brake lights at; FuelLeftKg the propellant the
+	// stop leaves (the tank at the cue less what the stop's Δv burns).
+	CueAltM, FuelLeftKg float64
 }
 
 // stopPointFor lights a 90 % retrograde brake at the latest instant that still
@@ -355,6 +363,7 @@ func stopPointForOn(v *spacecraft.Spacecraft, horizon time.Duration) (sf stopFor
 	if hasCue {
 		sf.CueAltM = cue.AltitudeM
 	}
+	sf.FuelLeftKg = v.ActiveStageFuel() - v.TotalMass()*(1-math.Exp(-pred.DVUsedMps/(v.Isp*stdGravityMps2)))
 	return sf, true, true
 }
 
@@ -379,6 +388,7 @@ type deorbitOffset struct {
 	long, cross float64
 	valid       bool
 	cueAlt      float64
+	fuelLeft    float64 // the stop forecast's propellant at the stop
 }
 
 // aimOffset flies the burn dv/tilt from st0 (at tS) and reads where the aim
@@ -411,8 +421,8 @@ func (w *World) aimOffset(c *spacecraft.Spacecraft, st0 physics.StateVector, tS 
 		case !ok:
 			return off, -1
 		}
-		off.cueAlt = sf.CueAltM
-		if boost == boostAimLand && sf.CueAltM > BoostbackMaxCueAltM {
+		off.cueAlt, off.fuelLeft = sf.CueAltM, sf.FuelLeftKg
+		if boost == boostAimLand && (sf.CueAltM > BoostbackMaxCueAltM || sf.FuelLeftKg < BoostbackFuelMarginKg) {
 			return off, -2
 		}
 		aim, tAim = sf.R, tEnd.Add(sf.After)
@@ -431,7 +441,7 @@ func (w *World) aimOffset(c *spacecraft.Spacecraft, st0 physics.StateVector, tS 
 		// (site and aim swapped: short of the site reads positive, as more burn
 		// brings the aim in)
 		l, x, ok := ImpactOffsetM(oLat, oLon, site[0], site[1], aLat, aLon, radius)
-		return deorbitOffset{long: l, cross: x, valid: ok, cueAlt: off.cueAlt}, 0
+		return deorbitOffset{long: l, cross: x, valid: ok, cueAlt: off.cueAlt, fuelLeft: off.fuelLeft}, 0
 	}
 	l, x, ok := ImpactOffsetM(oLat, oLon, aLat, aLon, site[0], site[1], radius)
 	return deorbitOffset{long: l, cross: x, valid: ok}, 0
@@ -1000,7 +1010,7 @@ func (w *World) planBoostback(c *spacecraft.Spacecraft, lat, lon float64, name s
 	w.PlanNode(n)
 	plan := &DeorbitPlan{
 		Site: name, DV: dv, In: tS.Sub(now), LongM: off.long, CrossM: off.cross,
-		TiltDeg: tilt / rad, Boostback: true, CueAltM: off.cueAlt,
+		TiltDeg: tilt / rad, Boostback: true, CueAltM: off.cueAlt, FuelLeftKg: off.fuelLeft,
 	}
 	if entry.dv > 0 {
 		s, dur := burnState(c, st0, mu, dv, n)

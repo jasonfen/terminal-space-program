@@ -83,6 +83,8 @@ type apRuntime struct {
 	nextCheck  time.Time
 	outOfReach bool    // the last brake tick saturated: remembered for the event
 	cueErrM    float64 // a chute worked to the light: how far the cue's stop lands from the aim
+	cueAltM    float64 // the height of the cue, and the speed down there, for the aim allowance
+	cueDownMps float64
 	// navSite is the site key the computer's-site error was drawn for (transient:
 	// a reload keeps the saved offset).
 	navSite  uint64
@@ -228,6 +230,8 @@ func (w *World) landingCueInOn(c *spacecraft.Spacecraft) (in time.Duration, grou
 			if oneBurn(c) {
 				rt.cueErrM = w.cueStopErrM(c, cue)
 			}
+			rt.cueAltM = cue.AltitudeM
+			rt.cueDownMps = -physics.AirRelativeVelocity(cue.State.R, cue.State.V, c.Primary).Dot(cue.State.R.Unit())
 			wait := cue.InSec / 4
 			switch {
 			case cue.InSec < apCueNearSec:
@@ -275,8 +279,11 @@ func (w *World) chuteAimCut(c *spacecraft.Spacecraft, f apFrame, in time.Duratio
 		// = 2 h / (v + 2) at the cue (the aim is dropped under 3 s). A booster
 		// lights kilometres up and has it; a Dragon falling at its terminal
 		// speed lights 120 m up with 2 s, so it lights `need` early instead
-		hCue := math.Max(f.alt+f.vz*in.Seconds(), 0)
-		if 2*hCue/(math.Max(-f.vz, OneBurnContactMps)+OneBurnContactMps) >= need {
+		// (the cue's own height and speed: a booster falling from 30 km is faster
+		// now than at the cue, and the current speed read 20 s early and 1.4 t of
+		// propellant over the plan)
+		rt := w.apRuntimeFor(c)
+		if 2*rt.cueAltM/(math.Max(rt.cueDownMps, OneBurnContactMps)+OneBurnContactMps) >= need {
 			return false
 		}
 	}
