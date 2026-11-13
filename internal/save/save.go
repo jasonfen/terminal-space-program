@@ -149,7 +149,17 @@ import (
 // Craft.lz_claim: a site's LZs, the LZ chosen on the t card and the LZ a vessel
 // holds. All additive: a v23 save reads one LZ, auto and no claim, so there is
 // no transform and no migrate function.
-const SchemaVersion = 24
+//
+// ADR 0069 S11 bumps to v25 - Stage.recover_mode / recover_site_id (the pad's
+// `recover:` choice per stage), held_kg (the reserve held at cutoff),
+// booster_half (a split booster's mark, so a reload does not infer it from the
+// thrust) and thrust_vac / isp_sl / isp_vac (ADR 0070's engine figures for a
+// stage the catalog does not name). All additive and omitempty: a v24 save
+// reads every stage as recovery none, nothing held, no half mark (the thrust
+// rule still finds a half) and the catalog's Isp pair, so there is no transform
+// and no migrate function; the bump makes a v24 binary refuse a v25 envelope
+// instead of dropping a stage's recovery.
+const SchemaVersion = 25
 
 // LandingWire is spacecraft.LandingAutopilot on the wire (schema v22). Only
 // state that cannot be re-derived is saved: the brake's pitch-up, track plane
@@ -554,6 +564,21 @@ type Stage struct {
 	// the SuperDraco engine of a Dragon. Absent = none.
 	SuperThrust float64 `json:"super_thrust,omitempty"`
 	SuperIsp    float64 `json:"super_isp,omitempty"`
+
+	// RecoverMode / RecoverSiteID / HeldKg / BoosterHalf (ADR 0069 decisions 11,
+	// 12, 15, schema 25): the pad's recovery choice for this stage, the reserve
+	// held at cutoff, and the booster-half mark. Absent = none / 0 / false.
+	RecoverMode   int     `json:"recover_mode,omitempty"`
+	RecoverSiteID uint64  `json:"recover_site_id,omitempty"`
+	HeldKg        float64 `json:"held_kg,omitempty"`
+	BoosterHalf   bool    `json:"booster_half,omitempty"`
+
+	// ThrustVac / IspSL / IspVac (ADR 0070, schema 25): the engine's catalog
+	// figures, so a stage the catalog does not name (a VAB-built one) keeps its
+	// Isp curve across a reload. Absent = flat, or looked up by RestoreEngine.
+	ThrustVac float64 `json:"thrust_vac,omitempty"`
+	IspSL     float64 `json:"isp_sl,omitempty"`
+	IspVac    float64 `json:"isp_vac,omitempty"`
 }
 
 // PortWire mirrors spacecraft.PartPort on the wire.

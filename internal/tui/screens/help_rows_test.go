@@ -85,6 +85,9 @@ func helpPhraseRows() []helpPhrase {
 		{name: "glossary names raise / lower", section: "READOUT GLOSSARY", token: "raise / lower", has: []string{"node row", "T-", "RAISE"}},
 		{name: "glossary names COVERAGE", section: "READOUT GLOSSARY", token: "COVERAGE", has: []string{"covered", "gap in", "gap now", "no gap this lap", "relays at that body", "tinted green"}},
 		{name: "glossary boosters / core names the PROPELLANT row", section: "READOUT GLOSSARY", token: "boosters / core", has: []string{"PROPELLANT's fuel row"}},
+		{name: "glossary names MECO / BECO", section: "READOUT GLOSSARY", token: "MECO / BECO", has: []string{"recovery place", "landing reserve", "core", "side boosters", "T-", "space still drops it", "none burns to dry"}},
+		{name: "spawn form names the recover row", section: "SPAWN FORM (n)", token: "recover:", has: []string{"flies home", "LZ, ship or none", "next stage"}},
+		{name: "spawn form names the ship distance", section: "SPAWN FORM (n)", token: "recover: ship", has: []string{"km downrange", "due east", "landing reserve"}},
 		{name: "E ends a crashed flight", token: "E", anyFold: []string{"end flight", "crashed"}},
 		// ADR 0051: F2 hides all eight boxes and the navball.
 		{name: "F2 declutter", token: "F2", has: []string{"instrument boxes", "navball", "Centerline scope", "OVERHEAD inset", "ENGINE", "PROPELLANT"}, not: []string{"core column", "chips"}},
@@ -299,7 +302,7 @@ func TestHelpGlossarySection(t *testing.T) {
 		if s.header != "READOUT GLOSSARY" {
 			continue
 		}
-		const want = 36
+		const want = 37
 		if len(s.rows) != want {
 			t.Errorf("READOUT GLOSSARY has %d rows, want exactly %d", len(s.rows), want)
 		}

@@ -492,6 +492,7 @@ overlay carries, so you can look one up without leaving the game.
 | `COVERAGE` | The notice for the site or landed vessel you aimed at, or for the lunar coverage rung: `covered`, the hours of the lap its ground is linked, then the next gap (`gap in` / `gap now` with the time left / `no gap this lap`) and how many relays at that body it counts. The body is tinted green where the ground is linked this instant (`F3` `c` switches it off). Gone when the target clears or the rung passes |
 | `ground / miss / lpd` | TARGET against a site, a landed vessel or a landed ghost on your primary, while you fly. `ground:` the distance over the surface; `bearing:` true bearing to it from your sub-point (a dash when you are over it). Once your path meets the ground, or a deorbit burn is planted (`N`): `miss:` where you would stop along your track for a vessel that can brake (`+` is long, past the site; `−` is short of it), or where the impact lands for one that cannot; `cross:` how far to the side (`L` or `R`), tagged `(plan)` until the burn is flown; `lpd:` the look-down angle to it from your forward line, the perpendicular to the nose. `range:` stays the straight-line distance |
 | `boosters / core` | ENGINE's badge and throttle label, PROPELLANT's fuel row: boosters are the stage lit together with the stage above it, core is that stage above. The badge carries the group's burn clock (`T-` to its burnout, `DRY` once empty, with its throttle if liquid); the throttle label reads `core:` or `boosters:` for the throttle `c` selected |
+| `MECO` / `BECO` | ENGINE's badge where `DRY` reads on a stage with a recovery place: its engines cut off by themselves with the landing reserve left, `MECO` for the core, `BECO` for side boosters; `T-` counts to the cutoff and `space` still drops it. Recovery none burns to dry |
 | `◉ ● ○ ◇` | STAGES pips, bottom stage first: `◉` lit (burns next; every stage of a booster group is lit), `●` fuelled and waiting, `○` spent, `◇` no tank (a pod or payload) |
 | `speed` | Speed in the navball frame, named (surface) / (orbit) / (target) / (port), alongside `vert:` and `horiz:` |
 | `(max N)` | The same figure at full throttle, when it differs from the current one |
@@ -543,6 +544,8 @@ inclination, and direction. `F1` here opens the SPAWN FORM help page and `F1` / 
 | `←` / `→` at the Moon | One step past the ceiling is the frozen ellipse (1,748 x 17,409 km, 57°, 30 h); spawns slot a fifth of a lap apart |
 | `Enter` | Spawn the vessel; on ALTITUDE or INCLINATION the first `Enter` opens a box to type the number |
 | `Enter` (box open) | Keep the typed number; the next `Enter` spawns (the form says so beside the number) |
+| `recover:` | Pad spawn: where each droppable stage flies home from the drop; `←` / `→` LZ, ship or none, `Space` the next stage |
+| `recover:` ship | `Enter` types its km downrange, due east of the pad; a stage with a place set cuts off at its landing reserve |
 | `Esc` (box open) | Put the old number back; `Esc` again leaves the form |
 | `0-9` / `Backspace` | In the box: type / erase the number (INCLINATION also takes one decimal point) |
 | `Esc` | Leave the form without spawning anything |

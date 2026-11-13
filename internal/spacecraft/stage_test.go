@@ -106,3 +106,44 @@ func TestSyncFieldsNoOpOnEmptyStages(t *testing.T) {
 		t.Errorf("SyncFields with empty Stages clobbered flat fields: %+v", s)
 	}
 }
+
+// HoldReserve moves the tank into the dry mass (the engine reads dry, the stack
+// weighs the same); ReleaseReserve gives it back; holding twice adds up. A
+// stage with nothing in its tank holds nothing.
+func TestHoldAndReleaseReserveKeepTheMass(t *testing.T) {
+	s := Stage{DryMass: 1000, FuelMass: 400, FuelCapacity: 500}
+	total := s.DryMass + s.FuelMass
+	s.HoldReserve()
+	if s.FuelMass != 0 || s.HeldKg != 400 || s.DryMass+s.FuelMass != total {
+		t.Fatalf("held: fuel %v held %v dry %v, want 0 / 400 / 1400 total", s.FuelMass, s.HeldKg, s.DryMass)
+	}
+	s.HoldReserve() // an empty tank holds nothing more
+	if s.HeldKg != 400 {
+		t.Errorf("a second hold changed the reserve to %v", s.HeldKg)
+	}
+	s.ReleaseReserve()
+	if s.FuelMass != 400 || s.HeldKg != 0 || s.DryMass != 1000 {
+		t.Errorf("released: fuel %v held %v dry %v, want 400 / 0 / 1000", s.FuelMass, s.HeldKg, s.DryMass)
+	}
+	s.ReleaseReserve() // nothing held: nothing moves
+	if s.FuelMass != 400 || s.DryMass != 1000 {
+		t.Errorf("a release with nothing held moved the tank: fuel %v dry %v", s.FuelMass, s.DryMass)
+	}
+}
+
+// CanRecover is decision 11's rule: legs, a command source and an engine.
+func TestStageCanRecoverNeedsLegsCoreAndEngine(t *testing.T) {
+	ok := Stage{CanSoftLand: true, Thrust: 1, CommandSource: CommandProbe}
+	if !ok.CanRecover() {
+		t.Fatal("legs + probe + engine cannot be recovered")
+	}
+	for name, mut := range map[string]func(*Stage){
+		"no legs": func(s *Stage) { s.CanSoftLand = false }, "no engine": func(s *Stage) { s.Thrust = 0 }, "no core": func(s *Stage) { s.CommandSource = CommandNone },
+	} {
+		s := ok
+		mut(&s)
+		if s.CanRecover() {
+			t.Errorf("%s: recoverable", name)
+		}
+	}
+}

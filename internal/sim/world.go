@@ -154,6 +154,9 @@ type World struct {
 	// PendingLandingEvents queues the landing autopilot's touchdowns, out-of-reach
 	// landings and crashes for app.go's Event Flash (ADR 0067 decision 5).
 	PendingLandingEvents []LandingEvent
+	// PendingRecoveryEvents queues a dropped stage that could not be sent home
+	// (ADR 0069 decision 12): the refusal N gave. Drained by app.go like the rest.
+	PendingRecoveryEvents []RecoveryEvent
 
 	// PendingRaiseEvents queues the commanded raise's end-of-order Event
 	// Flashes (ADR 0059 decision 4: complete, argon exhausted, stopped).
@@ -183,6 +186,8 @@ type World struct {
 	// apRT: the landing autopilot's transient per-vessel cue cache (ADR 0067);
 	// lastSimDelta is the sim step of the tick in progress, for its light test.
 	apRT         map[uint64]*apRuntime
+	recRT        map[uint64]*recoveryRuntime // the cutoff solver's per-vessel state (recovery.go)
+	recoverySolves int                       // reserve solves actually run, for the count test
 	navErrorOff  bool // test seam: no computer's-site error, so geometry guards read the site itself
 	lastSimDelta time.Duration
 	impactSolves int // forecasts actually run, for the hit-count test
@@ -2077,6 +2082,7 @@ var liveSOIShortcut = true
 func (w *World) integrateOneCraft(c *spacecraft.Spacecraft, simDelta time.Duration) {
 	c.SetAmbient(physics.PressureRatio(c.Primary, c.Altitude())) // ADR 0070: engine Isp at this air
 	c.OnSuperDraco(func() { w.integrateOneCraftOn(c, simDelta) })
+	w.recoveryCutoff(c, simDelta) // ADR 0069 decision 15
 }
 
 func (w *World) integrateOneCraftOn(c *spacecraft.Spacecraft, simDelta time.Duration) {

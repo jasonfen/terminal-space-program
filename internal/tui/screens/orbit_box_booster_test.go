@@ -304,3 +304,48 @@ func TestProximityThrottleRowFollowsTheTarget(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0069 decision 15: with a recovery place set, the badge counts to the
+// cutoff and reads BECO (side boosters) or MECO (core) where it reads DRY; a lone
+// stage reads as the core; recovery none keeps DRY / no badge as before.
+func TestEngineBadgeReadsBECOAndMECOWithARecoveryPlace(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	// side boosters: recovery LZ, still burning, then cut
+	w := fhAtT84(t, spacecraft.ThrottleAll)
+	c := w.ActiveCraft()
+	c.Stages[0].RecoverMode, c.Stages[0].RecoverSiteID = spacecraft.RecoverLZ, 1
+	if got, want := v.buildEngineBox(w)[0], "ENGINE  ● BURN · boosters 100%"; got != want {
+		t.Errorf("recovery set, burning: title = %q, want %q (no T- until a solve has found the window)", got, want)
+	}
+	c.Stages[0].HoldReserve()
+	c.SyncFields()
+	if got, want := v.buildEngineBox(w)[0], "ENGINE  ● BURN · boosters BECO"; got != want {
+		t.Errorf("boosters cut: title = %q, want %q", got, want)
+	}
+	// recovery none: DRY as before
+	w = fhAtT84(t, spacecraft.ThrottleAll)
+	w.ActiveCraft().Stages[0].FuelMass = 0
+	w.ActiveCraft().SyncFields()
+	if got, want := v.buildEngineBox(w)[0], "ENGINE  ● BURN · boosters DRY"; got != want {
+		t.Errorf("recovery none: title = %q, want %q", got, want)
+	}
+	// a lone stage (Falcon 9's first stage): core, then MECO after the cut, even once the burn has ended
+	lone := spacecraft.NewFromStages([]spacecraft.Stage{
+		{Name: "F9-S1", DryMass: 25600, FuelMass: 200000, FuelCapacity: 411000, Thrust: 7.607e6, Isp: 282, FuelType: spacecraft.FuelTypeKerolox, RecoverMode: spacecraft.RecoverLZ, RecoverSiteID: 1},
+		{Name: "F9-S2", DryMass: 3900, FuelMass: 107500, FuelCapacity: 107500, Thrust: 934e3, Isp: 348, FuelType: spacecraft.FuelTypeKerolox},
+	})
+	w = boosterWorld(t, lone, 60)
+	if got, want := v.buildEngineBox(w)[0], "ENGINE  ● BURN · core 100%"; got != want {
+		t.Errorf("lone stage, recovery set: title = %q, want %q", got, want)
+	}
+	lone.Stages[0].HoldReserve()
+	lone.SyncFields()
+	lone.ManualBurn = nil
+	if got := v.buildEngineBox(w)[0]; !strings.HasSuffix(got, "core MECO") {
+		t.Errorf("lone stage cut and coasting: title = %q, want a trailing 'core MECO'", got)
+	}
+	lone.Stages[0].RecoverMode, lone.Stages[0].HeldKg = spacecraft.RecoverNone, 0
+	if got := v.buildEngineBox(w)[0]; strings.Contains(got, "core") {
+		t.Errorf("a lone stage with no recovery grew a badge: %q", got)
+	}
+}

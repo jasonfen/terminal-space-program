@@ -147,6 +147,13 @@ func TestBoosterHalfSpriteWidthSurvivesTheWire(t *testing.T) {
 	if got := wireStagesToSim(simStagesToWire([]spacecraft.Stage{half}))[0].LaunchSpriteWidthPx; got != 3 {
 		t.Errorf("a dropped half reloads at %d px, want 3", got)
 	}
+	// Schema 25: the mark says so, not the thrust. A half whose thrust is no longer
+	// exactly half the catalog's (a mark and a thrust that disagree) still reloads
+	// at 3, and a whole pair that carries no mark stays 6.
+	half.BoosterHalf, half.Thrust = true, pair.Thrust*0.4
+	if got := wireStagesToSim(simStagesToWire([]spacecraft.Stage{half}))[0].LaunchSpriteWidthPx; got != 3 {
+		t.Errorf("a marked half with an odd thrust reloads at %d px, want 3", got)
+	}
 }
 
 // ADR 0070: the save keeps only the live Thrust and Isp; a loaded stage gets
@@ -172,5 +179,11 @@ func TestStageEngineSurvivesTheWire(t *testing.T) {
 	}
 	if checked < 20 {
 		t.Fatalf("only %d pressure-sensitive stages checked: the loop is not reaching the catalog", checked)
+	}
+	// A stage the catalog does not name (a VAB-built one saved mid-ascent, schema 25)
+	// keeps its own curve: RestoreEngine has nothing to look up.
+	vab := spacecraft.Stage{Name: "My Booster", Thrust: 5.5e5, Isp: 250, ThrustVac: 6e5, IspSL: 230, IspVac: 290, FuelMass: 1000, DryMass: 100}
+	if got := wireStagesToSim(simStagesToWire([]spacecraft.Stage{vab}))[0]; got.IspSL != 230 || got.IspVac != 290 || got.ThrustVac != 6e5 {
+		t.Errorf("unnamed stage: engine %v/%v vac thrust %v after the wire, want 230/290 6e5", got.IspSL, got.IspVac, got.ThrustVac)
 	}
 }

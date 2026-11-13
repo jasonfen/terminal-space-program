@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -183,5 +185,96 @@ func TestRenderShowsCrewTags(t *testing.T) {
 	}
 	if !strings.Contains(out, "uncrewed") {
 		t.Error("render missing an 'uncrewed' tag")
+	}
+}
+
+// padSpawn is the form on the Cape pad with the given craft, LC-13 offered as the
+// LZ near the pad (a stub for the world lookup the App injects).
+func padSpawn(t *testing.T, loadout string) *SpawnCraft {
+	t.Helper()
+	s := NewSpawnCraft(chipTestTheme())
+	s.Reset([]bodies.CelestialBody{earthLike()}, "earth", nil, bodies.ScaleReal, "Sol", nil)
+	s.SetRecoverLZ(func(_ string, lat, lon float64) (string, bool) { return "LC-13", lat > 28 && lat < 29 })
+	s.loadoutIdx = loadoutIndex(t, s, loadout)
+	s.posMode, s.latIdx = posLaunchpad, 1
+	return s
+}
+
+// ADR 0069 decision 12: the pad card's recover: row. Offered on a pad spawn of a
+// craft with a recoverable stage only; defaults to the LZ for the first stage and a
+// ship for the next; ←/→ cycle LZ / ship / none, space moves between stages, enter on
+// a ship types its km, and the choices come out indexed by stage for the spawn.
+func TestPadCardRecoverRow(t *testing.T) {
+	// not offered: orbit, a craft with no recoverable stage
+	s := padSpawn(t, "Falcon-9")
+	s.posMode = posOrbit
+	if o := s.fieldOrder(); s.recoverOffered() || o[len(o)-1] == recoverFieldIdx {
+		t.Error("the row is offered off the pad")
+	}
+	if s2 := padSpawn(t, "Saturn-V"); s2.recoverOffered() || s2.SelectedRecover() != nil {
+		t.Error("Saturn V (nothing that can land) is offered a recovery")
+	}
+	// Falcon Heavy: boosters then core; defaults LZ and ship 250
+	s = padSpawn(t, "Falcon-Heavy")
+	order := s.fieldOrder()
+	if order[len(order)-1] != recoverFieldIdx {
+		t.Fatalf("field order %v, want the recover row last on the pad", order)
+	}
+	got := s.SelectedRecover()
+	if len(got) != 2 || got[0].Mode != spacecraft.RecoverLZ || got[1].Mode != spacecraft.RecoverShip || got[1].ShipKm != 250 {
+		t.Fatalf("defaults %+v, want boosters LZ and core ship 250 km", got)
+	}
+	lines := s.recoverLines()
+	if len(lines) != 3 || !strings.Contains(lines[0], "boosters LZ") || !strings.Contains(lines[1], "core ship 250 km") || !strings.Contains(lines[2], "LZ: LC-13") {
+		t.Errorf("row = %q, want boosters LZ / core ship 250 km / the LZ's name", lines)
+	}
+	// keys: focus the row, → on boosters goes LZ -> ship, space to the core, → ship -> none
+	s.fieldIdx = recoverFieldIdx
+	s.HandleKey("right")
+	s.HandleKey(" ")
+	s.HandleKey("right")
+	if got := s.SelectedRecover(); got[0].Mode != spacecraft.RecoverShip || got[0].ShipKm != 250 || got[1].Mode != spacecraft.RecoverNone {
+		t.Errorf("after right, space, right: %+v, want boosters ship 250 and core none", got)
+	}
+	// enter on a ship types its km; enter keeps; a digit past four is ignored; the next enter launches
+	s.HandleKey(" ")
+	if a := s.HandleKey("enter"); a != SpawnActionNone || !s.recEditing || !s.CapturingText() {
+		t.Fatalf("enter on a ship: action %v editing %v, want the typing box open", a, s.recEditing)
+	}
+	for _, k := range []string{"4", "5", "0", "0", "9", "backspace"} {
+		s.HandleKey(k)
+	}
+	if s.recInput != "450" {
+		t.Errorf("typed %q, want 450 after four digits, a refused fifth and a backspace", s.recInput)
+	}
+	s.HandleKey("enter")
+	if got := s.SelectedRecover(); got[0].ShipKm != 450 || s.recEditing {
+		t.Errorf("committed %+v editing %v, want boosters ship 450", got, s.recEditing)
+	}
+	if a := s.HandleKey("enter"); a != SpawnActionConfirm {
+		t.Errorf("the enter after the box launches: action %v", a)
+	}
+	// the cap, and no LZ choice without a site near the pad
+	s.recEditing, s.recInput = true, "9999"
+	s.HandleKey("enter")
+	if got := s.SelectedRecover(); got[0].ShipKm != 3000 {
+		t.Errorf("typed 9999 -> %v km, want the 3000 km cap", got[0].ShipKm)
+	}
+	s.SetRecoverLZ(func(string, float64, float64) (string, bool) { return "", false })
+	if got := s.SelectedRecover(); got[0].Mode == spacecraft.RecoverLZ || got[1].Mode == spacecraft.RecoverLZ {
+		t.Errorf("no LZ near the pad but the row offers one: %+v", got)
+	}
+	// 140 x 40: the row is on the card and every line of the frame fits
+	s = padSpawn(t, "Falcon-Heavy")
+	out := ansi.Strip(s.Render(140, 40))
+	for _, want := range []string{"RECOVER", "recover:  boosters LZ", "core ship 250 km", "LZ: LC-13"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("140x40 card lacks %q:\n%s", want, out)
+		}
+	}
+	for _, l := range strings.Split(out, "\n") {
+		if w := lipgloss.Width(l); w > 140 {
+			t.Errorf("a card line is %d cells at 140 wide: %q", w, l)
+		}
 	}
 }

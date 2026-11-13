@@ -153,6 +153,11 @@ type SpawnSpec struct {
 	// of sim time. The Landed bypass continues to rotate the pad
 	// with the body once spawned.
 	LongitudeOffset float64
+
+	// Recover (ADR 0069 decision 12) is the pad card's `recover:` choice per
+	// stage, indexed like the vessel's stages; launchpad spawns only. Absent or
+	// short means none for the stages it does not reach.
+	Recover []RecoverPick
 }
 
 // DefaultLaunchpadLatitude is the spawn latitude the form uses when
@@ -366,6 +371,7 @@ func (w *World) SpawnCraft(spec SpawnSpec) (*spacecraft.Spacecraft, error) {
 		}
 		w.focusNewCraft()
 		w.initCraftAttitude(c)
+		w.applyRecovery(c, spec.Recover, latDeg, spec.LongitudeOffset) // ADR 0069 decisions 12, 13
 		return c, nil
 	}
 
