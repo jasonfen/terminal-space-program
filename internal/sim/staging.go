@@ -253,6 +253,7 @@ func buildJettisonedCraft(stages []spacecraft.Stage, parent *spacecraft.Spacecra
 		BallisticCoefficient: spacecraft.DefaultBallisticCoefficient,
 		Stages:               append([]spacecraft.Stage(nil), stages...),
 		Primary:              parent.Primary,
+		LiftoffSimTime:       parent.LiftoffSimTime, // a dropped stage flies the mission's clock (T+)
 		// v0.16 / ADR 0015: a popped passive stage stays in the parent's
 		// System (no interstellar staging).
 		SystemIdx: parent.SystemIdx,

@@ -325,3 +325,25 @@ func TestBoosterHalvesHalveTheCatalogThrust(t *testing.T) {
 		t.Errorf("half in vacuum thrusts %v, want %v", half.Thrust, want)
 	}
 }
+
+// Jason 2026-11-13: a T+ readout. Mission elapsed time runs from the active
+// vessel's liftoff, a dropped stage keeps the mission's clock, and a vessel
+// that never lifted off has none.
+func TestMissionElapsedFromLiftoffAndDroppedStagesInheritIt(t *testing.T) {
+	w, c, b := falcon9Drop(t, 0.5)
+	if c.LiftoffSimTime.IsZero() || !b.LiftoffSimTime.Equal(c.LiftoffSimTime) {
+		t.Fatalf("liftoff: core %v, dropped stage %v, want the same nonzero instant", c.LiftoffSimTime, b.LiftoffSimTime)
+	}
+	met, ok := w.MissionElapsed()
+	if want := w.Clock.SimTime.Sub(c.LiftoffSimTime); !ok || met != want || met <= 0 {
+		t.Errorf("MissionElapsed = %v, %v; want %v, true", met, ok, want)
+	}
+	c.LiftoffSimTime = w.Clock.SimTime // the equal case: the liftoff instant reads T+0
+	if met, ok := w.MissionElapsed(); !ok || met != 0 {
+		t.Errorf("at liftoff: %v, %v; want 0, true", met, ok)
+	}
+	w2 := mustWorld(t) // spawned in orbit: never lifted off
+	if _, ok := w2.MissionElapsed(); ok {
+		t.Error("a vessel that never lifted off reads a T+")
+	}
+}

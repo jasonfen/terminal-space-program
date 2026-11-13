@@ -257,8 +257,8 @@ func TestTitleBarShowsClockAndWarp(t *testing.T) {
 	v.Resize(200, 40)
 	out := v.Render(w, 0, 200, 40)
 	titleRow := strings.Split(out, "\n")[0]
-	if !strings.Contains(titleRow, "T+") {
-		t.Errorf("expected T+date on title row; got %q", titleRow)
+	if !strings.Contains(titleRow, w.Clock.SimTime.Format("2006-01-02")) {
+		t.Errorf("expected the sim date on title row; got %q", titleRow)
 	}
 	if !strings.Contains(titleRow, "warp ") {
 		t.Errorf("expected `warp Nx` on title row; got %q", titleRow)

@@ -3,11 +3,13 @@ package screens
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 
 	"github.com/jasonfen/terminal-space-program/internal/keylayout"
+	"github.com/jasonfen/terminal-space-program/internal/recorder"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 )
 
@@ -31,7 +33,7 @@ func TestTitleBarClockNotDim(t *testing.T) {
 		t.Fatalf("NewWorld: %v", err)
 	}
 	title := firstLine(v.Render(w, 0, 180, 40))
-	chip := "T+" + w.Clock.SimTime.Format("2006-01-02") + "  " + warpField(w)
+	chip := w.Clock.SimTime.Format("2006-01-02") + "  " + warpField(w)
 	if dim := th.Dim.Render(chip); strings.Contains(title, dim) {
 		t.Errorf("clock+warp chip rendered in the Dim style: %q", title)
 	}
@@ -57,7 +59,7 @@ func TestTitleBarWidthStableAcrossWarpSteps(t *testing.T) {
 			seen[cur] = true
 			// Start of the clock chip (what sat left of the warp field
 			// and slid when it grew) and of the element after it.
-			col := lipgloss.Width(title[:strings.Index(title, "T+")])
+			col := lipgloss.Width(title[:strings.Index(title, w.Clock.SimTime.Format("2006-01-02"))])
 			burn := lipgloss.Width(title[:strings.Index(title, "[»Burn]")])
 			if want < 0 {
 				want = col
@@ -116,5 +118,34 @@ func TestHelpMoreBelowCueNotDim(t *testing.T) {
 	}
 	if strings.Contains(foot, th.Footer.Render("▼")) {
 		t.Errorf("more-below cue rendered in the dim Footer style: %q", foot)
+	}
+}
+
+// Jason 2026-11-13: the title row reads T+ (mission elapsed time) for a vessel
+// that lifted off, none for one that did not, and the fields after it hold
+// still as it counts past 9:59:59.
+func TestTitleBarShowsMissionElapsedTime(t *testing.T) {
+	v := NewOrbitView(plainTheme())
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	if title := firstLine(v.Render(w, 0, 180, 40)); strings.Contains(title, "T+") {
+		t.Errorf("never lifted off, title %q shows a T+", title)
+	}
+	burnAt := -1
+	for _, met := range []time.Duration{0, 2*time.Minute + 7*time.Second, 9*time.Hour + 59*time.Minute + 59*time.Second, 10 * time.Hour, 49 * time.Hour} {
+		w.ActiveCraft().LiftoffSimTime = w.Clock.SimTime.Add(-met)
+		title := firstLine(v.Render(w, 0, 180, 40))
+		want := "T+" + recorder.TPlus(met)
+		if !strings.Contains(title, want) {
+			t.Errorf("T+%v: title %q, want %q", met, title, want)
+		}
+		b := lipgloss.Width(title[:strings.Index(title, "[»Burn]")])
+		if burnAt < 0 {
+			burnAt = b
+		} else if b != burnAt {
+			t.Errorf("T+%v: [»Burn] at col %d, was %d", met, b, burnAt)
+		}
 	}
 }

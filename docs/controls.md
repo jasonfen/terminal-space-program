@@ -48,8 +48,10 @@ trans-lunar injection; its docking port is the Command Module's nose. Press
 bare S-IVB is still in the spawn form and on the command line as `S-IVB-1`.) The left panel is the map:
 the Sun (or whatever you've focused on) in the middle, planets on their real
 orbits, and your vessel as a little chevron pointing the way it's moving. The
-right-hand panel is your readout: the clock, what you're looking at, fuel and
-attitude, any burns you've planned, and a preview of where they'll put you.
+top row carries the date, `T+` (mission elapsed time since your vessel's
+liftoff; a dropped stage keeps the mission's) and the warp. The right-hand
+panel is your readout: what you're looking at, fuel and attitude, any burns
+you've planned, and a preview of where they'll put you.
 
 Speed time up or slow it down with `.` and `,` to watch the planets move;
 pause with `0`.
