@@ -198,7 +198,7 @@ func TestDeorbitAtOnceToleranceEdges(t *testing.T) {
 func TestDeorbitCannotStopAimsTheFreeFall(t *testing.T) {
 	w, c := deorbitWorld(t, 150, 0)
 	for i := range c.Stages {
-		c.Stages[i].Thrust *= 0.4 // 18 kN on 15 t: cannot hover on the Moon
+		c.Stages[i].Thrust *= 0.4    // 18 kN on 15 t: cannot hover on the Moon
 		c.Stages[i].ThrustVac *= 0.4 // the catalog thrust scales with it (ADR 0070)
 	}
 	c.SyncFields()
@@ -923,8 +923,8 @@ func TestBoostbackShortStageSaysNeedAndHave(t *testing.T) {
 // (the aim allowance read the speed now, 1,000 m/s, as the speed at the cue,
 // 600 m/s, and led the light by 20 s), burned the 1.4 t of spare in the gravity
 // loss and hit 3 km off. Kept 10 to 16 % in 1 % steps, 1x and max warp: 10 %
-// is refused (was 10 and 11 %: ADR 0070 moved the edge) with the Δv it lacks (the stop forecast must leave 1.5 t:
-// the flown landing ends ~1 t under it), 11 % and up land. The Dragon loadout
+// and 11 % are refused (was 10 and 11 %: ADR 0070 moved the edge, then the forecast flew the landing law, which keeps ~1 t less than the brake it replaced) with the Δv it lacks (the stop forecast must leave 1.5 t:
+// the flown landing ends ~1 t under it), 12 % and up land. The Dragon loadout
 // takes the same drop at 12 and 14 %.
 func TestEveryAcceptedFalcon9DropLandsWithPropellant(t *testing.T) {
 	type row struct {
@@ -943,8 +943,8 @@ func TestEveryAcceptedFalcon9DropLandsWithPropellant(t *testing.T) {
 			w.SetTargetSiteLZ(lc13ID(t), 1)
 			w.RecomputeCommGraph()
 			plan, err := w.PlanDeorbitAndEngage()
-			if wantPlan := r.keep >= 0.105; (plan != nil) != wantPlan {
-				t.Fatalf("%s %.0f %%: plan=%+v err=%v, want a plan: %v (ADR 0070: the boostback burns at the vacuum Isp now, so the 1.5 t margin puts the edge between 10 and 11 %%)", r.loadout, r.keep*100, plan, err, wantPlan)
+			if wantPlan := r.keep >= 0.115; (plan != nil) != wantPlan {
+				t.Fatalf("%s %.0f %%: plan=%+v err=%v, want a plan: %v (ADR 0070: the boostback burns at the vacuum Isp now, and the landing forecast flies the one-burn law, so the 1.5 t margin puts the edge between 11 and 12 %%)", r.loadout, r.keep*100, plan, err, wantPlan)
 			}
 			if plan == nil {
 				var sh *BoostbackShortError
@@ -996,5 +996,55 @@ func TestScanRootFindsRisingAndFallingRoots(t *testing.T) {
 	}
 	if x, ok := scanRoot(func(x float64) float64 { return x - 10 }, 10, 900, 60, 1); !ok || x != 10 {
 		t.Errorf("a root exactly on the low edge: %v %v, want 10 (the equal case)", x, ok)
+	}
+}
+
+// ADR 0070 follow-up: the boostback forecast's propellant at touchdown is what the
+// flown landing leaves. The forecast used to be a constant 90 % brake priced with
+// the vacuum Isp, 2 t over what the one-burn law flown behind it kept (ship 250,
+// kick 9.0: forecast 4.0 t, flown 1.9 t; kicks 8.0 and 8.5 were accepted and
+// crashed dry). It now flies the law, so an accepted drop is never optimistic by
+// more than 300 kg, and its error on the safe side stays under 500 kg. LZ normal
+// climb, ship 250 flat kicks 8.5 and 9.0.
+func TestBoostbackForecastFuelMatchesFlown(t *testing.T) {
+	const optimisticKg, pessimisticKg = 300.0, 500.0
+	type climb func(t *testing.T) (*World, *spacecraft.Spacecraft)
+	ship := RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: RecoveryShipDefaultKm}
+	for _, tc := range []struct {
+		name  string
+		climb climb
+	}{
+		{"lz normal climb", func(t *testing.T) (*World, *spacecraft.Spacecraft) {
+			return padClimb(t, "Falcon-9-Dragon", []RecoverPick{{Mode: spacecraft.RecoverLZ}}, 1)
+		}},
+		{"ship250 kick 8.5", func(t *testing.T) (*World, *spacecraft.Spacecraft) { return flatKickClimb(t, 8.5, ship) }},
+		{"ship250 kick 9.0", func(t *testing.T) (*World, *spacecraft.Spacecraft) { return flatKickClimb(t, 9.0, ship) }},
+	} {
+		w, c := tc.climb(t)
+		id, n := c.Stages[0].RecoverSiteID, len(w.Crafts)
+		if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+			t.Fatal(err)
+		}
+		if len(w.PendingRecoveryEvents) != 0 {
+			t.Errorf("%s: drop refused: %v", tc.name, w.PendingRecoveryEvents)
+			continue
+		}
+		b := w.Crafts[n]
+		w.ActiveCraftIdx = n
+		w.SetTargetSiteLZ(id, 1)
+		plan, err := w.PlanDeorbitAndEngage()
+		if err != nil || plan == nil || !plan.Boostback {
+			t.Errorf("%s: replan plan=%+v err=%v, want the boostback plan", tc.name, plan, err)
+			continue
+		}
+		flyDown(w, b)
+		got, want := b.ActiveStageFuel(), plan.FuelLeftKg
+		t.Logf("%s: forecast %.0f kg left, flown %.0f kg (landed=%v)", tc.name, want, got, b.Landed)
+		if !b.Landed {
+			t.Errorf("%s: crashed, want a landing", tc.name)
+		}
+		if want-got > optimisticKg || got-want > pessimisticKg {
+			t.Errorf("%s: forecast %.0f kg, flown %.0f kg, want the forecast at most %.0f over and %.0f under", tc.name, want, got, optimisticKg, pessimisticKg)
+		}
 	}
 }

@@ -401,7 +401,7 @@ func TestRecoveryAcceptedPlanLands(t *testing.T) {
 	ship := func(km float64) RecoverPick { return RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: km} }
 	cases := []tc{
 		{"ship150", ship(150), 0, one}, {"ship200", ship(200), 0, one}, {"ship250", ship(250), 0, max},
-		{"ship300", ship(300), 0, one}, {"ship350", ship(350), 0, max}, {"ship350+16s", ship(350), 16, one},
+		{"ship300", ship(300), 0, one}, {"ship350", ship(350), 0, max}, {"ship300+16s", ship(300), 16, one},
 		{"lz+30s", RecoverPick{Mode: spacecraft.RecoverLZ}, 30, max},
 	}
 	for _, k := range cases {
@@ -641,7 +641,8 @@ func TestRecoveryRefusedNIsCheap(t *testing.T) {
 // every 0.1 to 0.3 real seconds). Pins, per config: flights under 2,000 at 10x and
 // 3,400 for a ship at 1x (the LZ is unchanged at about 1,050), and at least one real
 // second between solves. The cutoff must not move: 1x holds exactly the old reserve
-// (50,658 and 43,369 kg) and 10x within 5 t (1.2 % of the 411 t tank) either way,
+// (55,884 and 46,807 kg; 50,658 and 43,369 until the forecast flew the landing law and
+// held 5.2 and 3.4 t more) and 10x within 5 t (1.2 % of the 411 t tank) either way,
 // and the stage dropped there still lands inside the circle with propellant.
 func TestRecoveryReserveSolvesAreCheapAndSpaced(t *testing.T) {
 	lz, ship := RecoverPick{Mode: spacecraft.RecoverLZ}, RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: 250}
@@ -654,8 +655,8 @@ func TestRecoveryReserveSolvesAreCheapAndSpaced(t *testing.T) {
 		held1x    float64 // the reserve before this change, kg
 		fixedHeld bool
 	}{
-		{"lz 1x", lz, 0, 1300, 50658, true}, {"ship 1x", ship, 0, 3400, 43369, true},
-		{"lz 10x", lz, 1, 700, 50658, false}, {"ship 10x", ship, 1, 3400, 43369, false},
+		{"lz 1x", lz, 0, 1300, 55884, true}, {"ship 1x", ship, 0, 3400, 46807, true},
+		{"lz 10x", lz, 1, 700, 55884, false}, {"ship 10x", ship, 1, 3400, 46807, false},
 	} {
 		st, w, c := climbTimed(t, "Falcon-9-Dragon", []RecoverPick{tc.pick}, tc.warp)
 		one[tc.name] = st.held
@@ -841,64 +842,83 @@ func TestRecoveryFalconHeavyHoldWriteUnderAllIsACoreWrite(t *testing.T) {
 	}
 }
 
-// A flat climb (the pitch kick a little early, MECO at 36 to 52 km instead of 52+)
-// that cuts off must cut at a reserve the drop accepts. Falcon 9 + Dragon, ship 250 km,
-// 1x, Jason's flown profile (kick 1 degree, surface prograde 2 s later, trim 0, then
-// -1..-10 degrees over T+111..124). Before: the solve that closed at T+127 was not the
-// one at T+131 (closing is not smooth in the stage's state), the "closed before, none
-// now" fallback cut on the failed solve and the drop refused the same state (8.25, 8.5,
-// 8.75). Kicks 8.0 and 8.5 are accepted at the drop but fly 1.7 to 13 km short with the
-// tank dry: the landing burn takes more than the forecast says, a gap this cutoff does
-// not own, so only the 8.25, 8.75 and 9.0 kicks are held to the landing.
-func TestRecoveryFlatClimbCutoffNeverLeavesARefusedDrop(t *testing.T) {
+// flatKickClimb flies Jason's flat climb (kick 1 degree at T+kick, surface prograde
+// 2 s later, trim 0, then -1..-10 degrees over T+111..124) of a Falcon 9 + Dragon
+// recovering at pick, 1x, until the cutoff or the tank runs dry.
+func flatKickClimb(t *testing.T, kick float64, pick RecoverPick) (*World, *spacecraft.Spacecraft) {
+	t.Helper()
 	deg := math.Pi / 180
-	for _, tc := range []struct {
-		kick float64
-		land bool
-	}{{8.0, false}, {8.25, true}, {8.5, false}, {8.75, true}, {9.0, true}} {
-		w := mustWorld(t)
-		w.Crafts, w.ActiveCraftIdx = nil, -1
-		c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9-Dragon", ParentBodyID: "earth", Launchpad: true,
-			Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast,
-			Recover: []RecoverPick{{Mode: spacecraft.RecoverShip, ShipKm: RecoveryShipDefaultKm}}})
-		if err != nil {
-			t.Fatal(err)
-		}
-		w.RecomputeCommGraph()
-		c.Throttle, c.EngineMode, c.AttitudeMode = 1, spacecraft.EngineMain, spacecraft.BurnRadialOut
-		w.StartManualBurn()
-		t0 := w.Clock.SimTime
-		for i := 0; i < 60000 && c.Stages[0].HeldKg == 0 && c.ManualBurn != nil; i++ {
-			switch el := w.Clock.SimTime.Sub(t0).Seconds(); {
-			case el >= tc.kick && el < tc.kick+2:
-				c.PitchTrim = deg
-			case el >= tc.kick+2 && c.AttitudeMode == spacecraft.BurnRadialOut:
-				c.AttitudeMode = spacecraft.BurnSurfacePrograde
-			case el >= tc.kick+5 && el < 111:
-				c.PitchTrim = 0
-			case el >= 111 && el < 124:
-				c.PitchTrim = -math.Ceil((el-111)/1.3+0.01) * deg
-			case el >= 124:
-				c.PitchTrim = -10 * deg
-			}
-			w.Tick()
+	w := mustWorld(t)
+	w.Crafts, w.ActiveCraftIdx = nil, -1
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9-Dragon", ParentBodyID: "earth", Launchpad: true,
+		Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast,
+		Recover: []RecoverPick{pick}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.RecomputeCommGraph()
+	c.Throttle, c.EngineMode, c.AttitudeMode = 1, spacecraft.EngineMain, spacecraft.BurnRadialOut
+	w.StartManualBurn()
+	t0 := w.Clock.SimTime
+	for i := 0; i < 60000 && c.Stages[0].HeldKg == 0 && c.ManualBurn != nil; i++ {
+		switch el := w.Clock.SimTime.Sub(t0).Seconds(); {
+		case el >= kick && el < kick+2:
+			c.PitchTrim = deg
+		case el >= kick+2 && c.AttitudeMode == spacecraft.BurnRadialOut:
+			c.AttitudeMode = spacecraft.BurnSurfacePrograde
+		case el >= kick+5 && el < 111:
+			c.PitchTrim = 0
+		case el >= 111 && el < 124:
+			c.PitchTrim = -math.Ceil((el-111)/1.3+0.01) * deg
+		case el >= 124:
+			c.PitchTrim = -10 * deg
 		}
 		w.Tick()
+	}
+	w.Tick()
+	return w, c
+}
+
+// A flat climb (the pitch kick a little early, MECO at 36 to 52 km instead of 52+)
+// that cuts off must cut at a reserve the drop accepts, or say plainly that it
+// could not. Falcon 9 + Dragon, ship 250 km, 1x. Before: the solve that closed at
+// T+127 was not the one at T+131 (closing is not smooth in the stage's state), the
+// "closed before, none now" fallback cut on the failed solve and the drop refused
+// the same state (8.25, 8.5, 8.75). Kicks 8.0 and 8.5 were then accepted at the
+// drop but flew 1.7 to 13 km short with the tank dry: the forecast left 4 to 5 t
+// at the ground and the flown landing law left 0 to 2 t. The forecast now flies
+// that law (oneBurnFuelLeft), so the drop is accepted only when the flight keeps
+// its propellant: 8.5, 8.75 and 9.0 land with 3.4 to 4.2 t, 8.25 reaches the reserve
+// line with no plan that closes (the pilot is told), 8.0 never closes and flies on.
+func TestRecoveryFlatClimbCutoffNeverLeavesARefusedDrop(t *testing.T) {
+	const (
+		land   = iota // cuts off, the drop is accepted, the stage lands with the margin
+		told          // reaches the reserve line, the drop is refused and the pilot told
+		noPlan        // no plan ever closes: no cutoff
+	)
+	for _, tc := range []struct {
+		kick float64
+		want int
+	}{{8.0, noPlan}, {8.25, told}, {8.5, land}, {8.75, land}, {9.0, land}} {
+		w, c := flatKickClimb(t, tc.kick, RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: RecoveryShipDefaultKm})
 		name := fmt.Sprintf("kick %.2f", tc.kick)
 		held, id := c.Stages[0].HeldKg, c.Stages[0].RecoverSiteID
-		if held <= 0 {
-			t.Errorf("%s: no cutoff", name)
+		if (held > 0) != (tc.want != noPlan) {
+			t.Errorf("%s: held %.0f kg, want a cutoff: %v", name, held, tc.want != noPlan)
+			continue
+		}
+		if tc.want == noPlan {
 			continue
 		}
 		n := len(w.Crafts)
 		if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
 			t.Fatal(err)
 		}
-		if len(w.PendingRecoveryEvents) != 0 {
-			t.Errorf("%s: cut with %.0f kg held and the drop refused: %v", name, held, w.PendingRecoveryEvents)
+		if refused := len(w.PendingRecoveryEvents) != 0; refused != (tc.want == told) {
+			t.Errorf("%s: drop refused=%v (%v), want %v", name, refused, w.PendingRecoveryEvents, tc.want == told)
 			continue
 		}
-		if !tc.land {
+		if tc.want == told {
 			continue
 		}
 		b := w.Crafts[n]

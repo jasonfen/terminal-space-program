@@ -363,7 +363,12 @@ func stopPointForOn(v *spacecraft.Spacecraft, horizon time.Duration) (sf stopFor
 	if hasCue {
 		sf.CueAltM = cue.AltitudeM
 	}
-	sf.FuelLeftKg = v.ActiveStageFuel() - v.TotalMass()*(1-math.Exp(-pred.DVUsedMps/(v.Isp*stdGravityMps2)))
+	sf.FuelLeftKg = pred.FuelLeftKg
+	if oneBurn(v) {
+		// the landing flies a law, not this constant brake: price its propellant
+		// (a tank that runs dry first leaves 0: the gate refuses it, the cue stays)
+		sf.FuelLeftKg, _ = oneBurnFuelLeft(start, v, pred.StopR)
+	}
 	return sf, true, true
 }
 
@@ -1187,7 +1192,7 @@ func (w *World) boostbackShortfall(c *spacecraft.Spacecraft, st0 physics.StateVe
 		}
 		lo = hi
 	}
-	for k := 0; k < 4; k++ {
+	for k := 0; k < 6; k++ {
 		mid := (lo + hi) / 2
 		if v, ok := closes(mid); ok {
 			hi, vHi = mid, v

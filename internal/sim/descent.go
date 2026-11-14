@@ -502,6 +502,8 @@ type PoweredStopPrediction struct {
 	// DVUsedMps is the Δv the rocket-equation accounting actually spent
 	// reaching termination (bounded by the stage's available Δv).
 	DVUsedMps float64
+	// FuelLeftKg is the stage propellant the integration has left at termination.
+	FuelLeftKg float64
 
 	// LandApplies (#465, G5 Q3): the landing cost below is meaningful. True
 	// for a StopStopped outcome over an airless primary (a stop that ends
@@ -833,6 +835,7 @@ func predictPoweredStopTraced(state physics.StateVector, c *spacecraft.Spacecraf
 				StopR:          stopState.R,
 				ElapsedSec:     elapsed - stepDt + tau,
 				DVUsedMps:      dvUsed,
+				FuelLeftKg:     fuelKg,
 			}
 			if outcome == StopStopped && primary.Atmosphere == nil {
 				res.LandApplies = true
@@ -1286,4 +1289,82 @@ func landDVMps(g, h, a float64) float64 {
 		return math.Inf(1)
 	}
 	return math.Sqrt(2*g*h) * math.Sqrt(a/(a-g))
+}
+
+// oneBurnFuelLeft is the propellant a one-burn landing law (apOneBurn) leaves at
+// the ground when it lights from start and pulls onto aim (the point the plan
+// puts on the site). The law itself is flown: thrust = gravity's share up plus
+// the deceleration that spends the path exactly, capped at the landing throttle,
+// plus the sideways pull. The constant-throttle brake the stop point uses stops
+// in the fewest seconds; the law eases off as the fall slows, pays a long tail at
+// about 1 g and a pull of up to 25 degrees off retro, which cost the 1-2 t the
+// brake forecast never saw. ok=false when the tank runs dry before the ground.
+func oneBurnFuelLeft(start physics.StateVector, c *spacecraft.Spacecraft, aim orbital.Vec3) (left float64, ok bool) {
+	_, _, left, ok = oneBurnRun(start, c, &aim)
+	return left, ok
+}
+
+func oneBurnRun(start physics.StateVector, c *spacecraft.Spacecraft, aim *orbital.Vec3) (contact orbital.Vec3, elapsed, left float64, ok bool) {
+	primary := c.Primary
+	radius, mu := primary.RadiusMeters(), primary.GravitationalParameter()
+	bc := c.EffectiveBallisticCoefficient()
+	if c.WorksChute() {
+		bc = c.BareBallisticCoefficient()
+	}
+	engine := c.EngineCurve()
+	tVac, iVac := engine(0)
+	if radius <= 0 || tVac <= 0 || iVac <= 0 {
+		return orbital.Vec3{}, 0, 0, false
+	}
+	mdotFull := tVac / (iVac * stdGravityMps2)
+	capThr := c.LandingThrottle()
+	mass, fuel := c.TotalMass(), c.ActiveStageFuel()
+	const dt = 0.25
+	st := start
+	for i := 0; i < 8000 && fuel > 0; i++ {
+		alt := st.R.Norm() - radius
+		if alt <= 0.05 {
+			return st.R, float64(i) * dt, fuel, true
+		}
+		up := st.R.Unit()
+		vRel := physics.AirRelativeVelocity(st.R, st.V, primary)
+		v, vz := vRel.Norm(), vRel.Dot(up)
+		g := mu / (st.R.Norm() * st.R.Norm())
+		tAir, _ := engine(physics.PressureRatio(primary, alt))
+		tv := up.Scale(g)
+		tgo := 1.0
+		if v > OneBurnContactMps && vz < 0 {
+			s := alt * v / -vz
+			tv = tv.Add(vRel.Scale(-1 / v).Scale((v*v - OneBurnContactMps*OneBurnContactMps) / (2 * s)))
+			tgo = math.Max(s/((v+OneBurnContactMps)/2), 1)
+		} else if vz > -OneBurnContactMps {
+			tv = up.Scale(math.Max(g-OneBurnLetDownGain*(OneBurnContactMps+vz), 0))
+		}
+		lat := vRel.Sub(up.Scale(vz)).Scale(-3 / tgo)
+		if aim != nil && tgo > 3 && fuel >= 1.5*tgo*mass*g/(iVac*stdGravityMps2) {
+			e := aim.Unit().Scale(radius).Sub(st.R)
+			lat = lat.Add(e.Sub(up.Scale(e.Dot(up))).Scale(6 / (tgo * tgo)))
+		}
+		if lim := tv.Norm() * math.Tan(apMaxTiltRad); lat.Norm() > lim {
+			lat = lat.Unit().Scale(lim)
+		}
+		tv = tv.Add(lat)
+		thr := 0.0
+		if tAir > 0 {
+			thr = math.Min(tv.Norm()*mass/tAir, capThr)
+		}
+		var dir orbital.Vec3
+		if tv.Norm() > 0 {
+			dir = tv.Unit()
+		}
+		m := mass
+		accel := func(r, vel orbital.Vec3, _ float64) orbital.Vec3 {
+			return physics.Accel(r, mu).Add(physics.DragAccel(r, vel, primary, bc)).Add(dir.Scale(thr * tAir / m))
+		}
+		st = physics.StepRK4(st, dt, accel, 0)
+		burn := math.Min(thr*mdotFull*dt, fuel)
+		fuel -= burn
+		mass -= burn
+	}
+	return orbital.Vec3{}, 0, 0, false
 }
