@@ -71,6 +71,33 @@ jobs:
             exit 1
           fi
 
+  # nixpkgs packages tsp and r-ryantm bumps it on each release, but only
+  # when the release builds under nixpkgs' recipe (ldflags version stamp,
+  # tests in the Nix sandbox). A failure there silently freezes the
+  # package, as 0.51.2 -> 0.68.0 did over TestLaunchViewRenderTitle.
+  nix:
+    name: nixpkgs build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          nix_path: nixpkgs=channel:nixos-unstable
+
+      # First pass fetches the Go modules against a fake hash to learn the
+      # real vendorHash; the second pass is the actual build and test run.
+      - name: nix-build (nixpkgs recipe)
+        shell: bash
+        run: |
+          # (expected to fail; `|| true` keeps the step's -e/pipefail from aborting)
+          hash=$(nix-build nix/nixpkgs-build.nix 2>&1 | awk '/got:/{print $2}' | tail -1 || true)
+          if [ -z "$hash" ]; then echo "::error::could not determine vendorHash"; exit 1; fi
+          echo "vendorHash: $hash"
+          nix-build nix/nixpkgs-build.nix --argstr vendorHash "$hash"
+
   govulncheck:
     name: govulncheck
     runs-on: ubuntu-latest
