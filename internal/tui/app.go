@@ -613,7 +613,7 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if len(burnMsgs) > 0 {
-			a.flash(strings.Join(burnMsgs, " · "))
+			a.flashJoin(strings.Join(burnMsgs, " · "))
 		}
 		return a, sim.TickCmd(a.world.Clock.BaseStep)
 
@@ -4273,6 +4273,22 @@ const flashLifetime = 3 * time.Second
 func (a *App) flash(text string) {
 	a.statusMsg = text
 	a.statusExpires = time.Now().Add(flashLifetime)
+}
+
+// flashJoin is flash for events that arrive a tick apart (Falcon Heavy's two
+// booster landings, 0.25 s): while a flash is live the new text is appended
+// (" · ") and the lifetime restarts, so the first is not wiped. The border
+// holds width-6 cells; whole oldest parts drop first (R4), and a lone part too
+// long for it is left to the footer as before.
+func (a *App) flashJoin(text string) {
+	if a.statusMsg != "" && time.Now().Before(a.statusExpires) {
+		parts := append(strings.Split(a.statusMsg, " · "), text)
+		for len(parts) > 1 && a.width > 0 && lipgloss.Width(strings.Join(parts, " · ")) > a.width-6 {
+			parts = parts[1:]
+		}
+		text = strings.Join(parts, " · ")
+	}
+	a.flash(text)
 }
 
 // flashBump is the bottom-edge consumer of World.LastBumpEvent (ADR 0053

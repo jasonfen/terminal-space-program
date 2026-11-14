@@ -52,7 +52,7 @@ func (s *Spacecraft) EngineAt(pr float64) (thrust, isp float64) {
 	if len(s.Stages) == 0 {
 		return s.Thrust, s.Isp
 	}
-	if lit := s.Stages[s.LitStage()]; lit.SuperThrust > 0 && lit.Thrust == lit.SuperThrust {
+	if s.swapped {
 		return s.Thrust, s.Isp
 	}
 	cp := append([]Stage(nil), s.Stages...)

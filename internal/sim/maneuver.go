@@ -328,6 +328,7 @@ func (w *World) PlanNode(n ManeuverNode) {
 	if !w.canCommand(c) { // ADR 0027: committing a node is a command (covers transfer/plan commits too)
 		return
 	}
+	n.Engine = c.PlannedEngine() // R9: the engine is decided here, not when the node fires
 	c.Nodes = append(c.Nodes, n)
 	// Stamp a stable ID before the sort reorders the slice (ADR 0016) —
 	// stampNodeID is a no-op if the node already carries one.
@@ -3266,6 +3267,7 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				EndTime:          n.BurnEnd(),
 				PrimaryID:        n.PrimaryID,
 				Throttle:         n.EffectiveThrottle(),
+				Engine:           n.Engine,
 				TargetCraftID:    n.TargetCraftID,
 				TargetGhostOwner: n.TargetGhostOwner, // v0.28 S4: carry the ghost ref onto the running burn
 				PlaneChangeRad:   n.PlaneChangeRad,

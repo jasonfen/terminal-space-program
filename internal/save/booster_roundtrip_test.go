@@ -3,9 +3,11 @@ package save_test
 import (
 	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -168,5 +170,54 @@ func TestTransferWireKeepsBoosterMark(t *testing.T) {
 	}
 	if !got.Stages[0].LitWithAbove || got.BoosterThrottle == nil || *got.BoosterThrottle != 0 {
 		t.Errorf("transfer lost the booster state: mark=%v throttle=%v", got.Stages[0].LitWithAbove, got.BoosterThrottle)
+	}
+}
+
+// R9: a burn planned on the SuperDracos (N's plan, then a hold key) and saved
+// mid-burn reloads on the SuperDracos and still delivers its full dv. The node
+// carries no AdvisoryKey, so only the saved Engine can say which engine.
+func TestSuperDracoBurnSavedMidBurnKeepsItsEngine(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := w.SpawnCraft(sim.SpawnSpec{LoadoutID: "Dragon", ParentBodyID: "earth", AltitudeM: 200e3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, x := range w.Crafts {
+		if x == c {
+			w.SetActiveCraftIdx(i)
+		}
+	}
+	c.Stages = c.Stages[len(c.Stages)-1:]
+	c.SyncFields()
+	c.Crewed, c.Controllable = true, true
+	const dv = 159.0
+	isp := c.Stages[c.LitStage()].SuperIsp
+	m0 := c.TotalMass()
+	c.OnLandingBrake(func() {
+		w.PlanNode(sim.ManeuverNode{TriggerTime: w.Clock.SimTime.Add(30 * time.Second), Mode: spacecraft.BurnPrograde, DV: dv, Duration: c.BurnTimeForDV(dv), PrimaryID: c.Primary.ID})
+	})
+	for i := 0; i < 20*60 && c.ActiveBurn == nil; i++ {
+		w.Tick()
+	}
+	if c.ActiveBurn == nil {
+		t.Fatal("the node never fired")
+	}
+	for i := 0; i < 20; i++ { // a second into the burn
+		w.Tick()
+	}
+	w = saveLoad(t, w)
+	c = w.ActiveCraft()
+	if c.ActiveBurn == nil {
+		t.Fatal("the burn did not survive the save")
+	}
+	for i := 0; i < 20*60 && c.ActiveBurn != nil; i++ {
+		w.Tick()
+	}
+	want := m0 * (1 - math.Exp(-dv/(isp*9.80665)))
+	if got := m0 - c.TotalMass(); got < 0.9*want || got > 1.1*want {
+		t.Errorf("burn used %.1f kg across the reload, want %.1f kg on the SuperDracos (Isp %.0f)", got, want, isp)
 	}
 }

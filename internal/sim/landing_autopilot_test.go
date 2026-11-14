@@ -1267,3 +1267,63 @@ func TestLandedVesselHoldsSurfaceRadial(t *testing.T) {
 		t.Errorf("background hand landing: hold %v, frame %v, active nav %v; want Radial+, SURF, active untouched (SITE)", o.AttitudeMode, o.NavFrame, w.NavMode)
 	}
 }
+
+// R9 (batch review 2026-11-13): the engine a burn flies on is the one it was
+// planned for. N plants a SuperDraco deorbit node; a hold key then drops the
+// autopilot, and the node must still deliver its Δv on the SuperDracos.
+func TestNDeorbitNodeKeepsItsEngineAfterAHoldKey(t *testing.T) {
+	w, c := dragonFromOrbit(t, "earth", 200e3)
+	if _, err := w.PlanDeorbitAndEngage(); err != nil {
+		t.Fatal(err)
+	}
+	dv, isp := c.Nodes[0].DV, c.Stages[c.LitStage()].SuperIsp
+	w.SetAttitudeMode(spacecraft.BurnPrograde) // a hold key: the autopilot lets go
+	if c.Landing.Owns() {
+		t.Fatal("hold key left the landing autopilot engaged")
+	}
+	m0 := c.TotalMass()
+	w.Clock.WarpIdx = 4
+	for i := 0; i < 6*3600*20 && (len(c.Nodes) > 0 || c.ActiveBurn != nil); i++ {
+		w.Tick()
+	}
+	want := m0 * (1 - math.Exp(-dv/(isp*9.80665)))
+	if got := m0 - c.TotalMass(); got < 0.9*want || got > 1.1*want {
+		t.Errorf("deorbit burn used %.1f kg, want %.1f kg (%.0f m/s on the SuperDracos at Isp %.0f)", got, want, dv, isp)
+	}
+}
+
+// R9: a hand node planted while N is engaged flies on the engine it was
+// planned on (the Dracos), at its planned time, not on the autopilot's.
+func TestHandNodeUnderNFliesItsOwnEngine(t *testing.T) {
+	w, c := dragonFromOrbit(t, "earth", 200e3)
+	if _, err := w.PlanDeorbitAndEngage(); err != nil {
+		t.Fatal(err)
+	}
+	c.Nodes = nil // only the hand node: N stays engaged, its deorbit node is out of the way
+	st := c.Stages[c.LitStage()]
+	mainIsp := st.Isp
+	n := ManeuverNode{TriggerTime: w.Clock.SimTime.Add(97 * time.Second), Mode: spacecraft.BurnPrograde, DV: 20, Duration: c.BurnTimeForDV(20), PrimaryID: c.Primary.ID}
+	w.PlanNode(n)
+	if !c.Landing.Owns() {
+		t.Fatal("N not engaged")
+	}
+	var fired time.Time
+	var used float64
+	for i := 0; i < 400*20 && (fired.IsZero() || c.ActiveBurn != nil); i++ {
+		m := c.TotalMass()
+		w.Tick()
+		if c.ActiveBurn != nil && fired.IsZero() {
+			fired = w.Clock.SimTime
+		}
+		if !fired.IsZero() {
+			used += m - c.TotalMass()
+		}
+	}
+	if early := n.BurnStart().Sub(fired); early > time.Second {
+		t.Errorf("hand node lit %v before its planned start", early)
+	}
+	want := c.TotalMass() * (math.Exp(20/(mainIsp*9.80665)) - 1)
+	if used < 0.9*want || used > 1.1*want {
+		t.Errorf("hand node used %.1f kg, want %.1f kg on the Dracos at Isp %.0f", used, want, mainIsp)
+	}
+}

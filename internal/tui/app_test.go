@@ -2,10 +2,12 @@ package tui
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
@@ -878,5 +880,38 @@ func TestLandingFlashUpdateNamesABackgroundVessel(t *testing.T) {
 		if got := landingFlash(sim.LandingEvent{CraftName: "Eagle", Update: true, Background: tc.bg, DistanceM: 2500}); got != tc.want {
 			t.Errorf("Background=%v: %q, want %q", tc.bg, got, tc.want)
 		}
+	}
+}
+
+// R4 (batch review 2026-11-13): Falcon Heavy's two booster landings arrive a
+// tick apart. The second flash joins the live first instead of replacing it,
+// and a long join drops the oldest text rather than overflow the footer.
+func TestLandingFlashesInConsecutiveTicksBothStayReadable(t *testing.T) {
+	a, err := New(nil)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	a.width = 140
+	a.world.PendingLandingEvents = []sim.LandingEvent{{CraftName: "booster1", SiteName: "LZ-1", DistanceM: 2}}
+	tickAt(a, time.Now())
+	a.world.PendingLandingEvents = []sim.LandingEvent{{CraftName: "booster2", SiteName: "LZ-2", DistanceM: 3}}
+	tickAt(a, time.Now())
+	for _, want := range []string{"booster1 landed", "booster2 landed"} {
+		if !strings.Contains(a.statusMsg, want) {
+			t.Errorf("statusMsg = %q, want it to hold %q", a.statusMsg, want)
+		}
+	}
+	// the equal case: a join of exactly the width left keeps both, one cell more drops the oldest
+	a.statusMsg = ""
+	a.flashJoin(strings.Repeat("a", 65))
+	a.flashJoin(strings.Repeat("b", 66)) // 65 + 3 + 66 = 134 = width - 6
+	if !strings.Contains(a.statusMsg, "a") || !strings.Contains(a.statusMsg, "b") {
+		t.Errorf("a join that exactly fits lost a half: %q", a.statusMsg)
+	}
+	a.statusMsg = ""
+	a.flashJoin(strings.Repeat("a", 65))
+	a.flashJoin(strings.Repeat("b", 67))
+	if got := lipgloss.Width(a.statusMsg); got > a.width-6 || strings.Contains(a.statusMsg, "a") {
+		t.Errorf("overflow kept %q (%d wide), want only the newest within %d", a.statusMsg, got, a.width-6)
 	}
 }

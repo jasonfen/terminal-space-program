@@ -154,6 +154,9 @@ type Spacecraft struct {
 	// state.
 	Nodes      []ManeuverNode
 	ActiveBurn *ActiveBurn
+	// swapped is true while onEngine has the SuperDraco figures in the lit
+	// stage (the state the old Thrust == SuperThrust comparison stood in for).
+	swapped bool
 	ManualBurn *ManualBurn
 
 	// RendezvousPlan is the last Rendezvous Burn planted from the picker,

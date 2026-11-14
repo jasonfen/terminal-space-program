@@ -146,6 +146,7 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 			PrimaryID:            n.PrimaryID,
 			Event:                int(n.Event),
 			Throttle:             n.Throttle,
+			Engine:               int(n.Engine),
 			TargetCraftID:        n.TargetCraftID,
 			PlaneChangeRad:       n.PlaneChangeRad,
 			BurnDirUnit:          vec3From(n.BurnDirUnit),
@@ -166,6 +167,7 @@ func CraftToWire(c *spacecraft.Spacecraft) Craft {
 			EndTimeNano:      ab.EndTime.UnixNano(),
 			PrimaryID:        ab.PrimaryID,
 			Throttle:         ab.Throttle,
+			Engine:           int(ab.Engine),
 			TargetCraftID:    ab.TargetCraftID,
 			PlaneChangeRad:   ab.PlaneChangeRad,
 			BurnDirUnit:      vec3From(ab.BurnDirUnit),
@@ -422,6 +424,7 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			PrimaryID:            n.PrimaryID,
 			Event:                sim.TriggerEvent(n.Event),
 			Throttle:             n.Throttle,
+			Engine:               spacecraft.EngineMode(n.Engine),
 			TargetCraftID:        n.TargetCraftID,
 			PlaneChangeRad:       n.PlaneChangeRad,
 			BurnDirUnit:          vec3To(n.BurnDirUnit),
@@ -439,6 +442,7 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 			EndTime:          time.Unix(0, wc.ActiveBurn.EndTimeNano).UTC(),
 			PrimaryID:        wc.ActiveBurn.PrimaryID,
 			Throttle:         wc.ActiveBurn.Throttle,
+			Engine:           spacecraft.EngineMode(wc.ActiveBurn.Engine),
 			TargetCraftID:    wc.ActiveBurn.TargetCraftID,
 			PlaneChangeRad:   wc.ActiveBurn.PlaneChangeRad,
 			BurnDirUnit:      vec3To(wc.ActiveBurn.BurnDirUnit),
@@ -500,6 +504,19 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 	}
 	c.BatchID, c.BatchLead, c.Raise = wc.BatchID, wc.BatchLead, raiseFromWire(wc.Raise)
 	c.Landing = landingFromWire(wc.Landing)
+	// R9: a burn's engine is not on the wire (no schema bump). N's own nodes
+	// (AdvisoryKey "deorbit"/"entry") were planned on the SuperDracos, and a
+	// burn running under an engaged autopilot is N's.
+	if c.HasSuperDraco() {
+		for i := range c.Nodes {
+			if k := c.Nodes[i].AdvisoryKey; c.Nodes[i].Engine == spacecraft.EngineMain && (k == sim.AdvisoryKeyDeorbit || k == sim.AdvisoryKeyEntry) {
+				c.Nodes[i].Engine = spacecraft.EngineSuperDraco
+			}
+		}
+		if c.ActiveBurn != nil && c.ActiveBurn.Engine == spacecraft.EngineMain && c.Landing.Owns() {
+			c.ActiveBurn.Engine = spacecraft.EngineSuperDraco
+		}
+	}
 	c.NavFrame = wc.NavMode
 	c.BatchClampExemptUntil = timeFromNano(wc.BatchClampExemptUntilNano)
 	c.LiftoffSimTime = timeFromNano(wc.LiftoffSimTimeNano) // schema v18

@@ -480,15 +480,25 @@ func TestSuperDracoEngineFigures(t *testing.T) {
 			t.Errorf("planted burn inside OnSuperDraco thrust %v, want 1600", s.Thrust)
 		}
 	})
-	// N's own deorbit burn (the autopilot owns the engine) flies on the SuperDracos
-	// (ADR 0069 decision 8): 1.6 kN cannot deorbit a Dragon before the burn reaches the air
+	// R9: a burn flies the engine it was planned on (ADR 0069 decision 8: N's
+	// own deorbit burn is planned on the SuperDracos, 1.6 kN cannot deorbit a
+	// Dragon), whatever the autopilot owns now.
 	s.Landing = &LandingAutopilot{Engaged: true}
-	if th, _ := s.ManualEngine(); th != 568000 {
-		t.Errorf("planted burn under N reads %v N, want the SuperDracos' 568000", th)
-	}
-	s.Landing.Nose = true // the q nose hold owns no engine
 	if th, _ := s.ManualEngine(); th != 1600 {
-		t.Errorf("planted burn under the nose hold reads %v N, want the Dracos' 1600", th)
+		t.Errorf("a main-engine burn under N reads %v N, want the Dracos' 1600", th)
+	}
+	s.ActiveBurn = &ActiveBurn{Engine: EngineSuperDraco}
+	if th, _ := s.ManualEngine(); th != 568000 {
+		t.Errorf("an N-planned burn reads %v N, want the SuperDracos' 568000", th)
+	}
+	s.Landing = nil // a hold key: the autopilot lets go, the burn keeps its engine
+	if th, _ := s.ManualEngine(); th != 568000 {
+		t.Errorf("an N-planned burn after the autopilot let go reads %v N, want 568000", th)
+	}
+	s.ActiveBurn, s.EngineMode = nil, EngineMain
+	s.Landing = &LandingAutopilot{Engaged: true, Nose: true} // the q nose hold owns no engine
+	if th, _ := s.ManualEngine(); th != 1600 {
+		t.Errorf("under the nose hold reads %v N, want the Dracos' 1600", th)
 	}
 }
 
