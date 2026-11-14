@@ -92,7 +92,8 @@ jobs:
       - name: nix-build (nixpkgs recipe)
         shell: bash
         run: |
-          hash=$(nix-build nix/nixpkgs-build.nix 2>&1 | awk '/got:/{print $2}' | tail -1)
+          # (expected to fail; `|| true` keeps the step's -e/pipefail from aborting)
+          hash=$(nix-build nix/nixpkgs-build.nix 2>&1 | awk '/got:/{print $2}' | tail -1 || true)
           if [ -z "$hash" ]; then echo "::error::could not determine vendorHash"; exit 1; fi
           echo "vendorHash: $hash"
           nix-build nix/nixpkgs-build.nix --argstr vendorHash "$hash"
