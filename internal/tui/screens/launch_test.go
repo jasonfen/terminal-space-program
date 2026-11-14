@@ -15,6 +15,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
+	"github.com/jasonfen/terminal-space-program/internal/version"
 )
 
 // launchThemeForTest returns a minimal Theme with non-nil styles that
@@ -255,7 +256,13 @@ func TestLaunchViewAutoScale(t *testing.T) {
 // LaunchView.Render produces a non-empty frame whose title names the
 // LAUNCH view and the active craft. Footer carries the ViewLaunch-
 // specific key hints (+/- zoom, v cycle).
+//
+// The version is pinned: the wordmark carries version.Version, and a build
+// that stamps a release version via ldflags (nixpkgs does, tests included)
+// lengthens the title enough at 120 cols to truncate the craft name.
 func TestLaunchViewRenderTitle(t *testing.T) {
+	defer func(v string) { version.Version = v }(version.Version)
+	version.Version = "dev"
 	th := launchThemeForTest()
 	v := NewLaunchView(th, NewOrbitView(th))
 	v.Resize(120, 40)
