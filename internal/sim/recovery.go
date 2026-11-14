@@ -239,7 +239,9 @@ type recoveryRuntime struct {
 	haveCut      bool    // a closing plan has been solved: the cutoff can be predicted
 	warmDV       float64 // the last closing plan's burn size: the next solve starts there
 	rising       bool    // the aim needed the full scan (a ship): the next solves window it
-	light        bool    // the weight test has passed: a plan can close from here (N1: warp is capped for a ship)
+	lost         bool    // a plan closed on this climb and a later solve found none: the cut waits for one to close again
+	lostErr      error
+	light        bool // the weight test has passed: a plan can close from here (N1: warp is capped for a ship)
 }
 
 // recoveryShipWarpCap is the warp a ship pick's climb is held to between the weight
@@ -381,6 +383,10 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 				rt.prevSlack, rt.prevAt, rt.havePrev = rt.slack, rt.at, true
 			}
 			rt.slack, rt.at, rt.seenFeasible, rt.haveCut, rt.warmDV = slack, now, true, true, dv
+			if rt.lost { // the plan closed again, on this very state: the drop will take it
+				w.cutAtReserve(c)
+				return
+			}
 			if rt.havePrev && now.After(rt.prevAt) {
 				rt.rate = (rt.prevSlack - slack) / now.Sub(rt.prevAt).Seconds()
 			}
@@ -403,10 +409,12 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 			dt = math.Max(dt, recoveryMinSec*tickWarp)
 			rt.nextSolve = now.Add(time.Duration(dt * float64(time.Second)))
 		case rt.seenFeasible:
-			// a plan closed before and none does now: the reserve was passed between
-			// solves (a load mid-climb, a throttle change). Cut at once.
-			w.cutAtReserve(c)
-			return
+			// a plan closed before and none does now. Whether one closes is not smooth in
+			// the stage's state (the same stage closes at 61 t, not at 50, closes at 45), so a
+			// cut on this solve is a refused drop. Solve again each real second; the first
+			// that closes cuts. Reaching the reserve line first cuts anyway and says why.
+			rt.lost, rt.lostErr = true, err
+			rt.nextSolve = now.Add(time.Duration(recoveryMinSec * tickWarp * float64(time.Second)))
 		case errors.Is(err, errRecoveryHeavy):
 			rt.nextSolve = now.Add(time.Duration(recoveryHeavySec * float64(time.Second)))
 		default:
@@ -414,6 +422,10 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 		}
 	}
 	if near() {
+		if rt.lost && rt.lostErr != nil {
+			w.PendingRecoveryEvents = append(w.PendingRecoveryEvents, RecoveryEvent{c.Name, rt.lostErr.Error()})
+			w.recordRowFor(c, "recovery: "+rt.lostErr.Error())
+		}
 		w.cutAtReserve(c)
 	}
 }

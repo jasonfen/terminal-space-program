@@ -840,3 +840,71 @@ func TestRecoveryFalconHeavyHoldWriteUnderAllIsACoreWrite(t *testing.T) {
 		}
 	}
 }
+
+// A flat climb (the pitch kick a little early, MECO at 36 to 52 km instead of 52+)
+// that cuts off must cut at a reserve the drop accepts. Falcon 9 + Dragon, ship 250 km,
+// 1x, Jason's flown profile (kick 1 degree, surface prograde 2 s later, trim 0, then
+// -1..-10 degrees over T+111..124). Before: the solve that closed at T+127 was not the
+// one at T+131 (closing is not smooth in the stage's state), the "closed before, none
+// now" fallback cut on the failed solve and the drop refused the same state (8.25, 8.5,
+// 8.75). Kicks 8.0 and 8.5 are accepted at the drop but fly 1.7 to 13 km short with the
+// tank dry: the landing burn takes more than the forecast says, a gap this cutoff does
+// not own, so only the 8.25, 8.75 and 9.0 kicks are held to the landing.
+func TestRecoveryFlatClimbCutoffNeverLeavesARefusedDrop(t *testing.T) {
+	deg := math.Pi / 180
+	for _, tc := range []struct {
+		kick float64
+		land bool
+	}{{8.0, false}, {8.25, true}, {8.5, false}, {8.75, true}, {9.0, true}} {
+		w := mustWorld(t)
+		w.Crafts, w.ActiveCraftIdx = nil, -1
+		c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9-Dragon", ParentBodyID: "earth", Launchpad: true,
+			Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast,
+			Recover: []RecoverPick{{Mode: spacecraft.RecoverShip, ShipKm: RecoveryShipDefaultKm}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.RecomputeCommGraph()
+		c.Throttle, c.EngineMode, c.AttitudeMode = 1, spacecraft.EngineMain, spacecraft.BurnRadialOut
+		w.StartManualBurn()
+		t0 := w.Clock.SimTime
+		for i := 0; i < 60000 && c.Stages[0].HeldKg == 0 && c.ManualBurn != nil; i++ {
+			switch el := w.Clock.SimTime.Sub(t0).Seconds(); {
+			case el >= tc.kick && el < tc.kick+2:
+				c.PitchTrim = deg
+			case el >= tc.kick+2 && c.AttitudeMode == spacecraft.BurnRadialOut:
+				c.AttitudeMode = spacecraft.BurnSurfacePrograde
+			case el >= tc.kick+5 && el < 111:
+				c.PitchTrim = 0
+			case el >= 111 && el < 124:
+				c.PitchTrim = -math.Ceil((el-111)/1.3+0.01) * deg
+			case el >= 124:
+				c.PitchTrim = -10 * deg
+			}
+			w.Tick()
+		}
+		w.Tick()
+		name := fmt.Sprintf("kick %.2f", tc.kick)
+		held, id := c.Stages[0].HeldKg, c.Stages[0].RecoverSiteID
+		if held <= 0 {
+			t.Errorf("%s: no cutoff", name)
+			continue
+		}
+		n := len(w.Crafts)
+		if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+			t.Fatal(err)
+		}
+		if len(w.PendingRecoveryEvents) != 0 {
+			t.Errorf("%s: cut with %.0f kg held and the drop refused: %v", name, held, w.PendingRecoveryEvents)
+			continue
+		}
+		if !tc.land {
+			continue
+		}
+		b := w.Crafts[n]
+		flyDown(w, b)
+		if d := distToLZ(t, w, b, id, 1); !b.Landed || d > SiteLZRadiusM || b.ActiveStageFuel() < BoostbackFuelMarginKg {
+			t.Errorf("%s: landed=%v %.1f m out with %.0f kg, want inside %v m with at least %.0f kg", name, b.Landed, d, b.ActiveStageFuel(), SiteLZRadiusM, BoostbackFuelMarginKg)
+		}
+	}
+}
