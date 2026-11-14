@@ -1736,6 +1736,11 @@ func (w *World) clampedWarp() float64 {
 	if w.AnyCraftThrusting() && selected > burnWarpCap {
 		selected = burnWarpCap
 	}
+	// N1: a ship pick's reserve solves must land inside a closing window that can
+	// be shorter than ten sim seconds.
+	if cap := w.recoveryWarpCap(); cap > 0 && selected > cap {
+		selected = cap
+	}
 	// ADR 0067 decision 5: a landing autopilot flying its brake or descent
 	// caps warp as a planted burn does, thrusting or not this tick; one still
 	// coasting to its cue glides warp down so a tick cannot step past it.

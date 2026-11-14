@@ -507,6 +507,7 @@ type climbStats struct {
 	evals        int
 	minGapRealS  float64
 	held         float64
+	cappedMax    float64 // top effective warp while the ship cap applied (0: it never did)
 }
 
 // climbTimed flies padClimb's ascent at warp index warpIdx from 20 s up (a burn
@@ -537,6 +538,9 @@ func climbTimed(t testing.TB, loadout string, picks []RecoverPick, warpIdx int) 
 		}
 		if w.Clock.SimTime.Sub(t0).Seconds() > 20 {
 			w.Clock.WarpIdx = warpIdx
+		}
+		if w.recoveryWarpCap() > 0 {
+			st.cappedMax = math.Max(st.cappedMax, w.EffectiveWarp())
 		}
 		n0 := w.recoverySolves
 		start := time.Now()
@@ -651,7 +655,7 @@ func TestRecoveryReserveSolvesAreCheapAndSpaced(t *testing.T) {
 		fixedHeld bool
 	}{
 		{"lz 1x", lz, 0, 1300, 50658, true}, {"ship 1x", ship, 0, 3400, 43369, true},
-		{"lz 10x", lz, 1, 700, 50658, false}, {"ship 10x", ship, 1, 2000, 43369, false},
+		{"lz 10x", lz, 1, 700, 50658, false}, {"ship 10x", ship, 1, 3400, 43369, false},
 	} {
 		st, w, c := climbTimed(t, "Falcon-9-Dragon", []RecoverPick{tc.pick}, tc.warp)
 		one[tc.name] = st.held
@@ -702,6 +706,9 @@ func TestRecoveryTenXShipCutoffLandsWithMargin(t *testing.T) {
 			st, w, c := climbTimed(t, tc.load, []RecoverPick{{Mode: spacecraft.RecoverShip, ShipKm: tc.km}}, warp)
 			name := fmt.Sprintf("%s ship %.0f warp %d", tc.load, tc.km, warp)
 			t.Logf("%s: %d solves, %d flights, held %.0f kg, worst tick %v, min gap %.2f real s", name, st.solves, st.evals, st.held, st.worst, st.minGapRealS)
+			if want := recoveryShipWarpCap; warp == 1 && (st.cappedMax == 0 || st.cappedMax > want) { // equal case: exactly the cap is allowed
+				t.Errorf("%s: warp while capped peaked at %.1f, want 0 < peak <= %.0f", name, st.cappedMax, want)
+			}
 			if st.held <= 0 {
 				t.Errorf("%s: no cutoff, the stage burned to %v", name, c.Stages[0].FuelMass)
 				continue
