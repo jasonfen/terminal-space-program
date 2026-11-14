@@ -150,8 +150,9 @@ func (w *World) StageActive(craftIdx int) (newActiveIdx, jettisonedIdx int, err 
 	// matching reality once stages decouple. Skip when the new
 	// bottom stage has no name set (defensive — real loadouts
 	// always populate Stages[i].Name).
-	if c.Stages[0].Name != "" {
-		c.Name = c.Stages[0].Name
+	// Named for the lit stage: an inert stage under it (a Dragon's trunk) is cargo, not the vessel.
+	if n := c.Stages[spacecraft.LitStageIdx(c.Stages)].Name; n != "" {
+		c.Name = n
 	}
 
 	// ADR 0058 decision 5: a marked stage models a pair of boosters, so
