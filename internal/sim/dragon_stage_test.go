@@ -82,6 +82,9 @@ func TestFalcon9DragonPadAndStaging(t *testing.T) {
 		if got := spacecraft.LitStageIdx(c.Stages); got != 1 || c.Thrust != 1600 {
 			t.Errorf("%s after two presses: lit %d thrust %g, want the Dragon (1) at 1600", id, got, c.Thrust)
 		}
+		if want := c.Stages[1].Name; c.Name != want { // the vessel is named for the stage that flies it, not the inert trunk under it
+			t.Errorf("%s after two presses: vessel named %q, want %q", id, c.Name, want)
+		}
 	}
 }
 

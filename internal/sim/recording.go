@@ -663,7 +663,7 @@ func (w *World) recordStage(c *spacecraft.Spacecraft, dropped []spacecraft.Stage
 	for i, s := range dropped {
 		names[i] = s.Name
 	}
-	w.recordRowFor(c, fmt.Sprintf("stage: %s jettisoned, %s lit", strings.Join(names, "+"), c.Stages[0].Name))
+	w.recordRowFor(c, fmt.Sprintf("stage: %s jettisoned, %s lit", strings.Join(names, "+"), c.Stages[spacecraft.LitStageIdx(c.Stages)].Name))
 }
 
 // recordSplit writes undock or batch release for the restored vessels (the
