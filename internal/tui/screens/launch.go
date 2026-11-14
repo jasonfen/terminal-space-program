@@ -687,7 +687,7 @@ func (v *LaunchView) drawComposedRocket(craft *spacecraft.Spacecraft, anchorWorl
 	}
 	flameThrottle := 0.0
 	if craft.ManualBurn != nil || craft.ActiveBurn != nil {
-		flameThrottle = craft.Throttle
+		flameThrottle = craft.EffectiveThrottle()
 	}
 	frameIdx := int(time.Now().UnixMilli()/flameFrameMs) % 2
 	// A marked booster stage draws as two columns beside the core (ADR 0058

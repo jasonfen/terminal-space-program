@@ -704,6 +704,9 @@ func (s *Spacecraft) drivenMembers(core float64) (idx []int, theta []float64) {
 
 func (s *Spacecraft) boosterThrottleOr(core float64) float64 {
 	if s.BoosterThrottle == nil {
+		if s.CoreAuto() { // the hold is the core's alone: the boosters stay at the player's value
+			return math.Max(0, math.Min(1, s.Throttle))
+		}
 		return core
 	}
 	return math.Max(0, math.Min(1, *s.BoosterThrottle))

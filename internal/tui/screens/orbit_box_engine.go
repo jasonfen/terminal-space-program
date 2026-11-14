@@ -101,6 +101,9 @@ func (v *OrbitView) engineTitleWithQueue(title string, w *sim.World, c *spacecra
 // decision 6).
 func (v *OrbitView) engineThrottleLabelAt(w *sim.World, c *spacecraft.Spacecraft, throttle float64) string {
 	base := fmt.Sprintf("%.0f%%", throttle*100)
+	if c.CoreAuto() && c.EffectiveThrottleTarget() != spacecraft.ThrottleBoosters {
+		base += " (auto)" // the Falcon Heavy hold: the core flies 60 % until BECO
+	}
 	if sim.StackDryArmed(c) {
 		// #466 (G5 Q1): the throttle is a standing order; the lit tank is
 		// dry, so say so. [space] relights the next engine at this setting.
@@ -125,6 +128,9 @@ func (v *OrbitView) engineThrottleLabelAt(w *sim.World, c *spacecraft.Spacecraft
 // with one throttle), core:, boosters:. The one deliberate exception to
 // ADR 0051's fixed labels; the label is the selector's state.
 func engineThrottleTarget(c *spacecraft.Spacecraft) (label string, throttle float64) {
+	if c.CoreAuto() && c.EffectiveThrottleTarget() == spacecraft.ThrottleAll {
+		return "core:", c.EffectiveThrottle()
+	}
 	switch c.EffectiveThrottleTarget() {
 	case spacecraft.ThrottleCore:
 		return "core:", c.EffectiveThrottle()

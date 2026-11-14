@@ -82,6 +82,10 @@ type Spacecraft struct {
 	// booster drop.
 	BoosterThrottle *float64 `json:"-"`
 
+	// CoreAutoOff: the player moved the core throttle during the Falcon Heavy
+	// auto hold (CoreAuto), which ends for the flight. Session state, never saved.
+	CoreAutoOff bool `json:"-"`
+
 	// ThrottleTarget is which throttle the throttle keys move (ADR 0058
 	// decision 3). Session state, never saved: a load starts on All.
 	ThrottleTarget ThrottleTarget `json:"-"`
@@ -571,9 +575,30 @@ func (s *Spacecraft) EffectiveThrottle() float64 {
 		return 0
 	}
 	if t > 1 {
-		return 1
+		t = 1
+	}
+	if t > CoreAutoThrottle && s.CoreAuto() {
+		return CoreAutoThrottle
 	}
 	return t
+}
+
+// CoreAutoThrottle is the core throttle the Falcon Heavy auto hold flies at
+// (measured 50 to 70 % lets the boosters reach a window that closes).
+const CoreAutoThrottle = 0.6
+
+// CoreAuto reports the auto hold: side boosters (a liquid pair) with a recovery
+// place still burn their tank, so the core holds CoreAutoThrottle from liftoff
+// until BECO, as the real Falcon Heavy does. The player's own value is never
+// rewritten: the hold ends at BECO (the reserve held, or the pair dropped), or
+// at once when the player moves the core throttle (CoreAutoOff). Boosters set to
+// none leave the core alone.
+func (s *Spacecraft) CoreAuto() bool {
+	if s.CoreAutoOff || len(s.Stages) < 2 {
+		return false
+	}
+	b := s.Stages[0]
+	return b.LitWithAbove && b.RecoverMode != RecoverNone && b.HeldKg == 0 && b.FuelMass > 0 && s.HasLiquidBooster()
 }
 
 // TotalMass returns dry + fuel + monoprop + cargo.

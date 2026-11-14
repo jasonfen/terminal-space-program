@@ -190,6 +190,9 @@ func (w *World) throttleTarget() ThrottleGroup {
 // throttle to write. Returns whether anything changed.
 func writeThrottle(c *spacecraft.Spacecraft, g ThrottleGroup, t float64) bool {
 	changed := false
+	if g != ThrottleBoosters && c.CoreAuto() {
+		c.CoreAutoOff = true // the player's input wins: the hold ends for this flight
+	}
 	switch g {
 	case ThrottleBoosters:
 		if c.HasLiquidBooster() && t != c.BoosterThrottleEff() {
@@ -260,7 +263,7 @@ func (w *World) AdjustThrottleFor(g ThrottleGroup, delta float64) {
 	if c == nil {
 		return
 	}
-	base := c.Throttle
+	base := c.EffectiveThrottle() // from what the readout shows, auto hold included
 	if g == ThrottleBoosters {
 		base = c.BoosterThrottleEff()
 	}
