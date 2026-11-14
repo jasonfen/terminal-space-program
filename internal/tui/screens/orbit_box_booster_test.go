@@ -189,6 +189,34 @@ func TestEngineBoxFalconHeavyAtT84(t *testing.T) {
 	}
 }
 
+// The Falcon Heavy auto hold (boosters with a recovery place): the row reads
+// `core: 60% (auto)` until BECO and fits the box; the boosters keep their own
+// badge; once the player has moved the core, or the boosters are set to none, the
+// word is gone.
+func TestEngineBoxFalconHeavyAutoCoreHold(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w := fhAtT84(t, spacecraft.ThrottleAll)
+	c := w.ActiveCraft()
+	c.Throttle, c.BoosterThrottle = 1, nil // the player's own values: core 100 %, boosters following
+	c.Stages[0].RecoverMode = spacecraft.RecoverLZ
+	lines := v.buildEngineBox(w)
+	if !strings.HasPrefix(lines[1], "  core:     60% (auto) ● FIRING T+1m24s") {
+		t.Errorf("auto hold: throttle row = %q, want core: 60%% (auto) ● FIRING", lines[1])
+	}
+	if want := "ENGINE  ● BURN · boosters 100%"; lines[0] != want { // the cutoff clock waits for a solve
+		t.Errorf("auto hold: title = %q, want the boosters at the player's 100%%: %q", lines[0], want)
+	}
+	assertFits(t, "FH auto hold", lines)
+	c.Stages[0].HeldKg = 1 // BECO
+	if row := v.buildEngineBox(w)[1]; strings.Contains(row, "auto") || !strings.HasPrefix(row, "  throttle: 100%") {
+		t.Errorf("after BECO: row = %q, want the player's 100%% back, no auto", row)
+	}
+	c.Stages[0].HeldKg, c.Stages[0].RecoverMode = 0, spacecraft.RecoverNone
+	if row := v.buildEngineBox(w)[1]; strings.Contains(row, "auto") {
+		t.Errorf("boosters none: row = %q, want no auto", row)
+	}
+}
+
 // The stale target on a vessel with no liquid booster (SLS: solids) must
 // not rename the row.
 func TestEngineBoxStaleTargetOnSolidBoostersKeepsThrottleLabel(t *testing.T) {

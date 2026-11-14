@@ -681,3 +681,83 @@ func TestRecoveryReserveSolvesAreCheapAndSpaced(t *testing.T) {
 		}
 	}
 }
+
+// fhPad spawns a Falcon Heavy on the pad with the pad's defaults (boosters LZ, core
+// ship 250 km) or with the boosters set to none, and lights it at the player's 100 %.
+func fhPad(t *testing.T, boosters RecoverPick) (*World, *spacecraft.Spacecraft) {
+	t.Helper()
+	w := mustWorld(t)
+	w.Crafts, w.ActiveCraftIdx = nil, -1
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-Heavy", ParentBodyID: "earth", Launchpad: true,
+		Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast,
+		Recover: []RecoverPick{boosters, {Mode: spacecraft.RecoverShip, ShipKm: RecoveryShipDefaultKm}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.RecomputeCommGraph()
+	c.Throttle, c.EngineMode, c.AttitudeMode = 1, spacecraft.EngineMain, spacecraft.BurnRadialOut
+	w.StartManualBurn()
+	return w, c
+}
+
+// The Falcon Heavy auto hold: from the pad defaults, with no hand throttling, the
+// core holds 60 % until BECO and both boosters land on LZ-1 and LZ-2 (before, the
+// core at 100 % never gave a window: no BECO, three refusals). After BECO the
+// player's own 100 % is back, and it was never rewritten.
+func TestRecoveryFalconHeavyAutoCoreHoldLandsBoosters(t *testing.T) {
+	for _, warp := range []int{0, len(WarpFactors) - 1} {
+		w := mustWorld(t)
+		w.Crafts, w.ActiveCraftIdx = nil, -1
+		c := padClimbIn(t, w, "Falcon-Heavy", []RecoverPick{{Mode: spacecraft.RecoverLZ}, {Mode: spacecraft.RecoverShip, ShipKm: RecoveryShipDefaultKm}}, 1)
+		if c.Stages[0].HeldKg <= 0 || c.ManualBurn == nil || c.Stages[1].FuelMass <= 0 {
+			t.Fatalf("warp %d: held %.0f, core burning %v, core fuel %.0f, want BECO with the core burning on", warp, c.Stages[0].HeldKg, c.ManualBurn != nil, c.Stages[1].FuelMass)
+		}
+		if c.Throttle != 1 || c.EffectiveThrottle() != 1 || c.CoreAuto() {
+			t.Errorf("after BECO: throttle %.2f effective %.2f auto %v, want the player's 1 back", c.Throttle, c.EffectiveThrottle(), c.CoreAuto())
+		}
+		n := len(w.Crafts)
+		if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+			t.Fatal(err)
+		}
+		bs := w.Crafts[n:]
+		if len(bs) != 2 || len(w.PendingRecoveryEvents) != 0 || bs[0].LZClaim.N == bs[1].LZClaim.N {
+			t.Fatalf("drop: %d vessels, events %v, want two boosters accepted on LZ-1 and LZ-2", len(bs), w.PendingRecoveryEvents)
+		}
+		lz := []int{bs[0].LZClaim.N, bs[1].LZClaim.N}
+		w.Clock.WarpIdx = warp
+		flyDown(w, bs...)
+		for i, b := range bs {
+			if d := distToLZ(t, w, b, lc13ID(t), lz[i]); !b.Landed || d > SiteLZRadiusM || b.ActiveStageFuel() <= 0 {
+				t.Errorf("warp %d: %s landed=%v %.1f m from LZ-%d with %.0f kg, want inside %v m with propellant", warp, b.Name, b.Landed, d, lz[i], b.ActiveStageFuel(), SiteLZRadiusM)
+			}
+		}
+	}
+}
+
+// Boosters set to none leave the core at the player's throttle all the way, the
+// hold shows 60 % while it applies, and the player's input wins: moving the core
+// ends the hold for the flight (the next press steps from the 60 % shown).
+func TestRecoveryFalconHeavyAutoCoreHoldYieldsToThePlayerAndToNone(t *testing.T) {
+	w, c := fhPad(t, RecoverPick{Mode: spacecraft.RecoverNone})
+	for i := 0; i < 20*60; i++ {
+		w.Tick()
+		if c.Stages[0].FuelMass > 0 && (c.EffectiveThrottle() != 1 || c.CoreAuto()) {
+			t.Fatalf("boosters none: core at %.2f (auto %v) at tick %d, want the player's 1 all the way", c.EffectiveThrottle(), c.CoreAuto(), i)
+		}
+	}
+	w, c = fhPad(t, RecoverPick{Mode: spacecraft.RecoverLZ})
+	for i := 0; i < 20*10; i++ {
+		w.Tick()
+	}
+	if got := c.EffectiveThrottle(); got != spacecraft.CoreAutoThrottle || !c.CoreAuto() || c.BoosterThrottleEff() != 1 {
+		t.Fatalf("auto hold: core %.2f boosters %.2f auto %v, want core %.2f and boosters at the player's 1", got, c.BoosterThrottleEff(), c.CoreAuto(), spacecraft.CoreAutoThrottle)
+	}
+	w.AdjustThrottle(-0.05) // the key steps from what the readout shows
+	if got := c.EffectiveThrottle(); math.Abs(got-0.55) > 1e-9 || c.CoreAuto() {
+		t.Errorf("after one step down: core %.2f auto %v, want 0.55 and the hold ended", got, c.CoreAuto())
+	}
+	w.SetThrottle(0.6) // back to the same number: the hold does not return (target all: the boosters follow)
+	if c.CoreAuto() || c.EffectiveThrottle() != 0.6 || c.BoosterThrottleEff() != 0.6 {
+		t.Errorf("after setting 0.6: core %.2f boosters %.2f auto %v, want the player's 0.6 on both, no hold", c.EffectiveThrottle(), c.BoosterThrottleEff(), c.CoreAuto())
+	}
+}

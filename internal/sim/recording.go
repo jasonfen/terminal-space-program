@@ -306,7 +306,7 @@ func (w *World) rowFor(c *spacecraft.Spacecraft, event string) recorder.Row {
 	// thr reads thrust, not the lever: 0 unless the engine is firing.
 	thr := 0.0
 	if c.ActiveBurn != nil || c.ManualBurn != nil {
-		thr = c.Throttle * 100
+		thr = c.EffectiveThrottle() * 100
 	}
 	row := recorder.Row{
 		Sim: sim, TPlus: tp, TPlusKnown: known,
@@ -544,7 +544,7 @@ func (w *World) recordAction(a missions.Action) {
 	case missions.ActionCycleTarget, missions.ActionClearTarget:
 		detail = w.TargetName()
 	case missions.ActionThrottleUp, missions.ActionThrottleDown:
-		detail = fmt.Sprintf("%d%%", int(math.Round(c.Throttle*100)))
+		detail = fmt.Sprintf("%d%%", int(math.Round(c.EffectiveThrottle()*100)))
 	case missions.ActionToggleBurn:
 		detail = "cut"
 		if c.ManualBurn != nil {

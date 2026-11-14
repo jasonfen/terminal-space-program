@@ -44,7 +44,7 @@ func TestControlsDocNamesBatchRow(t *testing.T) {
 		"| `COVERAGE` | The notice for the site or landed vessel you aimed at, or for the lunar coverage rung",
 		"tinted green where the ground is linked this instant (`F3` `c` switches it off)",
 		"Press `t` twice to target the Moon",
-		"| `recover:` heavy | Falcon Heavy: run the core at 50 to 70 % until BECO, or no boostback closes |",
+		"| `recover:` heavy | Falcon Heavy: boosters set to recover, the core holds 60 % (auto) until BECO; moving the core throttle ends it |",
 	} {
 		if !strings.Contains(string(doc), want) {
 			t.Errorf("docs/controls.md lacks %q", want)
