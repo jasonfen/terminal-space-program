@@ -615,12 +615,18 @@ func TestRecoveryRefusedNIsCheap(t *testing.T) {
 	}
 	msg1, e1, d1 := press()
 	msg2, e2, d2 := press()
-	t.Logf("drop %d flights %v, press 1 %d flights %v, press 2 %d flights %v: %s", dropEvals, dropWall, e1, d1, e2, d2, msg1)
-	if msg1 == "" || msg1 != msg2 {
-		t.Fatalf("N said %q then %q, want the same refusal twice", msg1, msg2)
+	w.Tick() // the navigation error redraws every tick; the key holds the true aim, not the drawn one
+	msg3, e3, _ := press()
+	for i := 0; i < 4; i++ {
+		w.Tick()
 	}
-	if dropEvals > 200 || e1 > 1500 || e2 != 0 {
-		t.Errorf("drop %d, first press %d, second press %d flights, want under 200, under 1,500 and 0", dropEvals, e1, e2)
+	msg4, e4, _ := press()
+	t.Logf("drop %d flights %v, press 1 %d flights %v, press 2 %d flights %v, after 1 tick %d, after 4 ticks %d: %s", dropEvals, dropWall, e1, d1, e2, d2, e3, e4, msg1)
+	if msg1 == "" || msg1 != msg2 || msg1 != msg3 || msg1 != msg4 {
+		t.Fatalf("N said %q, %q, %q, %q, want the same refusal every time", msg1, msg2, msg3, msg4)
+	}
+	if dropEvals > 200 || e1 > 1500 || e2 != 0 || e3 != 0 || e4 != 0 {
+		t.Errorf("drop %d, first press %d, then %d, %d, %d flights, want under 200, under 1,500 and 0 each", dropEvals, e1, e2, e3, e4)
 	}
 }
 
@@ -753,11 +759,40 @@ func TestRecoveryFalconHeavyAutoCoreHoldYieldsToThePlayerAndToNone(t *testing.T)
 		t.Fatalf("auto hold: core %.2f boosters %.2f auto %v, want core %.2f and boosters at the player's 1", got, c.BoosterThrottleEff(), c.CoreAuto(), spacecraft.CoreAutoThrottle)
 	}
 	w.AdjustThrottle(-0.05) // the key steps from what the readout shows
-	if got := c.EffectiveThrottle(); math.Abs(got-0.55) > 1e-9 || c.CoreAuto() {
-		t.Errorf("after one step down: core %.2f auto %v, want 0.55 and the hold ended", got, c.CoreAuto())
+	if got := c.EffectiveThrottle(); math.Abs(got-0.55) > 1e-9 || c.CoreAuto() || c.BoosterThrottleEff() != 1 {
+		t.Errorf("after one step down: core %.2f boosters %.2f auto %v, want 0.55, the boosters still at 1 and the hold ended", got, c.BoosterThrottleEff(), c.CoreAuto())
 	}
-	w.SetThrottle(0.6) // back to the same number: the hold does not return (target all: the boosters follow)
+	w.SetThrottle(0.6) // hold over: target all behaves as before, the boosters follow the core again
 	if c.CoreAuto() || c.EffectiveThrottle() != 0.6 || c.BoosterThrottleEff() != 0.6 {
 		t.Errorf("after setting 0.6: core %.2f boosters %.2f auto %v, want the player's 0.6 on both, no hold", c.EffectiveThrottle(), c.BoosterThrottleEff(), c.CoreAuto())
+	}
+}
+
+// N2: while the auto hold runs the ENGINE row says `core:`, so a write under the
+// default target (all) is a core write: the boosters stay where they are. Every
+// key is pinned (one trim step, a write equal to the held 60 %, full, cut); after
+// the hold ends target all moves both again.
+func TestRecoveryFalconHeavyHoldWriteUnderAllIsACoreWrite(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		do   func(w *World)
+		core float64
+	}{
+		{"trim 1 %", func(w *World) { w.AdjustThrottle(-0.01) }, 0.59},
+		{"equal to the held 60 %", func(w *World) { w.SetThrottle(spacecraft.CoreAutoThrottle) }, spacecraft.CoreAutoThrottle},
+		{"full", func(w *World) { w.SetThrottle(1) }, 1},
+		{"cut", func(w *World) { w.SetThrottle(0) }, 0},
+	} {
+		w, c := fhPad(t, RecoverPick{Mode: spacecraft.RecoverLZ})
+		for i := 0; i < 20*10; i++ {
+			w.Tick()
+		}
+		if !c.CoreAuto() || c.BoosterThrottleEff() != 1 {
+			t.Fatalf("%s: no hold at the start (auto %v boosters %.2f)", tc.name, c.CoreAuto(), c.BoosterThrottleEff())
+		}
+		tc.do(w)
+		if got := c.EffectiveThrottle(); math.Abs(got-tc.core) > 1e-9 || c.BoosterThrottleEff() != 1 || c.CoreAuto() {
+			t.Errorf("%s: core %.2f boosters %.2f auto %v, want core %.2f, boosters 1, hold ended", tc.name, got, c.BoosterThrottleEff(), c.CoreAuto(), tc.core)
+		}
 	}
 }
