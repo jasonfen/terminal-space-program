@@ -1002,6 +1002,7 @@ func (w *World) planBoostback(c *spacecraft.Spacecraft, lat, lon float64, name s
 		return nil, nil
 	}
 	mu := c.Primary.GravitationalParameter()
+	aim := [2]float64{lat, lon} // the true aim keys the refusal cache: the computer's site is redrawn every tick
 	w.drawNavError(c, true)
 	lat, lon = w.computerSiteLatLon(c, lat, lon)
 	now := w.Clock.SimTime
@@ -1013,7 +1014,7 @@ func (w *World) planBoostback(c *spacecraft.Spacecraft, lat, lon float64, name s
 	}
 	st0.M = c.TotalMass()
 	site := [2]float64{lat, lon}
-	if out, ok := w.shortfalls[shortfallKey{c.ID, site, int(c.ActiveStageFuel() / 100), now.Unix()}]; ok {
+	if out, ok := w.shortfalls[shortfallKey{c.ID, aim, int(c.ActiveStageFuel() / 100), now.Unix()}]; ok {
 		return nil, out // the same refused press again: the same answer, free (R6)
 	}
 	sol, err := w.solveBoostback(c, st0, tS, site)
@@ -1034,7 +1035,7 @@ func (w *World) planBoostback(c *spacecraft.Spacecraft, lat, lon float64, name s
 		if w.shortfalls == nil {
 			w.shortfalls = map[shortfallKey]error{}
 		}
-		w.shortfalls[shortfallKey{c.ID, site, int(c.ActiveStageFuel() / 100), w.Clock.SimTime.Unix()}] = out
+		w.shortfalls[shortfallKey{c.ID, aim, int(c.ActiveStageFuel() / 100), w.Clock.SimTime.Unix()}] = out
 		return nil, out
 	}
 	dv, tilt, entry, off := sol.dv, sol.tilt, sol.entry, sol.off

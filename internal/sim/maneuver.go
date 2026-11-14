@@ -192,6 +192,9 @@ func writeThrottle(c *spacecraft.Spacecraft, g ThrottleGroup, t float64) bool {
 	changed := false
 	if g != ThrottleBoosters && c.CoreAuto() {
 		c.CoreAutoOff = true // the player's input wins: the hold ends for this flight
+		if g == ThrottleAll {
+			g = ThrottleCore // the ENGINE row said `core:`, so the key writes the core; the boosters stay put
+		}
 	}
 	switch g {
 	case ThrottleBoosters:
