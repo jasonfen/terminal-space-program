@@ -4,6 +4,7 @@ package sim
 // recover: choice, the drone ship, the flight home at the drop, the cutoff).
 
 import (
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -506,6 +507,7 @@ type climbStats struct {
 	evals        int
 	minGapRealS  float64
 	held         float64
+	cappedMax    float64 // top effective warp while the ship cap applied (0: it never did)
 }
 
 // climbTimed flies padClimb's ascent at warp index warpIdx from 20 s up (a burn
@@ -536,6 +538,9 @@ func climbTimed(t testing.TB, loadout string, picks []RecoverPick, warpIdx int) 
 		}
 		if w.Clock.SimTime.Sub(t0).Seconds() > 20 {
 			w.Clock.WarpIdx = warpIdx
+		}
+		if w.recoveryWarpCap() > 0 {
+			st.cappedMax = math.Max(st.cappedMax, w.EffectiveWarp())
 		}
 		n0 := w.recoverySolves
 		start := time.Now()
@@ -650,7 +655,7 @@ func TestRecoveryReserveSolvesAreCheapAndSpaced(t *testing.T) {
 		fixedHeld bool
 	}{
 		{"lz 1x", lz, 0, 1300, 50658, true}, {"ship 1x", ship, 0, 3400, 43369, true},
-		{"lz 10x", lz, 1, 700, 50658, false}, {"ship 10x", ship, 1, 2000, 43369, false},
+		{"lz 10x", lz, 1, 700, 50658, false}, {"ship 10x", ship, 1, 3400, 43369, false},
 	} {
 		st, w, c := climbTimed(t, "Falcon-9-Dragon", []RecoverPick{tc.pick}, tc.warp)
 		one[tc.name] = st.held
@@ -684,6 +689,45 @@ func TestRecoveryReserveSolvesAreCheapAndSpaced(t *testing.T) {
 		flyDown(w, b)
 		if d := distToLZ(t, w, b, id, 1); !b.Landed || d > SiteLZRadiusM || b.ActiveStageFuel() <= 0 {
 			t.Errorf("%s: landed=%v %.1f m out with %.0f kg, want inside %v m with propellant", tc.name, b.Landed, d, b.ActiveStageFuel(), SiteLZRadiusM)
+		}
+	}
+}
+
+// N1: at 10x a ship pick must still get its cutoff on the predicted line, not on the
+// fixed-grid fallback: the stage is cut, dropped, accepted, lands inside the circle
+// and keeps at least the boostback margin. Falcon 9 + Dragon ship 75 and the Falcon 9
+// ships 90 and 150 are the cases that lost the booster or landed on 0.2 to 1 t.
+func TestRecoveryTenXShipCutoffLandsWithMargin(t *testing.T) {
+	for _, tc := range []struct {
+		load string
+		km   float64
+	}{{"Falcon-9-Dragon", 75}, {"Falcon-9", 90}, {"Falcon-9", 150}} {
+		for _, warp := range []int{0, 1} {
+			st, w, c := climbTimed(t, tc.load, []RecoverPick{{Mode: spacecraft.RecoverShip, ShipKm: tc.km}}, warp)
+			name := fmt.Sprintf("%s ship %.0f warp %d", tc.load, tc.km, warp)
+			t.Logf("%s: %d solves, %d flights, held %.0f kg, worst tick %v, min gap %.2f real s", name, st.solves, st.evals, st.held, st.worst, st.minGapRealS)
+			if want := recoveryShipWarpCap; warp == 1 && (st.cappedMax == 0 || st.cappedMax > want) { // equal case: exactly the cap is allowed
+				t.Errorf("%s: warp while capped peaked at %.1f, want 0 < peak <= %.0f", name, st.cappedMax, want)
+			}
+			if st.held <= 0 {
+				t.Errorf("%s: no cutoff, the stage burned to %v", name, c.Stages[0].FuelMass)
+				continue
+			}
+			id := c.Stages[0].RecoverSiteID
+			n := len(w.Crafts)
+			if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+				t.Fatal(err)
+			}
+			if len(w.PendingRecoveryEvents) != 0 {
+				t.Errorf("%s: held %.0f kg, the drop was refused: %v", name, st.held, w.PendingRecoveryEvents)
+				continue
+			}
+			b := w.Crafts[n]
+			w.Clock.WarpIdx = 0
+			flyDown(w, b)
+			if d := distToLZ(t, w, b, id, 1); !b.Landed || d > SiteLZRadiusM || b.ActiveStageFuel() < BoostbackFuelMarginKg {
+				t.Errorf("%s: landed=%v %.1f m out with %.0f kg, want inside %v m with at least %.0f kg", name, b.Landed, d, b.ActiveStageFuel(), SiteLZRadiusM, BoostbackFuelMarginKg)
+			}
 		}
 	}
 }

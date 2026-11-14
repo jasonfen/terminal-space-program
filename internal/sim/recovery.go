@@ -239,6 +239,26 @@ type recoveryRuntime struct {
 	haveCut      bool    // a closing plan has been solved: the cutoff can be predicted
 	warmDV       float64 // the last closing plan's burn size: the next solve starts there
 	rising       bool    // the aim needed the full scan (a ship): the next solves window it
+	light        bool    // the weight test has passed: a plan can close from here (N1: warp is capped for a ship)
+}
+
+// recoveryShipWarpCap is the warp a ship pick's climb is held to between the weight
+// test passing and the cutoff. A ship's closing window can be shorter than ten sim
+// seconds, so the solves (a real second apart at most) must be 3 sim seconds apart
+// there, which is a real second at this warp (N1).
+const recoveryShipWarpCap = 3.0
+
+// recoveryWarpCap is the ceiling the climb's ship pick puts on warp, 0 for none.
+func (w *World) recoveryWarpCap() float64 {
+	for _, c := range w.Crafts {
+		if c == nil || len(c.Stages) == 0 || c.Stages[0].RecoverMode != spacecraft.RecoverShip || c.Stages[0].HeldKg > 0 || c.ManualBurn == nil {
+			continue
+		}
+		if rt := w.recRT[c.ID]; rt != nil && rt.light {
+			return recoveryShipWarpCap
+		}
+	}
+	return 0
 }
 
 func (w *World) recoveryRTFor(c *spacecraft.Spacecraft) *recoveryRuntime {
@@ -344,13 +364,17 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 	rt := w.recoveryRTFor(c)
 	now := w.Clock.SimTime
 	tickWarp := float64(simDelta) / float64(w.Clock.BaseStep) // sim seconds per real second at this tick's warp
-	near := func() bool {                                     // the line says the reserve is reached within this tick plus the lead
+	if st.RecoverMode == spacecraft.RecoverShip {
+		tickWarp = math.Min(tickWarp, recoveryShipWarpCap) // the climb is capped from here on (N1)
+	}
+	near := func() bool { // the line says the reserve is reached within this tick plus the lead
 		ahead := now.Sub(rt.at).Seconds() + simDelta.Seconds() + RecoveryCutLeadS
 		return rt.haveCut && rt.rate > 0 && rt.slack-rt.rate*ahead <= RecoveryPadKg
 	}
 	if !now.Before(rt.nextSolve) {
 		slack, dv, rising, err := w.recoverySlack(c, st.FuelMass, rt.warmDV, rt.rising)
 		rt.rising = rising
+		rt.light = rt.light || !errors.Is(err, errRecoveryHeavy)
 		switch {
 		case err == nil:
 			if rt.haveCut {
