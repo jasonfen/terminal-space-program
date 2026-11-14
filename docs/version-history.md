@@ -2,6 +2,19 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.69.0
+
+Landing zones, recovered boosters and Dragon's SuperDracos (ADR 0068, ADR 0069, ADR 0070; PRs `#943` to `#991`; closes `#935`, `#936`, `#937`; tag `v0.69.0`). Save schema 25 (LZ layouts and claims, recovery picks, the engine a burn was planned on; older saves migrate).
+
+- **Landing zones.** Sites carry numbered LZ circles, drawn in OVERHEAD and on the map; `+`/`-` add and drop LZs on your own flag, left/right on the `t` card choose one. `N` and `B` claim an LZ and hand you the next free one when a partner's lander sits on it. Map zoom reaches LZ scale on Earth, Mars and the Moon.
+- **Boosters come home.** The pad card's `recover:` row sends a first stage to LC-13's LZ or a drone ship downrange. The climb cuts the engines itself at the landing reserve (`MECO: … kg held`); `space` drops the stage, which flies boostback, entry burn and a one-burn landing on its own while you fly on. Falcon Heavy's side boosters land on two LZs, and its core holds 60 % until BECO. A drop that cannot land is refused with the reason (`needs … m/s`, `landing burn lights … up`).
+- **One-burn landings.** A marked vessel's landing burn ends at the ground at 2 m/s on its landing throttle, lit at the cue; `N` plans a 1.5 t propellant margin and its forecast matches the flown burn.
+- **Dragon.** The SuperDracos are a second engine mode (568 kN); `N` on a Dragon flies the deorbit on them, drops the trunk, arms the chute, flies the canopy and lands on the flag, with or without the chute. After S2 drops the vessel keeps the name Dragon.
+- **Engines breathe.** Isp blends from sea level to vacuum as the air thins and thrust follows it, so a first stage gains thrust as it climbs (ADR 0070).
+- **Air and warp.** A descent through air lands at the same point at every warp; warp works through the air and under the canopy; capsules, landers and dropped stages fall by their own size and mass (`#937`); a chute opening fast no longer throws the vessel off (`#935`); the touchdown flash reads right beside the flag (`#936`).
+- **Flying.** The title row reads `T+` mission elapsed time, kept by dropped stages; switching vessels leaves every hand burn lit; a flying vessel bounces off a landed one instead of passing through, and touchdowns are set down clear of landed hulls; a planted burn flies the engine it was planned on.
+- **Known issues.** A drone-ship return after a very flat climb (pitch kick earlier than about T+8.5 s) gets no automatic cutoff and the booster is lost; a bare Falcon 9 to a ship 350 km out gets no cutoff; Falcon Heavy boosters to a drone ship at 10x are untested.
+
 ### v0.68.0
 
 Start on a save from the command line, and the v0.67.0 known issues fixed (PRs `#933`, `#934`, `#938` to `#941`; closes `#881`, `#891`, `#911`, `#915`; tag `v0.68.0`). Save schema unchanged (23).
