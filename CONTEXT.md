@@ -912,6 +912,15 @@ dry mass until the drop. The ENGINE badge counts `T-` to the cutoff and reads
 `MECO` for the core, `BECO` for side boosters, where it reads `DRY` otherwise.
 Recovery none burns to dry.
 
+**Three-engine landing burn** (ADR 0071 decision 1; `ThreeEngineLandingThrottle`):
+A recovering Merlin stage lands on one engine of nine (`landing_throttle` 1/9). When
+the one-engine reserve solve has not closed and a three-engine plan does, the
+stage's landing throttle becomes 3/9 at the cutoff and the dropped stage flies its
+landing on three. A stage whose one-engine plan closes first never changes. The
+cutoff is then the three-engine plan's own reserve line, so it comes later and
+holds less than a one-engine cutoff would. No readout names the count yet.
+_Avoid_: Triple burn, extra engines.
+
 **Landing Autopilot** (ADR 0067; `Site+`):
 The vessel flies its own landing on the targeted **Site**: `N` plants the
 deorbit burn, puts the navball on `[SITE]` and engages it; it coasts to the
