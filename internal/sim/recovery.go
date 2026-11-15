@@ -353,12 +353,40 @@ var errRecoveryHeavy = errors.New("too heavy to land")
 // engine can hover after it cannot be landed by any plan. It is a necessary
 // condition only; the solve decides the rest.
 func recoveryTooHeavy(b *spacecraft.Spacecraft) bool {
+	return tooHeavyAt(b, b.TotalMass())
+}
+
+func tooHeavyAt(b *spacecraft.Spacecraft, m float64) bool {
 	r := b.Primary.RadiusMeters()
 	if b.Thrust <= 0 || b.Isp <= 0 || r <= 0 {
 		return false
 	}
 	hover := b.Thrust * brakeThrottle(b) / (b.Primary.GravitationalParameter() / (r * r))
-	return b.TotalMass()*math.Exp(-entryDVMax/(b.Isp*stdGravityMps2)) > hover
+	return m*math.Exp(-entryDVMax/(b.Isp*stdGravityMps2)) > hover
+}
+
+// heavyAfterBoostback is recoveryTooHeavy with the boostback's propellant gone: the
+// stage's mass after the least Δv a boostback can burn (the horizontal speed over
+// the ground; the equator's rotation is the most the ground can take off it, so the
+// floor is under any plan's). It only gates the three-engine probe: a stage the
+// one-engine test calls heavy but this does not may have a three-engine window open.
+func heavyAfterBoostback(b *spacecraft.Spacecraft, st physics.StateVector, ahead float64) bool {
+	r := st.R.Norm()
+	if r <= 0 || b.Isp <= 0 {
+		return false
+	}
+	vr := st.V.Dot(st.R) / r
+	dv := math.Sqrt(math.Max(0, st.V.Dot(st.V)-vr*vr))
+	if t := b.Primary.SideralRotationSeconds(); t > 0 {
+		dv -= 2 * math.Pi * b.Primary.RadiusMeters() / t
+	}
+	m := b.TotalMass()
+	// ahead: also still heavy that many sim seconds of burn later, so the one-engine
+	// solve's own first (counted) solve is never within a real second of a probe
+	if ahead > 0 && !tooHeavyAt(b, m-ahead*b.Thrust/(b.Isp*stdGravityMps2)) {
+		return true
+	}
+	return tooHeavyAt(b, math.Max(m*math.Exp(-math.Max(0, dv)/(b.Isp*stdGravityMps2)), m-b.ActiveStageFuel()))
 }
 
 // recoverySlack solves the way home for the bottom stage as if it were dropped
@@ -366,15 +394,19 @@ func recoveryTooHeavy(b *spacecraft.Spacecraft) bool {
 // slack is the propellant the plan leaves above the landing margin; err says why
 // no plan closes. It plants nothing and does not run the shortfall search.
 func (w *World) recoverySlack(c *spacecraft.Spacecraft, fuel, warm float64, rising bool) (slack, dv float64, risen bool, err error) {
-	return w.recoverySlackAt(c, 0, fuel, warm, rising, 0)
+	return w.recoverySlackAt(c, 0, fuel, warm, rising, 0, 0)
 }
 
 // recoverySlackAt is recoverySlack with the stage's landing throttle set to thr
 // on the solve's copy (thr 0 leaves the stage's own): the three-engine fallback
 // prices the plan without committing the stage to it. coast is seconds the stage
 // flies on unpowered before the plan starts: the pilot's press on staging.
-func (w *World) recoverySlackAt(c *spacecraft.Spacecraft, thr, fuel, warm float64, rising bool, coast float64) (slack, dv float64, risen bool, err error) {
+func (w *World) recoverySlackAt(c *spacecraft.Spacecraft, thr, fuel, warm float64, rising bool, coast, probeAhead float64) (slack, dv float64, risen bool, err error) {
 	st := c.Stages[0]
+	st.FuelMass = fuel
+	if thr > 0 && c.Stages[0].LandingThrottle > 0 && c.Stages[0].LandingThrottle < thr && heavyAfterBoostback(buildJettisonedCraft([]spacecraft.Stage{st}, c), c.State, probeAhead) {
+		return 0, 0, rising, errRecoveryHeavy
+	}
 	if thr > 0 {
 		st.LandingThrottle = thr
 	}
@@ -449,12 +481,24 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 		// closed on this climb. Price the landing burn on three engines; that plan only
 		// stands in for the cutoff line, and the stage commits to three engines when it
 		// reaches it (a stage whose one-engine plan closes first never changes).
-		if lt := st.LandingThrottle; err != nil && !rt.seenFeasible && lt > 0 && lt < ThreeEngineLandingThrottle &&
-			!errors.Is(err, errRecoveryHeavy) && !errors.Is(err, ErrDeorbitNoSite) && (rt.three.failed >= recoveryThreeAfterFails || errors.Is(err, ErrBoostbackNoSolution)) && !now.Before(rt.three.nextAt) {
+		// While the weight test says one engine cannot hover after the plan, three
+		// engines (3x the hover) still can, and their window opens first (flight 4: it was
+		// open 28 s before the one-engine test let the cutoff look). So the shadow line is
+		// also priced in that phase, every recoveryRetrySec, with no failure count to wait for.
+		heavy, probeAhead := errors.Is(err, errRecoveryHeavy), 0.0
+		if heavy {
+			probeAhead = recoveryMinSec * float64(simDelta) / float64(w.Clock.BaseStep) // a real second (the ship cap is not on yet)
+		}
+		lt := st.LandingThrottle
+		if err != nil && !rt.seenFeasible && lt > 0 && lt < ThreeEngineLandingThrottle && !errors.Is(err, ErrDeorbitNoSite) &&
+			(heavy || rt.three.failed >= recoveryThreeAfterFails || errors.Is(err, ErrBoostbackNoSolution)) && !now.Before(rt.three.nextAt) {
 			l := &rt.three
-			s3, d3, r3, err3 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, l.warmDV, l.rising, 0)
+			s3, d3, r3, err3 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, l.warmDV, l.rising, 0, probeAhead)
 			if err3 != nil {
 				*l = threeEngineLine{rising: r3, failed: l.failed} // the scan window is learned from failing solves too
+				if heavy {
+					l.nextAt = now.Add(time.Duration(math.Max(recoveryRetrySec, probeAhead) * float64(time.Second)))
+				}
 			} else {
 				if l.have {
 					l.prevSlack, l.prevAt, l.havePrev = l.slack, l.at, true
@@ -536,7 +580,7 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 		l := &rt.three
 		// (a solve from the last real second is fresh enough: solves stay a second apart)
 		if now.Sub(l.at).Seconds() >= recoveryMinSec*tickWarp {
-			if _, _, _, err3 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, l.warmDV, l.rising, 0); err3 != nil {
+			if _, _, _, err3 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, l.warmDV, l.rising, 0, 0); err3 != nil {
 				*l = threeEngineLine{failed: l.failed}
 				return
 			}
@@ -544,7 +588,7 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 		// staging is the pilot's press, not the cut's: the plan must still close after
 		// the stage coasts RecoveryStageGraceS (a plan that closes only this tick, or
 		// is shut a tick later, was refused at the drop)
-		if _, _, _, err3 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, l.warmDV, l.rising, RecoveryStageGraceS); err3 != nil {
+		if _, _, _, err3 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, l.warmDV, l.rising, RecoveryStageGraceS, 0); err3 != nil {
 			*l = threeEngineLine{failed: l.failed}
 			return
 		}
