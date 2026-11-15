@@ -52,7 +52,7 @@ func TestBurnTimeForDVCarriesAcrossStages(t *testing.T) {
 	if got, want := secs(c.BurnTimeForDV(dv1+1)), t1+tail(1); math.Abs(got-want) > 1e-6 {
 		t.Errorf("dv = capacity+1: %.6f s, want %.6f", got, want)
 	}
-	// FH circularise shape: a small core, a long S2 burn. Old code said ~t1-ish scale x 1.
+	// FH circularise shape: a small core, a long S2 burn.
 	extra := 4000.0
 	got, want := secs(c.BurnTimeForDV(dv1+extra)), t1+tail(extra)
 	if math.Abs(got-want) > 1e-6 {

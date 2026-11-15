@@ -756,21 +756,72 @@ func (s *Spacecraft) MassFlowRateAt(throttle float64) float64 {
 	return s.Thrust * throttle / (s.Isp * g0)
 }
 
-// BurnTimeForDV returns the engine-on duration required to deliver dv
-// at the craft's current mass + thrust + Isp, using the rocket-equation
-// form t = (m0/ṁ)·(1 − exp(−Δv/(Isp·g0))). Accounts for the mass loss
-// during the burn — at high Δv-fraction of the budget, a constant-mass
-// approximation underestimates the time by the integral of mass /
-// thrust, which matters for low-TWR vessels burning a large share of
+// BurnTimeForDV returns the engine-on duration required to deliver dv,
+// using the rocket-equation form t = (m0/ṁ)·(1 − exp(−Δv/(Isp·g0))). It
+// accounts for mass loss during the burn — at high Δv-fraction of the budget,
+// a constant-mass approximation underestimates the time by the integral of
+// mass / thrust, which matters for low-TWR vessels burning a large share of
 // their fuel.
 //
-// Returns 0 when no finite burn is possible: zero or non-positive Δv,
-// no thrust, no Isp, or Δv exceeding what the available fuel can
-// support (caller's exceeds-budget warning fires; the integrator caps
-// delivery at fuel exhaustion regardless of the duration the form
-// committed). v0.6.5+: replaces the prior UI-set duration field; the
-// planner now derives this so the player only specifies Δv.
+// When the lit stage can't deliver all of dv (RemainingDeltaV), the time is
+// summed stage by stage (#996): the lit set burns dry, the player decouples it
+// (a planted burn stalls on a dry tank and resumes on the next staging, it
+// never stages itself), and the next lit stage carries the rest at its own
+// thrust and Isp. Staging is taken as instant. Past the last stage's fuel the
+// remainder is extrapolated at that stage's engine, as it always was: this
+// never returns 0 for an over-budget Δv (a Duration-0 node degrades to an
+// impulsive burn, which would hand out free Δv; the exceeds-budget warning
+// and the integrator's fuel cap are what bound the delivery).
+//
+// Returns 0 when no finite burn is possible: zero or non-positive Δv, no
+// thrust, or no Isp. v0.6.5+: replaces the prior UI-set duration field; the
+// planner derives this so the player only specifies Δv.
 func (s *Spacecraft) BurnTimeForDV(dv float64) time.Duration {
+	if dv <= 0 {
+		return 0
+	}
+	if len(s.Stages) < 2 || dv <= s.RemainingDeltaV() {
+		return s.burnTimeOneStage(dv)
+	}
+	c := *s
+	c.Stages = append([]Stage(nil), s.Stages...)
+	var total time.Duration
+	for {
+		set := LitStages(c.Stages)
+		top := set[len(set)-1]
+		capDV := c.RemainingDeltaV()
+		// shortcut: a marked pair whose members empty at different times is
+		// timed as one phase then the survivor, not re-split per drop; fine
+		// while pairs are boosters under one core.
+		if dv <= capDV || !hasEngineAbove(c.Stages, top) {
+			return total + c.burnTimeOneStage(dv)
+		}
+		total += c.burnTimeOneStage(capDV)
+		dv -= capDV
+		var burn float64
+		for _, b := range litPhaseBurn(c.Stages, set) {
+			burn += b
+		}
+		c.BurnFuel(burn)
+		if c.ActiveStageFuel() <= 0 || capDV <= 0 {
+			c.Stages = c.Stages[top+1:]
+		}
+		c.SyncFields()
+	}
+}
+
+func hasEngineAbove(stages []Stage, i int) bool {
+	for _, st := range stages[i+1:] {
+		if st.Thrust > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// burnTimeOneStage is the single-engine rocket-equation time for dv: the
+// current lit set's thrust and Isp on the whole stack's mass.
+func (s *Spacecraft) burnTimeOneStage(dv float64) time.Duration {
 	if dv <= 0 || s.Isp <= 0 || s.Thrust <= 0 {
 		return 0
 	}
