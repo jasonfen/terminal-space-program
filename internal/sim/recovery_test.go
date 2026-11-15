@@ -889,17 +889,18 @@ func flatKickClimb(t *testing.T, kick float64, pick RecoverPick) (*World, *space
 // at the ground and the flown landing law left 0 to 2 t. The forecast now flies
 // that law (oneBurnFuelLeft), so the drop is accepted only when the flight keeps
 // its propellant: 8.5, 8.75 and 9.0 land with 3.4 to 4.2 t, 8.25 reaches the reserve
-// line with no plan that closes (the pilot is told), 8.0 never closes and flies on.
+// line with no plan that closes (the pilot is told), 8.0 now cuts (burnAtCue finds the last safe light, where the old bisection lit 160 km up and called it unsafe) but flies 11 km out, dry.
 func TestRecoveryFlatClimbCutoffNeverLeavesARefusedDrop(t *testing.T) {
 	const (
-		land   = iota // cuts off, the drop is accepted, the stage lands with the margin
-		told          // reaches the reserve line, the drop is refused and the pilot told
-		noPlan        // no plan ever closes: no cutoff
+		land          = iota // cuts off, the drop is accepted, the stage lands with the margin
+		told                 // reaches the reserve line, the drop is refused and the pilot told
+		noPlan               // no plan ever closes: no cutoff
+		cutsAndMisses        // the three-engine plan closes (burnAtCue finds the last safe light), the flight lands 11 km out, dry: open gap, slice 2
 	)
 	for _, tc := range []struct {
 		kick float64
 		want int
-	}{{8.0, noPlan}, {8.25, told}, {8.5, land}, {8.75, land}, {9.0, land}} {
+	}{{8.0, cutsAndMisses}, {8.25, told}, {8.5, land}, {8.75, land}, {9.0, land}} {
 		w, c := flatKickClimb(t, tc.kick, RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: RecoveryShipDefaultKm})
 		name := fmt.Sprintf("kick %.2f", tc.kick)
 		held, id := c.Stages[0].HeldKg, c.Stages[0].RecoverSiteID
@@ -907,7 +908,7 @@ func TestRecoveryFlatClimbCutoffNeverLeavesARefusedDrop(t *testing.T) {
 			t.Errorf("%s: held %.0f kg, want a cutoff: %v", name, held, tc.want != noPlan)
 			continue
 		}
-		if tc.want == noPlan {
+		if tc.want == noPlan || tc.want == cutsAndMisses {
 			continue
 		}
 		n := len(w.Crafts)

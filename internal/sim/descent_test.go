@@ -6,6 +6,7 @@ package sim
 
 import (
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -341,4 +342,58 @@ func TestForecastFliesTheArmedChuteAndFindsAShortCue(t *testing.T) {
 	if !ok || pred.MarginM > 45 {
 		t.Errorf("stop forecast under a worked chute: ok=%v margin %.1f m, want a bare brake (about 30 m of 60 m left, not the canopy's 58)", ok, pred.MarginM)
 	}
+}
+
+// ADR 0071 flight 2: with three engines the brake runs dry in the thick middle of a
+// fast coast, so the safe lights are not one run. The F9 flown to ship 350 km (cut on
+// 30.9 t, the cliff of the cut) is safe at the apogee, fuel-limited from about 130 to
+// 50 km, safe again in the denser air and crashes at the last sample. The cue must be
+// the LAST safe light; a bisection from the safe first sample lit 169 km up and burned
+// dry. The one-engine pin is the Dragon fall in the test above and the deorbit pins.
+func TestBurnAtCueThreeEngineTakesTheLastSafeLight(t *testing.T) {
+	_, b, _, _ := flownF9(t, 0)
+	b.Stages[0].FuelMass = 30853
+	b.OnLandingBrake(func() {
+		fc, ok := forwardBallisticPathSampled(b, deorbitHorizon, oneBurn(b))
+		if !ok || !fc.ImpactFound {
+			t.Fatalf("no coast to the ground: ok=%v", ok)
+		}
+		thr := brakeThrottle(b)
+		safe := func(s ballisticSample) bool {
+			p, ok := predictPoweredStopFromAt(s.state, b, deorbitHorizon-time.Duration(s.elapsedSec*float64(time.Second)), thr)
+			return ok && p.Outcome == StopStopped && p.MarginM >= 0
+		}
+		var pat strings.Builder
+		first, last := -1, -1
+		for i, s := range fc.samples {
+			if safe(s) {
+				pat.WriteByte('S')
+				if first < 0 {
+					first = i
+				}
+				last = i
+			} else {
+				pat.WriteByte('.')
+			}
+		}
+		p := pat.String()
+		t.Logf("safe(S)/unsafe(.) by sample, apogee first: %s", p)
+		if !strings.Contains(strings.TrimRight(p[:last+1], "S"), ".") || !strings.HasPrefix(p, "S") {
+			t.Fatalf("fixture lost its shape: want safe, then unsafe, then safe again; got %s", p)
+		}
+		cue, _, ok := burnAtCue(b, deorbitHorizon, thr, burnAtRefineIters)
+		if !ok {
+			t.Fatal("no cue")
+		}
+		t.Logf("cue at %.1f km, last safe sample %d at %.1f km", cue.AltitudeM/1e3, last, (fc.samples[last].state.R.Norm()-b.Primary.RadiusMeters())/1e3)
+		// the light is on the last safe/unsafe edge: inside [last safe sample, the next]
+		// (the equal case: a light exactly on the safe sample is the boundary)
+		if cue.InSec < fc.samples[last].elapsedSec || cue.InSec > fc.samples[last+1].elapsedSec {
+			t.Errorf("cue at +%.1f s, want the last edge between +%.1f and +%.1f s", cue.InSec, fc.samples[last].elapsedSec, fc.samples[last+1].elapsedSec)
+		}
+		// the edge itself: the light is safe and a quantum later is not
+		if p, ok := PredictPoweredStopAtCue(b, cue, deorbitHorizon); !ok || p.Outcome != StopStopped {
+			t.Errorf("the cue's own brake: ok=%v outcome=%v, want stopped", ok, p.Outcome)
+		}
+	})
 }
