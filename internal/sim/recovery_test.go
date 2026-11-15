@@ -928,3 +928,87 @@ func TestRecoveryFlatClimbCutoffNeverLeavesARefusedDrop(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0071 decision 1: a stage whose one-engine reserve solve cannot close lands on
+// three engines of nine; a stage the one-engine solve closes stays on one.
+// Guards 1, 2 and 4 of the ADR (#993, #994 at 10x, the equal case), flown from the
+// pad: wantThree says which landing throttle the dropped stages must carry, wantCut
+// whether the climb gets a MECO/BECO at all, and every dropped stage must land inside
+// the LZ circle (SiteLZRadiusM) on the ship.
+func TestRecoveryThreeEngineFallback(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		load      string
+		km        float64
+		warp      int
+		wantThree bool
+	}{
+		{"#993 bare Falcon 9, ship 350 km", "Falcon-9", 350, 0, true},
+		{"#994 Falcon Heavy boosters, ship 250 km at 10x", "Falcon-Heavy", 250, 1, true},
+		// the equal case: today's one-engine solve closes these, they must not move
+		{"Falcon 9, ship 150 km (one engine closes)", "Falcon-9", 150, 0, false},
+		{"Falcon Heavy boosters, ship 250 km at 1x (one engine closes)", "Falcon-Heavy", 250, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st, w, c := climbTimed(t, tc.load, []RecoverPick{{Mode: spacecraft.RecoverShip, ShipKm: tc.km}}, tc.warp)
+			if st.held <= 0 {
+				t.Fatalf("no cutoff: the stage burned dry")
+			}
+			w.Tick()
+			id, n := c.Stages[0].RecoverSiteID, len(w.Crafts)
+			if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+				t.Fatal(err)
+			}
+			if len(w.PendingRecoveryEvents) > 0 {
+				t.Fatalf("drop refused: %v", w.PendingRecoveryEvents)
+			}
+			w.Clock.WarpIdx = 0
+			bs := w.Crafts[n:]
+			flyDown(w, bs...)
+			for i, b := range bs {
+				d := 1e18
+				for k := 1; k <= 2; k++ {
+					d = math.Min(d, distToLZ(t, w, b, id, k))
+				}
+				one := math.Abs(b.LandingThrottle()-1.0/9) < 1e-9
+				t.Logf("stage %d: held %.0f kg, landed=%v %.1f m out, landing throttle %.4f", i+1, st.held, b.Landed, d, b.LandingThrottle())
+				if !b.Landed || d > SiteLZRadiusM {
+					t.Errorf("stage %d: landed=%v %.1f m out, want landed inside %v m", i+1, b.Landed, d, SiteLZRadiusM)
+				}
+				if tc.wantThree != (math.Abs(b.LandingThrottle()-ThreeEngineLandingThrottle) < 1e-9) || (!tc.wantThree && !one) {
+					t.Errorf("stage %d: landing throttle %.4f, want three engines %v (three %.4f, one %.4f)", i+1, b.LandingThrottle(), tc.wantThree, ThreeEngineLandingThrottle, 1.0/9)
+				}
+			}
+		})
+	}
+}
+
+// Guard 4 of ADR 0071 on the core: Falcon Heavy's core, boosters dropped at their
+// BECO, to a typed ship 250 km out on the standard climb gets a MECO and lands inside
+// the circle (on today's one-engine solve it burns dry).
+func TestRecoveryCoreThreeEngineFallback(t *testing.T) {
+	w := mustWorld(t)
+	w.Crafts, w.ActiveCraftIdx = nil, -1
+	c := padClimbIn(t, w, "Falcon-Heavy", []RecoverPick{{Mode: spacecraft.RecoverLZ}, {Mode: spacecraft.RecoverShip, ShipKm: 250}}, 1)
+	w.StageActive(w.ActiveCraftIdx)
+	st := &c.Stages[0]
+	for i := 0; i < 60000 && st.HeldKg == 0 && c.ManualBurn != nil && st.FuelMass > 0; i++ {
+		w.Tick()
+	}
+	if st.HeldKg == 0 {
+		t.Fatal("no MECO: the core burned dry")
+	}
+	w.Tick()
+	id, n := st.RecoverSiteID, len(w.Crafts)
+	w.StageActive(w.ActiveCraftIdx)
+	if len(w.PendingRecoveryEvents) > 0 {
+		t.Fatalf("drop refused: %v", w.PendingRecoveryEvents)
+	}
+	core := w.Crafts[n]
+	flyDown(w, core)
+	d := distToLZ(t, w, core, id, 1)
+	t.Logf("core: landed=%v %.1f m from the ship, landing throttle %.4f", core.Landed, d, core.LandingThrottle())
+	if !core.Landed || d > SiteLZRadiusM {
+		t.Errorf("core landed=%v %.1f m out, want inside %v m", core.Landed, d, SiteLZRadiusM)
+	}
+}
