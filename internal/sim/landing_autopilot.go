@@ -983,7 +983,7 @@ func (w *World) apOneBurn(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopi
 	if ok && tgo > 3 && c.Isp > 0 && c.ActiveStageFuel() >= 1.5*tgo*c.TotalMass()*f.g/(c.Isp*stdGravityMps2) {
 		aim = aim.Add(e.Scale(6 / (tgo * tgo)))
 	}
-	if lim := tv.Norm() * math.Tan(apMaxTiltRad); aim.Norm() > lim {
+	if lim := oneBurnLateralLimit(c, tv.Norm(), f.g, tgo); aim.Norm() > lim {
 		aim = aim.Unit().Scale(lim)
 	}
 	tv = tv.Add(aim)
@@ -1033,4 +1033,25 @@ func (w *World) landingEnded(c *spacecraft.Spacecraft) {
 	ap.Phase = spacecraft.PhaseCoast
 	rt.outOfReach = false
 	rt.checked = false
+}
+
+// apLagFreeThrustG is the thrust (in g) up to which the nose keeps up with the
+// one-burn law's sideways asks. A one-engine stage thrusts at 1.5 to 2 g at the
+// end of its fall and has always had the full 25 degrees (apMaxTiltRad).
+const apLagFreeThrustG = 1.5
+
+// oneBurnLateralLimit is the sideways acceleration the one-burn law may add to the
+// thrust it already wants (tvNorm, m/s^2): 25 degrees of tilt off it
+// (apMaxTiltRad). A stage thrusting past apLagFreeThrustG (three engines stop on
+// the ground at 3 to 4 g) turns a degree of nose lag into 3 times the sideways
+// speed, and the nose slews at 15 deg/s: a swing of 35 degrees to brake a
+// 17 m/s drift in the last two seconds ends 25 degrees behind the command and
+// flings the stage 10 m/s the other way (ADR 0071 flight 2, 205 m out). Above that
+// thrust the tilt is capped at what the nose can swing and swing back in the
+// time to go (slew x tgo / 2), and the limit never falls under that of a stage
+// at apLagFreeThrustG.
+func oneBurnLateralLimit(c *spacecraft.Spacecraft, tvNorm, g, tgo float64) float64 {
+	tilt := math.Min(apMaxTiltRad, c.SlewRateRad()*tgo/2)
+	floor := apLagFreeThrustG * g * math.Tan(apMaxTiltRad)
+	return math.Min(tvNorm*math.Tan(apMaxTiltRad), math.Max(tvNorm*math.Tan(tilt), floor))
 }

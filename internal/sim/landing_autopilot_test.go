@@ -1327,3 +1327,32 @@ func TestHandNodeUnderNFliesItsOwnEngine(t *testing.T) {
 		t.Errorf("hand node used %.1f kg, want %.1f kg on the Dracos at Isp %.0f", used, want, mainIsp)
 	}
 }
+
+// oneBurnLateralLimit: a stage thrusting at or under apLagFreeThrustG keeps the
+// full 25 degrees at every time to go (one-engine landings fly as before, the
+// equal case included); above it the limit falls with the time to go the nose has
+// to swing and swing back in, and never under that of a stage at the threshold.
+func TestOneBurnLateralLimitCapsOnlyAHardThrustingStage(t *testing.T) {
+	c := spacecraft.NewFromLoadout("Falcon-9") // 15 deg/s slew
+	const g = 9.8
+	full := func(tv float64) float64 { return tv * math.Tan(apMaxTiltRad) }
+	for _, tgo := range []float64{1, 2, 3.3, 10} {
+		for _, tv := range []float64{0.5 * g, 1.2 * g, apLagFreeThrustG * g} { // the last is the equal case
+			if got := oneBurnLateralLimit(c, tv, g, tgo); got != full(tv) {
+				t.Errorf("tgo %.1f s, thrust %.2f g: limit %.3f, want the full %.3f (unchanged under %.1f g)", tgo, tv/g, got, full(tv), apLagFreeThrustG)
+			}
+		}
+	}
+	hard := 3.5 * g
+	if got := oneBurnLateralLimit(c, hard, g, 10); got != full(hard) {
+		t.Errorf("3.5 g with 10 s to go: limit %.3f, want the full %.3f (the nose has time)", got, full(hard))
+	}
+	if got, want := oneBurnLateralLimit(c, hard, g, 2), hard*math.Tan(c.SlewRateRad()); math.Abs(got-want) > 1e-9 || got >= full(hard) {
+		t.Errorf("3.5 g with 2 s to go: limit %.3f, want %.3f (slew x tgo / 2 = 15 deg), under the full %.3f", got, want, full(hard))
+	}
+	for _, tgo := range []float64{1, 0.1} { // the cap would go under the threshold stage's limit: it stops there
+		if got, floor := oneBurnLateralLimit(c, hard, g, tgo), full(apLagFreeThrustG*g); math.Abs(got-floor) > 1e-9 {
+			t.Errorf("3.5 g with %.1f s to go: limit %.3f, want the threshold stage's %.3f", tgo, got, floor)
+		}
+	}
+}

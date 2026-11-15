@@ -889,13 +889,13 @@ func flatKickClimb(t *testing.T, kick float64, pick RecoverPick) (*World, *space
 // at the ground and the flown landing law left 0 to 2 t. The forecast now flies
 // that law (oneBurnFuelLeft), so the drop is accepted only when the flight keeps
 // its propellant: 8.5, 8.75 and 9.0 land with 3.4 to 4.2 t, 8.25 reaches the reserve
-// line with no plan that closes (the pilot is told), 8.0 now cuts (burnAtCue finds the last safe light, where the old bisection lit 160 km up and called it unsafe) but flies 11 km out, dry.
+// line with no plan that closes (the pilot is told), 8.0 now cuts (burnAtCue finds the last safe light, where the old bisection lit 160 km up and called it unsafe) but flies 11 km out, dry: on one engine, not three, and not the landing law. The boostback plan flies its coast and burn in vacuum and this drop is at 36 km, where the real stage loses about 110 m/s to drag before the burn ends (#999).
 func TestRecoveryFlatClimbCutoffNeverLeavesARefusedDrop(t *testing.T) {
 	const (
 		land          = iota // cuts off, the drop is accepted, the stage lands with the margin
 		told                 // reaches the reserve line, the drop is refused and the pilot told
 		noPlan               // no plan ever closes: no cutoff
-		cutsAndMisses        // the three-engine plan closes (burnAtCue finds the last safe light), the flight lands 11 km out, dry: open gap, slice 2
+		cutsAndMisses        // the plan closes, the flight lands 11 km out, dry: the boostback plan ignores drag at a 36 km drop (#999)
 	)
 	for _, tc := range []struct {
 		kick float64
@@ -1077,9 +1077,10 @@ func flownF9(t *testing.T, delay time.Duration) (w *World, b *spacecraft.Spacecr
 // 170 km up). It now cuts on 4 t where one engine cannot aim, and only if the plan
 // still closes RecoveryStageGraceS later. Delay 0 is the boundary: the very next tick.
 //
-// The stage lands soft but on this climb 20 to 205 m from the ship's centre, not in
-// the 43 m circle (the guard climb above lands inside it): the bound below is the
-// open gap (slice 2), not a pass on it.
+// The stage lands inside the 43 m circle at every delay. It used to land 125 to 205 m
+// out: the three-engine stop swung the nose 35 degrees in two seconds, the 15 deg/s
+// slew left it 25 degrees behind and flung the stage 10 m/s sideways at 1 m up
+// (oneBurnLateralLimit).
 func TestRecoveryThreeEngineCutLandsWhenTheyStage(t *testing.T) {
 	for _, delay := range []time.Duration{0, time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second} {
 		t.Run(delay.String(), func(t *testing.T) {
@@ -1090,8 +1091,8 @@ func TestRecoveryThreeEngineCutLandsWhenTheyStage(t *testing.T) {
 			flyDown(w, b)
 			d := distToLZ(t, w, b, id, 1)
 			t.Logf("staged %v after the cut: held %.0f kg, landed=%v crashed=%v %.1f m from the ship", delay, held, b.Landed, b.Crashed, d)
-			if !b.Landed || b.Crashed || d > 300 {
-				t.Errorf("landed=%v crashed=%v %.1f m from the ship, want down, soft and within 300 m", b.Landed, b.Crashed, d)
+			if !b.Landed || b.Crashed || !insideLZ(d) {
+				t.Errorf("landed=%v crashed=%v %.1f m from the ship, want down, soft and inside the %v m circle", b.Landed, b.Crashed, d, SiteLZRadiusM)
 			}
 			if math.Abs(b.LandingThrottle()-ThreeEngineLandingThrottle) > 1e-9 {
 				t.Errorf("landing throttle %.4f, want three engines %.4f", b.LandingThrottle(), ThreeEngineLandingThrottle)
