@@ -1012,3 +1012,89 @@ func TestRecoveryCoreThreeEngineFallback(t *testing.T) {
 		t.Errorf("core landed=%v %.1f m out, want inside %v m", core.Landed, d, SiteLZRadiusM)
 	}
 }
+
+// flownF9 flies the pilot's recorded bare Falcon 9 to a ship 350 km out (ADR 0071
+// playtest, 2026-11-15, flight 2) and stages delay after the cutoff (0 is the tick
+// after it). The climb is the recording's: prograde hold at T+10.5 with a 1 degree
+// trim to T+16.2, then +5 degrees at T+126.5 and +10 at T+127.5, held to the cutoff.
+// The 10.5 and 16.2 are fitted, not read: the climb is knife-edge in them, and
+// these give the recording's 35.3 km at T+100 and 81 km at the cutoff (recorded
+// 81.3 km, 2,590 m/s, 30,715 kg held; this replay 30,853 kg).
+func flownF9(t *testing.T, delay time.Duration) (w *World, b *spacecraft.Spacecraft, held float64, id uint64) {
+	t.Helper()
+	const deg = math.Pi / 180
+	w = mustWorld(t)
+	w.Crafts, w.ActiveCraftIdx = nil, -1
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9", ParentBodyID: "earth", Launchpad: true,
+		Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast,
+		Recover: []RecoverPick{{Mode: spacecraft.RecoverShip, ShipKm: 350}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.RecomputeCommGraph()
+	c.Throttle, c.EngineMode, c.AttitudeMode = 1, spacecraft.EngineMain, spacecraft.BurnRadialOut
+	w.StartManualBurn()
+	t0 := w.Clock.SimTime
+	for i := 0; i < 60000 && c.Stages[0].HeldKg == 0 && c.ManualBurn != nil; i++ {
+		switch el := w.Clock.SimTime.Sub(t0).Seconds(); {
+		case el >= 10.5 && el < 16.2:
+			c.PitchTrim, c.AttitudeMode = 1*deg, spacecraft.BurnSurfacePrograde
+		case el >= 16.2 && el < 126.5:
+			c.PitchTrim = 0
+		case el >= 126.5 && el < 127.5:
+			c.PitchTrim = 5 * deg
+		case el >= 127.5:
+			c.PitchTrim = 10 * deg
+		}
+		w.Tick()
+	}
+	if c.Stages[0].HeldKg == 0 {
+		t.Fatalf("no cutoff: the stage burned dry (T+%.0f)", w.Clock.SimTime.Sub(t0).Seconds())
+	}
+	held = c.Stages[0].HeldKg
+	for end := w.Clock.SimTime.Add(delay); w.Clock.SimTime.Before(end); {
+		w.Tick()
+	}
+	if delay == 0 {
+		w.Tick() // the tick after the cutoff ends the burn
+	}
+	id, n := c.Stages[0].RecoverSiteID, len(w.Crafts)
+	if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+		t.Fatal(err)
+	}
+	if len(w.PendingRecoveryEvents) > 0 {
+		t.Fatalf("drop refused %v after %v: held %.0f kg", w.PendingRecoveryEvents, delay, held)
+	}
+	return w, w.Crafts[n], held, id
+}
+
+// ADR 0071 playtest flight 2: the cut the three-engine fallback made was refused at
+// the drop 2 s later (`no boostback lands on the site`) and the stage fell 392 km
+// from the ship. Staging is the pilot's press, so a cut must land whenever it comes:
+// it was made on 2.2 t of slack, where this plan stops closing 1.5 s after the cut
+// (and the one tick after it flew 21 km short: the plan closed, the autopilot lit
+// 170 km up). It now cuts on 4 t where one engine cannot aim, and only if the plan
+// still closes RecoveryStageGraceS later. Delay 0 is the boundary: the very next tick.
+//
+// The stage lands soft but on this climb 20 to 205 m from the ship's centre, not in
+// the 43 m circle (the guard climb above lands inside it): the bound below is the
+// open gap (slice 2), not a pass on it.
+func TestRecoveryThreeEngineCutLandsWhenTheyStage(t *testing.T) {
+	for _, delay := range []time.Duration{0, time.Second, 2 * time.Second, 5 * time.Second, 10 * time.Second} {
+		t.Run(delay.String(), func(t *testing.T) {
+			w, b, held, id := flownF9(t, delay)
+			if held < 30000 || held > 40000 {
+				t.Errorf("cut on %.0f kg held, want the 30 to 40 t the recording's climb gives", held)
+			}
+			flyDown(w, b)
+			d := distToLZ(t, w, b, id, 1)
+			t.Logf("staged %v after the cut: held %.0f kg, landed=%v crashed=%v %.1f m from the ship", delay, held, b.Landed, b.Crashed, d)
+			if !b.Landed || b.Crashed || d > 300 {
+				t.Errorf("landed=%v crashed=%v %.1f m from the ship, want down, soft and within 300 m", b.Landed, b.Crashed, d)
+			}
+			if math.Abs(b.LandingThrottle()-ThreeEngineLandingThrottle) > 1e-9 {
+				t.Errorf("landing throttle %.4f, want three engines %.4f", b.LandingThrottle(), ThreeEngineLandingThrottle)
+			}
+		})
+	}
+}

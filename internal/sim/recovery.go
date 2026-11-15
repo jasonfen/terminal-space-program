@@ -51,6 +51,17 @@ const (
 	// three-engine plan that closes costs about 1,300 aim flights, more than the
 	// ship-climb cap leaves (TestRecoveryReserveSolvesAreCheapAndSpaced).
 	recoveryThreeAfterFails = 6
+	// RecoveryThreePadKg is RecoveryPadKg for a three-engine cut whose one-engine solve
+	// cannot even aim (ErrBoostbackNoSolution). Its three-engine window shuts fast as
+	// the stage coasts on after the cut: on the flown +5/+10 degree climb a cut on 2.2 t
+	// of slack was refused 1.5 s later, cuts on 3.4 t and up landed for every drop
+	// delay from 0 to 15 s. Staging is the pilot's press, so the cut carries the
+	// margin. Stages whose one-engine solve aims but lights too high (the Falcon Heavy
+	// boosters) keep RecoveryPadKg: a bigger pad cut them before one engine closes.
+	RecoveryThreePadKg = 4000.0
+	// RecoveryStageGraceS is how long after a three-engine cut the plan must still
+	// close: the pilot presses staging when they like (flown: 2 s after the cut).
+	RecoveryStageGraceS = 5.0
 	// recoveryThreeMaxSec is the longest the three-engine fallback's line goes unsolved.
 	recoveryThreeMaxSec = 30.0
 
@@ -258,6 +269,7 @@ type recoveryRuntime struct {
 	lost         bool    // a plan closed on this climb and a later solve found none: the cut waits for one to close again
 	lostErr      error
 	three        threeEngineLine // the fallback's own cutoff line; the fields above are never touched by it
+	aimLimited   bool            // the last failed one-engine solve found no boostback that aims at the site
 	light        bool            // the weight test has passed: a plan can close from here (N1: warp is capped for a ship)
 }
 
@@ -275,8 +287,16 @@ type threeEngineLine struct {
 }
 
 // reached: the line says the reserve is reached within ahead seconds of its last solve.
-func (l *threeEngineLine) reached(ahead float64) bool {
-	return l.have && l.rate > 0 && l.slack-l.rate*ahead <= RecoveryPadKg
+func (l *threeEngineLine) reached(ahead, pad float64) bool {
+	return l.have && l.rate > 0 && l.slack-l.rate*ahead <= pad
+}
+
+// pad is the slack the three-engine cut keeps: see RecoveryThreePadKg.
+func (rt *recoveryRuntime) threePad() float64 {
+	if rt.aimLimited {
+		return RecoveryThreePadKg
+	}
+	return RecoveryPadKg
 }
 
 // recoveryShipWarpCap is the warp a ship pick's climb is held to between the weight
@@ -346,13 +366,14 @@ func recoveryTooHeavy(b *spacecraft.Spacecraft) bool {
 // slack is the propellant the plan leaves above the landing margin; err says why
 // no plan closes. It plants nothing and does not run the shortfall search.
 func (w *World) recoverySlack(c *spacecraft.Spacecraft, fuel, warm float64, rising bool) (slack, dv float64, risen bool, err error) {
-	return w.recoverySlackAt(c, 0, fuel, warm, rising)
+	return w.recoverySlackAt(c, 0, fuel, warm, rising, 0)
 }
 
 // recoverySlackAt is recoverySlack with the stage's landing throttle set to thr
 // on the solve's copy (thr 0 leaves the stage's own): the three-engine fallback
-// prices the plan without committing the stage to it.
-func (w *World) recoverySlackAt(c *spacecraft.Spacecraft, thr, fuel, warm float64, rising bool) (slack, dv float64, risen bool, err error) {
+// prices the plan without committing the stage to it. coast is seconds the stage
+// flies on unpowered before the plan starts: the pilot's press on staging.
+func (w *World) recoverySlackAt(c *spacecraft.Spacecraft, thr, fuel, warm float64, rising bool, coast float64) (slack, dv float64, risen bool, err error) {
 	st := c.Stages[0]
 	if thr > 0 {
 		st.LandingThrottle = thr
@@ -373,7 +394,7 @@ func (w *World) recoverySlackAt(c *spacecraft.Spacecraft, thr, fuel, warm float6
 	b.State = c.State
 	b.State.M = b.TotalMass()
 	mu := b.Primary.GravitationalParameter()
-	lead := boostbackLead(b)
+	lead := boostbackLead(b) + coast
 	tS := w.Clock.SimTime.Add(time.Duration(lead * float64(time.Second)))
 	st0, ok := physics.KeplerStep(b.State, mu, lead)
 	if !ok {
@@ -422,6 +443,7 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 		slack, dv, rising, err := w.recoverySlack(c, st.FuelMass, rt.warmDV, rt.rising)
 		if err != nil && !errors.Is(err, errRecoveryHeavy) && !errors.Is(err, ErrDeorbitNoSite) {
 			rt.three.failed++
+			rt.aimLimited = errors.Is(err, ErrBoostbackNoSolution)
 		}
 		// ADR 0071 decision 1: the one-engine solve ran and did not close, and has not
 		// closed on this climb. Price the landing burn on three engines; that plan only
@@ -430,7 +452,7 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 		if lt := st.LandingThrottle; err != nil && !rt.seenFeasible && lt > 0 && lt < ThreeEngineLandingThrottle &&
 			!errors.Is(err, errRecoveryHeavy) && !errors.Is(err, ErrDeorbitNoSite) && (rt.three.failed >= recoveryThreeAfterFails || errors.Is(err, ErrBoostbackNoSolution)) && !now.Before(rt.three.nextAt) {
 			l := &rt.three
-			s3, d3, r3, err3 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, l.warmDV, l.rising)
+			s3, d3, r3, err3 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, l.warmDV, l.rising, 0)
 			if err3 != nil {
 				*l = threeEngineLine{rising: r3, failed: l.failed} // the scan window is learned from failing solves too
 			} else {
@@ -447,7 +469,7 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 				// far from its line the plan is asked again after half the time to it (a
 				// failing one-engine solve is every 3 s: this is what keeps the fallback's
 				// cost down), never sooner than that failing solve comes round again
-				gap := math.Max(recoveryRetrySec, math.Min(recoveryThreeMaxSec, 0.5*(s3-RecoveryPadKg)/l.rate))
+				gap := math.Max(recoveryRetrySec, math.Min(recoveryThreeMaxSec, 0.5*(s3-rt.threePad())/l.rate))
 				if !l.havePrev { // one point has no rate yet: take the second soon
 					gap = recoveryRetrySec
 				}
@@ -507,17 +529,24 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 			w.recordRowFor(c, "recovery: "+rt.lostErr.Error())
 		}
 		w.cutAtReserve(c)
-	} else if !rt.seenFeasible && rt.three.reached(now.Sub(rt.three.at).Seconds()+simDelta.Seconds()+RecoveryCutLeadS) {
+	} else if !rt.seenFeasible && rt.three.reached(now.Sub(rt.three.at).Seconds()+simDelta.Seconds()+RecoveryCutLeadS, rt.threePad()) {
 		// the line is an extrapolation and a three-engine window can shut inside one solve
 		// gap (12 t of slack, 5.5 t, then none): cut only on a plan that closes now, or the
 		// drop is refused. If it shut, the stage burns on, as it did before the fallback.
 		l := &rt.three
 		// (a solve from the last real second is fresh enough: solves stay a second apart)
 		if now.Sub(l.at).Seconds() >= recoveryMinSec*tickWarp {
-			if _, _, _, err3 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, l.warmDV, l.rising); err3 != nil {
+			if _, _, _, err3 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, l.warmDV, l.rising, 0); err3 != nil {
 				*l = threeEngineLine{failed: l.failed}
 				return
 			}
+		}
+		// staging is the pilot's press, not the cut's: the plan must still close after
+		// the stage coasts RecoveryStageGraceS (a plan that closes only this tick, or
+		// is shut a tick later, was refused at the drop)
+		if _, _, _, err3 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, l.warmDV, l.rising, RecoveryStageGraceS); err3 != nil {
+			*l = threeEngineLine{failed: l.failed}
+			return
 		}
 		st.LandingThrottle = ThreeEngineLandingThrottle // saved with the stage, copied to the dropped one
 		w.cutAtReserve(c)
