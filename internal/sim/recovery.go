@@ -512,9 +512,12 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 		// gap (12 t of slack, 5.5 t, then none): cut only on a plan that closes now, or the
 		// drop is refused. If it shut, the stage burns on, as it did before the fallback.
 		l := &rt.three
-		if _, _, _, err3 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, l.warmDV, l.rising); err3 != nil {
-			*l = threeEngineLine{failed: l.failed}
-			return
+		// (a solve from the last real second is fresh enough: solves stay a second apart)
+		if now.Sub(l.at).Seconds() >= recoveryMinSec*tickWarp {
+			if _, _, _, err3 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, l.warmDV, l.rising); err3 != nil {
+				*l = threeEngineLine{failed: l.failed}
+				return
+			}
 		}
 		st.LandingThrottle = ThreeEngineLandingThrottle // saved with the stage, copied to the dropped one
 		w.cutAtReserve(c)
