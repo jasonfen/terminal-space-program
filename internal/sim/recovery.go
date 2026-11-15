@@ -43,6 +43,12 @@ const (
 	recoveryMinSec   = 1.0
 	recoveryShipSlow = 3.0 // multiplies the two intervals above for a ship
 	recoveryMaxSec   = 6.0
+
+	// ThreeEngineLandingThrottle is the landing throttle (ADR 0071 decision 1) a
+	// stage falls back to when its one-engine reserve solve cannot close: three
+	// engines of nine. Playtest-tuned; the condition is "the one-engine solve
+	// fails", tried only after the weight test passed, in recoverySlack.
+	ThreeEngineLandingThrottle = 3.0 / 9
 )
 
 // RecoverPick is the pad's choice for one stage (ADR 0069 decision 12).
