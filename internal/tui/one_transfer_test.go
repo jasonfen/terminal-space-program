@@ -82,7 +82,7 @@ func TestSecondTransferRefusesMidDepartureUnderWarp(t *testing.T) {
 	a := s7Moon(t)
 	pressKey(a, 'H')
 	a.world.Clock.WarpIdx = 2 // 100x: Kepler coast to the node, RK4 once it ignites
-	for i := 0; i < 1200 && a.world.ActiveCraft().ActiveBurn == nil; i++ {
+	for i := 0; i < 400 && a.world.ActiveCraft().ActiveBurn == nil; i++ {
 		triageTick(a, 1)
 	}
 	ab := a.world.ActiveCraft().ActiveBurn

@@ -819,6 +819,12 @@ func hasEngineAbove(stages []Stage, i int) bool {
 	return false
 }
 
+// BurnTimeLitStage is the time the lit set alone would need for dv, ignoring
+// that it may run dry first (the pre-#996 BurnTimeForDV). For sizing a lead
+// from an upper-bound Δv estimate, where timing a stage crossing the real burn
+// may never reach would stretch the wait for nothing.
+func (s *Spacecraft) BurnTimeLitStage(dv float64) time.Duration { return s.burnTimeOneStage(dv) }
+
 // burnTimeOneStage is the single-engine rocket-equation time for dv: the
 // current lit set's thrust and Isp on the whole stack's mass.
 func (s *Spacecraft) burnTimeOneStage(dv float64) time.Duration {

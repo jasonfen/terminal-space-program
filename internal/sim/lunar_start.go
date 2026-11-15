@@ -105,7 +105,7 @@ func (w *World) lunarDepartureWait(target bodies.CelestialBody) (float64, bool) 
 	rArrival := target.SemimajorAxisMeters()
 	dvDep := estimateIntraPrimaryDepDv(muShared, rPark, rArrival) +
 		intraPlaneChangeAllowance(w, c, target, muShared, rPark)
-	minLead := c.BurnTimeForDV(dvDep).Seconds() / 2
+	minLead := c.BurnTimeLitStage(dvDep).Seconds() / 2 // as PlanTransfer's first pass
 	tau, _, ok := w.splitNodePhasing(c, target, muShared, rPark, rArrival, minLead)
 	return tau, ok
 }
