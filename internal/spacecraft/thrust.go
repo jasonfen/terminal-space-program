@@ -777,7 +777,7 @@ func (s *Spacecraft) MassFlowRateAt(throttle float64) float64 {
 // thrust, or no Isp. v0.6.5+: replaces the prior UI-set duration field; the
 // planner derives this so the player only specifies Δv.
 func (s *Spacecraft) BurnTimeForDV(dv float64) time.Duration {
-	if dv <= 0 {
+	if dv <= 0 || s.Isp <= 0 || s.Thrust <= 0 { // an engineless craft times nothing, as before
 		return 0
 	}
 	if len(s.Stages) < 2 || dv <= s.RemainingDeltaV() {
