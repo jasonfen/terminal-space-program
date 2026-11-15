@@ -463,6 +463,11 @@ type Spacecraft struct {
 	// int value of sim.NavMode. Checkpointed from World.NavMode when the
 	// player switches away (and on save), restored when they switch back.
 	NavFrame int
+
+	// LeftInLaunchView (#1001) is set when the player switches away while this
+	// vessel was in the V chase-cam; switching back re-enters V. Transient:
+	// deliberately not in the save or relay wire.
+	LeftInLaunchView bool
 }
 
 // DockedComponent is a snapshot of one pre-dock craft identity

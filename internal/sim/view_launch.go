@@ -107,6 +107,12 @@ func (w *World) tickLaunchView() {
 //
 // Slice 1 progressively implements quadrants as their tests land.
 func (w *World) handleActiveCraftSwitch(newActive *spacecraft.Spacecraft) {
+	// #1001: a vessel left in V resumes V, as a fresh session framed on it.
+	if newActive != nil && newActive.LeftInLaunchView {
+		newActive.LeftInLaunchView = false
+		w.routeToLaunchView()
+		return
+	}
 	inSession := w.LaunchSessionActive
 	newLanded := newActive != nil && newActive.Landed
 	// v0.11.4+ (ADR 0004): "fresh inline session" only opens on a pad
