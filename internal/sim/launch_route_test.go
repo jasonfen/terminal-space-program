@@ -688,3 +688,88 @@ func TestUndockRenumberIsNotASwitch(t *testing.T) {
 		t.Error("LaunchTrail cleared by spurious hand-off across renumber")
 	}
 }
+
+// twoFlyingVessels returns a world with flying craft A (idx 0, active, shadow
+// seeded) and B (idx 1), for the per-vessel V memory tests (#1001).
+func twoFlyingVessels(t *testing.T) *World {
+	t.Helper()
+	w, err := NewWorld()
+	if err != nil {
+		t.Fatalf("NewWorld: %v", err)
+	}
+	earth := w.Systems[0].FindBody("earth")
+	mk := func(altM float64) *spacecraft.Spacecraft {
+		r := earth.RadiusMeters() + altM
+		c := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
+		c.Primary = *earth
+		c.State = physics.StateVector{
+			R: orbital.Vec3{X: r},
+			V: orbital.Vec3{Y: math.Sqrt(earth.GravitationalParameter() / r)},
+			M: c.TotalMass(),
+		}
+		return c
+	}
+	w.Crafts[0] = mk(80_000)
+	w.Crafts = append(w.Crafts, mk(120_000))
+	w.ActiveCraftIdx = 0
+	w.Tick()
+	return w
+}
+
+// TestVesselLeftInVResumesVOnReturn pins #1001: A in V, switch to flying B
+// (map, as today), switch back to A: V again, fresh session. Also pins that
+// B (never in V) stays on the map, that V pressed off on A forgets it, and
+// that "switching" to the same index does not invent a memory.
+func TestVesselLeftInVResumesVOnReturn(t *testing.T) {
+	w := twoFlyingVessels(t)
+	w.ToggleLaunchView()
+	w.Tick()
+
+	w.CycleActiveCraft(1) // A -> B
+	w.Tick()
+	if w.ViewMode == ViewLaunch || w.LaunchSessionActive {
+		t.Fatalf("B was never in V: ViewMode=%v session=%v", w.ViewMode, w.LaunchSessionActive)
+	}
+	w.CycleActiveCraft(-1) // B -> A
+	w.Tick()
+	if w.ViewMode != ViewLaunch || !w.LaunchSessionActive {
+		t.Fatalf("A was left in V: ViewMode=%v session=%v, want ViewLaunch", w.ViewMode, w.LaunchSessionActive)
+	}
+	// Memory is consumed: A -> B -> A again only returns to V if A was in V again.
+	w.ToggleLaunchView() // V pressed off on A
+	w.Tick()
+	w.CycleActiveCraft(1)
+	w.Tick()
+	w.CycleActiveCraft(-1)
+	w.Tick()
+	if w.ViewMode == ViewLaunch || w.LaunchSessionActive {
+		t.Errorf("V pressed off on A, yet it came back: ViewMode=%v", w.ViewMode)
+	}
+	// Same-index switch is not a departure.
+	w.ToggleLaunchView()
+	w.SetActiveCraftIdx(w.ActiveCraftIdx)
+	w.Tick()
+	w.ToggleLaunchView() // off
+	w.CycleActiveCraft(1)
+	w.Tick()
+	w.CycleActiveCraft(-1)
+	w.Tick()
+	if w.ViewMode == ViewLaunch {
+		t.Error("same-index switch left a stale V memory")
+	}
+}
+
+// TestVMemorySurvivesLandedHandoff: A in V hands off onto landed B (existing
+// quadrant); the hand-off still keeps the session and re-stamps T0.
+func TestVMemoryLandedHandoffStillWorks(t *testing.T) {
+	w := twoFlyingVessels(t)
+	w.Crafts[1].Landed = true
+	w.ToggleLaunchView()
+	w.Tick()
+	w.Clock.SimTime = w.Clock.SimTime.Add(100e9)
+	w.CycleActiveCraft(1)
+	w.Tick()
+	if w.ViewMode != ViewLaunch || !w.LaunchSessionActive {
+		t.Fatalf("hand-off onto landed B dropped V: ViewMode=%v", w.ViewMode)
+	}
+}
