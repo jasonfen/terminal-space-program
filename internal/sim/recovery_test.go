@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -193,8 +194,8 @@ func TestRecoveryShipIsAnLZSiteDownrange(t *testing.T) {
 	if d := HaversineM(DefaultLaunchpadLatitude, DefaultLaunchpadLongitudeEast, s.LatDeg, s.LonDeg, c.Primary.RadiusMeters()); math.Abs(d-250e3) > 500 {
 		t.Errorf("ship is %.1f km from the pad, want 250", d/1e3)
 	}
-	if brg := bearingDeg(DefaultLaunchpadLatitude, DefaultLaunchpadLongitudeEast, s.LatDeg, s.LonDeg); math.Abs(brg-90) > 0.5 {
-		t.Errorf("ship bears %.2f deg from the pad, want 090 (the launch heading)", brg)
+	if cross := crossRangeM(w, c, s); math.Abs(cross) > 5e3 { // #998: the ship follows the ground track (104 deg for this due-east climb), not a fixed 090
+		t.Errorf("ship stands %.0f m off the vessel's ground track at the cutoff, want within 5 km", cross)
 	}
 	rows, _ := w.TargetMenu()
 	found := false
@@ -221,14 +222,6 @@ func TestRecoveryShipIsAnLZSiteDownrange(t *testing.T) {
 	if d := distToLZ(t, w, b, id, 1); !b.Landed || d > SiteLZRadiusM {
 		t.Errorf("landed=%v %.1f m from the ship, want inside %v m", b.Landed, d, SiteLZRadiusM)
 	}
-}
-
-// bearingDeg is the initial great-circle bearing from point 1 to point 2.
-func bearingDeg(lat1, lon1, lat2, lon2 float64) float64 {
-	p1, p2, dl := lat1*rad, lat2*rad, (lon2-lon1)*rad
-	y := math.Sin(dl) * math.Cos(p2)
-	x := math.Cos(p1)*math.Sin(p2) - math.Sin(p1)*math.Cos(p2)*math.Cos(dl)
-	return math.Mod(math.Atan2(y, x)/rad+360, 360)
 }
 
 // The pad offers a stage only when it can land (legs, a command source, an engine)
@@ -655,8 +648,8 @@ func TestRecoveryReserveSolvesAreCheapAndSpaced(t *testing.T) {
 		held1x    float64 // the reserve before this change, kg
 		fixedHeld bool
 	}{
-		{"lz 1x", lz, 0, 1300, 55884, true}, {"ship 1x", ship, 0, 3400, 46807, true},
-		{"lz 10x", lz, 1, 700, 55884, false}, {"ship 10x", ship, 1, 3400, 46807, false},
+		{"lz 1x", lz, 0, 1300, 55884, true}, {"ship 1x", ship, 0, 3400, 45707, true},
+		{"lz 10x", lz, 1, 700, 55884, false}, {"ship 10x", ship, 1, 3400, 45707, false},
 	} {
 		st, w, c := climbTimed(t, "Falcon-9-Dragon", []RecoverPick{tc.pick}, tc.warp)
 		one[tc.name] = st.held
@@ -895,11 +888,12 @@ func TestRecoveryFlatClimbCutoffNeverLeavesARefusedDrop(t *testing.T) {
 		land   = iota // cuts off, the drop is accepted, the stage lands with the margin
 		told          // reaches the reserve line, the drop is refused and the pilot told
 		noPlan        // no plan ever closes: no cutoff
+		short         // cuts off, the drop is accepted, the landing falls short (#999, flat climbs)
 	)
 	for _, tc := range []struct {
 		kick float64
 		want int
-	}{{8.0, noPlan}, {8.25, told}, {8.5, land}, {8.75, land}, {9.0, land}} {
+	}{{8.0, short}, {8.25, short}, {8.5, land}, {8.75, land}, {9.0, land}} {
 		w, c := flatKickClimb(t, tc.kick, RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: RecoveryShipDefaultKm})
 		name := fmt.Sprintf("kick %.2f", tc.kick)
 		held, id := c.Stages[0].HeldKg, c.Stages[0].RecoverSiteID
@@ -923,8 +917,101 @@ func TestRecoveryFlatClimbCutoffNeverLeavesARefusedDrop(t *testing.T) {
 		}
 		b := w.Crafts[n]
 		flyDown(w, b)
+		if tc.want == short { // #998: with the ship on the track these two kicks close a plan; they land 1.3 and 7.6 km out, #999
+			if d := distToLZ(t, w, b, id, 1); !b.Landed || d > 10e3 {
+				t.Errorf("%s: landed=%v %.0f m from the ship, want within 10 km (measured 1.3 and 7.6 km)", name, b.Landed, d)
+			}
+			continue
+		}
 		if d := distToLZ(t, w, b, id, 1); !b.Landed || d > SiteLZRadiusM || b.ActiveStageFuel() < BoostbackFuelMarginKg {
 			t.Errorf("%s: landed=%v %.1f m out with %.0f kg, want inside %v m with at least %.0f kg", name, b.Landed, d, b.ActiveStageFuel(), SiteLZRadiusM, BoostbackFuelMarginKg)
+		}
+	}
+}
+
+// shipClimb flies the harness ascent of padClimbIn on a Falcon 9 + Dragon with a
+// ship pick km out, launched on headingDeg (090 due east), to the cutoff, counting
+// the ticks the ship's position changed (each is a site-ledger write).
+func shipClimb(t *testing.T, headingDeg, km float64) (w *World, c *spacecraft.Spacecraft, moves int) {
+	t.Helper()
+	w = mustWorld(t)
+	w.Crafts, w.ActiveCraftIdx = nil, -1
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9-Dragon", ParentBodyID: "earth", Launchpad: true,
+		Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast,
+		Recover: []RecoverPick{{Mode: spacecraft.RecoverShip, ShipKm: km}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.RecomputeCommGraph()
+	c.HeadingTrim = (headingDeg - 90) * math.Pi / 180
+	c.Throttle, c.EngineMode, c.AttitudeMode = 1, spacecraft.EngineMain, spacecraft.BurnRadialOut
+	w.StartManualBurn()
+	t0 := w.Clock.SimTime
+	s0, _ := w.siteByID(c.Stages[0].RecoverSiteID)
+	last := [2]float64{s0.LatDeg, s0.LonDeg}
+	for i := 0; i < 60000 && c.Stages[0].HeldKg == 0 && c.ManualBurn != nil; i++ {
+		switch el := w.Clock.SimTime.Sub(t0).Seconds(); {
+		case el > 8 && el < 14:
+			c.PitchTrim = 0.015
+		case el >= 14 && c.AttitudeMode == spacecraft.BurnRadialOut:
+			c.PitchTrim, c.AttitudeMode = 0, spacecraft.BurnSurfacePrograde
+		}
+		w.Tick()
+		if s, _ := w.siteByID(c.Stages[0].RecoverSiteID); [2]float64{s.LatDeg, s.LonDeg} != last {
+			last = [2]float64{s.LatDeg, s.LonDeg}
+			moves++
+		}
+	}
+	if c.Stages[0].HeldKg == 0 {
+		t.Fatal("no cutoff")
+	}
+	return w, c, moves
+}
+
+// crossRangeM is how far the ship stands off the great circle from the pad through
+// the vessel's ground point, positive to the right.
+func crossRangeM(w *World, c *spacecraft.Spacecraft, s Site) float64 {
+	vl, vo := render.WorldToBodyFixed(c.Primary, unitV(c.State.R), w.Clock.SimTime)
+	r := c.Primary.RadiusMeters()
+	d := HaversineM(c.LaunchLatDeg, c.LaunchLonDeg, s.LatDeg, s.LonDeg, r)
+	rel := (ForwardAzimuthDeg(c.LaunchLatDeg, c.LaunchLonDeg, s.LatDeg, s.LonDeg) - ForwardAzimuthDeg(c.LaunchLatDeg, c.LaunchLonDeg, vl, vo)) * rad
+	return d * math.Sin(rel)
+}
+
+// ADR 0071 decision 4 (#998): a ship pick follows the vessel's ground track from the
+// pad until the cutoff, so a launch off due east (a 51.6 degree target from the Cape
+// flies about 045) still finds its ship on the track and lands on it; the ship moves
+// a bounded number of times and never after the cutoff.
+func TestRecoveryShipFollowsTheHeadingUntilTheCutoff(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		heading float64
+	}{{"due east", 90}, {"051.6 target (045 launch)", 45}} {
+		w, c, moves := shipClimb(t, tc.heading, 250)
+		id := c.Stages[0].RecoverSiteID
+		s, _ := w.siteByID(id)
+		cross := crossRangeM(w, c, s)
+		t.Logf("%s: cross-range %.0f m, %d moves, ship bears %.2f deg", tc.name, cross, moves, ForwardAzimuthDeg(c.LaunchLatDeg, c.LaunchLonDeg, s.LatDeg, s.LonDeg))
+		if math.Abs(cross) > 5e3 {
+			t.Errorf("%s: ship %.0f m off the ground track at the cutoff, want within 5 km", tc.name, cross)
+		}
+		if secs := w.Clock.SimTime.Sub(c.LiftoffSimTime).Seconds(); moves < 1 || float64(moves) > secs/(recoveryMinSec*recoveryShipSlow) {
+			t.Errorf("%s: ship moved %d times in a %.0f s climb, want 1 to one per %.0f s", tc.name, moves, secs, recoveryMinSec*recoveryShipSlow)
+		}
+		n := len(w.Crafts)
+		if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+			t.Fatal(err)
+		}
+		if len(w.PendingRecoveryEvents) != 0 {
+			t.Fatalf("%s: the drop was refused: %v", tc.name, w.PendingRecoveryEvents)
+		}
+		b := w.Crafts[n]
+		flyDown(w, b, c)
+		if after, _ := w.siteByID(id); after.LatDeg != s.LatDeg || after.LonDeg != s.LonDeg || after.UpdatedAtNano != s.UpdatedAtNano {
+			t.Errorf("%s: the ship moved after the cutoff: %+v -> %+v", tc.name, s, after)
+		}
+		if d := distToLZ(t, w, b, id, 1); !b.Landed || d > SiteLZRadiusM {
+			t.Errorf("%s: landed=%v %.1f m from the ship, want inside %v m", tc.name, b.Landed, d, SiteLZRadiusM)
 		}
 	}
 }
