@@ -82,6 +82,13 @@ The game is designed for a 140×40 terminal. It runs down to 104×24 and shows a
 shrink to a compact form and, at worst, collapse behind a `▸ +N hidden`
 marker so they never overlap.
 
+Over ssh (a game on another machine, or a `--serve` guest), the game draws in
+full 24-bit colour only if your terminal's `COLORTERM` reaches the far end;
+otherwise it drops to 256 colours and planet textures band. Add
+`SendEnv COLORTERM` to `~/.ssh/config`, or in Ghostty set
+`shell-integration-features = ssh-env`. A plain sshd also needs
+`AcceptEnv COLORTERM`; `--serve` takes it as is.
+
 Flight School is on by default: a five-rung ladder that starts with the camera
 and the planner, then walks you through a pad launch to orbit and a
 rendezvous and dock, one objective at a time. Press `M` to see the ladder and
