@@ -145,6 +145,15 @@ nix run github:nixos/nixpkgs/nixpkgs-unstable#terminal-space-program
 
 For a permanent installation, add `pkgs.terminal-space-program` to `environment.systemPackages`, or to `home.packages` if you use Home Manager.
 
+For every release the day it ships, run this repo's flake instead (it builds from source):
+
+```bash
+nix run github:jasonfen/terminal-space-program          # latest main
+nix run github:jasonfen/terminal-space-program/vX.Y.Z   # a tagged release (from the first release after v0.69.0)
+```
+
+or add `inputs.terminal-space-program.url = "github:jasonfen/terminal-space-program";` to your own flake and install `terminal-space-program.packages.${pkgs.stdenv.hostPlatform.system}.default`.
+
 > [!NOTE]
 > For nixpkgs-specific issues (outdated version, build failure, something not working on nixpkgs), please [open an issue on nixpkgs](https://github.com/NixOS/nixpkgs/issues) and ping the package maintainer @tomasriveral.
 
