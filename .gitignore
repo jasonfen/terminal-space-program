@@ -24,3 +24,4 @@ Thumbs.db
 # Claude Code per-user config and personal CLAUDE.md customizations
 .claude/
 CLAUDE.md
+/result

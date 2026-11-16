@@ -98,6 +98,11 @@ jobs:
           echo "vendorHash: $hash"
           nix-build nix/nixpkgs-build.nix --argstr vendorHash "$hash"
 
+      # The flake carries a committed vendorHash: a go.mod/go.sum change that
+      # does not update it in flake.nix fails here, the new hash on "got:".
+      - name: nix build (flake)
+        run: nix build .#default -L && ./result/bin/terminal-space-program --version
+
   govulncheck:
     name: govulncheck
     runs-on: ubuntu-latest
