@@ -1266,14 +1266,15 @@ func TestRecoveryShipFollowsTheHeadingUntilTheCutoff(t *testing.T) {
 	}
 }
 
-// fhAutoClimb flies a Falcon Heavy (boosters LZ, core pick) to the core's MECO. fitted
-// is the review's climb fitted to the real game (1 degree kick T+8 to T+23, then the
-// recording's trims, core pitched down from T+134); else the standard padClimb ascent.
-// It returns the world at the tick after the cutoff with the boosters already staged away.
-func fhAutoClimb(t *testing.T, fitted bool, pick RecoverPick) (*World, *spacecraft.Spacecraft) {
+// fhAutoClimb flies a Falcon Heavy (boosters LZ, core pick) to the core's MECO and
+// counts the ticks the core's ship moved (each is a site-ledger write). fitted is the
+// review's climb fitted to the real game (1 degree kick T+8 to T+23, the recording's
+// trims, core pitched down from T+134); else the standard padClimb ascent. It returns
+// at the tick after the cutoff, the boosters already staged away.
+func fhAutoClimb(t *testing.T, fitted bool, pick RecoverPick) (w *World, c *spacecraft.Spacecraft, moves int) {
 	t.Helper()
 	const deg = math.Pi / 180
-	w := mustWorld(t)
+	w = mustWorld(t)
 	w.Crafts, w.ActiveCraftIdx = nil, -1
 	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-Heavy", ParentBodyID: "earth", Launchpad: true,
 		Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast,
@@ -1316,36 +1317,110 @@ func fhAutoClimb(t *testing.T, fitted bool, pick RecoverPick) (*World, *spacecra
 	w.Tick() // the tick after the cutoff ends the burn
 	w.StageActive(w.ActiveCraftIdx)
 	st := &c.Stages[0]
+	s0, _ := w.siteByID(st.RecoverSiteID)
+	last := s0.UpdatedAtNano
 	for i := 0; i < 60000 && st.HeldKg == 0 && c.ManualBurn != nil && st.FuelMass > 0; i++ {
 		trim()
 		w.Tick()
+		if s, _ := w.siteByID(st.RecoverSiteID); s.UpdatedAtNano != last {
+			last = s.UpdatedAtNano
+			moves++
+		}
 	}
 	if st.HeldKg == 0 {
 		t.Fatalf("no MECO: the core burned dry (fuel %.0f)", st.FuelMass)
 	}
 	w.Tick()
-	return w, c
+	return w, c, moves
 }
 
-func TestZZAuto(t *testing.T) {
-	for _, fitted := range []bool{false, true} {
-		w, c := fhAutoClimb(t, fitted, RecoverPick{Mode: spacecraft.RecoverShip})
-		st := &c.Stages[0]
-		id := st.RecoverSiteID
-		s, _ := w.siteByID(id)
-		d := HaversineM(c.LaunchLatDeg, c.LaunchLonDeg, s.LatDeg, s.LonDeg, c.Primary.RadiusMeters())
-		t.Logf("fitted=%v mode=%v held %.0f kg ship %.1f km from pad, alt %.0f km speed %.0f T+%.0f", fitted, st.RecoverMode, st.HeldKg, d/1e3, (c.State.R.Norm()-c.Primary.RadiusMeters())/1e3, c.State.V.Norm(), w.Clock.SimTime.Sub(c.LiftoffSimTime).Seconds())
-		n := len(w.Crafts)
-		w.StageActive(w.ActiveCraftIdx)
-		t.Logf("pending %v", w.PendingRecoveryEvents)
-		if len(w.Crafts) > n {
-			core := w.Crafts[n]
-			for _, nd := range core.Nodes {
-				t.Logf("node mode %v dv %.1f thr %.2f key %v", nd.Mode, nd.DV, nd.Throttle, nd.AdvisoryKey)
+// ADR 0071 decisions 2 to 4 and Jason's entry-burn call, fix 3: `ship auto` on the Falcon
+// Heavy core. The ship starts 250 km out and, from the first moment a landing works,
+// takes the forecast stop of the fall; the core burns to the smallest reserve that
+// lands, and lands inside the circle. The standard (steep) climb cannot land without
+// a boostback, so it cuts on the ordinary solve and the ship stays 250 km out; the
+// fitted flat climb lands on no boostback (a node of a metre or so at most), under
+// the entry burn the speed rule asks for, far downrange. A typed distance stays typed.
+func TestRecoveryShipAutoCore(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		fitted       bool
+		pick         RecoverPick
+		wantAuto     bool
+		minKm, maxKm float64 // the ship's distance from the pad at the cutoff
+		maxBoostDV   float64
+	}{
+		{"standard climb, ship auto", false, RecoverPick{Mode: spacecraft.RecoverShip}, true, 249, 251, 3500},
+		{"fitted climb, ship auto", true, RecoverPick{Mode: spacecraft.RecoverShip}, true, 1500, 3000, 5},
+		{"fitted climb, typed 250 km", true, RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: 250}, false, 249, 251, 3500},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w, c, moves := fhAutoClimb(t, tc.fitted, tc.pick)
+			st := &c.Stages[0]
+			id := st.RecoverSiteID
+			if auto := st.RecoverMode == spacecraft.RecoverShipAuto; auto != tc.wantAuto {
+				t.Fatalf("core recover mode %v, want auto %v", st.RecoverMode, tc.wantAuto)
 			}
-			t.Logf("core fuel %.0f held %.0f", core.ActiveStageFuel(), core.Stages[0].HeldKg)
+			s, _ := w.siteByID(id)
+			r := c.Primary.RadiusMeters()
+			if d := HaversineM(c.LaunchLatDeg, c.LaunchLonDeg, s.LatDeg, s.LonDeg, r) / 1e3; d < tc.minKm || d > tc.maxKm {
+				t.Errorf("ship %.1f km from the pad at MECO, want %v to %v", d, tc.minKm, tc.maxKm)
+			}
+			t.Logf("MECO held %.0f kg, ship moved %d times", st.HeldKg, moves)
+			if secs := w.Clock.SimTime.Sub(c.LiftoffSimTime).Seconds(); float64(moves) > secs/(recoveryMinSec*recoveryShipSlow) {
+				t.Errorf("ship moved %d times in a %.0f s climb, want one per %.0f s at most", moves, secs, recoveryMinSec*recoveryShipSlow)
+			}
+			if tc.wantAuto && tc.fitted && moves < 1 {
+				t.Errorf("ship never moved on the fitted climb")
+			}
+			// the ship stays where the cutoff left it through the drop and the landing
+			n := len(w.Crafts)
+			if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+				t.Fatal(err)
+			}
+			if len(w.PendingRecoveryEvents) != 0 {
+				t.Fatalf("drop refused: %v", w.PendingRecoveryEvents)
+			}
+			core := w.Crafts[n]
+			var boost, entry float64
+			for _, nd := range core.Nodes {
+				switch nd.AdvisoryKey {
+				case AdvisoryKeyDeorbit:
+					boost = nd.DV
+				case AdvisoryKeyEntry:
+					entry = nd.DV
+				}
+			}
+			t.Logf("boostback %.1f m/s, entry burn %.0f m/s", boost, entry)
+			if boost > tc.maxBoostDV {
+				t.Errorf("boostback %.1f m/s, want at most %v", boost, tc.maxBoostDV)
+			}
+			if tc.wantAuto && tc.fitted && entry < EntryFallBurnMps-1 {
+				t.Errorf("entry burn %.0f m/s, want the speed rule's %v on this fall", entry, EntryFallBurnMps)
+			}
 			flyDown(w, core)
-			t.Logf("core landed=%v crashed=%v %.1f m from the ship, thr %.4f fuel %.0f", core.Landed, core.Crashed, distToLZ(t, w, core, id, 1), core.LandingThrottle(), core.ActiveStageFuel())
+			if after, _ := w.siteByID(id); after.LatDeg != s.LatDeg || after.LonDeg != s.LonDeg || after.UpdatedAtNano != s.UpdatedAtNano {
+				t.Errorf("the ship moved after the cutoff: %+v -> %+v", s, after)
+			}
+			d := distToLZ(t, w, core, id, 1)
+			t.Logf("core landed=%v %.1f m from the ship, %.0f kg left, throttle %.4f", core.Landed, d, core.ActiveStageFuel(), core.LandingThrottle())
+			if !core.Landed || d > SiteLZRadiusM || core.ActiveStageFuel() < BoostbackFuelMarginKg {
+				t.Errorf("core landed=%v %.1f m out with %.0f kg, want inside %v m with at least %.0f kg", core.Landed, d, core.ActiveStageFuel(), SiteLZRadiusM, BoostbackFuelMarginKg)
+			}
+		})
+	}
+}
+
+// The speed rule (Jason, review Q5): a `ship auto` fall faster than EntryFallSpeedMps at
+// the top entry height gets an entry burn of EntryFallBurnMps; not faster (the equal
+// case included) gets none from the rule.
+func TestEntryFallBurnRule(t *testing.T) {
+	for _, tc := range []struct {
+		speed float64
+		want  float64
+	}{{EntryFallSpeedMps - 1, 0}, {EntryFallSpeedMps, 0}, {EntryFallSpeedMps + 1, EntryFallBurnMps}, {3000, EntryFallBurnMps}} {
+		if got := fallSpeedEntryFloor(tc.speed).dv; got != tc.want {
+			t.Errorf("fall at %.0f m/s: rule burn %.0f, want %.0f", tc.speed, got, tc.want)
 		}
 	}
 }

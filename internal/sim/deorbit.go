@@ -1162,6 +1162,15 @@ const (
 	EntryFallBurnMps  = entryDVStep
 )
 
+// fallSpeedEntryFloor is the speed rule's entry burn for a fall passing the top
+// entry height at speed: none at or under EntryFallSpeedMps.
+func fallSpeedEntryFloor(speed float64) entryBurn {
+	if speed > EntryFallSpeedMps {
+		return entryBurn{EntryFallBurnMps, EntryAltsM[0]}
+	}
+	return entryBurn{}
+}
+
 // solveNoBoost prices the fall as it is, dropped with no boostback: the entry burn
 // it needs (or the speed rule's) and the stop the landing then reaches. off carries
 // the offset from site, the propellant left and where the stop is (aimLat, aimLon).
@@ -1331,8 +1340,8 @@ func (w *World) entryFor(c *spacecraft.Spacecraft, st0 physics.StateVector, tS t
 		mu := c.Primary.GravitationalParameter()
 		s, _ := burnState(c, st0, mu, dv, n)
 		if te, ok := entryDelay(s, mu, c.Primary.RadiusMeters(), EntryAltsM[0]); ok {
-			if se, ok := physics.KeplerStep(s, mu, te); ok && se.V.Norm() > EntryFallSpeedMps {
-				floor = entryBurn{EntryFallBurnMps, EntryAltsM[0]}
+			if se, ok := physics.KeplerStep(s, mu, te); ok {
+				floor = fallSpeedEntryFloor(se.V.Norm())
 			}
 		}
 	}
