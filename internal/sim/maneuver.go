@@ -499,6 +499,44 @@ func (w *World) resolveEventNodesFor(c *spacecraft.Spacecraft) {
 // the v0.3.1 sandbox scope per designdocs/terminal-space-program/plan.md. Porkchop-plot polish for
 // real launch windows is v0.3.2.
 func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
+	c := w.ActiveCraft()
+	if c == nil {
+		return w.planTransfer(targetIdx, 0)
+	}
+	had := map[uint64]bool{}
+	for _, n := range c.Nodes {
+		had[n.ID] = true
+	}
+	plan, err := w.planTransfer(targetIdx, 0)
+	if err != nil {
+		return plan, err
+	}
+	// #996: the intra-primary lead is sized from an upper-bound Δv on the lit
+	// stage alone, so a planted burn that really crosses a staging can start
+	// before now. Replan once with the lead that burn needs; the common case
+	// (the real burn fits the lit stage) plants first time, at the earliest window.
+	now := w.Clock.SimTime
+	need := 0.0
+	for _, n := range c.Nodes {
+		if !had[n.ID] && n.BurnStart().Before(now) {
+			need = math.Max(need, n.Duration.Seconds()/2)
+		}
+	}
+	if need == 0 {
+		return plan, nil
+	}
+	kept := c.Nodes[:0]
+	for _, n := range c.Nodes {
+		if had[n.ID] {
+			kept = append(kept, n)
+		}
+	}
+	c.Nodes = kept
+	return w.planTransfer(targetIdx, need)
+}
+
+// planTransfer is PlanTransfer with a floor (seconds) on the intra-primary lead.
+func (w *World) planTransfer(targetIdx int, leadFloor float64) (*planner.TransferPlan, error) {
 	sys := w.System()
 	if targetIdx <= 0 || targetIdx >= len(sys.Bodies) {
 		return nil, errInvalidTransferTarget
@@ -548,7 +586,7 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 		// stays ≥ now for the inclined LEO→Luna case.
 		dvDepEstimate := estimateIntraPrimaryDepDv(muShared, rPark, rArrival) +
 			intraPlaneChangeAllowance(w, c, target, muShared, rPark)
-		minLead := c.BurnTimeForDV(dvDepEstimate).Seconds() / 2
+		minLead := math.Max(leadFloor, c.BurnTimeLitStage(dvDepEstimate).Seconds()/2)
 		// Analytic Hohmann seed — its phasing (Departure.OffsetTime,
 		// TransferDt) seeds the fused Lambert, and it is the graceful
 		// fallback if the fused solve is degenerate.
