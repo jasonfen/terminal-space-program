@@ -335,10 +335,14 @@ const (
 	RecoverNone RecoverMode = iota // burns to dry, falls as debris or by hand
 	RecoverLZ                      // an LZ at a site
 	RecoverShip                    // a drone ship stationed downrange
+	RecoverShipAuto                // `ship auto` (ADR 0071 decision 3): the ship is put under the fall; saved as this value of the same field
 )
 
+// IsShip is a ship pick, typed or auto.
+func (m RecoverMode) IsShip() bool { return m == RecoverShip || m == RecoverShipAuto }
+
 // RecoverPick is the pad's `recover:` choice for one stage before launch: the
-// mode and, for a ship, how far downrange it is stationed.
+// mode and, for a ship, how far downrange it is stationed (ShipKm 0 is `ship auto`).
 type RecoverPick struct {
 	Mode   RecoverMode
 	ShipKm float64

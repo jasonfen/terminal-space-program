@@ -80,9 +80,19 @@ func (s *SpawnCraft) recoverPick(k int) spacecraft.RecoverPick {
 	case k == 0 && lz:
 		return spacecraft.RecoverPick{Mode: spacecraft.RecoverLZ}
 	case k > 0 && lz:
-		return spacecraft.RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: sim.RecoveryShipDefaultKm}
+		return spacecraft.RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: s.defaultShipKm(k)}
 	}
 	return spacecraft.RecoverPick{}
+}
+
+// defaultShipKm is the distance a new `ship` choice for group k starts at: 0 is
+// `ship auto` (ADR 0071 decision 3), the Falcon Heavy core's default (the group
+// under a booster pair); every other stage starts at 250 km.
+func (s *SpawnCraft) defaultShipKm(k int) float64 {
+	if groups, stages := s.recoverGroups(), s.selectedCraftStages(); k > 0 && k < len(groups) && stages[groups[k-1]].LitWithAbove {
+		return 0
+	}
+	return sim.RecoveryShipDefaultKm
 }
 
 // recoverModeOffered: LZ needs a site near the pad.
@@ -136,9 +146,10 @@ func (s *SpawnCraft) stepRecover(step int) {
 			at = i
 		}
 	}
+	was := p.Mode
 	p.Mode = modes[wrapIdx(at+step, len(modes))]
-	if p.Mode == spacecraft.RecoverShip && p.ShipKm <= 0 {
-		p.ShipKm = sim.RecoveryShipDefaultKm
+	if p.Mode == spacecraft.RecoverShip && was != spacecraft.RecoverShip {
+		p.ShipKm = s.defaultShipKm(s.recCur)
 	}
 	if s.recoverSet == nil {
 		s.recoverSet = map[int]spacecraft.RecoverPick{}
@@ -192,6 +203,9 @@ func (s *SpawnCraft) recoverLines() []string {
 			v, hasLZ = "LZ", true
 		case spacecraft.RecoverShip:
 			v = fmt.Sprintf("ship %.0f km", p.ShipKm)
+			if p.ShipKm <= 0 {
+				v = "ship auto"
+			}
 			if focused && s.recEditing && k == s.recCur {
 				v = fmt.Sprintf("ship [%s_] km", s.recInput)
 			}

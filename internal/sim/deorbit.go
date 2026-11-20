@@ -297,6 +297,9 @@ func vec3(v render.Vec3) orbital.Vec3 { return orbital.Vec3{X: v.X, Y: v.Y, Z: v
 // impulsive otherwise) from st0, returning the post-burn state and the burn
 // duration in seconds.
 func burnState(c *spacecraft.Spacecraft, st0 physics.StateVector, mu, dv float64, n spacecraft.ManeuverNode) (physics.StateVector, float64) {
+	if dv = math.Abs(dv); dv == 0 { // a boostback of zero (ADR 0071 decision 2): the fall as it is
+		return st0, 0
+	}
 	dir := func(r, v orbital.Vec3) orbital.Vec3 { return spacecraft.NodeBurnDirection(n, r, v) }
 	if c.Thrust > 0 && c.Isp > 0 && st0.M > 0 {
 		thrust := c.Thrust * n.EffectiveThrottle() // an entry burn flies on three engines of nine
@@ -390,10 +393,11 @@ const (
 // deorbitOffset is the aimed point's offset from the site along and across the
 // track from the burn point (sign convention of ImpactOffsetM).
 type deorbitOffset struct {
-	long, cross float64
-	valid       bool
-	cueAlt      float64
-	fuelLeft    float64 // the stop forecast's propellant at the stop
+	long, cross    float64
+	valid          bool
+	cueAlt         float64
+	fuelLeft       float64 // the stop forecast's propellant at the stop
+	aimLat, aimLon float64 // where the aimed point is on the body (the stop point for a stop forecast)
 }
 
 // aimOffset flies the burn dv/tilt from st0 (at tS) and reads where the aim
@@ -453,7 +457,7 @@ func (w *World) aimFrom(c *spacecraft.Spacecraft, st0 physics.StateVector, tS ti
 		// (site and aim swapped: short of the site reads positive, as more burn
 		// brings the aim in)
 		l, x, ok := ImpactOffsetM(oLat, oLon, site[0], site[1], aLat, aLon, radius)
-		return deorbitOffset{long: l, cross: x, valid: ok, cueAlt: off.cueAlt, fuelLeft: off.fuelLeft}, 0
+		return deorbitOffset{long: l, cross: x, valid: ok, cueAlt: off.cueAlt, fuelLeft: off.fuelLeft, aimLat: aLat, aimLon: aLon}, 0
 	}
 	l, x, ok := ImpactOffsetM(oLat, oLon, aLat, aLon, site[0], site[1], radius)
 	return deorbitOffset{long: l, cross: x, valid: ok}, 0
@@ -463,6 +467,11 @@ func (w *World) aimFrom(c *spacecraft.Spacecraft, st0 physics.StateVector, tS ti
 // A boostback burns along the local horizontal against the velocity (it keeps
 // its climb), not against the whole velocity.
 func nodeFor(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, dv, tilt float64, boost bool) spacecraft.ManeuverNode {
+	// a negative dv is a boostback that points forward (ADR 0071 decision 2)
+	sgn := 1.0
+	if dv < 0 {
+		sgn, dv = -1, -dv
+	}
 	n := spacecraft.ManeuverNode{
 		Mode:        spacecraft.BurnRetrograde,
 		DV:          dv,
@@ -478,7 +487,7 @@ func nodeFor(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, dv
 			back = st0.V.Sub(up.Scale(st0.V.Dot(up))).Unit()
 		}
 		n.Mode = spacecraft.BurnVector
-		n.BurnDirUnit = back.Scale(-math.Cos(tilt)).Add(hHat.Scale(math.Sin(tilt))).Unit()
+		n.BurnDirUnit = back.Scale(-sgn * math.Cos(tilt)).Add(hHat.Scale(math.Sin(tilt))).Unit()
 	}
 	n.Duration = c.BurnTimeForDV(dv)
 	n.TriggerTime = tS.Add(n.Duration / 2)
@@ -542,7 +551,13 @@ func (w *World) solveRetro(c *spacecraft.Spacecraft, st0 physics.StateVector, tS
 		// gone), which the one-sided bracket reads as "too steep" and backs away
 		// from: scan the whole range for the sign change instead.
 		w.boostRisingSeen = true
-		return scanRoot(f, 0.01*hint, math.Min(3*hint, maxDV), 60, deorbitLongTolM)
+		if x, ok := scanRoot(f, 0.01*hint, math.Min(3*hint, maxDV), 60, deorbitLongTolM); ok {
+			return x, ok
+		}
+		// ADR 0071 decision 2: a site the fall overshoots wants a burn that points
+		// forward (negative); the scan runs through zero
+		half := 0.3 * st0.V.Norm() // the hint can be a tiny burn: scan on the speed's scale
+		return scanRoot(f, -half, math.Min(half, maxDV), 60, deorbitLongTolM)
 	}
 	if dv, ok = solveDv(0, hint, warm); !ok {
 		return
@@ -1009,8 +1024,8 @@ func (w *World) planBoostback(c *spacecraft.Spacecraft, lat, lon float64, name s
 	var reach error
 	w.drawNavError(c, false) // the reach test reads the computer's site
 	c.OnLandingBrake(func() { reach = w.apReachTest(c, lat, lon) })
-	if reach == nil {
-		return nil, nil
+	if reach == nil && c.Stages[0].RecoverMode != spacecraft.RecoverShipAuto {
+		return nil, nil // (`ship auto` goes on: a fall that reaches still gets its entry burn, ADR 0071 decision 2)
 	}
 	mu := c.Primary.GravitationalParameter()
 	aim := [2]float64{lat, lon} // the true aim keys the refusal cache: the computer's site is redrawn every tick
@@ -1053,9 +1068,11 @@ func (w *World) planBoostback(c *spacecraft.Spacecraft, lat, lon float64, name s
 	n := nodeFor(c, st0, tS, dv, tilt, true)
 	w.replaceAdvisoryNode(c, AdvisoryKeyDeorbit)
 	w.replaceAdvisoryNode(c, AdvisoryKeyEntry)
-	w.PlanNode(n)
+	if dv != 0 { // zero is no boostback node, only the entry burn behind it
+		w.PlanNode(n)
+	}
 	plan := &DeorbitPlan{
-		Site: name, DV: dv, In: tS.Sub(now), LongM: off.long, CrossM: off.cross,
+		Site: name, DV: math.Abs(dv), In: tS.Sub(now), LongM: off.long, CrossM: off.cross,
 		TiltDeg: tilt / rad, Boostback: true, CueAltM: off.cueAlt, FuelLeftKg: off.fuelLeft,
 	}
 	if entry.dv > 0 {
@@ -1090,6 +1107,11 @@ type boostbackSolution struct {
 // on the brake's stop point. It plants nothing.
 func (w *World) solveBoostback(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, site [2]float64) (boostbackSolution, error) {
 	var sol boostbackSolution
+	if c.Stages[0].RecoverMode == spacecraft.RecoverShipAuto { // the ship stands under the no-boostback fall: try zero first
+		if z, off, err := w.solveNoBoost(c, st0, tS, site); err == nil && off.valid && math.Abs(off.long) <= deorbitLongTolM && math.Abs(off.cross) <= deorbitCrossTolM {
+			return z, nil
+		}
+	}
 	hint := 0.6 * st0.V.Norm()
 	if w.boostWarmDV > 0 {
 		hint = w.boostWarmDV
@@ -1127,6 +1149,32 @@ func (w *World) solveBoostback(c *spacecraft.Spacecraft, st0 physics.StateVector
 		return sol, noLanding(cue)
 	}
 	return boostbackSolution{dv, tilt, entry, off}, nil
+}
+
+// EntryFallSpeedMps: on a `ship auto` fall an entry burn fires whenever the fall
+// passes the top entry height faster than this, however well the landing would
+// close without it, sized EntryFallBurnMps at least (Jason, 2026-11-19, review Q5).
+// Published: a Falcon 9 entry burn lights at about 8,034 km/h (2,230 m/s) on a
+// Starlink return (WCCFtech, Sept 2024); the game has no heating, so the burn is
+// kept small.
+const (
+	EntryFallSpeedMps = 2000.0
+	EntryFallBurnMps  = entryDVStep
+)
+
+// solveNoBoost prices the fall as it is, dropped with no boostback: the entry burn
+// it needs (or the speed rule's) and the stop the landing then reaches. off carries
+// the offset from site, the propellant left and where the stop is (aimLat, aimLon).
+func (w *World) solveNoBoost(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, site [2]float64) (boostbackSolution, deorbitOffset, error) {
+	entry, cue := w.entryFor(c, st0, tS, 0, 0)
+	if cue > BoostbackMaxCueAltM {
+		return boostbackSolution{}, deorbitOffset{}, noLanding(cue)
+	}
+	off, status := w.aimOffset(c, st0, tS, 0, nodeFor(c, st0, tS, 0, 0, true), true, boostAimLand, entry, site)
+	if status != 0 {
+		return boostbackSolution{}, deorbitOffset{}, ErrBoostbackNoSolution
+	}
+	return boostbackSolution{entry: entry, off: off}, off, nil
 }
 
 // stageDV is the Δv the lit stage's propellant gives it: Isp g ln(m / (m - fuel)).
@@ -1278,6 +1326,16 @@ func entryDelay(s physics.StateVector, mu, radius, entryAlt float64) (float64, b
 // with it, or the best height reached when no burn closes.
 func (w *World) entryFor(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, dv, tilt float64) (best entryBurn, cue float64) {
 	n := nodeFor(c, st0, tS, dv, tilt, true)
+	var floor entryBurn // `ship auto`: the speed rule's burn
+	if c.Stages[0].RecoverMode == spacecraft.RecoverShipAuto {
+		mu := c.Primary.GravitationalParameter()
+		s, _ := burnState(c, st0, mu, dv, n)
+		if te, ok := entryDelay(s, mu, c.Primary.RadiusMeters(), EntryAltsM[0]); ok {
+			if se, ok := physics.KeplerStep(s, mu, te); ok && se.V.Norm() > EntryFallSpeedMps {
+				floor = entryBurn{EntryFallBurnMps, EntryAltsM[0]}
+			}
+		}
+	}
 	cueAt := func(e entryBurn) float64 {
 		off, status := w.aimOffset(c, st0, tS, dv, n, true, boostAim, e, [2]float64{})
 		if status != 0 {
@@ -1285,6 +1343,12 @@ func (w *World) entryFor(c *spacecraft.Spacecraft, st0 physics.StateVector, tS t
 		}
 		return off.cueAlt
 	}
+	defer func() {
+		if floor.dv > 0 && best.dv < floor.dv && cue <= BoostbackMaxCueAltM {
+			best = floor
+			cue = cueAt(floor)
+		}
+	}()
 	if c0 := cueAt(entryBurn{}); c0 <= BoostbackMaxCueAltM {
 		return entryBurn{}, c0 // the landing burn lights low enough as it falls: no entry burn
 	}

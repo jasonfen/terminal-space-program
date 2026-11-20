@@ -249,7 +249,7 @@ func TestRecoverableStages(t *testing.T) {
 }
 
 // An LZ pick resolves to the nearest LZ site within RecoveryLZMaxM of the pad; with
-// none near (Baikonur) it is dropped to none; a ship pick with no distance is none.
+// none near (Baikonur) it is dropped to none; a ship pick with no distance is `ship auto` (ADR 0071 decision 3).
 func TestRecoveryLZPickNeedsASiteNearThePad(t *testing.T) {
 	w := mustWorld(t)
 	w.Crafts, w.ActiveCraftIdx = nil, -1
@@ -261,8 +261,11 @@ func TestRecoveryLZPickNeedsASiteNearThePad(t *testing.T) {
 	if cape.Stages[0].RecoverMode != spacecraft.RecoverLZ || cape.Stages[0].RecoverSiteID != lc13ID(t) {
 		t.Errorf("Cape: recover %v site %d, want LZ at LC-13", cape.Stages[0].RecoverMode, cape.Stages[0].RecoverSiteID)
 	}
-	if baikonur.Stages[0].RecoverMode != spacecraft.RecoverNone || noKm.Stages[0].RecoverMode != spacecraft.RecoverNone {
-		t.Errorf("Baikonur %v, ship with no km %v, want none", baikonur.Stages[0].RecoverMode, noKm.Stages[0].RecoverMode)
+	if baikonur.Stages[0].RecoverMode != spacecraft.RecoverNone || noKm.Stages[0].RecoverMode != spacecraft.RecoverShipAuto {
+		t.Errorf("Baikonur %v, ship with no km %v, want none and ship auto", baikonur.Stages[0].RecoverMode, noKm.Stages[0].RecoverMode)
+	}
+	if s, ok := w.siteByID(noKm.Stages[0].RecoverSiteID); !ok || math.Abs(HaversineM(DefaultLaunchpadLatitude, DefaultLaunchpadLongitudeEast, s.LatDeg, s.LonDeg, noKm.Primary.RadiusMeters())-RecoveryShipDefaultKm*1e3) > 500 {
+		t.Errorf("ship auto starts at %+v, want %v km out", s, RecoveryShipDefaultKm)
 	}
 	if _, ok := w.RecoveryLZNear("earth", DefaultLaunchpadLatitude, DefaultLaunchpadLongitudeEast, 1); !ok {
 		t.Error("no LZ near the Cape")
@@ -1259,6 +1262,90 @@ func TestRecoveryShipFollowsTheHeadingUntilTheCutoff(t *testing.T) {
 		}
 		if d := distToLZ(t, w, b, id, 1); !b.Landed || d > SiteLZRadiusM {
 			t.Errorf("%s: landed=%v %.1f m from the ship, want inside %v m", tc.name, b.Landed, d, SiteLZRadiusM)
+		}
+	}
+}
+
+// fhAutoClimb flies a Falcon Heavy (boosters LZ, core pick) to the core's MECO. fitted
+// is the review's climb fitted to the real game (1 degree kick T+8 to T+23, then the
+// recording's trims, core pitched down from T+134); else the standard padClimb ascent.
+// It returns the world at the tick after the cutoff with the boosters already staged away.
+func fhAutoClimb(t *testing.T, fitted bool, pick RecoverPick) (*World, *spacecraft.Spacecraft) {
+	t.Helper()
+	const deg = math.Pi / 180
+	w := mustWorld(t)
+	w.Crafts, w.ActiveCraftIdx = nil, -1
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-Heavy", ParentBodyID: "earth", Launchpad: true,
+		Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast,
+		Recover: []RecoverPick{{Mode: spacecraft.RecoverLZ}, pick}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.RecomputeCommGraph()
+	c.Throttle, c.EngineMode, c.AttitudeMode = 1, spacecraft.EngineMain, spacecraft.BurnRadialOut
+	w.StartManualBurn()
+	t0 := w.Clock.SimTime
+	steps := []struct{ at, deg float64 }{{8, 1}, {23, 0}, {65, -5}, {74, 0}, {114, -1}, {128, 0}, {134, -5}, {134.5, -10}, {138, -15}}
+	trim := func() {
+		el := w.Clock.SimTime.Sub(t0).Seconds()
+		if fitted {
+			for _, s := range steps {
+				if el >= s.at-1.05 {
+					c.PitchTrim = s.deg * deg
+				}
+			}
+			if el >= 13-1.05 && c.AttitudeMode == spacecraft.BurnRadialOut {
+				c.AttitudeMode = spacecraft.BurnSurfacePrograde
+			}
+			return
+		}
+		switch {
+		case el > 8 && el < 14:
+			c.PitchTrim = 0.015
+		case el >= 14 && c.AttitudeMode == spacecraft.BurnRadialOut:
+			c.PitchTrim, c.AttitudeMode = 0, spacecraft.BurnSurfacePrograde
+		}
+	}
+	for i := 0; i < 60000 && c.Stages[0].HeldKg == 0 && c.ManualBurn != nil; i++ {
+		trim()
+		w.Tick()
+	}
+	if c.Stages[0].HeldKg == 0 {
+		t.Fatal("no BECO")
+	}
+	w.Tick() // the tick after the cutoff ends the burn
+	w.StageActive(w.ActiveCraftIdx)
+	st := &c.Stages[0]
+	for i := 0; i < 60000 && st.HeldKg == 0 && c.ManualBurn != nil && st.FuelMass > 0; i++ {
+		trim()
+		w.Tick()
+	}
+	if st.HeldKg == 0 {
+		t.Fatalf("no MECO: the core burned dry (fuel %.0f)", st.FuelMass)
+	}
+	w.Tick()
+	return w, c
+}
+
+func TestZZAuto(t *testing.T) {
+	for _, fitted := range []bool{false, true} {
+		w, c := fhAutoClimb(t, fitted, RecoverPick{Mode: spacecraft.RecoverShip})
+		st := &c.Stages[0]
+		id := st.RecoverSiteID
+		s, _ := w.siteByID(id)
+		d := HaversineM(c.LaunchLatDeg, c.LaunchLonDeg, s.LatDeg, s.LonDeg, c.Primary.RadiusMeters())
+		t.Logf("fitted=%v mode=%v held %.0f kg ship %.1f km from pad, alt %.0f km speed %.0f T+%.0f", fitted, st.RecoverMode, st.HeldKg, d/1e3, (c.State.R.Norm()-c.Primary.RadiusMeters())/1e3, c.State.V.Norm(), w.Clock.SimTime.Sub(c.LiftoffSimTime).Seconds())
+		n := len(w.Crafts)
+		w.StageActive(w.ActiveCraftIdx)
+		t.Logf("pending %v", w.PendingRecoveryEvents)
+		if len(w.Crafts) > n {
+			core := w.Crafts[n]
+			for _, nd := range core.Nodes {
+				t.Logf("node mode %v dv %.1f thr %.2f key %v", nd.Mode, nd.DV, nd.Throttle, nd.AdvisoryKey)
+			}
+			t.Logf("core fuel %.0f held %.0f", core.ActiveStageFuel(), core.Stages[0].HeldKg)
+			flyDown(w, core)
+			t.Logf("core landed=%v crashed=%v %.1f m from the ship, thr %.4f fuel %.0f", core.Landed, core.Crashed, distToLZ(t, w, core, id, 1), core.LandingThrottle(), core.ActiveStageFuel())
 		}
 	}
 }

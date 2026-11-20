@@ -145,9 +145,11 @@ func (w *World) applyRecovery(c *spacecraft.Spacecraft, picks []RecoverPick, lat
 				claimed[s.ID] += halves
 			}
 		case spacecraft.RecoverShip:
-			if p.ShipKm > 0 {
-				st.RecoverMode, st.RecoverSiteID = spacecraft.RecoverShip, w.stationShip(c, latDeg, lonDeg, math.Min(p.ShipKm, RecoveryShipMaxKm), StageHalves(*st))
+			km, mode := math.Min(p.ShipKm, RecoveryShipMaxKm), spacecraft.RecoverShip
+			if km <= 0 { // `ship auto`: distance 0 on the pick, no new saved field (ADR 0071 decision 3)
+				km, mode = RecoveryShipDefaultKm, spacecraft.RecoverShipAuto
 			}
+			st.RecoverMode, st.RecoverSiteID = mode, w.stationShip(c, latDeg, lonDeg, km, StageHalves(*st))
 		}
 	}
 }
@@ -273,6 +275,8 @@ type recoveryRuntime struct {
 	aimLimited   bool            // the last failed one-engine solve found no boostback that aims at the site
 	light        bool            // the weight test has passed: a plan can close from here (N1: warp is capped for a ship)
 	shipAt       time.Time       // when the ship last followed the heading (ADR 0071 decision 4)
+	onFall       bool            // `ship auto`: a landing has worked, the ship now takes the forecast stop
+	autoThree    bool            // `ship auto`: the last closing forecast needed three engines
 }
 
 // threeEngineLine is ADR 0071 decision 1's stand-in for the cutoff line while the
@@ -311,7 +315,7 @@ const recoveryShipFollowKm = 5.0
 // cutoff (ADR 0071 decision 4, #998). Called on the cutoff's solve ticks, at most
 // once per ship solve gap, so no extra solves and a bounded number of ledger writes.
 func (w *World) followHeading(c *spacecraft.Spacecraft, st *spacecraft.Stage, rt *recoveryRuntime) {
-	if st.RecoverMode != spacecraft.RecoverShip || !c.HasLaunchSite || w.noShipFollow || w.Clock.SimTime.Sub(rt.shipAt).Seconds() < recoveryMinSec*recoveryShipSlow {
+	if !st.RecoverMode.IsShip() || rt.onFall || !c.HasLaunchSite || w.noShipFollow || w.Clock.SimTime.Sub(rt.shipAt).Seconds() < recoveryMinSec*recoveryShipSlow {
 		return
 	}
 	r := c.Primary.RadiusMeters()
@@ -338,7 +342,7 @@ const recoveryShipWarpCap = 3.0
 // recoveryWarpCap is the ceiling the climb's ship pick puts on warp, 0 for none.
 func (w *World) recoveryWarpCap() float64 {
 	for _, c := range w.Crafts {
-		if c == nil || len(c.Stages) == 0 || c.Stages[0].RecoverMode != spacecraft.RecoverShip || c.Stages[0].HeldKg > 0 || c.ManualBurn == nil {
+		if c == nil || len(c.Stages) == 0 || !c.Stages[0].RecoverMode.IsShip() || c.Stages[0].HeldKg > 0 || c.ManualBurn == nil {
 			continue
 		}
 		if rt := w.recRT[c.ID]; rt != nil && rt.light {
@@ -474,6 +478,65 @@ func (w *World) recoverySlackAt(c *spacecraft.Spacecraft, thr, fuel, warm float6
 	return sol.off.fuelLeft - BoostbackFuelMarginKg, sol.dv, risen, nil
 }
 
+// recoverySlackAuto is the cutoff's question for `ship auto` (ADR 0071 decisions 3
+// and 4): dropped RecoveryStageGraceS from now with no boostback, does a landing
+// work from this fall, and how much propellant does it leave above the margin. One
+// engine is asked first and three only when one cannot (decision 1). When a landing
+// works the ship moves to where the fall stops. err says why none does.
+func (w *World) recoverySlackAuto(c *spacecraft.Spacecraft, fuel float64, rt *recoveryRuntime) (float64, error) {
+	site, ok := w.siteByID(c.Stages[0].RecoverSiteID)
+	if !ok {
+		return 0, ErrDeorbitNoSite
+	}
+	var lastErr error = errRecoveryHeavy
+	for _, thr := range []float64{0, ThreeEngineLandingThrottle} {
+		st := c.Stages[0]
+		st.FuelMass = fuel
+		if thr > 0 {
+			if st.LandingThrottle <= 0 || st.LandingThrottle >= thr {
+				break
+			}
+			st.LandingThrottle = thr
+		}
+		b := buildJettisonedCraft([]spacecraft.Stage{st}, c)
+		if recoveryTooHeavy(b) {
+			continue
+		}
+		w.recoverySolves++
+		b.State = c.State
+		b.State.M = b.TotalMass()
+		mu := b.Primary.GravitationalParameter()
+		lead := boostbackLead(b) + RecoveryStageGraceS
+		tS := w.Clock.SimTime.Add(time.Duration(lead * float64(time.Second)))
+		st0, ok := physics.KeplerStep(b.State, mu, lead)
+		if !ok {
+			lastErr = ErrBoostbackNoSolution
+			continue
+		}
+		st0.M = b.TotalMass()
+		lat, lon := site.lzLatLon(1, b.Primary.RadiusMeters())
+		_, off, err := w.solveNoBoost(b, st0, tS, [2]float64{lat, lon})
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if off.fuelLeft < BoostbackFuelMarginKg {
+			lastErr = ErrBoostbackNoSolution
+			continue
+		}
+		rt.autoThree, rt.onFall = thr > 0, true
+		if !w.noShipFollow {
+			for i := range w.Sites {
+				if s := &w.Sites[i]; s.ID == site.ID {
+					s.LatDeg, s.LonDeg, s.UpdatedAtNano = off.aimLat, off.aimLon, time.Now().UnixNano()
+				}
+			}
+		}
+		return off.fuelLeft - BoostbackFuelMarginKg, nil
+	}
+	return 0, lastErr
+}
+
 // recoveryCutoff is decision 15, run once a tick on every vessel: while the
 // bottom stage burns with a recovery place set, solve the way home at most once
 // a second (sparser while far from the reserve, see the intervals above), predict
@@ -494,7 +557,7 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 	rt := w.recoveryRTFor(c)
 	now := w.Clock.SimTime
 	tickWarp := float64(simDelta) / float64(w.Clock.BaseStep) // sim seconds per real second at this tick's warp
-	if st.RecoverMode == spacecraft.RecoverShip {
+	if st.RecoverMode.IsShip() {
 		tickWarp = math.Min(tickWarp, recoveryShipWarpCap) // the climb is capped from here on (N1)
 	}
 	near := func() bool { // the line says the reserve is reached within this tick plus the lead
@@ -503,8 +566,26 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 	}
 	if !now.Before(rt.nextSolve) {
 		w.followHeading(c, st, rt)
-		slack, dv, rising, err := w.recoverySlack(c, st.FuelMass, rt.warmDV, rt.rising)
-		if err != nil && !errors.Is(err, errRecoveryHeavy) && !errors.Is(err, ErrDeorbitNoSite) {
+		// `ship auto`: the no-boostback forecast is asked first. Until it has closed the
+		// ordinary solve to the ship's place (250 km along the heading) runs beside it, so a
+		// climb whose fall can never land without a boostback (a steep one) still cuts off;
+		// the first forecast that closes takes over for the rest of the climb.
+		auto := st.RecoverMode == spacecraft.RecoverShipAuto
+		var slack, dv float64
+		var rising bool
+		var err error
+		viaFall := false
+		if auto {
+			was := rt.onFall
+			slack, err = w.recoverySlackAuto(c, st.FuelMass, rt)
+			if viaFall = err == nil; viaFall && !was { // the line so far was the boostback's: start it again
+				rt.haveCut, rt.havePrev, rt.rate, rt.lost, rt.seenFeasible, rt.three = false, false, 0, false, false, threeEngineLine{}
+			}
+		}
+		if !viaFall && !rt.onFall {
+			slack, dv, rising, err = w.recoverySlack(c, st.FuelMass, rt.warmDV, rt.rising)
+		}
+		if err != nil && !rt.onFall && !errors.Is(err, errRecoveryHeavy) && !errors.Is(err, ErrDeorbitNoSite) {
 			rt.three.failed++
 			rt.aimLimited = errors.Is(err, ErrBoostbackNoSolution)
 		}
@@ -521,7 +602,7 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 			probeAhead = recoveryMinSec * float64(simDelta) / float64(w.Clock.BaseStep) // a real second (the ship cap is not on yet)
 		}
 		lt := st.LandingThrottle
-		if err != nil && !rt.seenFeasible && lt > 0 && lt < ThreeEngineLandingThrottle && !errors.Is(err, ErrDeorbitNoSite) &&
+		if err != nil && !rt.onFall && !rt.seenFeasible && lt > 0 && lt < ThreeEngineLandingThrottle && !errors.Is(err, ErrDeorbitNoSite) &&
 			(heavy || rt.three.failed >= recoveryThreeAfterFails || errors.Is(err, ErrBoostbackNoSolution)) && !now.Before(rt.three.nextAt) {
 			l := &rt.three
 			s3, d3, r3, err3 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, l.warmDV, l.rising, 0, probeAhead)
@@ -573,7 +654,7 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 			// a ship's solve scans for its root (0.4 s against an LZ's 0.1 s), so it is
 			// asked less often; the pad covers what the longer gap costs in precision
 			slow := 1.0
-			if st.RecoverMode == spacecraft.RecoverShip {
+			if st.RecoverMode.IsShip() {
 				slow = recoveryShipSlow
 			}
 			dt := recoveryMinSec * slow
@@ -633,6 +714,9 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 func (w *World) cutAtReserve(c *spacecraft.Spacecraft) {
 	st := &c.Stages[0]
 	word := CutoffWord(*st)
+	if rt := w.recRT[c.ID]; rt != nil && rt.autoThree {
+		st.LandingThrottle = ThreeEngineLandingThrottle // the forecast that closed was on three engines: saved with the stage, copied to the dropped one
+	}
 	st.HoldReserve()
 	c.SyncFields()
 	c.State.M = c.TotalMass()
