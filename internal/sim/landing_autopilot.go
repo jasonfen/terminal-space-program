@@ -981,7 +981,7 @@ func (w *World) apOneBurn(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopi
 	// the last seconds only null the drift (no late aim move), and so does a tank
 	// that no longer holds a hover to the ground with a half again to spare
 	if ok && tgo > 3 && c.Isp > 0 && c.ActiveStageFuel() >= 1.5*tgo*c.TotalMass()*f.g/(c.Isp*stdGravityMps2) &&
-		(!recovering(c) || recoveryCanReach(c, f, e.Norm(), v, tgo)) {
+		(!recovering(c) || recoveryCanReach(c, f, e.Norm(), tgo)) {
 		aim = aim.Add(e.Scale(6 / (tgo * tgo)))
 	}
 	if lim := oneBurnLateralLimit(c, tv.Norm(), f.g, tgo); aim.Norm() > lim {
@@ -1062,16 +1062,15 @@ func recovering(c *spacecraft.Spacecraft) bool {
 	return len(c.Stages) > 0 && c.Stages[0].RecoverMode != spacecraft.RecoverNone
 }
 
-// recoveryCanReach is whether the tank pays for the aim pull as well as the landing:
-// the rocket-equation dv of the fuel left, less the brake (the speed v, plus gravity
-// over the time to go) and the 2 d / tgo of a lateral move out and stopped again.
-// A recovering stage that cannot pay lands where it is, at the soft contact speed,
-// instead of hovering and sliding toward the site until the tank is dry.
-func recoveryCanReach(c *spacecraft.Spacecraft, f apFrame, d, v, tgo float64) bool {
-	m, fuel := c.TotalMass(), c.ActiveStageFuel()
-	if fuel >= m {
-		return true
+// recoveryCanReach is whether the tank pays for the aim pull: the rocket-equation dv of
+// the fuel beyond the hover reserve the pull is already gated on, against the 2 d / tgo of
+// a lateral move out and stopped again. A recovering stage that cannot pay lands where it
+// is, at the soft contact speed, instead of hovering and sliding toward the site until dry.
+func recoveryCanReach(c *spacecraft.Spacecraft, f apFrame, d, tgo float64) bool {
+	m := c.TotalMass()
+	spare := c.ActiveStageFuel() - 1.5*tgo*m*f.g/(c.Isp*stdGravityMps2)
+	if spare <= 0 || spare >= m {
+		return spare >= m
 	}
-	dv := c.Isp * stdGravityMps2 * math.Log(m/(m-fuel))
-	return dv >= v+f.g*tgo+2*d/tgo
+	return c.Isp*stdGravityMps2*math.Log(m/(m-spare)) >= 2*d/tgo
 }

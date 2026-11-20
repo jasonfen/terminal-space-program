@@ -1431,15 +1431,22 @@ func TestRecoveringBoosterThatCannotReachLandsWhereItIs(t *testing.T) {
 func TestRecoveryCanReachSpendsTheTankOnTheLandingFirst(t *testing.T) {
 	_, b := fhBoosterDrop(t)
 	f := apFrameOf(b)
-	m, fuel := b.TotalMass(), b.ActiveStageFuel()
-	dv := b.Isp * stdGravityMps2 * math.Log(m/(m-fuel))
-	const v, tgo = 100.0, 10.0
-	dEdge := (dv - v - f.g*tgo) * tgo / 2 // the distance whose 2 d / tgo spends the tank exactly
-	if !recoveryCanReach(b, f, dEdge, v, tgo) {
-		t.Errorf("a tank that pays exactly must reach (d %.0f m)", dEdge)
+	m := b.TotalMass()
+	const tgo = 10.0
+	spare := b.ActiveStageFuel() - 1.5*tgo*m*f.g/(b.Isp*stdGravityMps2)
+	if spare <= 0 {
+		t.Fatalf("spare fuel %.0f kg, the fixture needs some", spare)
 	}
-	if recoveryCanReach(b, f, dEdge+1, v, tgo) {
-		t.Errorf("a tank 2/tgo m/s short must not reach (d %.0f m)", dEdge+1)
+	dEdge := b.Isp * stdGravityMps2 * math.Log(m/(m-spare)) * tgo / 2 // the distance whose 2 d / tgo spends the spare exactly
+	if !recoveryCanReach(b, f, dEdge, tgo) {
+		t.Errorf("a spare tank that pays exactly must reach (d %.0f m)", dEdge)
+	}
+	if recoveryCanReach(b, f, dEdge*1.001, tgo) {
+		t.Errorf("a spare tank short of the lateral dv must not reach (d %.0f m)", dEdge*1.001)
+	}
+	b.Stages[0].FuelMass = 0
+	if recoveryCanReach(b, f, 1, tgo) {
+		t.Error("no fuel beyond the hover reserve must not reach")
 	}
 	if recovering(&spacecraft.Spacecraft{Stages: []spacecraft.Stage{{}}}) {
 		t.Error("a stage with no recovery mode is not recovering")
