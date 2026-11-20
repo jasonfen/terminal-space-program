@@ -1271,7 +1271,7 @@ func TestRecoveryShipFollowsTheHeadingUntilTheCutoff(t *testing.T) {
 // review's climb fitted to the real game (1 degree kick T+8 to T+23, the recording's
 // trims, core pitched down from T+134); else the standard padClimb ascent. It returns
 // at the tick after the cutoff, the boosters already staged away.
-func fhAutoClimb(t *testing.T, fitted bool, pick RecoverPick) (w *World, c *spacecraft.Spacecraft, moves int) {
+func fhAutoClimb(t *testing.T, fitted bool, pick RecoverPick, worst ...*time.Duration) (w *World, c *spacecraft.Spacecraft, moves int) {
 	t.Helper()
 	const deg = math.Pi / 180
 	w = mustWorld(t)
@@ -1321,7 +1321,11 @@ func fhAutoClimb(t *testing.T, fitted bool, pick RecoverPick) (w *World, c *spac
 	last := s0.UpdatedAtNano
 	for i := 0; i < 60000 && st.HeldKg == 0 && c.ManualBurn != nil && st.FuelMass > 0; i++ {
 		trim()
+		start := time.Now()
 		w.Tick()
+		if d := time.Since(start); len(worst) > 0 && d > *worst[0] {
+			*worst[0] = d
+		}
 		if s, _ := w.siteByID(st.RecoverSiteID); s.UpdatedAtNano != last {
 			last = s.UpdatedAtNano
 			moves++
@@ -1422,5 +1426,20 @@ func TestEntryFallBurnRule(t *testing.T) {
 		if got := fallSpeedEntryFloor(tc.speed).dv; got != tc.want {
 			t.Errorf("fall at %.0f m/s: rule burn %.0f, want %.0f", tc.speed, got, tc.want)
 		}
+	}
+}
+
+// The cost of `ship auto` on the core (the cost tests above price the Falcon 9): the
+// whole fitted climb's solves and aim flights, and the slowest core tick. Caps are
+// measured (see the log), not loosened from the other pins.
+func TestRecoveryShipAutoSolvesAreCheap(t *testing.T) {
+	var worst time.Duration
+	w, c, moves := fhAutoClimb(t, true, RecoverPick{Mode: spacecraft.RecoverShip}, &worst)
+	t.Logf("fitted auto core: %d solves, %d flights, %d ship moves, held %.0f kg, worst core tick %v", w.recoverySolves, w.aimEvals, moves, c.Stages[0].HeldKg, worst)
+	if w.aimEvals > 7000 {
+		t.Errorf("%d aim flights, want at most 7000 (measured 5,583)", w.aimEvals)
+	}
+	if worst > 350*time.Millisecond {
+		t.Errorf("worst core tick %v, want at most 350 ms (measured 218 ms)", worst)
 	}
 }
