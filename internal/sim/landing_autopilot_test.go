@@ -1356,3 +1356,99 @@ func TestOneBurnLateralLimitCapsOnlyAHardThrustingStage(t *testing.T) {
 		}
 	}
 }
+
+// fhBoosterDrop flies an LZ+ship Falcon Heavy to BECO, holds one second and drops the
+// side boosters at 44 km (the 2026-11-15 recording's drop), returning the first booster.
+func fhBoosterDrop(t *testing.T) (*World, *spacecraft.Spacecraft) {
+	t.Helper()
+	const deg = math.Pi / 180
+	steps := []struct{ at, deg float64 }{{8, 1}, {23, 0}, {65, -5}, {74, 0}, {114, -1}, {128, 0}}
+	w := mustWorld(t)
+	w.Crafts, w.ActiveCraftIdx = nil, -1
+	c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-Heavy", ParentBodyID: "earth", Launchpad: true,
+		Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast,
+		Recover: []RecoverPick{{Mode: spacecraft.RecoverLZ}, {Mode: spacecraft.RecoverShip, ShipKm: 250}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.RecomputeCommGraph()
+	c.Throttle, c.EngineMode, c.AttitudeMode = 1, spacecraft.EngineMain, spacecraft.BurnRadialOut
+	w.StartManualBurn()
+	t0 := w.Clock.SimTime
+	for i := 0; i < 60000 && c.ManualBurn != nil && c.Stages[0].HeldKg == 0; i++ {
+		el := w.Clock.SimTime.Sub(t0).Seconds()
+		for _, s := range steps {
+			if el >= s.at-1.05 {
+				c.PitchTrim = s.deg * deg
+			}
+		}
+		if el >= 13-1.05 && c.AttitudeMode == spacecraft.BurnRadialOut {
+			c.AttitudeMode = spacecraft.BurnSurfacePrograde
+		}
+		w.Tick()
+	}
+	if c.Stages[0].HeldKg == 0 {
+		t.Fatal("no BECO")
+	}
+	for end := w.Clock.SimTime.Add(time.Second); w.Clock.SimTime.Before(end); {
+		w.Tick()
+	}
+	n := len(w.Crafts)
+	w.StageActive(w.ActiveCraftIdx)
+	c.Stages[0].RecoverMode = spacecraft.RecoverNone // the core: no solves from here
+	if len(w.PendingRecoveryEvents) > 0 || len(w.Crafts) <= n {
+		t.Fatalf("drop refused: %v", w.PendingRecoveryEvents)
+	}
+	return w, w.Crafts[n]
+}
+
+// A booster that cannot reach its site lands where it is, soft, with fuel left: the
+// 2026-11-15 booster 1 held 4 % throttle for 36 s sliding home and hit at the crash
+// threshold with the tank dry (1229 m out at 50 m; the pull only ended when it ran dry).
+func TestRecoveringBoosterThatCannotReachLandsWhereItIs(t *testing.T) {
+	w, b := fhBoosterDrop(t)
+	var speed float64
+	for i := 0; i < 20*3600 && !(b.Landed || b.Crashed); i++ {
+		speed = contactSpeedMps(b, b.State.R, b.State.V)
+		w.Tick()
+	}
+	ev := w.PendingLandingEvents
+	if !b.Landed || b.Crashed {
+		t.Fatalf("landed=%v crashed=%v, want down and soft", b.Landed, b.Crashed)
+	}
+	if speed >= CrashVCritMps-2 {
+		t.Errorf("last speed before contact %.1f m/s, want 2 m/s under the %v m/s crash threshold", speed, CrashVCritMps)
+	}
+	if b.ActiveStageFuel() <= 0 {
+		t.Errorf("tank dry at touchdown: it hovered on fuel it needed for the landing")
+	}
+	if len(ev) == 0 || ev[len(ev)-1].DistanceM <= 0 || ev[len(ev)-1].Crashed {
+		t.Errorf("landing events %+v, want one with the distance from the site", ev)
+	}
+	t.Logf("touchdown %.2f m/s, fuel %.0f kg, %.0f m from the site", speed, b.ActiveStageFuel(), ev[len(ev)-1].DistanceM)
+}
+
+func TestRecoveryCanReachSpendsTheTankOnTheLandingFirst(t *testing.T) {
+	_, b := fhBoosterDrop(t)
+	f := apFrameOf(b)
+	m := b.TotalMass()
+	const tgo = 10.0
+	spare := b.ActiveStageFuel() - 1.5*tgo*m*f.g/(b.Isp*stdGravityMps2)
+	if spare <= 0 {
+		t.Fatalf("spare fuel %.0f kg, the fixture needs some", spare)
+	}
+	dEdge := b.Isp * stdGravityMps2 * math.Log(m/(m-spare)) * tgo / 2 // the distance whose 2 d / tgo spends the spare exactly
+	if !recoveryCanReach(b, f, dEdge, tgo) {
+		t.Errorf("a spare tank that pays exactly must reach (d %.0f m)", dEdge)
+	}
+	if recoveryCanReach(b, f, dEdge*1.001, tgo) {
+		t.Errorf("a spare tank short of the lateral dv must not reach (d %.0f m)", dEdge*1.001)
+	}
+	b.Stages[0].FuelMass = 0
+	if recoveryCanReach(b, f, 1, tgo) {
+		t.Error("no fuel beyond the hover reserve must not reach")
+	}
+	if recovering(&spacecraft.Spacecraft{Stages: []spacecraft.Stage{{}}}) {
+		t.Error("a stage with no recovery mode is not recovering")
+	}
+}
