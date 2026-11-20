@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/jasonfen/terminal-space-program/internal/physics"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
 
@@ -271,6 +272,7 @@ type recoveryRuntime struct {
 	three        threeEngineLine // the fallback's own cutoff line; the fields above are never touched by it
 	aimLimited   bool            // the last failed one-engine solve found no boostback that aims at the site
 	light        bool            // the weight test has passed: a plan can close from here (N1: warp is capped for a ship)
+	shipAt       time.Time       // when the ship last followed the heading (ADR 0071 decision 4)
 }
 
 // threeEngineLine is ADR 0071 decision 1's stand-in for the cutoff line while the
@@ -297,6 +299,34 @@ func (rt *recoveryRuntime) threePad() float64 {
 		return RecoveryThreePadKg
 	}
 	return RecoveryPadKg
+}
+
+// recoveryShipFollowKm is how far downrange the vessel must be before its ground
+// track from the pad is read as the heading; nearer in, the ship stays where it
+// was stationed (due east, the bearing stationShip spawns on).
+const recoveryShipFollowKm = 5.0
+
+// followHeading keeps a ship pick's site the typed distance (its distance from the
+// pad, unchanged by a move) along the vessel's ground track from the pad, until the
+// cutoff (ADR 0071 decision 4, #998). Called on the cutoff's solve ticks, at most
+// once per ship solve gap, so no extra solves and a bounded number of ledger writes.
+func (w *World) followHeading(c *spacecraft.Spacecraft, st *spacecraft.Stage, rt *recoveryRuntime) {
+	if st.RecoverMode != spacecraft.RecoverShip || !c.HasLaunchSite || w.noShipFollow || w.Clock.SimTime.Sub(rt.shipAt).Seconds() < recoveryMinSec*recoveryShipSlow {
+		return
+	}
+	r := c.Primary.RadiusMeters()
+	subLat, subLon := render.WorldToBodyFixed(c.Primary, unitV(c.State.R), w.Clock.SimTime)
+	if HaversineM(c.LaunchLatDeg, c.LaunchLonDeg, subLat, subLon, r) < recoveryShipFollowKm*1e3 {
+		return
+	}
+	for i := range w.Sites {
+		if s := &w.Sites[i]; s.ID == st.RecoverSiteID {
+			dist := HaversineM(c.LaunchLatDeg, c.LaunchLonDeg, s.LatDeg, s.LonDeg, r)
+			s.LatDeg, s.LonDeg = downrangePoint(c.LaunchLatDeg, c.LaunchLonDeg, ForwardAzimuthDeg(c.LaunchLatDeg, c.LaunchLonDeg, subLat, subLon), dist, r)
+			s.UpdatedAtNano = time.Now().UnixNano()
+			rt.shipAt = w.Clock.SimTime
+		}
+	}
 }
 
 // recoveryShipWarpCap is the warp a ship pick's climb is held to between the weight
@@ -472,6 +502,7 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 		return rt.haveCut && rt.rate > 0 && rt.slack-rt.rate*ahead <= RecoveryPadKg
 	}
 	if !now.Before(rt.nextSolve) {
+		w.followHeading(c, st, rt)
 		slack, dv, rising, err := w.recoverySlack(c, st.FuelMass, rt.warmDV, rt.rising)
 		if err != nil && !errors.Is(err, errRecoveryHeavy) && !errors.Is(err, ErrDeorbitNoSite) {
 			rt.three.failed++

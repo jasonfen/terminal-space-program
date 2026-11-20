@@ -187,6 +187,7 @@ type World struct {
 	// lastSimDelta is the sim step of the tick in progress, for its light test.
 	apRT            map[uint64]*apRuntime
 	recRT           map[uint64]*recoveryRuntime // the cutoff solver's per-vessel state (recovery.go)
+	noShipFollow    bool                        // test hook: a ship stays where it was stationed, to replay a fixture fitted before #998
 	recoverySolves  int                         // reserve solves actually run, for the count test
 	aimEvals        int                         // aimOffset flights run, for the cost test (R5)
 	shortfalls      map[shortfallKey]error      // refused N presses already searched (deorbit.go)
