@@ -143,7 +143,7 @@ character, which may not be under the same finger as on QWERTY. The choice is
 saved to your config and applies to every game. AZERTY, Dvorak, and free
 per-key remapping aren't supported yet.
 
-On the Keyboard layout screen `←` / `→`, `Space` or `Enter` cycle the layout and `Esc` goes back. On Settings, `↑` / `↓` pick a row, `Space` or `Enter` flips or cycles it (`Enter` does the same as `Space`), and `Esc` goes back to the pause menu.
+On the Keyboard layout screen `←` / `→`, `Space` or `Enter` cycle the layout and `Esc` goes back. On Settings, `↑` / `↓` pick a row, `Tab` jumps between the left and right columns, `Space` or `Enter` flips or cycles it (`Enter` does the same as `Space`), and `Esc` goes back to the pause menu.
 
 ## Keybindings
 
