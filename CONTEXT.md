@@ -900,8 +900,14 @@ The pad card's choice per droppable stage (one that can land: legs, a command
 source and an engine): an **LZ** at a site near the pad, a **drone ship**, or
 none. Saved on the stage. At the drop the stage takes the place as its own
 target and `N` is pressed on it, the pilot's `t` target untouched. A drone ship
-is a site with one LZ stationed a typed distance downrange of the pad (due east),
-named `Drone Ship`; it does not move.
+is a site with one LZ stationed a typed distance downrange of the pad along the
+launch heading, named `Drone Ship`; it follows the vessel's ground track until the
+cutoff and never moves after it.
+**Ship auto** (ADR 0071 decision 3): the Falcon Heavy core's default for `ship`, no
+distance typed (stored as the pick's distance 0). The ship starts 250 km out and, from
+the first moment a landing works without a boostback, takes where the core's fall
+would stop; the core burns to the smallest reserve that lands and the ship stops at
+MECO. A fall faster than 2,000 m/s at 70 km gets an entry burn of at least 100 m/s.
 _Avoid_: Booster target, Return site.
 
 **Landing reserve / MECO / BECO** (ADR 0069 decision 15):

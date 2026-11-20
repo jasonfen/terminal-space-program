@@ -44,6 +44,7 @@ func TestControlsDocNamesBatchRow(t *testing.T) {
 		"| `COVERAGE` | The notice for the site or landed vessel you aimed at, or for the lunar coverage rung",
 		"tinted green where the ground is linked this instant (`F3` `c` switches it off)",
 		"Press `t` twice to target the Moon",
+		"| `recover:` ship auto | Falcon Heavy core's default: starts 250 km out, then stays under the core's fall until the cutoff; `Enter` types a km |",
 		"| `recover:` heavy | Falcon Heavy: boosters set to recover, the core holds 60 % (auto) until BECO; moving the core throttle ends it |",
 	} {
 		if !strings.Contains(string(doc), want) {

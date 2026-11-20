@@ -87,7 +87,8 @@ func helpPhraseRows() []helpPhrase {
 		{name: "glossary boosters / core names the PROPELLANT row", section: "READOUT GLOSSARY", token: "boosters / core", has: []string{"PROPELLANT's fuel row"}},
 		{name: "glossary names MECO / BECO", section: "READOUT GLOSSARY", token: "MECO / BECO", has: []string{"recovery place", "landing reserve", "core", "side boosters", "T-", "space still drops it", "none burns to dry"}},
 		{name: "spawn form names the recover row", section: "SPAWN FORM (n)", token: "recover:", has: []string{"flies home", "LZ, ship or none", "next stage"}},
-		{name: "spawn form names the ship distance", section: "SPAWN FORM (n)", token: "recover: ship", has: []string{"km downrange", "due east", "landing reserve"}},
+		{name: "spawn form names the ship distance", section: "SPAWN FORM (n)", token: "recover: ship", has: []string{"km downrange", "launch heading", "landing reserve"}},
+		{name: "spawn form names ship auto", section: "SPAWN FORM (n)", token: "recover: ship auto", has: []string{"Falcon Heavy core", "250 km", "until the cutoff", "enter types a km"}},
 		{name: "spawn form names the Falcon Heavy core throttle", section: "SPAWN FORM (n)", token: "recover: heavy", has: []string{"Falcon Heavy", "boosters set to recover", "60 % (auto)", "until BECO", "ends it"}},
 		{name: "E ends a crashed flight", token: "E", anyFold: []string{"end flight", "crashed"}},
 		// ADR 0051: F2 hides all eight boxes and the navball.
