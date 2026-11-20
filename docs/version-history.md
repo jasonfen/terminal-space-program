@@ -2,6 +2,20 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.70.0
+
+Falcon Heavy's core comes home, and boosters land on the pad (ADR 0071; PRs `#997`, `#1000`, `#1002`, `#1003`, `#1004`, `#1006` to `#1009`; closes `#996`, `#998`, `#999`, `#1001`; tag `v0.70.0`). Save schema unchanged (25).
+
+- **`recover: ship auto`.** The Falcon Heavy core's new default. The drone ship starts 250 km out and stays under the core's fall until MECO, so the core cuts off at the smallest reserve that lands and comes down on the ship. `enter` still types a distance.
+- **The drone ship follows your heading.** It sits downrange along the launch heading, not due east, so a climb to an inclined orbit still finds it (`#998`).
+- **Boosters land on the pad.** After the boostback a short correction burn trims the stop, so low drops and flat climbs land inside the circle (`#999`). A fall faster than 2,000 m/s at 70 km gets an entry burn of at least 100 m/s.
+- **No more hovering until dry.** A booster that cannot reach its site lands softly where it is. When one engine cannot land the stage, the landing burn lights three.
+- **`V` remembered per vessel.** A vessel left in the launch or surface view opens in it again when you switch back (`#1001`).
+- **Burn time across stages.** A burn that outlasts the lit stage is timed across every stage it needs, so the node starts early enough (`#996`).
+- **Settings.** `tab` jumps between the left and right columns.
+- **Nix.** `nix run github:jasonfen/terminal-space-program` runs any commit or release straight from the repo.
+- **Known issues.** A drone ship typed far out (about 1,100 km) gets no cutoff (`#995`); a landing from orbit on `N` plants a tiny correction burn and two extra recording rows (`#1010`); a vessel gets only one correction burn per session (`#1014`); an older build loads a `ship auto` save but without its warp cap (`#1015`).
+
 ### v0.69.0
 
 Landing zones, recovered boosters and Dragon's SuperDracos (ADR 0068, ADR 0069, ADR 0070; PRs `#943` to `#991`; closes `#935`, `#936`, `#937`; tag `v0.69.0`). Save schema 25 (LZ layouts and claims, recovery picks, the engine a burn was planned on; older saves migrate).
