@@ -777,6 +777,9 @@ func (w *World) SetActiveCraftIdx(idx int) {
 		if outgoing := w.Crafts[w.ActiveCraftIdx]; outgoing != nil {
 			outgoing.Target = w.Target
 			outgoing.NavFrame = int(w.NavMode)
+			if idx != w.ActiveCraftIdx {
+				outgoing.LeftInLaunchView = w.ViewMode == ViewLaunch
+			}
 			// Review LOW 59: the standing dry-throttle order belongs to the
 			// vessel being flown; walking away drops it (nothing on screen
 			// shows it on a non-active vessel, and a later space press
