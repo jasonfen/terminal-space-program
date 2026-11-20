@@ -4797,7 +4797,7 @@ func (a *App) plantedBurnSummaryExcept(skipKey string) string {
 	var n spacecraft.ManeuverNode
 	found := false
 	for _, q := range c.Nodes {
-		if skipKey == "" || (q.AdvisoryKey != skipKey && !(skipKey == sim.AdvisoryKeyDeorbit && q.AdvisoryKey == sim.AdvisoryKeyEntry)) { // N's entry burn goes with its boostback
+		if skipKey == "" || (q.AdvisoryKey != skipKey && !(skipKey == sim.AdvisoryKeyDeorbit && (q.AdvisoryKey == sim.AdvisoryKeyEntry || q.AdvisoryKey == sim.AdvisoryKeyCorrection))) { // N's entry burn goes with its boostback
 			n, found = q, true
 			break
 		}

@@ -82,6 +82,8 @@ type apRuntime struct {
 	cueAt      time.Time
 	nextCheck  time.Time
 	outOfReach bool    // the last brake tick saturated: remembered for the event
+	sawBoost   bool    // a boostback was queued on this vessel
+	corrected  bool    // its correction burn has been looked at (planted or not due)
 	cueErrM    float64 // a chute worked to the light: how far the cue's stop lands from the aim
 	cueAltM    float64 // the height of the cue, and the speed down there, for the aim allowance
 	cueDownMps float64
@@ -670,6 +672,7 @@ func (w *World) tickLandingAutopilotOn(c *spacecraft.Spacecraft) {
 		if c.ActiveBurn != nil {
 			return // a planted burn owns the engine
 		}
+		w.correctAfterBoostback(c, lat, lon)
 		c.AttitudeMode = spacecraft.BurnSite
 		c.SiteDir = f.retro()
 		if ap.Nose {

@@ -71,6 +71,9 @@ const (
 	// AdvisoryKeyEntry tags the entry burn N plants behind a boostback
 	// (ADR 0069 decision 14, amended); N and B replace it with the deorbit node.
 	AdvisoryKeyEntry = "entry"
+	// AdvisoryKeyCorrection tags the short burn flown after a boostback to move
+	// the stop onto the site.
+	AdvisoryKeyCorrection = "correction"
 )
 
 // replaceAdvisoryNode removes every node on c whose AdvisoryKey matches

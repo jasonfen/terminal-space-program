@@ -717,8 +717,9 @@ func TestEntryBurnBringsAFalcon9Home(t *testing.T) {
 			if !landed || d > 43 || v >= CrashVCritMps || b.ActiveStageFuel() <= 0 {
 				t.Errorf("%v kept, warp %vx: landed=%v %.1f m from LZ-1 at %.2f m/s, %.0f kg left, want inside the 43 m circle under %v m/s with propellant", keep, WarpFactors[idx], landed, d, v, b.ActiveStageFuel(), CrashVCritMps)
 			}
-			if len(fired) != 2 || math.Abs(fired[0]-plan.DV) > 0.5 || math.Abs(fired[1]-plan.EntryDV) > 0.5 {
-				t.Errorf("%v kept, warp %vx: burns fired %v, want the boostback %.0f then the entry burn %.0f", keep, WarpFactors[idx], fired, plan.DV, plan.EntryDV)
+			// the boostback first, the entry burn last, and at most one short correction between
+			if len(fired) < 2 || len(fired) > 3 || math.Abs(fired[0]-plan.DV) > 0.5 || math.Abs(fired[len(fired)-1]-plan.EntryDV) > 0.5 || (len(fired) == 3 && fired[1] > 20) {
+				t.Errorf("%v kept, warp %vx: burns fired %v, want the boostback %.0f, at most one short correction, then the entry burn %.0f", keep, WarpFactors[idx], fired, plan.DV, plan.EntryDV)
 			}
 			if dir != "" {
 				ev := strings.Join(allEv(t, recFile(t, dir)), "|")
@@ -1004,10 +1005,10 @@ func TestScanRootFindsRisingAndFallingRoots(t *testing.T) {
 // the vacuum Isp, 2 t over what the one-burn law flown behind it kept (ship 250,
 // kick 9.0: forecast 4.0 t, flown 1.9 t; kicks 8.0 and 8.5 were accepted and
 // crashed dry). It now flies the law, so an accepted drop is never optimistic by
-// more than 300 kg, and its error on the safe side stays under 500 kg. LZ normal
+// more than 300 kg, and its error on the safe side stays under 2.5 t (500 kg before the correction burn gave back the steering fuel). LZ normal
 // climb, ship 250 flat kicks 8.5 and 9.0.
 func TestBoostbackForecastFuelMatchesFlown(t *testing.T) {
-	const optimisticKg, pessimisticKg = 300.0, 500.0
+	const optimisticKg, pessimisticKg = 300.0, 2500.0 // the forecast does not know the correction burn: it prices a steer the stage no longer needs (kick 8.5: 3,284 kg forecast, 5,402 flown; kick 9.0 3,853 and 4,624)
 	type climb func(t *testing.T) (*World, *spacecraft.Spacecraft)
 	ship := RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: RecoveryShipDefaultKm}
 	for _, tc := range []struct {

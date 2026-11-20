@@ -889,18 +889,17 @@ func flatKickClimb(t *testing.T, kick float64, pick RecoverPick) (*World, *space
 // at the ground and the flown landing law left 0 to 2 t. The forecast now flies
 // that law (oneBurnFuelLeft), so the drop is accepted only when the flight keeps
 // its propellant: 8.5, 8.75 and 9.0 land with 3.4 to 4.2 t, 8.25 reaches the reserve
-// line with no plan that closes (the pilot is told), 8.0 now cuts (burnAtCue finds the last safe light, where the old bisection lit 160 km up and called it unsafe) but flies 11 km out, dry: on one engine, not three, and not the landing law. The boostback plan flies its coast and burn in vacuum and this drop is at 36 km, where the real stage loses about 110 m/s to drag before the burn ends (#999).
+// line with no plan that closes (the pilot is told), 8.0 cuts (burnAtCue finds the last safe light) and its 36 km drop, whose boostback is planned in vacuum and loses about 110 m/s to drag, arrives 15 km out: the correction burn behind the boostback (about 150 m/s) puts it on the circle (it flew 11 km out, dry, before: #999).
 func TestRecoveryFlatClimbCutoffNeverLeavesARefusedDrop(t *testing.T) {
 	const (
 		land          = iota // cuts off, the drop is accepted, the stage lands with the margin
 		told                 // reaches the reserve line, the drop is refused and the pilot told
 		noPlan               // no plan ever closes: no cutoff
-		cutsAndMisses        // the plan closes, the flight lands 11 km out, dry: the boostback plan ignores drag at a 36 km drop (#999)
 	)
 	for _, tc := range []struct {
 		kick float64
 		want int
-	}{{8.0, cutsAndMisses}, {8.25, told}, {8.5, land}, {8.75, land}, {9.0, land}} {
+	}{{8.0, land}, {8.25, told}, {8.5, land}, {8.75, land}, {9.0, land}} {
 		w, c := flatKickClimb(t, tc.kick, RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: RecoveryShipDefaultKm})
 		name := fmt.Sprintf("kick %.2f", tc.kick)
 		held, id := c.Stages[0].HeldKg, c.Stages[0].RecoverSiteID
@@ -908,7 +907,7 @@ func TestRecoveryFlatClimbCutoffNeverLeavesARefusedDrop(t *testing.T) {
 			t.Errorf("%s: held %.0f kg, want a cutoff: %v", name, held, tc.want != noPlan)
 			continue
 		}
-		if tc.want == noPlan || tc.want == cutsAndMisses {
+		if tc.want == noPlan {
 			continue
 		}
 		n := len(w.Crafts)
@@ -1096,6 +1095,84 @@ func TestRecoveryThreeEngineCutLandsWhenTheyStage(t *testing.T) {
 			}
 			if math.Abs(b.LandingThrottle()-ThreeEngineLandingThrottle) > 1e-9 {
 				t.Errorf("landing throttle %.4f, want three engines %.4f", b.LandingThrottle(), ThreeEngineLandingThrottle)
+			}
+		})
+	}
+}
+
+// Side boosters of a Falcon Heavy dropped low land on their circle. The boostback is
+// planned in vacuum and flown through air, so a drop at 44 km arrives 2.3 km short
+// of the plan, one at 42 km 2.8 km: the landing law steered out about 1.5 km and
+// the rest hovered dry 0.7 to 1.3 km out (booster 1, 2026-11-15). The correction
+// burn behind the boostback (16 and 22 m/s) closes it. The climb is Jason's flight
+// fitted: an early 1 degree kick from T+8 to T+off, the core to a ship 250 km out.
+func TestRecoveryLowBoosterDropLandsInsideTheCircle(t *testing.T) {
+	const deg = math.Pi / 180
+	for _, tc := range []struct {
+		name    string
+		offSec  float64
+		corrDV  float64 // the correction burn the drop must fly, m/s
+		corrTol float64
+	}{{"drop at 44 km", 23, 16, 4}, {"drop at 42 km", 26, 22, 5}} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := mustWorld(t)
+			w.Crafts, w.ActiveCraftIdx = nil, -1
+			c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-Heavy", ParentBodyID: "earth", Launchpad: true,
+				Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast,
+				Recover: []RecoverPick{{Mode: spacecraft.RecoverLZ}, {Mode: spacecraft.RecoverShip, ShipKm: 250}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.RecomputeCommGraph()
+			c.Throttle, c.EngineMode, c.AttitudeMode = 1, spacecraft.EngineMain, spacecraft.BurnRadialOut
+			w.StartManualBurn()
+			t0 := w.Clock.SimTime
+			for i := 0; i < 60000 && c.ManualBurn != nil && c.Stages[0].HeldKg == 0; i++ {
+				el := w.Clock.SimTime.Sub(t0).Seconds()
+				for _, s := range []struct{ at, deg float64 }{{8, 1}, {tc.offSec, 0}, {65, -5}, {74, 0}, {114, -1}, {128, 0}} {
+					if el >= s.at-1.05 {
+						c.PitchTrim = s.deg * deg
+					}
+				}
+				if el >= 13-1.05 && c.AttitudeMode == spacecraft.BurnRadialOut {
+					c.AttitudeMode = spacecraft.BurnSurfacePrograde
+				}
+				w.Tick()
+			}
+			if c.Stages[0].HeldKg == 0 {
+				t.Fatal("no BECO")
+			}
+			for end := w.Clock.SimTime.Add(time.Second); w.Clock.SimTime.Before(end); {
+				w.Tick()
+			}
+			id, n := c.Stages[0].RecoverSiteID, len(w.Crafts)
+			w.PendingBurnFiredEvents = nil
+			if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil || len(w.PendingRecoveryEvents) != 0 {
+				t.Fatalf("drop: %v %v", err, w.PendingRecoveryEvents)
+			}
+			bs := w.Crafts[n:]
+			if len(bs) != 2 {
+				t.Fatalf("%d boosters dropped, want 2", len(bs))
+			}
+			flyDown(w, bs...)
+			corr := 0
+			for _, e := range w.PendingBurnFiredEvents {
+				if e.CraftName == bs[0].Name && e.DV < 60 && e.DV > 1 {
+					corr++
+					if math.Abs(e.DV-tc.corrDV) > tc.corrTol {
+						t.Errorf("correction burn %.1f m/s, want %.0f within %.0f", e.DV, tc.corrDV, tc.corrTol)
+					}
+				}
+			}
+			if corr != 1 {
+				t.Errorf("%d short burns fired by booster 1, want one correction", corr)
+			}
+			for i, b := range bs {
+				d := math.Min(distToLZ(t, w, b, id, 1), distToLZ(t, w, b, id, 2))
+				t.Logf("booster %d: landed=%v %.1f m out, %.0f kg left", i+1, b.Landed, d, b.ActiveStageFuel())
+				if !b.Landed || d > SiteLZRadiusM || b.ActiveStageFuel() < BoostbackFuelMarginKg {
+					t.Errorf("booster %d: landed=%v %.1f m out with %.0f kg, want inside %v m with at least %.0f kg", i+1, b.Landed, d, b.ActiveStageFuel(), SiteLZRadiusM, BoostbackFuelMarginKg)
+				}
 			}
 		})
 	}

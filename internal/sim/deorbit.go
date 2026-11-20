@@ -405,7 +405,13 @@ func (w *World) aimOffset(c *spacecraft.Spacecraft, st0 physics.StateVector, tS 
 	mu := c.Primary.GravitationalParameter()
 	s, dur := burnState(c, st0, mu, dv, node)
 	tEnd := tS.Add(time.Duration(dur * float64(time.Second)))
-	v := afterBurnCraft(c, s)
+	return w.aimFrom(c, st0, tS, s, tEnd, afterBurnCraft(c, s), stop, boost, entry, site)
+}
+
+// aimFrom is aimOffset's second half: v is the vessel in the state s the burn
+// leaves at tEnd, and the entry burn, the stop and the offset read from there.
+func (w *World) aimFrom(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, s physics.StateVector, tEnd time.Time, v *spacecraft.Spacecraft, stop bool, boost boostMode, entry entryBurn, site [2]float64) (off deorbitOffset, status int) {
+	mu := c.Primary.GravitationalParameter()
 	if entry.dv > 0 { // the entry burn on the way down, between the boostback and the landing
 		te, ok := entryDelay(s, mu, c.Primary.RadiusMeters(), entry.alt)
 		se, ok2 := physics.KeplerStep(s, mu, te)
@@ -1340,7 +1346,7 @@ func boostbackPending(c *spacecraft.Spacecraft) bool {
 // burn behind it) has not fired yet.
 func landingNodePending(c *spacecraft.Spacecraft) bool {
 	for _, n := range c.Nodes {
-		if n.AdvisoryKey == AdvisoryKeyDeorbit || n.AdvisoryKey == AdvisoryKeyEntry {
+		if n.AdvisoryKey == AdvisoryKeyDeorbit || n.AdvisoryKey == AdvisoryKeyEntry || n.AdvisoryKey == AdvisoryKeyCorrection {
 			return true
 		}
 	}

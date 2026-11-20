@@ -509,7 +509,7 @@ func CraftFromWire(wc Craft, systems []bodies.System) (*spacecraft.Spacecraft, e
 	// burn running under an engaged autopilot is N's.
 	if c.HasSuperDraco() {
 		for i := range c.Nodes {
-			if k := c.Nodes[i].AdvisoryKey; c.Nodes[i].Engine == spacecraft.EngineMain && (k == sim.AdvisoryKeyDeorbit || k == sim.AdvisoryKeyEntry) {
+			if k := c.Nodes[i].AdvisoryKey; c.Nodes[i].Engine == spacecraft.EngineMain && (k == sim.AdvisoryKeyDeorbit || k == sim.AdvisoryKeyEntry || k == sim.AdvisoryKeyCorrection) {
 				c.Nodes[i].Engine = spacecraft.EngineSuperDraco
 			}
 		}
