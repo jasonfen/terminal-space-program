@@ -82,6 +82,13 @@ The game is designed for a 140×40 terminal. It runs down to 104×24 and shows a
 shrink to a compact form and, at worst, collapse behind a `▸ +N hidden`
 marker so they never overlap.
 
+Over ssh (a game on another machine, or a `--serve` guest), the game draws in
+full 24-bit colour only if your terminal's `COLORTERM` reaches the far end;
+otherwise it drops to 256 colours and planet textures band. Add
+`SendEnv COLORTERM` to `~/.ssh/config`, or in Ghostty set
+`shell-integration-features = ssh-env`. A plain sshd also needs
+`AcceptEnv COLORTERM`; `--serve` takes it as is.
+
 Flight School is on by default: a five-rung ladder that starts with the camera
 and the planner, then walks you through a pad launch to orbit and a
 rendezvous and dock, one objective at a time. Press `M` to see the ladder and
@@ -144,6 +151,17 @@ nix run github:nixos/nixpkgs/nixpkgs-unstable#terminal-space-program
 ```
 
 For a permanent installation, add `pkgs.terminal-space-program` to `environment.systemPackages`, or to `home.packages` if you use Home Manager.
+
+For every release the day it ships, run this repo's flake instead (it builds from source):
+
+```bash
+nix run github:jasonfen/terminal-space-program          # latest main
+nix run github:jasonfen/terminal-space-program/vX.Y.Z   # a tagged release (from the first release after v0.69.0)
+```
+
+If flakes are not enabled on your system, add `--extra-experimental-features 'nix-command flakes'` after `nix`.
+
+Or add `inputs.terminal-space-program.url = "github:jasonfen/terminal-space-program";` to your own flake and install `terminal-space-program.packages.${pkgs.stdenv.hostPlatform.system}.default`.
 
 > [!NOTE]
 > For nixpkgs-specific issues (outdated version, build failure, something not working on nixpkgs), please [open an issue on nixpkgs](https://github.com/NixOS/nixpkgs/issues) and ping the package maintainer @tomasriveral.
