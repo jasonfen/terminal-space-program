@@ -76,7 +76,7 @@ var helpSections = []helpSection{
 		{"↑ / ↓", "pick a row (it is highlighted); [enter] opens it"},
 		{"s l b t k h", "shortcuts beside each row: save / load / build (VAB) / settings / keyboard layout / help"},
 		{"q", "quit: the same two cards as ctrl+c (menu only; in flight q is radial+); esc on either returns here"},
-		{"in Settings", "↑ / ↓ pick a row; space or enter flips or cycles the highlighted setting; esc back to the menu"},
+		{"in Settings", "↑ / ↓ pick a row; tab switches column; space or enter flips or cycles the highlighted setting; esc back to the menu"},
 		{"in Keyboard layout", "← / →, space or enter cycle the layout (QWERTY / QWERTZ moves letters only); esc back to the menu"},
 	}},
 	{"CAMERA & VIEW", [][2]string{

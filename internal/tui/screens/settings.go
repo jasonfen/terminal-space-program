@@ -23,6 +23,8 @@ import (
 type SettingsScreen struct {
 	theme  Theme
 	cursor int // index into settings.AllChips of the highlighted row
+	// lastChip is the chip row tab left from, so tab back returns there.
+	lastChip int
 
 	// Click-target ranges, recomputed each Render so terminal-resize
 	// can't stale the hit-tests. rowBtns is index-aligned with settings.AllChips, each spanning its full row.
@@ -34,7 +36,7 @@ func NewSettingsScreen(th Theme) *SettingsScreen { return &SettingsScreen{theme:
 // Reset returns the cursor to the top. Called by the App when entering
 // the screen so it always opens on the first Chip, not wherever the
 // cursor last sat.
-func (s *SettingsScreen) Reset() { s.cursor = 0 }
+func (s *SettingsScreen) Reset() { s.cursor, s.lastChip = 0, 0 }
 
 // SettingsAction enumerates the screen's outcomes. Returned by HandleKey
 // and HandleClick so the App performs the actual toggle + persist — the
@@ -82,6 +84,14 @@ func (s *SettingsScreen) HandleKey(key string) (SettingsAction, settings.Chip) {
 	case "down", "j":
 		if n > 0 {
 			s.cursor = (s.cursor + 1) % n
+		}
+	case "tab", "shift+tab":
+		// Two columns, so both directions swap: CHIPS -> first GAMEPLAY row,
+		// right column -> the chip tab left from.
+		if s.cursor < len(settings.AllChips) {
+			s.lastChip, s.cursor = s.cursor, len(settings.AllChips)
+		} else {
+			s.cursor = s.lastChip
 		}
 	case " ", "enter":
 		return s.toggleAt(s.cursor)
@@ -131,7 +141,7 @@ func (s *SettingsScreen) HandleClick(col, row int) (SettingsAction, settings.Chi
 }
 
 // settingsLegend is the key legend on the frame's bottom edge.
-const settingsLegend = "[↑/↓] move · [space] toggle · [esc] back"
+const settingsLegend = "[↑/↓] move · [tab] column · [space] toggle · [esc] back"
 
 // cursorMark is the one list cursor (B11 / G9 Q5): ▸ on the row the cursor
 // is on, two blanks on every other row.

@@ -89,6 +89,47 @@ func TestSettingsCursorNavigation(t *testing.T) {
 	_ = n
 }
 
+// Tab (and shift+tab) jumps between the CHIPS column and the right-hand
+// column: right lands on the first GAMEPLAY row, back left returns to the
+// chip the cursor left from. Includes the boundary rows either side of the
+// column split (the last chip and the first right row).
+func TestSettingsTabSwitchesColumn(t *testing.T) {
+	n := len(settings.AllChips)
+	s := NewSettingsScreen(Theme{})
+	s.HandleKey("down")
+	s.HandleKey("down")
+	if a, _ := s.HandleKey("tab"); a != SettingsActionNone {
+		t.Fatalf("tab returned action %v (want None)", a)
+	}
+	if a, _ := s.HandleKey(" "); a != SettingsActionToggleTutorial {
+		t.Errorf("after tab from chip 2, toggle = %v, want ToggleTutorial", a)
+	}
+	s.HandleKey("shift+tab")
+	if _, c := s.HandleKey(" "); c != settings.AllChips[2] {
+		t.Errorf("after tab back, toggle = %q, want chip %q", c, settings.AllChips[2])
+	}
+
+	// Boundary: the last chip is in the left column, Tutorial in the right.
+	s.cursor = n - 1
+	s.HandleKey("tab")
+	if a, _ := s.HandleKey(" "); a != SettingsActionToggleTutorial {
+		t.Errorf("tab from last chip = %v, want ToggleTutorial", a)
+	}
+	s.HandleKey("tab")
+	if _, c := s.HandleKey(" "); c != settings.AllChips[n-1] {
+		t.Errorf("tab from Tutorial = %q, want last chip %q", c, settings.AllChips[n-1])
+	}
+
+	// From a lower right-column row, tab still goes back to the chip.
+	s.HandleKey("tab")
+	s.HandleKey("down")
+	s.HandleKey("down")
+	s.HandleKey("tab")
+	if _, c := s.HandleKey(" "); c != settings.AllChips[n-1] {
+		t.Errorf("tab from autosave row = %q, want last chip %q", c, settings.AllChips[n-1])
+	}
+}
+
 // The two gameplay rows below the chips toggle the tutorial / challenge
 // mission programs (v0.21 Slice 7).
 func TestSettingsGameplayToggles(t *testing.T) {
