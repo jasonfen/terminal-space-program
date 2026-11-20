@@ -45,7 +45,7 @@ func TestIdentityBumpsLoadUnchanged(t *testing.T) {
 	w.Sites[0].LZCount, w.Sites[0].LZNames = 3, []string{"", "", "Alpha"}              // v24: a site's LZs
 	c.Target.LZ, c.LZClaim = 2, spacecraft.LZClaim{Owner: "SHA256:x", SiteID: 3, N: 2} // v24: the card's LZ and the held claim
 	st := &c.Stages[0]                                                                 // v25: recovery, the held reserve, the half mark and a stage's own engine curve
-	st.RecoverMode, st.RecoverSiteID, st.HeldKg, st.BoosterHalf = spacecraft.RecoverShip, 3, 1250, true
+	st.RecoverMode, st.RecoverSiteID, st.HeldKg, st.BoosterHalf = spacecraft.RecoverShipAuto, 3, 1250, true
 	st.ThrustVac, st.IspSL, st.IspVac = st.Thrust*1.1, st.Isp*0.9, st.Isp*1.1
 
 	path := filepath.Join(t.TempDir(), "save.json")

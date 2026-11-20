@@ -545,7 +545,8 @@ inclination, and direction. `F1` here opens the SPAWN FORM help page and `F1` / 
 | `Enter` | Spawn the vessel; on ALTITUDE or INCLINATION the first `Enter` opens a box to type the number |
 | `Enter` (box open) | Keep the typed number; the next `Enter` spawns (the form says so beside the number) |
 | `recover:` | Pad spawn: where each droppable stage flies home from the drop; `←` / `→` LZ, ship or none, `Space` the next stage |
-| `recover:` ship | `Enter` types its km downrange, due east of the pad; a stage with a place set cuts off at its landing reserve |
+| `recover:` ship | `Enter` types its km downrange, along the launch heading; a stage with a place set cuts off at its landing reserve |
+| `recover:` ship auto | Falcon Heavy core's default: starts 250 km out, then stays under the core's fall until the cutoff; `Enter` types a km |
 | `recover:` heavy | Falcon Heavy: boosters set to recover, the core holds 60 % (auto) until BECO; moving the core throttle ends it |
 | `Esc` (box open) | Put the old number back; `Esc` again leaves the form |
 | `0-9` / `Backspace` | In the box: type / erase the number (INCLINATION also takes one decimal point) |

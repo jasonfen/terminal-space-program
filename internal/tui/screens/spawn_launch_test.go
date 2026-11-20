@@ -214,19 +214,19 @@ func TestPadCardRecoverRow(t *testing.T) {
 	if s2 := padSpawn(t, "Saturn-V"); s2.recoverOffered() || s2.SelectedRecover() != nil {
 		t.Error("Saturn V (nothing that can land) is offered a recovery")
 	}
-	// Falcon Heavy: boosters then core; defaults LZ and ship 250
+	// Falcon Heavy: boosters then core; defaults LZ and ship auto (the core's)
 	s = padSpawn(t, "Falcon-Heavy")
 	order := s.fieldOrder()
 	if order[len(order)-1] != recoverFieldIdx {
 		t.Fatalf("field order %v, want the recover row last on the pad", order)
 	}
 	got := s.SelectedRecover()
-	if len(got) != 2 || got[0].Mode != spacecraft.RecoverLZ || got[1].Mode != spacecraft.RecoverShip || got[1].ShipKm != 250 {
-		t.Fatalf("defaults %+v, want boosters LZ and core ship 250 km", got)
+	if len(got) != 2 || got[0].Mode != spacecraft.RecoverLZ || got[1].Mode != spacecraft.RecoverShip || got[1].ShipKm != 0 {
+		t.Fatalf("defaults %+v, want boosters LZ and core ship auto (km 0)", got)
 	}
 	lines := s.recoverLines()
-	if len(lines) != 3 || !strings.Contains(lines[0], "boosters LZ") || !strings.Contains(lines[1], "core ship 250 km") || !strings.Contains(lines[2], "LZ: LC-13") {
-		t.Errorf("row = %q, want boosters LZ / core ship 250 km / the LZ's name", lines)
+	if len(lines) != 3 || !strings.Contains(lines[0], "boosters LZ") || !strings.Contains(lines[1], "core ship auto") || !strings.Contains(lines[2], "LZ: LC-13") {
+		t.Errorf("row = %q, want boosters LZ / core ship auto / the LZ's name", lines)
 	}
 	// keys: focus the row, → on boosters goes LZ -> ship, space to the core, → ship -> none
 	s.fieldIdx = recoverFieldIdx
@@ -267,7 +267,7 @@ func TestPadCardRecoverRow(t *testing.T) {
 	// 140 x 40: the row is on the card and every line of the frame fits
 	s = padSpawn(t, "Falcon-Heavy")
 	out := ansi.Strip(s.Render(140, 40))
-	for _, want := range []string{"RECOVER", "recover:  boosters LZ", "core ship 250 km", "LZ: LC-13"} {
+	for _, want := range []string{"RECOVER", "recover:  boosters LZ", "core ship auto", "LZ: LC-13"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("140x40 card lacks %q:\n%s", want, out)
 		}

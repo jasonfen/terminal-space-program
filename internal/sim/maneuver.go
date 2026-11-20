@@ -3282,8 +3282,11 @@ func (w *World) executeDueNodesFor(c *spacecraft.Spacecraft) {
 				NodeIndex:        idx,
 			}
 			startRow := "burn start: node %d, Δv %s"
-			if n.AdvisoryKey == AdvisoryKeyEntry {
+			switch n.AdvisoryKey {
+			case AdvisoryKeyEntry:
 				startRow = "entry burn start: node %d, Δv %s"
+			case AdvisoryKeyCorrection:
+				startRow = "correction burn start: node %d, Δv %s"
 			}
 			w.recordRowFor(c, fmt.Sprintf(startRow, idx+1, recorder.Grouped(n.DV)))
 			// ADR 0048 / decision 4: burn state was otherwise invisible — a

@@ -966,19 +966,12 @@ func burnAtCue(c *spacecraft.Spacecraft, horizon time.Duration, throttle float64
 	}
 
 	loIdx, hiIdx := 0, len(fc.samples)-1
-	if !safeAt(fc.samples[0]) {
-		// An airless body: earlier is always safer, so a light at the top of
-		// the coast that cannot stop means nothing later can. With air, later is
-		// safer (the air does the braking), so look for the last safe sample
-		// (ADR 0069 decision 2).
-		if c.Primary.Atmosphere == nil || !impactFound {
-			return BurnAtCue{}, impactFound, false
-		}
-		for loIdx = hiIdx; loIdx > 0 && !safeAt(fc.samples[loIdx]); loIdx-- {
-		}
-		if loIdx == 0 {
-			return BurnAtCue{}, impactFound, false
-		}
+	air := c.Primary.Atmosphere != nil && impactFound
+	safe0 := safeAt(fc.samples[0])
+	// An airless body: earlier is always safer, so a light at the top of the
+	// coast that cannot stop means nothing later can.
+	if !safe0 && !air {
+		return BurnAtCue{}, impactFound, false
 	}
 	if safeAt(fc.samples[hiIdx]) {
 		// Even the very end of the sampled coast is still stoppable (a
@@ -987,14 +980,28 @@ func burnAtCue(c *spacecraft.Spacecraft, horizon time.Duration, throttle float64
 		last := fc.samples[hiIdx]
 		return BurnAtCue{AltitudeM: last.state.R.Norm() - radius, InSec: last.elapsedSec, State: last.state}, impactFound, true
 	}
-	for hiIdx-loIdx > 1 {
-		mid := (loIdx + hiIdx) / 2
-		if safeAt(fc.samples[mid]) {
-			loIdx = mid
-		} else {
-			hiIdx = mid
+	if air {
+		// With air, later is safer (the air does the braking), but a weak brake
+		// (three engines) runs dry in the thick middle of the coast, so the safe
+		// set is not contiguous and a bisection from a safe first sample can
+		// converge on the fuel-limited edge 100+ km up. The light is the LAST safe
+		// sample (ADR 0069 decision 2, ADR 0071).
+		for loIdx = hiIdx - 1; loIdx > 0 && !safeAt(fc.samples[loIdx]); loIdx-- {
+		}
+		if loIdx == 0 && !safe0 {
+			return BurnAtCue{}, impactFound, false
+		}
+	} else {
+		for hiIdx-loIdx > 1 {
+			mid := (loIdx + hiIdx) / 2
+			if safeAt(fc.samples[mid]) {
+				loIdx = mid
+			} else {
+				hiIdx = mid
+			}
 		}
 	}
+	hiIdx = loIdx + 1
 
 	lo, hi := fc.samples[loIdx], fc.samples[hiIdx]
 	loFrac, hiFrac := 0.0, 1.0
