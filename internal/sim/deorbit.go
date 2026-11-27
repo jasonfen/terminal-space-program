@@ -1072,7 +1072,7 @@ func (w *World) planBoostback(c *spacecraft.Spacecraft, lat, lon float64, name s
 	n := nodeFor(c, st0, tS, dv, tilt, true)
 	w.replaceAdvisoryNode(c, AdvisoryKeyDeorbit)
 	w.replaceAdvisoryNode(c, AdvisoryKeyEntry)
-	w.replaceAdvisoryNode(c, AdvisoryKeyCorrection) // the old plan's correction would fire against this one (#1014)
+	w.replaceAdvisoryNode(c, AdvisoryKeyCorrection)
 	if dv != 0 { // zero is no boostback node, only the entry burn behind it
 		w.PlanNode(n)
 	}
