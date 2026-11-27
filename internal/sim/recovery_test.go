@@ -1496,3 +1496,36 @@ func TestShipAutoSolveBoostbackTriesZeroFirst(t *testing.T) {
 		}
 	}
 }
+
+// #1012: a `ship auto` cutoff whose last closing forecast needed three engines commits
+// the stage to three engines (saved with the stage, copied to the dropped one); a
+// forecast that closed on one engine leaves the landing throttle alone.
+func TestCutAtReserveCommitsThreeEnginesOnlyWhenTheForecastNeededThem(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		autoThree bool
+		want      float64
+	}{{"forecast on three engines", true, ThreeEngineLandingThrottle}, {"forecast on one engine", false, 1.0 / 9}} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := mustWorld(t)
+			w.Crafts, w.ActiveCraftIdx = nil, -1
+			c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9", ParentBodyID: "earth", Launchpad: true,
+				Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast,
+				Recover: []RecoverPick{{Mode: spacecraft.RecoverShip}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.recoveryRTFor(c).autoThree = tc.autoThree
+			if got := c.Stages[0].LandingThrottle; math.Abs(got-1.0/9) > 1e-9 {
+				t.Fatalf("fixture: landing throttle %.4f before the cut, want one engine of nine", got)
+			}
+			w.cutAtReserve(c)
+			if got := c.Stages[0].LandingThrottle; math.Abs(got-tc.want) > 1e-9 {
+				t.Errorf("landing throttle %.4f after the cut, want %.4f", got, tc.want)
+			}
+			if c.Stages[0].HeldKg <= 0 {
+				t.Errorf("held %.0f kg, want the reserve held back", c.Stages[0].HeldKg)
+			}
+		})
+	}
+}
