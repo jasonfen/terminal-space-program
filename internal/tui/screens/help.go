@@ -357,7 +357,7 @@ var helpSections = []helpSection{
 		{"● ORBIT READY [C]", "apoapsis has cleared this world's orbit floor: press [C] to plant the circularising burn"},
 	}},
 	{"MAP MARKERS", [][2]string{
-		{"➤", "your vessel, in yellow (or your theme's craftmarker colour); other vessels and ghosts wear their own"},
+		{"➤", "your vessel, in yellow (or your theme's craftmarker colour); other vessels and ghosts dim grey"},
 		{"green", "the vessel you have targeted, and its orbit ([t] picks a target)"},
 		{"Δ", "a planned burn, in the colour of the dashed orbit after it (blue, mint, amber, pink); click to edit"},
 		{"▲", "apoapsis: the highest point of the orbit"},
