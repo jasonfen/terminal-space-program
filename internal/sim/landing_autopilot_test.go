@@ -1505,3 +1505,40 @@ func TestLandingEndedClearsCorrectionFlags(t *testing.T) {
 		t.Errorf("nose exit: sawBoost=%v corrected=%v, want both cleared", rt.sawBoost, rt.corrected)
 	}
 }
+
+// #1012: a correction node still pending holds the landing light (landingNodePending),
+// as the deorbit and entry nodes do: the fall to brake is the one after the burns.
+// The control run lights with no node pending; the same fall with a correction node
+// an hour out has not lit by then.
+func TestPendingCorrectionNodeHoldsTheLandingLight(t *testing.T) {
+	lightsAt := func(pending bool) (int, *spacecraft.Spacecraft) {
+		w, c := afterDeorbitBurn(t)
+		if pending {
+			plantStaleCorrection(t, w, c)
+		}
+		if err := w.EngageLandingAutopilot(); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 2*3600*4; i++ {
+			w.Tick()
+			if c.Landing != nil && c.Landing.Phase == spacecraft.PhaseBrake {
+				return i, c
+			}
+			if c.Landed || c.Crashed {
+				break
+			}
+		}
+		return -1, c
+	}
+	free, _ := lightsAt(false)
+	if free < 0 {
+		t.Fatal("control: the brake never lit with no node pending")
+	}
+	held, c := lightsAt(true)
+	if held >= 0 {
+		t.Errorf("brake lit at tick %d with a correction node pending (free run: tick %d), want it held", held, free)
+	}
+	if !hasCorrectionNode(c) && !(c.Landed || c.Crashed) {
+		t.Error("setup: the correction node fired before the run ended")
+	}
+}
