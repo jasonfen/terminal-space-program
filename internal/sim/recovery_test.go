@@ -1529,3 +1529,50 @@ func TestCutAtReserveCommitsThreeEnginesOnlyWhenTheForecastNeededThem(t *testing
 		})
 	}
 }
+
+// #1012: correctionFor caps the burn to the propellant the tank can pay (what the
+// landing leaves above BoostbackFuelMarginKg). Booster 1 of the 44 km drop gets its
+// correction burn planted; the same state asked again with the tank cut so the burn
+// is affordable by only half gets a smaller one, and no more than the tank pays.
+func TestCorrectionForCapsTheBurnToWhatTheTankPays(t *testing.T) {
+	w, b := fhBoosterDrop(t)
+	for i := 0; i < 20*3600 && !(b.Landed || b.Crashed); i++ {
+		w.Tick()
+		if hasCorrectionNode(b) {
+			break
+		}
+	}
+	if !hasCorrectionNode(b) {
+		t.Fatal("setup: no correction node planted")
+	}
+	b.Nodes = nil
+	s, _ := w.siteByID(b.Stages[0].RecoverSiteID)
+	lat, lon := s.lzLatLon(1, b.Primary.RadiusMeters())
+	lat, lon = w.computerSiteLatLon(b, lat, lon)
+	cp, ok := w.correctionFor(b, [2]float64{lat, lon})
+	if !ok || cp.dv <= 0 {
+		t.Fatalf("uncapped plan ok=%v dv %.2f", ok, cp.dv)
+	}
+	ve := b.Isp * stdGravityMps2
+	burned := func(dv float64) float64 { return b.TotalMass() * (1 - math.Exp(-dv/ve)) }
+	t.Logf("uncapped: %.2f m/s, %.1f kg, fuel %.0f kg", cp.dv, burned(cp.dv), b.ActiveStageFuel())
+	// take propellant out until the landing leaves margin plus only part of the burn
+	full := b.Stages[0].FuelMass
+	var capped correctionPlan
+	for drain := 0.0; drain < full; drain += 20 {
+		b.Stages[0].FuelMass = full - drain
+		if c2, ok2 := w.correctionFor(b, [2]float64{lat, lon}); ok2 && c2.dv < 0.7*cp.dv {
+			capped = c2
+			t.Logf("tank drained %.0f kg", drain)
+			break
+		}
+	}
+	b.Stages[0].FuelMass = full
+	if capped.dv == 0 {
+		t.Fatal("no tank gave a capped plan")
+	}
+	t.Logf("capped: %.2f m/s (%.0f%% of the uncapped)", capped.dv, 100*capped.dv/cp.dv)
+	if capped.dv >= cp.dv || capped.dv <= 0 {
+		t.Errorf("capped burn %.2f m/s, want inside (0, %.2f)", capped.dv, cp.dv)
+	}
+}
