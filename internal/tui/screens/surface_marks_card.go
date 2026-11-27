@@ -6,7 +6,7 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 )
 
-// SurfaceMarksCard is the `y` card (ADR 0066 decision 6): five rows that
+// SurfaceMarksCard is the `y` card (ADR 0066 decision 6): six rows that
 // filter what the orbit map draws. It filters the map only; a hidden kind
 // stays in the `t` menu. The App owns the settings write.
 type SurfaceMarksCard struct {
@@ -24,6 +24,7 @@ var surfaceMarkRows = []surfaceMarkRow{
 	{settings.ChipMarksLanded, "landed vessels", "v"},
 	{settings.ChipMarksFlags, "flags", "f"},
 	{settings.ChipMarksWrecks, "wrecks", "w"},
+	{settings.ChipMarksShips, "ships", "s"},
 	{settings.ChipMarksPartners, "partners' marks", "p"},
 	{settings.ChipCoverageNow, "coverage now", "c"},
 }

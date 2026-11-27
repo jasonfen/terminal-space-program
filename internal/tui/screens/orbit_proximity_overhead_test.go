@@ -5,6 +5,7 @@ package screens
 
 import (
 	"math"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -294,4 +295,35 @@ func rowsText(rows [][]rune) string {
 		b.WriteString(string(r) + "\n")
 	}
 	return b.String()
+}
+
+// blueBGCells counts the cells painted with the ocean background: a styled run
+// may span several cells, so it sums the runs' widths.
+func blueBGCells(raw string) (n int) {
+	re := regexp.MustCompile("\x1b\\[[0-9;]*" + oceanBG + "m([^\x1b]*)\x1b\\[0m")
+	for _, m := range re.FindAllStringSubmatch(raw, -1) {
+		n += lipgloss.Width(m[1])
+	}
+	return n
+}
+
+// ADR 0071 decision 8: the inset's backdrop is the ocean blue under a ship on
+// every row of the disc (glyph cells included; this fixture's 50 km cross label
+// is wider than the gutter and takes one cell of the middle row, hence 23),
+// and bare under a land site (the equal case: the same frame, one kind apart).
+func TestOverheadBackdropShip(t *testing.T) {
+	rows := 0
+	for _, l := range strings.Split(landingRawFrame(t, sim.SitePoint), "\n") {
+		if n := blueBGCells(l); n >= overheadDiscCols-1 {
+			rows++
+		} else if n != 0 {
+			t.Errorf("a row has %d blue cells, want 0 or at least %d", n, overheadDiscCols-1)
+		}
+	}
+	if rows != overheadDiscRows {
+		t.Errorf("ship: %d disc rows on the ocean backdrop, want %d", rows, overheadDiscRows)
+	}
+	if raw := landingRawFrame(t, sim.SiteFlag); strings.Contains(raw, oceanBG) {
+		t.Errorf("land site: inset has an ocean backdrop")
+	}
 }

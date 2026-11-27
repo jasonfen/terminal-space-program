@@ -89,3 +89,15 @@ func TestSurfaceMarksInspectNamesACell(t *testing.T) {
 		t.Errorf("one site named %q, want plain s1", got)
 	}
 }
+
+// ADR 0071 decision 8: the card has a ships row, its own letter, between wrecks
+// and partners' marks.
+func TestSurfaceMarksCardShipsRow(t *testing.T) {
+	c := NewSurfaceMarksCard(Theme{})
+	if chip, ok, _ := c.HandleKey("s"); !ok || chip != settings.ChipMarksShips {
+		t.Errorf("letter s flipped (%q, %v), want marks.ships", chip, ok)
+	}
+	if out := c.Render(func(ch settings.Chip) bool { return ch != settings.ChipMarksShips }); !strings.Contains(out, "[ ] ships") {
+		t.Errorf("render lacks an off ships row:\n%s", out)
+	}
+}

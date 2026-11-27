@@ -241,6 +241,13 @@ func (v *OrbitView) drawOverhead(w *sim.World, st sim.ProximityState) (alongBarM
 	c.Center(orbital.Vec3{X: (0.5 - overheadFlagFrac) * widthM})
 	pt := func(a, l float64) orbital.Vec3 { return overheadPoint(a, l, stretch) }
 
+	if landingOnShip(w) { // a ship's inset is the sea (ADR 0071 decision 8)
+		for col := 0; col < overheadDiscCols; col++ {
+			for row := 0; row < overheadDiscRows; row++ {
+				c.SetCellBackground(col, row, render.ColorEarthOcean)
+			}
+		}
+	}
 	// The track line through the flag.
 	reach := widthM
 	c.PlotPolylineClass([]orbital.Vec3{pt(-reach, 0), pt(reach, 0)}, render.ColorDim, widgets.ClassScenery)

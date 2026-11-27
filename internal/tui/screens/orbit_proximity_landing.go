@@ -40,6 +40,19 @@ func landingSiteMark(w *sim.World) rune {
 	return '◆'
 }
 
+// landingOnShip says the aimed site is a drone ship (site kind point, which
+// only stationShip creates, old saves included; ADR 0071 amendment 2026-11-27).
+// It reads the site, not any stage's recover mode, so it holds whichever vessel
+// you fly.
+func landingOnShip(w *sim.World) bool {
+	s, _, ok := w.ActiveLandingLZ()
+	return ok && s.Kind == sim.SitePoint
+}
+
+// landingDeckGlyph is one cell of a ship's deck either side of the ⚑ (ADR 0071
+// decision 9: no outline, the 86 m circle is the deck).
+const landingDeckGlyph = '▄'
+
 // computerSiteWorld is where the computer is flying to: the real point shifted
 // by its navigation error and the pilot's aim (a modern vessel's ⌖ sits under
 // the ⚑).
@@ -79,7 +92,12 @@ func (v *OrbitView) drawLandingScene(w *sim.World, st sim.ProximityState) {
 		phi := half * float64(i) / landingGroundSegments
 		pts = append(pts, centre.Add(st.Frame.RadialOut.Scale(radius*math.Cos(phi))).Add(st.Frame.AlongTrack.Scale(radius*math.Sin(phi))))
 	}
-	v.canvas.PlotPolylineClass(pts, render.ColorDim, widgets.ClassReal)
+	ship := landingOnShip(w)
+	groundCol := render.ColorDim
+	if ship { // a drone ship floats: the line is the globe's ocean
+		groundCol = render.ColorEarthOcean
+	}
+	v.canvas.PlotPolylineClass(pts, groundCol, widgets.ClassReal)
 
 	arc, ok := w.LandingStopArc()
 	v.stopArc, v.stopArcOK, v.stopArcFresh = arc, ok, true
@@ -93,6 +111,12 @@ func (v *OrbitView) drawLandingScene(w *sim.World, st sim.ProximityState) {
 	// When the two differ the ⚑ is drawn only inside SiteRevealRangeM.
 	cs := computerSiteWorld(st)
 	differs := cs.Sub(st.TargetWorld).Norm() > 0.5
+	if ship && flagRevealed(differs, st.RangeM) {
+		cell := 2 / scale // one cell is two dots wide
+		for _, d := range []float64{-cell, cell} {
+			v.canvas.SetCellOverlayColored(st.TargetWorld.Add(st.Frame.AlongTrack.Scale(d)), landingDeckGlyph, render.ColorTarget)
+		}
+	}
 	v.canvas.SetCellOverlayColored(cs, computerSiteGlyph, render.ColorTarget) // any surface target: the error reads for a landed vessel too
 	if flagRevealed(differs, st.RangeM) {
 		v.canvas.SetCellOverlayColored(st.TargetWorld, landingSiteMark(w), render.ColorTarget)
