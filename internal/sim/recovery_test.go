@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -1450,5 +1451,48 @@ func TestRecoveryShipAutoSolvesAreCheap(t *testing.T) {
 	t.Logf("fitted auto core: %d solves, %d flights, %d ship moves, held %.0f kg, worst core tick %v", w.recoverySolves, w.aimEvals, moves, c.Stages[0].HeldKg, worst)
 	if w.aimEvals > 7000 {
 		t.Errorf("%d aim flights, want at most 7000 (measured 5,583)", w.aimEvals)
+	}
+}
+
+// #1012: `ship auto` tries the no-boostback fall first (solveBoostback). With the ship
+// standing where the fall stops, zero boostback is the answer; the ordinary solve
+// aims the same stop with a small burn (0.9 m/s on the fitted climb) or none at all.
+func TestShipAutoSolveBoostbackTriesZeroFirst(t *testing.T) {
+	w, _, _ := fhAutoClimb(t, true, RecoverPick{Mode: spacecraft.RecoverShip})
+	n := len(w.Crafts)
+	if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+		t.Fatal(err)
+	}
+	core := w.Crafts[n]
+	core.Nodes = nil
+	st := core.Stages[0]
+	if st.RecoverMode != spacecraft.RecoverShipAuto {
+		t.Fatalf("core mode %v, want ship auto", st.RecoverMode)
+	}
+	lead := boostbackLead(core)
+	st0, ok := physics.KeplerStep(core.State, core.Primary.GravitationalParameter(), lead)
+	if !ok {
+		t.Fatal("no kepler step")
+	}
+	st0.M = core.TotalMass()
+	tS := w.Clock.SimTime.Add(time.Duration(lead * float64(time.Second)))
+	site0, _ := w.siteByID(st.RecoverSiteID)
+	lat, lon := site0.lzLatLon(1, core.Primary.RadiusMeters())
+	_, off, err := w.solveNoBoost(core, st0, tS, [2]float64{lat, lon})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the ship stands on the fall's stop (the cutoff's own move), then 40 m off it: inside
+	// the 50 m / 100 m tolerance either way, so zero still stands
+	for _, offM := range []float64{0, 40} {
+		dLat := offM / core.Primary.RadiusMeters() * 180 / math.Pi
+		sol, err := w.solveBoostback(core, st0, tS, [2]float64{off.aimLat + dLat, off.aimLon})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("stop %.0f m off the site: boostback %.3f m/s, entry %.0f m/s", offM, sol.dv, sol.entry.dv)
+		if sol.dv != 0 {
+			t.Errorf("stop %.0f m off: boostback %.3f m/s, want 0 (the no-boostback fall tried first)", offM, sol.dv)
+		}
 	}
 }
