@@ -1404,11 +1404,8 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			}
 		}
 
-		// v0.8.2+: render non-active craft with their per-loadout
-		// glyph + color so each vessel reads distinctly even at
-		// small pixel sizes. The current-orbit ellipse renders in
-		// the craft's own color (dim when no Color is set, falling
-		// back to ColorDim — preserves pre-v0.8.2 behaviour).
+		// Non-active craft: per-loadout glyph, orbit and arrow in ColorDim
+		// (#1020, ADR 0041 d1); the active vessel keeps its own colour.
 		targetCraftIdx := -1
 		if _, idx, ok := w.ResolveTargetCraft(); ok {
 			targetCraftIdx = idx
@@ -1428,10 +1425,10 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 			// — every other landed vessel on the map loses its needle too.
 			otherOrbitVisible := craftHasOrbit(other) && otherEl.A > 0 && !math.IsNaN(otherEl.A) && !math.IsInf(otherEl.A, 0) && otherEl.Apoapsis()*scale >= minOrbitPixels
 			isTarget := i == targetCraftIdx
+			// ADR 0041 d1 (#1020): a vessel you are not flying is solid
+			// dim, never its own colour (every catalogue vessel is the
+			// same yellow as your orbit).
 			otherColor := lipgloss.Color(render.ColorDim)
-			if other.Color != "" {
-				otherColor = lipgloss.Color(other.Color)
-			}
 			if isTarget {
 				// v0.9.3 polish: target's orbit + glyph render in the
 				// dedicated TARGET green so the player can pick out
@@ -1480,8 +1477,7 @@ func (v *OrbitView) Render(w *sim.World, selectedIdx int, totalCols, totalRows i
 				if other.Glyph != "" {
 					if g := []rune(other.Glyph); len(g) > 0 {
 						// Pin the glyph color (see active-craft note below)
-						// so non-active vessels also keep their own color
-						// over a body disk.
+						// so non-active vessels keep it over a body disk.
 						v.canvas.SetCellOverlayColored(otherInertial, g[0], otherColor)
 					}
 				}
