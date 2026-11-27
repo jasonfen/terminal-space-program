@@ -1435,6 +1435,8 @@ func fhBoosterDrop(t *testing.T) (*World, *spacecraft.Spacecraft) {
 // threshold with the tank dry (1229 m out at 50 m; the pull only ended when it ran dry).
 func TestRecoveringBoosterThatCannotReachLandsWhereItIs(t *testing.T) {
 	w, b := fhBoosterDrop(t)
+	// hold the correction burn off: it brings this drop home (5 m out), which is not the case under test (#1011)
+	w.apRuntimeFor(b).corrected = true
 	var speed float64
 	for i := 0; i < 20*3600 && !(b.Landed || b.Crashed); i++ {
 		speed = contactSpeedMps(b, b.State.R, b.State.V)
@@ -1452,6 +1454,8 @@ func TestRecoveringBoosterThatCannotReachLandsWhereItIs(t *testing.T) {
 	}
 	if len(ev) == 0 || ev[len(ev)-1].DistanceM <= 0 || ev[len(ev)-1].Crashed {
 		t.Errorf("landing events %+v, want one with the distance from the site", ev)
+	} else if d := ev[len(ev)-1].DistanceM; d < 500 { // measured 1,382 m; a pull that reached the site would be metres
+		t.Errorf("landed %.0f m from the site, want over 500 m: it must land where it is, not slide home", d)
 	}
 	t.Logf("touchdown %.2f m/s, fuel %.0f kg, %.0f m from the site", speed, b.ActiveStageFuel(), ev[len(ev)-1].DistanceM)
 }
@@ -1499,5 +1503,42 @@ func TestLandingEndedClearsCorrectionFlags(t *testing.T) {
 	w.landingEnded(c)
 	if rt.sawBoost || rt.corrected {
 		t.Errorf("nose exit: sawBoost=%v corrected=%v, want both cleared", rt.sawBoost, rt.corrected)
+	}
+}
+
+// #1012: a correction node still pending holds the landing light (landingNodePending),
+// as the deorbit and entry nodes do: the fall to brake is the one after the burns.
+// The control run lights with no node pending; the same fall with a correction node
+// an hour out has not lit by then.
+func TestPendingCorrectionNodeHoldsTheLandingLight(t *testing.T) {
+	lightsAt := func(pending bool) (int, *spacecraft.Spacecraft) {
+		w, c := afterDeorbitBurn(t)
+		if pending {
+			plantStaleCorrection(t, w, c)
+		}
+		if err := w.EngageLandingAutopilot(); err != nil {
+			t.Fatal(err)
+		}
+		for i := 0; i < 2*3600*4; i++ {
+			w.Tick()
+			if c.Landing != nil && c.Landing.Phase == spacecraft.PhaseBrake {
+				return i, c
+			}
+			if c.Landed || c.Crashed {
+				break
+			}
+		}
+		return -1, c
+	}
+	free, _ := lightsAt(false)
+	if free < 0 {
+		t.Fatal("control: the brake never lit with no node pending")
+	}
+	held, c := lightsAt(true)
+	if held >= 0 {
+		t.Errorf("brake lit at tick %d with a correction node pending (free run: tick %d), want it held", held, free)
+	}
+	if !hasCorrectionNode(c) && !(c.Landed || c.Crashed) {
+		t.Error("setup: the correction node fired before the run ended")
 	}
 }
