@@ -62,6 +62,7 @@ type pixelTagGrid struct {
 	tags      []CellTag         // this frame's distinct tag values, deduped
 	tagLookup map[CellTag]int32 // tag -> its 1-based index in tags
 	touched   []int32           // pixel indices (py*w+px) currently tagged
+	under     []int32           // GG mock: 1-based tag of the filled area (a disk, ground) last drawn at this pixel; survives ink drawn over it
 
 	// lastTag / lastIdx memoize the most recent set() call's (tag, index)
 	// pair so a run of same-tag writes — the overwhelmingly common case,
@@ -85,6 +86,7 @@ func (g *pixelTagGrid) ensureSize(w, h int) {
 	}
 	g.w, g.h = w, h
 	g.tagIdx = make([]int32, w*h) // zero-valued == every pixel untagged
+	g.under = make([]int32, w*h)
 	g.touched = g.touched[:0]
 	g.tags = g.tags[:0]
 	clear(g.tagLookup)
@@ -180,9 +182,21 @@ func (g *pixelTagGrid) count() int { return len(g.touched) }
 func (g *pixelTagGrid) clear() {
 	for _, idx := range g.touched {
 		g.tagIdx[idx] = 0
+		g.under[idx] = 0
 	}
 	g.touched = g.touched[:0]
 	g.tags = g.tags[:0]
 	clear(g.tagLookup)
 	g.hasLast = false
+}
+
+// setArea is set for a filled area (GG mock): it also records the tag in
+// the under layer, so a line drawn over a disk later still knows what
+// colour of body lies beneath it.
+func (g *pixelTagGrid) setArea(px, py int, tag CellTag) {
+	g.set(px, py, tag)
+	if tag == (CellTag{}) || px < 0 || px >= g.w || py < 0 || py >= g.h {
+		return
+	}
+	g.under[py*g.w+px] = g.tagIdx[py*g.w+px]
 }

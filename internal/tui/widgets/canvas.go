@@ -520,7 +520,7 @@ func (c *Canvas) FillColoredDiskTagged(center orbital.Vec3, pxRadius int, tag Ce
 				continue
 			}
 			c.dc.Set(px, py)
-			c.pixelTags.set(px, py, tag)
+			c.pixelTags.setArea(px, py, tag)
 		}
 	}
 }
@@ -542,7 +542,7 @@ func (c *Canvas) FillGroundTagged(center orbital.Vec3, pxRadius float64, tag Cel
 		x1 := math.Min(float64(c.pxW-1), math.Floor(float64(cx)+half))
 		for px := int(x0); px <= int(x1); px++ {
 			c.dc.Set(px, py)
-			c.pixelTags.set(px, py, tag)
+			c.pixelTags.setArea(px, py, tag)
 		}
 	}
 }
@@ -576,7 +576,7 @@ func (c *Canvas) FillTexturedDiskTagged(center orbital.Vec3, pxRadius int, textu
 			c.dc.Set(px, py)
 			t := tag
 			t.Color = texture(dx, dy)
-			c.pixelTags.set(px, py, t)
+			c.pixelTags.setArea(px, py, t)
 		}
 	}
 }
@@ -785,7 +785,7 @@ func (c *Canvas) FillProjectedSphere(center orbital.Vec3, radius float64, color 
 				continue
 			}
 			c.dc.Set(px, py)
-			c.pixelTags.set(px, py, tag)
+			c.pixelTags.setArea(px, py, tag)
 		}
 	}
 }
@@ -851,7 +851,7 @@ func (c *Canvas) FillHorizonBands(center orbital.Vec3, radius float64, ground, s
 					continue
 				}
 				c.dc.Set(px, py)
-				c.pixelTags.set(px, py, tag)
+				c.pixelTags.setArea(px, py, tag)
 			}
 		}
 
@@ -865,7 +865,7 @@ func (c *Canvas) FillHorizonBands(center orbital.Vec3, radius float64, ground, s
 					continue
 				}
 				c.dc.Set(px, py)
-				c.pixelTags.set(px, py, tag)
+				c.pixelTags.setArea(px, py, tag)
 			}
 		}
 	}
@@ -1497,7 +1497,7 @@ func (c *Canvas) FillRectAnchored(anchor, centerOffset orbital.Vec3, wM, hM floa
 				continue
 			}
 			c.dc.Set(px, py)
-			c.pixelTags.set(px, py, tag)
+			c.pixelTags.setArea(px, py, tag)
 		}
 	}
 }
@@ -1955,7 +1955,7 @@ func (c *Canvas) DrawEllipseOffsetDottedColored(el orbital.Elements, offset orbi
 // Pre-v0.5.10 used cell-rectangle tagging which over-painted nearby
 // content (orbit lines, craft glyph) with the body's color.
 func (c *Canvas) String() string {
-	if c.pixelTags.count() == 0 && len(c.cellOverlays) == 0 && !c.hasBG {
+	if c.pixelTags.count() == 0 && len(c.cellOverlays) == 0 && !c.hasBG && GGMode == 0 {
 		return c.dc.String()
 	}
 	// Aggregate tags per cell: for each tagged pixel, accumulate a
@@ -2026,7 +2026,15 @@ func (c *Canvas) String() string {
 					ch = ' ' // an empty braille cell under a tint is a plain space
 				}
 			}
-			if !hasColor || ch == ' ' {
+			if _, isOverlay := c.cellOverlays[[2]int{x, i}]; GGMode != 0 && !isOverlay {
+				if r, gfg, gbg, ok := c.ggCell(ink, x, i); ok { // GG mock
+					ch, fg, hasColor = r, gfg, gfg != ""
+					if gbg != "" {
+						bg = gbg
+					}
+				}
+			}
+			if !hasColor || (ch == ' ' && bg == "") {
 				fg = nil
 			}
 			styled := fg != nil || bg != ""

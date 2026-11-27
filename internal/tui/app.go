@@ -18,12 +18,14 @@ import (
 	"github.com/jasonfen/terminal-space-program/internal/missions"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
 	"github.com/jasonfen/terminal-space-program/internal/planner"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/save"
 	"github.com/jasonfen/terminal-space-program/internal/settings"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 	"github.com/jasonfen/terminal-space-program/internal/tui/readout"
 	"github.com/jasonfen/terminal-space-program/internal/tui/screens"
+	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 	"github.com/jasonfen/terminal-space-program/internal/version"
 )
 
@@ -1045,6 +1047,11 @@ func (a *App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// load, so the closure reads it at return).
 		in := a.world.InputSnapshot()
 		defer func() { a.world.RecordInputChanges(in) }()
+		if m.String() == "f8" { // GG mock (#779, not for merge): cycle the map glyph set
+			widgets.GGCycle()
+			render.GGNav = widgets.GGMode
+			return a, nil
+		}
 		// A key on the map clears any stale menu-opener (backToOpener).
 		if a.active == screenOrbit {
 			a.fromMenu = false

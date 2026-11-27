@@ -297,9 +297,17 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 
 	cells := make([][]string, rows)
 	horizonCell := make([][]bool, rows)
+	cellBG := make([][]lipgloss.Color, rows) // GG mock: colour behind an overlay glyph
+	withBG := func(st lipgloss.Style, row, col int) lipgloss.Style {
+		if GGNav != 0 && cellBG[row][col] != "" {
+			return st.Background(cellBG[row][col])
+		}
+		return st
+	}
 	for row := 0; row < rows; row++ {
 		cells[row] = make([]string, cols)
 		horizonCell[row] = make([]bool, cols)
+		cellBG[row] = make([]lipgloss.Color, cols)
 		for col := 0; col < cols; col++ {
 			var pattern rune
 			var skyCount, groundCount, gridCount int
@@ -327,6 +335,23 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 			}
 			if pattern == 0 {
 				cells[row][col] = " "
+				continue
+			}
+			if GGNav != 0 { // GG mock: solid navball
+				var skyMask, gridMask rune
+				for sx := 0; sx < 2; sx++ {
+					for sy := 0; sy < 4; sy++ {
+						if d := field[(row*4+sy)*dotsW+col*2+sx]; d.in {
+							if d.lat >= 0 {
+								skyMask |= brailleBitForDot[sx][sy]
+							}
+							if isGridDot(d.lat, d.lon) {
+								gridMask |= brailleBitForDot[sx][sy]
+							}
+						}
+					}
+				}
+				cells[row][col], cellBG[row][col] = ggNavCell(pattern, skyMask, gridMask, skyCount, groundCount)
 				continue
 			}
 			ch := string(rune(0x2800) + pattern)
@@ -431,7 +456,7 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 		put := func(c int, g string) {
 			// Rungs never paint over the horizon line or the blank margin.
 			if c >= 0 && c < cols && cells[rg.row][c] != " " && !horizonCell[rg.row][c] {
-				cells[rg.row][c] = rungStyle.Render(g)
+				cells[rg.row][c] = withBG(rungStyle, rg.row, c).Render(g)
 			}
 		}
 		if l0 < 0 || l0+1 >= cols || cells[rg.row][l0] == " " || cells[rg.row][l0+1] == " " ||
@@ -459,7 +484,7 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 	centerCol := dotCx / 2
 	centerRow := dotCy / 4
 	if centerCol >= 0 && centerCol < cols && centerRow >= 0 && centerRow < rows && cells[centerRow][centerCol] != " " {
-		reticle := lipgloss.NewStyle().Foreground(ColorNavballGrid).Faint(true).Render("+")
+		reticle := withBG(lipgloss.NewStyle().Foreground(ColorNavballGrid).Faint(true), centerRow, centerCol).Render("+")
 		cells[centerRow][centerCol] = reticle
 	}
 
@@ -539,7 +564,7 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 		if p.m.Glyph == 0 {
 			glyph = "•"
 		}
-		style := lipgloss.NewStyle().Foreground(p.m.Color).Bold(true)
+		style := withBG(lipgloss.NewStyle().Foreground(p.m.Color).Bold(true), p.row, p.col)
 		cells[p.row][p.col] = style.Render(glyph)
 	}
 
@@ -547,14 +572,14 @@ func NavballString(cols, rows int, subLatDeg, subLonDeg float64, markers []Navba
 	// reading as a different number (`6△` for 60). Replace the survivor
 	// with a rung dash; the pitch/hdg readout carries the exact angle.
 	for _, d := range drawn {
-		a := rungStyle.Render(d.label[0:1])
-		b := rungStyle.Render(d.label[1:2])
+		a := withBG(rungStyle, d.row, d.c0).Render(d.label[0:1])
+		b := withBG(rungStyle, d.row, d.c0+1).Render(d.label[1:2])
 		ka, kb := cells[d.row][d.c0] == a, cells[d.row][d.c0+1] == b
 		switch {
 		case ka && !kb:
-			cells[d.row][d.c0] = rungStyle.Render("─")
+			cells[d.row][d.c0] = withBG(rungStyle, d.row, d.c0).Render("─")
 		case kb && !ka:
-			cells[d.row][d.c0+1] = rungStyle.Render("─")
+			cells[d.row][d.c0+1] = withBG(rungStyle, d.row, d.c0+1).Render("─")
 		}
 	}
 

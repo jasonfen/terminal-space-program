@@ -1,6 +1,7 @@
 package screens
 
 import (
+	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 	"fmt"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/jasonfen/terminal-space-program/internal/recorder"
@@ -38,7 +39,7 @@ const titleMinLeft = 12
 // titleLeft joins the wordmark (with the version) and the screen/context
 // parts with the title separator, skipping empty parts.
 func titleLeft(parts ...string) string {
-	out := wordmark + " " + version.Version
+	out := wordmark + " " + version.Version + widgets.GGTitleTag() // GG mock
 	for _, p := range parts {
 		if p != "" {
 			out += titleSep + p
