@@ -8,6 +8,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
+	"github.com/jasonfen/terminal-space-program/internal/orbital"
+	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/sim"
 	"github.com/jasonfen/terminal-space-program/internal/tui/widgets"
 )
@@ -748,5 +750,50 @@ func TestZoomMemoryDisambiguatesAcrossSystems(t *testing.T) {
 	}
 	if v.userZoom == zoomSolBody1 {
 		t.Errorf("new system's fresh fit accidentally matched Sol's remembered zoom (%v); systems are not disambiguated", zoomSolBody1)
+	}
+}
+
+// #1020 / ADR 0041 d1: a local vessel you are not flying draws solid DIM, in
+// its orbit and arrow, whatever colour the catalogue gave it. Every catalogue
+// vessel is the same yellow as your own orbit, so its own colour reads as you.
+// CountColor reads the per-cell tag, so no lipgloss profile is involved.
+func TestOtherVesselDrawsDimNotOwnColour(t *testing.T) {
+	for _, own := range []string{"#FFD93D", "#FF00FF"} {
+		v := NewOrbitView(ghostTestTheme())
+		v.Resize(200, 60)
+		w, ownR, _ := leoWorld(t)
+		a := w.ActiveCraft()
+		a.Color = "#FFD93D"
+		o := *a
+		o.ID = a.ID + 1
+		o.Name = "other"
+		o.Color = own
+		r := ownR.Norm() * 1.6
+		o.State.R = orbital.Vec3{X: r}
+		o.State.V = orbital.Vec3{Y: math.Sqrt(a.Primary.GravitationalParameter() / r)}
+		w.Crafts = append(w.Crafts, &o)
+
+		dim, yellow := lipgloss.Color(render.ColorDim), lipgloss.Color("#FFD93D")
+		v.Render(w, 0, 200, 60)
+		if n := v.canvas.CountColor(dim); n < 15 {
+			t.Errorf("other vessel colour %s: %d dim cells, want its orbit and arrow dim", own, n)
+		}
+		y1 := v.canvas.CountColor(yellow)
+		if y1 < 15 {
+			t.Errorf("own orbit lost its yellow: %d cells", y1)
+		}
+		if own == "#FF00FF" && v.canvas.CountColor(lipgloss.Color(own)) != 0 {
+			t.Errorf("other vessel still inked in its own colour %s", own)
+		}
+
+		// Boundary: flying the other vessel swaps which orbit is yellow.
+		w.SetActiveCraftIdx(1)
+		v.Render(w, 0, 200, 60)
+		if n := v.canvas.CountColor(dim); n < 15 {
+			t.Errorf("after swap, %d dim cells: the first vessel should now be dim", n)
+		}
+		if own == "#FF00FF" && v.canvas.CountColor(lipgloss.Color(own)) == 0 {
+			t.Errorf("after swap the flown vessel lost its own colour %s", own)
+		}
 	}
 }
