@@ -515,6 +515,11 @@ func (w *World) PlanTransfer(targetIdx int) (*planner.TransferPlan, error) {
 	// stage alone, so a planted burn that really crosses a staging can start
 	// before now. Replan once with the lead that burn needs; the common case
 	// (the real burn fits the lit stage) plants first time, at the earliest window.
+	// Only the intra-primary branch honours the floor; the heliocentric and
+	// moon-escape branches plant at now, so a replan there returns the same plan (#1013).
+	if sys := w.System(); sys.Bodies[targetIdx].ParentID != c.Primary.ID {
+		return plan, nil
+	}
 	now := w.Clock.SimTime
 	need := 0.0
 	for _, n := range c.Nodes {

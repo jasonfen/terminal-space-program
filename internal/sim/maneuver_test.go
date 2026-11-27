@@ -2650,3 +2650,62 @@ func TestNudgeInertialHoldRotatesTheHeldNose(t *testing.T) {
 		t.Errorf("nose did not settle on the held direction (dot %.9f)", d)
 	}
 }
+
+// #1013 / #996: the lead sized from the lit stage alone can plant a Moon
+// departure that starts before now when the real burn crosses a staging
+// and the window is minutes away. PlanTransfer replans once with the lead
+// the real burn needs, so the committed departure never starts in the past.
+//
+// Fixture: a Comsat Carrier at 300 km whose NTR tug is nearly dry (300 kg)
+// over a 5 kN second stage, 4500 min into the epoch. The first pass plants
+// a 1h34m burn starting ~4m in the past; the replan moves it to the next
+// window ~1h26m out.
+func TestPlanTransferMoonReplansWhenLitStageTooSmall(t *testing.T) {
+	w := mustWorld(t)
+	w.Clock.SimTime = w.Clock.SimTime.Add(4500 * time.Minute)
+	if _, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Comsat-Carrier-3", ParentBodyID: "earth", AltitudeM: 300e3, Inclination: 0}); err != nil {
+		t.Fatalf("SpawnCraft: %v", err)
+	}
+	w.ActiveCraftIdx = len(w.Crafts) - 1
+	c := w.ActiveCraft()
+	c.Stages[0].FuelMass, c.Stages[0].FuelCapacity = 300, 300
+	s := &c.Stages[1]
+	s.FuelMass, s.FuelCapacity, s.Thrust, s.ThrustVac, s.Isp, s.IspVac = 11000, 11000, 5000, 5000, 450, 450
+	c.SyncFields()
+	mi := moonIndex(w)
+	w.SetTargetBody(mi)
+	now := w.Clock.SimTime
+	if _, err := w.PlanTransfer(mi); err != nil {
+		t.Fatalf("PlanTransfer: %v", err)
+	}
+	dep := c.Nodes[0]
+	// Start == now is acceptable: the replan fires on BurnStart().Before(now).
+	if dep.BurnStart().Before(now) {
+		t.Errorf("departure burn starts %v in the past (dur %v): the replan did not run", now.Sub(dep.BurnStart()), dep.Duration)
+	}
+}
+
+// #1013: the heliocentric branch plants its departure at now and ignores
+// the lead floor, so a replan returns the same plan and only burns node
+// IDs. An Earth-to-Mars plan uses exactly one ID per planted node.
+func TestPlanTransferMarsDoesNotReplan(t *testing.T) {
+	w := mustWorld(t)
+	sys := w.System()
+	mars, ok := bodyIndexByID(&sys, "mars")
+	if !ok {
+		t.Fatal("Mars missing from Sol")
+	}
+	w.SetTargetBody(mars)
+	c := w.ActiveCraft()
+	n0, id0 := len(c.Nodes), w.NextNodeID
+	if _, err := w.PlanTransfer(mars); err != nil {
+		t.Fatalf("PlanTransfer(Mars): %v", err)
+	}
+	planted := len(c.Nodes) - n0
+	if planted == 0 {
+		t.Fatal("no nodes planted")
+	}
+	if used := int(w.NextNodeID - id0); used != planted {
+		t.Errorf("planted %d nodes but used %d node IDs: the plan was computed twice", planted, used)
+	}
+}
