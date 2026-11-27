@@ -1049,3 +1049,65 @@ func TestBoostbackForecastFuelMatchesFlown(t *testing.T) {
 		}
 	}
 }
+
+// plantStaleCorrection puts a pending correction node from an earlier plan on c.
+func plantStaleCorrection(t *testing.T, w *World, c *spacecraft.Spacecraft) {
+	t.Helper()
+	w.PlanNode(spacecraft.ManeuverNode{Mode: spacecraft.BurnVector, BurnDirUnit: orbital.Vec3{X: 1}, DV: 10,
+		Event: spacecraft.TriggerAbsolute, TriggerTime: w.Clock.SimTime.Add(time.Hour), PrimaryID: c.Primary.ID,
+		AdvisoryKey: AdvisoryKeyCorrection})
+	if !hasCorrectionNode(c) {
+		t.Fatal("setup: the stale correction node was not planted")
+	}
+}
+
+func hasCorrectionNode(c *spacecraft.Spacecraft) bool {
+	for _, n := range c.Nodes {
+		if n.AdvisoryKey == AdvisoryKeyCorrection {
+			return true
+		}
+	}
+	return false
+}
+
+// #1014: N or B again replaces the plan, and a correction node still pending from
+// the old plan goes with it (it would fire against the new one).
+func TestReplanDropsPendingCorrectionNode(t *testing.T) {
+	t.Run("deorbit from orbit", func(t *testing.T) {
+		w, c := deorbitWorld(t, 150, 0)
+		plantStaleCorrection(t, w, c)
+		if _, err := w.PlanDeorbitOnly(); err != nil {
+			t.Fatal(err)
+		}
+		if hasCorrectionNode(c) {
+			t.Error("the old plan's correction node survived the replan")
+		}
+	})
+	for name, plan := range map[string]func(*World) (*DeorbitPlan, error){
+		"boostback N": (*World).PlanDeorbitAndEngage, "boostback B": (*World).PlanDeorbitOnly} {
+		t.Run(name, func(t *testing.T) {
+			w, c, _ := fallWorld(t, spacecraft.StageModuleF9S1ID, boosterFall{altM: 20e3, downMps: -300, offE: 20e3, driftE: 400, fuelKg: 24000})
+			plantStaleCorrection(t, w, c)
+			if p, err := plan(w); err != nil || p == nil || !p.Boostback {
+				t.Fatalf("setup: plan=%+v err=%v, want a boostback", p, err)
+			}
+			if hasCorrectionNode(c) {
+				t.Error("the old plan's correction node survived the replan")
+			}
+		})
+	}
+}
+
+// #1014: a vessel with no stages is refused like any impossible fall, not a panic.
+func TestStagelessVesselBoostbackPathsDoNotPanic(t *testing.T) {
+	w, c, _ := fallWorld(t, spacecraft.StageModuleF9S1ID, boosterFall{altM: 20e3, downMps: -300, offE: 20e3, driftE: 400, fuelKg: 24000})
+	c.Stages = nil
+	st0, tS := c.State, w.Clock.SimTime.Add(time.Minute)
+	if p, err := w.planBoostback(c, 0, 0, "x"); p != nil || err != nil {
+		t.Errorf("planBoostback = %+v, %v, want nil, nil", p, err)
+	}
+	if _, err := w.solveBoostback(c, st0, tS, [2]float64{0, 0}); err == nil {
+		t.Error("solveBoostback on a stageless vessel returned no error")
+	}
+	w.entryFor(c, st0, tS, 100, 0)
+}

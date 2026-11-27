@@ -706,6 +706,7 @@ func (w *World) planDeorbitOntoSite() (*DeorbitPlan, error) {
 	n := nodeFor(c, st0, tS, dv, tilt, false)
 	w.replaceAdvisoryNode(c, AdvisoryKeyDeorbit)
 	w.replaceAdvisoryNode(c, AdvisoryKeyEntry) // a stale entry burn goes with the boostback it belonged to
+	w.replaceAdvisoryNode(c, AdvisoryKeyCorrection)
 	w.PlanNode(n)
 	plan := &DeorbitPlan{
 		Site: name, DV: dv, In: tS.Sub(now), LongM: lastOff.long, CrossM: lastOff.cross,
@@ -1021,6 +1022,9 @@ func (w *World) liveAim(c *spacecraft.Spacecraft) (aimPoint, bool) {
 // fall as it always did. *BoostbackNoLandingError when a burn would put it
 // there but the landing burn that follows would light above BoostbackMaxCueAltM.
 func (w *World) planBoostback(c *spacecraft.Spacecraft, lat, lon float64, name string) (*DeorbitPlan, error) {
+	if len(c.Stages) == 0 {
+		return nil, nil
+	}
 	var reach error
 	w.drawNavError(c, false) // the reach test reads the computer's site
 	c.OnLandingBrake(func() { reach = w.apReachTest(c, lat, lon) })
@@ -1068,6 +1072,7 @@ func (w *World) planBoostback(c *spacecraft.Spacecraft, lat, lon float64, name s
 	n := nodeFor(c, st0, tS, dv, tilt, true)
 	w.replaceAdvisoryNode(c, AdvisoryKeyDeorbit)
 	w.replaceAdvisoryNode(c, AdvisoryKeyEntry)
+	w.replaceAdvisoryNode(c, AdvisoryKeyCorrection) // the old plan's correction would fire against this one (#1014)
 	if dv != 0 { // zero is no boostback node, only the entry burn behind it
 		w.PlanNode(n)
 	}
@@ -1107,6 +1112,9 @@ type boostbackSolution struct {
 // on the brake's stop point. It plants nothing.
 func (w *World) solveBoostback(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, site [2]float64) (boostbackSolution, error) {
 	var sol boostbackSolution
+	if len(c.Stages) == 0 {
+		return sol, errNoAim
+	}
 	if c.Stages[0].RecoverMode == spacecraft.RecoverShipAuto { // the ship stands under the no-boostback fall: try zero first
 		if z, off, err := w.solveNoBoost(c, st0, tS, site); err == nil && off.valid && math.Abs(off.long) <= deorbitLongTolM && math.Abs(off.cross) <= deorbitCrossTolM {
 			return z, nil
@@ -1336,7 +1344,7 @@ func entryDelay(s physics.StateVector, mu, radius, entryAlt float64) (float64, b
 func (w *World) entryFor(c *spacecraft.Spacecraft, st0 physics.StateVector, tS time.Time, dv, tilt float64) (best entryBurn, cue float64) {
 	n := nodeFor(c, st0, tS, dv, tilt, true)
 	var floor entryBurn // `ship auto`: the speed rule's burn
-	if c.Stages[0].RecoverMode == spacecraft.RecoverShipAuto {
+	if len(c.Stages) > 0 && c.Stages[0].RecoverMode == spacecraft.RecoverShipAuto {
 		mu := c.Primary.GravitationalParameter()
 		s, _ := burnState(c, st0, mu, dv, n)
 		if te, ok := entryDelay(s, mu, c.Primary.RadiusMeters(), EntryAltsM[0]); ok {
