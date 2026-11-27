@@ -378,69 +378,38 @@ func TestSwitchInSessionToLandedHandsOff(t *testing.T) {
 	}
 }
 
-// TestSwitchInSessionToFlyingEndsSession — switch handler quadrant
-// 2: player is mid-session on a Landed vessel, switches active to a
-// flying (non-Landed) vessel. Session ends, ViewMode restores to
-// PrevViewMode, session state clears. Player gets their saved view
-// back, focused on the new flying vessel.
-//
-// The substitute vessel orbits at <200km apo — historically that kept
-// the (since-retired, ADR 0021 D) auto-release from covering for an
-// unimplemented end-branch; today the switch handler is the only
-// sim-side release, so the test isolates it by construction.
-func TestSwitchInSessionToFlyingEndsSession(t *testing.T) {
-	w, err := NewWorld()
-	if err != nil {
-		t.Fatalf("NewWorld: %v", err)
+// TestSwitchInSessionToFlyingKeepsSession (#1018): in the close view (V) on a
+// flying vessel, `]` onto another flying vessel keeps V on it with the same
+// hand-off a landed target gets (fresh T0, trail, max-Q, zoom). Boundaries: the
+// same switch from the map stays on the map (TestSwitchBetweenFlyingVesselsIsNoOp).
+func TestSwitchInSessionToFlyingKeepsSession(t *testing.T) {
+	w := twoFlyingVessels(t)
+	if _, ref := w.ToggleLaunchView(); ref != "" {
+		t.Fatalf("setup: V refused: %q", ref)
 	}
-	earth := w.Systems[0].FindBody("earth")
-	mu := earth.GravitationalParameter()
-	primaryR := earth.RadiusMeters()
+	w.Tick()
+	t0 := w.LaunchT0
+	w.LaunchMaxQ = 7777
+	w.LaunchZoom = 0.3
+	w.LaunchTrail = append(w.LaunchTrail, TrailPoint{LatDeg: 9, LonDeg: 9})
 
-	// Replace the default LEO craft with a 100km-circular craft —
-	// below LaunchMissionFloorM (kept from the pre-ADR-0021 setup;
-	// harmless now that no apoapsis-floor release exists).
-	r := primaryR + 100_000
-	v := math.Sqrt(mu / r)
-	cLow := spacecraft.NewFromLoadout(spacecraft.LoadoutSaturnVID)
-	cLow.Primary = *earth
-	cLow.State = physics.StateVector{
-		R: orbital.Vec3{X: r},
-		V: orbital.Vec3{Y: v},
-		M: cLow.TotalMass(),
-	}
-	w.Crafts[0] = cLow
+	w.CycleActiveCraft(1)
+	w.Tick()
 
-	// Spawn a launchpad vessel at idx 1 (becomes active).
-	if _, err := w.SpawnCraft(SpawnSpec{
-		LoadoutID:    spacecraft.LoadoutSaturnVID,
-		ParentBodyID: "earth",
-		Launchpad:    true,
-		Latitude:     28.6,
-	}); err != nil {
-		t.Fatalf("SpawnCraft (launchpad): %v", err)
-	}
 	if w.ActiveCraftIdx != 1 {
-		t.Fatalf("setup: active = %d, want 1", w.ActiveCraftIdx)
+		t.Fatalf("active idx = %d, want 1", w.ActiveCraftIdx)
 	}
-
-	// First tick: route fires for the launchpad vessel.
-	w.Tick()
-	if !w.LaunchSessionActive {
-		t.Fatalf("setup: route didn't open a session")
+	if w.ViewMode != ViewLaunch || !w.LaunchSessionActive {
+		t.Fatalf("ViewMode=%v session=%v, want ViewLaunch kept on the new vessel", w.ViewMode, w.LaunchSessionActive)
 	}
-	stashedView := w.PrevViewMode // captured by the route handler.
-
-	// Switch to the 100km flying craft.
-	w.SetActiveCraftIdx(0)
-	w.Tick()
-
-	if w.LaunchSessionActive {
-		t.Error("session should have ended after switch to flying vessel")
+	if !w.LaunchT0.After(t0) {
+		t.Errorf("LaunchT0 = %v, want after %v (hand-off re-stamps)", w.LaunchT0, t0)
 	}
-	if w.ViewMode != stashedView {
-		t.Errorf("ViewMode = %v, want %v (PrevViewMode restored)",
-			w.ViewMode, stashedView)
+	if w.LaunchMaxQ == 7777 || w.LaunchZoom != 0 {
+		t.Errorf("MaxQ=%v zoom=%v, want cleared by hand-off", w.LaunchMaxQ, w.LaunchZoom)
+	}
+	if len(w.LaunchTrail) != 1 || w.LaunchTrail[0].LatDeg == 9 {
+		t.Errorf("LaunchTrail = %v, want only a fresh sample", w.LaunchTrail)
 	}
 }
 
@@ -495,11 +464,13 @@ func TestSwitchNotInSessionToLandedOpensFreshSession(t *testing.T) {
 		t.Fatalf("setup: initial route didn't fire")
 	}
 
-	// Step 2: switch to flying craft, tick → session ends (quadrant 2).
+	// Step 2: switch to flying craft (#1018: V is kept), then V off.
 	w.SetActiveCraftIdx(0)
 	w.Tick()
+	w.ToggleLaunchView()
+	w.Tick()
 	if w.LaunchSessionActive {
-		t.Fatalf("setup: switch to flying should have ended session (quadrant 2)")
+		t.Fatalf("setup: V off should have ended the session")
 	}
 
 	// Step 3: switch back to the Landed craft. Now we're !in-session
@@ -717,8 +688,8 @@ func twoFlyingVessels(t *testing.T) *World {
 }
 
 // TestVesselLeftInVResumesVOnReturn pins #1001: A in V, switch to flying B
-// (map, as today), switch back to A: V again, fresh session. Also pins that
-// B (never in V) stays on the map, that V pressed off on A forgets it, and
+// (V kept, #1018), V off on B, back to A: V again, fresh session. Also pins that
+// B (V pressed off) stays on the map, that V pressed off on A forgets it, and
 // that "switching" to the same index does not invent a memory.
 func TestVesselLeftInVResumesVOnReturn(t *testing.T) {
 	w := twoFlyingVessels(t)
@@ -727,8 +698,10 @@ func TestVesselLeftInVResumesVOnReturn(t *testing.T) {
 
 	w.CycleActiveCraft(1) // A -> B
 	w.Tick()
+	w.ToggleLaunchView() // B: V off (the switch itself kept V, #1018)
+	w.Tick()
 	if w.ViewMode == ViewLaunch || w.LaunchSessionActive {
-		t.Fatalf("B was never in V: ViewMode=%v session=%v", w.ViewMode, w.LaunchSessionActive)
+		t.Fatalf("B had V pressed off: ViewMode=%v session=%v", w.ViewMode, w.LaunchSessionActive)
 	}
 	w.CycleActiveCraft(-1) // B -> A
 	w.Tick()
