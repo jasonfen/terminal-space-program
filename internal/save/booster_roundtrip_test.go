@@ -221,3 +221,54 @@ func TestSuperDracoBurnSavedMidBurnKeepsItsEngine(t *testing.T) {
 		t.Errorf("burn used %.1f kg across the reload, want %.1f kg on the SuperDracos (Isp %.0f)", got, want, isp)
 	}
 }
+
+// #1012: the burn's engine is not on the wire, so the loader puts N's own nodes
+// (deorbit, entry, correction) back on the SuperDracos; a node with no advisory key
+// stays on the main engine (a Dragon's hold-key burn is the pilot's choice).
+func TestSaveLoadPutsNsAdvisoryNodesOnTheSuperDracos(t *testing.T) {
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := w.SpawnCraft(sim.SpawnSpec{LoadoutID: "Dragon", ParentBodyID: "earth", AltitudeM: 200e3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, x := range w.Crafts {
+		if x == c {
+			w.SetActiveCraftIdx(i)
+		}
+	}
+	c.Stages = c.Stages[len(c.Stages)-1:]
+	c.SyncFields()
+	c.Crewed, c.Controllable = true, true
+	if !c.HasSuperDraco() {
+		t.Fatal("setup: the Dragon has no SuperDracos")
+	}
+	keys := []string{sim.AdvisoryKeyDeorbit, sim.AdvisoryKeyEntry, sim.AdvisoryKeyCorrection, ""}
+	for i, k := range keys {
+		w.PlanNode(sim.ManeuverNode{TriggerTime: w.Clock.SimTime.Add(time.Duration(i+1) * time.Hour), Mode: spacecraft.BurnPrograde, DV: 10, Duration: c.BurnTimeForDV(10), PrimaryID: c.Primary.ID, AdvisoryKey: k})
+	}
+	if len(c.Nodes) != len(keys) {
+		t.Fatalf("setup: %d nodes planted, want %d", len(c.Nodes), len(keys))
+	}
+	for _, n := range c.Nodes {
+		if n.Engine != spacecraft.EngineMain {
+			t.Fatalf("setup: node %q planned on engine %v, want the main engine so the loader has work to do", n.AdvisoryKey, n.Engine)
+		}
+	}
+	w = saveLoad(t, w)
+	c = w.ActiveCraft()
+	if len(c.Nodes) != len(keys) {
+		t.Fatalf("%d nodes after load, want %d", len(c.Nodes), len(keys))
+	}
+	for _, n := range c.Nodes {
+		want := spacecraft.EngineSuperDraco
+		if n.AdvisoryKey == "" {
+			want = spacecraft.EngineMain
+		}
+		if n.Engine != want {
+			t.Errorf("node %q on engine %v after load, want %v", n.AdvisoryKey, n.Engine, want)
+		}
+	}
+}

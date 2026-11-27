@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jasonfen/terminal-space-program/internal/physics"
 	"github.com/jasonfen/terminal-space-program/internal/render"
 	"github.com/jasonfen/terminal-space-program/internal/spacecraft"
 )
@@ -1494,5 +1495,194 @@ func TestRecoveryNoWayHomeFlashesOnce(t *testing.T) {
 		if tc.want == 1 && (w.PendingRecoveryEvents[0].CraftName != c.Name || w.PendingRecoveryEvents[0].Refusal == "") {
 			t.Errorf("kick %.2f: flash %+v, want the vessel and the refusal's words", tc.kick, w.PendingRecoveryEvents[0])
 		}
+	}
+}
+
+// #1012: `ship auto` tries the no-boostback fall first (solveBoostback). With the ship
+// standing where the fall stops, zero boostback is the answer; the ordinary solve
+// aims the same stop with a small burn (0.9 m/s on the fitted climb) or none at all.
+func TestShipAutoSolveBoostbackTriesZeroFirst(t *testing.T) {
+	w, _, _ := fhAutoClimb(t, true, RecoverPick{Mode: spacecraft.RecoverShip})
+	n := len(w.Crafts)
+	if _, _, err := w.StageActive(w.ActiveCraftIdx); err != nil {
+		t.Fatal(err)
+	}
+	core := w.Crafts[n]
+	core.Nodes = nil
+	st := core.Stages[0]
+	if st.RecoverMode != spacecraft.RecoverShipAuto {
+		t.Fatalf("core mode %v, want ship auto", st.RecoverMode)
+	}
+	lead := boostbackLead(core)
+	st0, ok := physics.KeplerStep(core.State, core.Primary.GravitationalParameter(), lead)
+	if !ok {
+		t.Fatal("no kepler step")
+	}
+	st0.M = core.TotalMass()
+	tS := w.Clock.SimTime.Add(time.Duration(lead * float64(time.Second)))
+	site0, _ := w.siteByID(st.RecoverSiteID)
+	lat, lon := site0.lzLatLon(1, core.Primary.RadiusMeters())
+	_, off, err := w.solveNoBoost(core, st0, tS, [2]float64{lat, lon})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// the ship stands on the fall's stop (the cutoff's own move), then 40 m off it: inside
+	// the 50 m / 100 m tolerance either way, so zero still stands
+	for _, offM := range []float64{0, 40} {
+		dLat := offM / core.Primary.RadiusMeters() * 180 / math.Pi
+		sol, err := w.solveBoostback(core, st0, tS, [2]float64{off.aimLat + dLat, off.aimLon})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Logf("stop %.0f m off the site: boostback %.3f m/s, entry %.0f m/s", offM, sol.dv, sol.entry.dv)
+		if sol.dv != 0 {
+			t.Errorf("stop %.0f m off: boostback %.3f m/s, want 0 (the no-boostback fall tried first)", offM, sol.dv)
+		}
+	}
+}
+
+// #1012: a `ship auto` cutoff whose last closing forecast needed three engines commits
+// the stage to three engines (saved with the stage, copied to the dropped one); a
+// forecast that closed on one engine leaves the landing throttle alone.
+func TestCutAtReserveCommitsThreeEnginesOnlyWhenTheForecastNeededThem(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		autoThree bool
+		want      float64
+	}{{"forecast on three engines", true, ThreeEngineLandingThrottle}, {"forecast on one engine", false, 1.0 / 9}} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := mustWorld(t)
+			w.Crafts, w.ActiveCraftIdx = nil, -1
+			c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9", ParentBodyID: "earth", Launchpad: true,
+				Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast,
+				Recover: []RecoverPick{{Mode: spacecraft.RecoverShip}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.recoveryRTFor(c).autoThree = tc.autoThree
+			if got := c.Stages[0].LandingThrottle; math.Abs(got-1.0/9) > 1e-9 {
+				t.Fatalf("fixture: landing throttle %.4f before the cut, want one engine of nine", got)
+			}
+			w.cutAtReserve(c)
+			if got := c.Stages[0].LandingThrottle; math.Abs(got-tc.want) > 1e-9 {
+				t.Errorf("landing throttle %.4f after the cut, want %.4f", got, tc.want)
+			}
+			if c.Stages[0].HeldKg <= 0 {
+				t.Errorf("held %.0f kg, want the reserve held back", c.Stages[0].HeldKg)
+			}
+		})
+	}
+}
+
+// #1012: correctionFor caps the burn to the propellant the tank can pay (what the
+// landing leaves above BoostbackFuelMarginKg). Booster 1 of the 44 km drop gets its
+// correction burn planted; the same state asked again with the tank cut so the burn
+// is affordable by only half gets a smaller one, and no more than the tank pays.
+func TestCorrectionForCapsTheBurnToWhatTheTankPays(t *testing.T) {
+	w, b := fhBoosterDrop(t)
+	for i := 0; i < 20*3600 && !(b.Landed || b.Crashed); i++ {
+		w.Tick()
+		if hasCorrectionNode(b) {
+			break
+		}
+	}
+	if !hasCorrectionNode(b) {
+		t.Fatal("setup: no correction node planted")
+	}
+	b.Nodes = nil
+	s, _ := w.siteByID(b.Stages[0].RecoverSiteID)
+	lat, lon := s.lzLatLon(1, b.Primary.RadiusMeters())
+	lat, lon = w.computerSiteLatLon(b, lat, lon)
+	cp, ok := w.correctionFor(b, [2]float64{lat, lon})
+	if !ok || cp.dv <= 0 {
+		t.Fatalf("uncapped plan ok=%v dv %.2f", ok, cp.dv)
+	}
+	ve := b.Isp * stdGravityMps2
+	burned := func(dv float64) float64 { return b.TotalMass() * (1 - math.Exp(-dv/ve)) }
+	t.Logf("uncapped: %.2f m/s, %.1f kg, fuel %.0f kg", cp.dv, burned(cp.dv), b.ActiveStageFuel())
+	// take propellant out until the landing leaves margin plus only part of the burn
+	full := b.Stages[0].FuelMass
+	var capped correctionPlan
+	for drain := 0.0; drain < full; drain += 20 {
+		b.Stages[0].FuelMass = full - drain
+		if c2, ok2 := w.correctionFor(b, [2]float64{lat, lon}); ok2 && c2.dv < 0.7*cp.dv {
+			capped = c2
+			t.Logf("tank drained %.0f kg", drain)
+			break
+		}
+	}
+	b.Stages[0].FuelMass = full
+	if capped.dv == 0 {
+		t.Fatal("no tank gave a capped plan")
+	}
+	t.Logf("capped: %.2f m/s (%.0f%% of the uncapped)", capped.dv, 100*capped.dv/cp.dv)
+	if capped.dv >= cp.dv || capped.dv <= 0 {
+		t.Errorf("capped burn %.2f m/s, want inside (0, %.2f)", capped.dv, cp.dv)
+	}
+}
+
+// #1012: the three-engine cut re-solves RecoveryStageGraceS ahead before it commits
+// (staging is the pilot's press, a plan shut a few seconds later was refused at the
+// drop). The recording's bare Falcon 9 to a ship 350 km out (flownF9's climb) has a
+// window at T+139.2 to 139.3 where the plan closes now but not after the 5 s coast.
+// The three-engine line is forced to say "reached" at the first tick of each kind
+// (recoveryCutoff called on that state, so the probe and the cut see the same fall):
+// a plan that closes after the grace cuts, one that does not holds the engines.
+func TestThreeEngineCutHoldsWhenThePlanShutsInsideTheGrace(t *testing.T) {
+	const deg = math.Pi / 180
+	for _, tc := range []struct {
+		name    string
+		shutsIn bool // the tick to cut on: closes now, not after the grace
+		wantCut bool
+	}{{"plan closes after the grace", false, true}, {"plan shuts inside the grace", true, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := mustWorld(t)
+			w.Crafts, w.ActiveCraftIdx = nil, -1
+			c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9", ParentBodyID: "earth", Launchpad: true,
+				Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast,
+				Recover: []RecoverPick{{Mode: spacecraft.RecoverShip, ShipKm: 350}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.noShipFollow = true
+			w.RecomputeCommGraph()
+			c.Throttle, c.EngineMode, c.AttitudeMode = 1, spacecraft.EngineMain, spacecraft.BurnRadialOut
+			w.StartManualBurn()
+			t0 := w.Clock.SimTime
+			st := &c.Stages[0]
+			for i := 0; i < 60000 && c.ManualBurn != nil && st.HeldKg == 0; i++ {
+				switch el := w.Clock.SimTime.Sub(t0).Seconds(); {
+				case el >= 10.5 && el < 16.2:
+					c.PitchTrim, c.AttitudeMode = 1*deg, spacecraft.BurnSurfacePrograde
+				case el >= 16.2 && el < 126.5:
+					c.PitchTrim = 0
+				case el >= 126.5 && el < 127.5:
+					c.PitchTrim = 5 * deg
+				case el >= 127.5:
+					c.PitchTrim = 10 * deg
+				}
+				if rt := w.recRT[c.ID]; rt != nil && w.Clock.SimTime.Sub(t0).Seconds() > 133 {
+					rt.three, rt.haveCut, rt.nextSolve = threeEngineLine{}, false, w.Clock.SimTime.Add(time.Hour) // the cutoff's own line would cut at T+136.6: keep the engines lit to the window
+				}
+				if w.Clock.SimTime.Sub(t0).Seconds() >= 138.9 { // from here the window is near: probe each tick
+					_, _, _, e0 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, 0, false, 0, 0)
+					_, _, _, e5 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, 0, false, RecoveryStageGraceS, 0)
+					if e0 == nil && (e5 != nil) == tc.shutsIn {
+						rt := w.recoveryRTFor(c)
+						now := w.Clock.SimTime
+						rt.nextSolve, rt.seenFeasible, rt.haveCut = now.Add(time.Hour), false, false
+						rt.three = threeEngineLine{have: true, at: now, slack: 0, rate: 1}
+						w.recoveryCutoff(c, w.Clock.BaseStep)
+						t.Logf("T+%.2f, %.0f kg: held %.0f kg", now.Sub(t0).Seconds(), st.FuelMass, st.HeldKg)
+						if cut := st.HeldKg > 0; cut != tc.wantCut {
+							t.Errorf("cut=%v, want %v (plan closes now, after the grace: %v)", cut, tc.wantCut, e5 == nil)
+						}
+						return
+					}
+				}
+				w.Tick()
+			}
+			t.Fatalf("no tick with the plan closing now and (after the grace shut=%v) before the stage cut or burned dry", tc.shutsIn)
+		})
 	}
 }
