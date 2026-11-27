@@ -163,6 +163,9 @@ func (w *World) planCorrection(c *spacecraft.Spacecraft, lat, lon float64) {
 // (the autopilot's coast tick): a stop over CorrectionMinErrM off the site gets
 // its correction burn planted.
 func (w *World) correctAfterBoostback(c *spacecraft.Spacecraft, lat, lon float64) {
+	if !recovering(c) { // N's deorbit-from-orbit carries the boostback's key (#1010)
+		return
+	}
 	rt := w.apRuntimeFor(c)
 	if _, pending := deorbitNode(c); pending {
 		rt.sawBoost = true

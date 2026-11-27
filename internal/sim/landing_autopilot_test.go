@@ -491,6 +491,34 @@ func TestPlanDeorbitAndEngageLandsWithNoOtherKey(t *testing.T) {
 	}
 }
 
+// #1010: N's deorbit-from-orbit carries the same "deorbit" key as a boostback, but a
+// lander on the Moon is not a recovering stage: it plants no correction node and
+// the autopilot never arms the correction. The recovering side is pinned by the
+// 1-correction-burn count in recovery_test.go (booster 1 of the drop table).
+func TestLunarNLandingPlantsNoCorrection(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	if recovering(c) {
+		t.Fatal("setup: the lander must not be a recovering stage")
+	}
+	if _, err := w.PlanDeorbitAndEngage(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2*3600*4 && !c.Landed && !c.Crashed; i++ {
+		w.Tick()
+		for _, n := range c.Nodes {
+			if n.AdvisoryKey == AdvisoryKeyCorrection {
+				t.Fatalf("tick %d: a %q node was planted on a lander", i, n.AdvisoryKey)
+			}
+		}
+	}
+	if !c.Landed {
+		t.Fatal("setup: the lander never landed")
+	}
+	if w.apRuntimeFor(c).corrected {
+		t.Error("the correction armed for a stage that is not recovering")
+	}
+}
+
 // afterDeorbitBurn plants N's burn and ticks until it has fired: the vessel is
 // falling toward the flag with the engine dark and no node planted.
 func afterDeorbitBurn(t *testing.T) (*World, *spacecraft.Spacecraft) {
