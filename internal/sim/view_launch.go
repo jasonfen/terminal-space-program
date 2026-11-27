@@ -11,9 +11,8 @@
 // escape hatch — see its own doc comment). (The ORBIT READY callout and
 // the ViewTilted LaunchAnchor keep their own Orbit Floor gate,
 // OrbitFloorForCraft, ADR 0051 decision 10; only the view restore
-// went.) A session still ends without a `V` press when
-// the player switches active onto a flying vessel — that restore
-// answers the player's switch, not ambient sim state.
+// went.) A switch onto another vessel while in the close view keeps it
+// (#1018): `]` / `[` hand the session to the new vessel, flying or landed.
 //
 // This file owns the per-tick handler called from World.Tick and the
 // session-open/close helpers. Render-side (the chase-cam scene
@@ -42,8 +41,8 @@ import (
 // trail while a session is open. There is no ambient release — ADR
 // 0021 D retired the apoapsis-floor auto-release, so the session ends
 // only on the `V` toggle (ToggleLaunchView), a manual `v` cycle
-// (CycleViewMode, issue #348 §4's fallback escape hatch), or a switch
-// onto a flying vessel (handleActiveCraftSwitch's end branch).
+// (CycleViewMode, issue #348 §4's fallback escape hatch). A switch
+// of active vessel does not end it (#1018).
 func (w *World) tickLaunchView() {
 	active := w.ActiveCraft()
 
@@ -101,7 +100,7 @@ func (w *World) tickLaunchView() {
 //
 // Quadrants (Locked decisions, designdocs/terminal-space-program/v0.11-plan.md):
 //   - in-session × new Landed   → hand-off (keep session, re-stamp T0)
-//   - in-session × new !Landed  → end + restore PrevViewMode
+//   - in-session × new !Landed  → hand-off too (#1018; was end + restore)
 //   - !in-session × new Landed  → fresh inline session
 //   - !in-session × new !Landed → no-op
 //
@@ -123,21 +122,15 @@ func (w *World) handleActiveCraftSwitch(newActive *spacecraft.Spacecraft) {
 	newOnPad := newActive != nil && newActive.OnPad
 
 	switch {
-	case inSession && newLanded:
-		// Hand-off: keep session + view, re-stamp T0 to the switch
-		// moment so T+ ticks from the player's perspective of the
-		// new vessel's launch.
+	case inSession:
+		// Hand-off (landed or flying target, #1018): keep session + view,
+		// re-stamp T0 to the switch moment so T+ ticks from the player's
+		// perspective of the new vessel.
 		w.LaunchT0 = w.Clock.SimTime
 		w.LaunchMaxQ = 0
 		w.LaunchMaxQAltM = 0
 		w.LaunchTrail = w.LaunchTrail[:0]
 		w.LaunchZoom = 0
-	case inSession && !newLanded:
-		// End: player switched onto a flying vessel mid-session.
-		// Restore PrevViewMode and clear all session state. This is
-		// the only sim-side session end left after ADR 0021 D — it
-		// answers the player's switch, not ambient sim state.
-		w.releaseLaunchSession()
 	case !inSession && newLanded && newOnPad:
 		// Fresh inline session: player switched onto a fresh
 		// launchpad-spawned vessel while not in a session. The
