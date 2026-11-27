@@ -587,6 +587,40 @@ func (w *World) recordLiftoff(c *spacecraft.Spacecraft) {
 	w.recordRowFor(c, "liftoff")
 }
 
+// LandingEngineTotal is the engines a Falcon stage's landing throttle counts of
+// (ThreeEngineLandingThrottle is 3 of them). shortcut: one total for the catalog, a
+// stage with another count needs the count on Stage.
+const LandingEngineTotal = 9
+
+// LandingEngines is how many engines the vessel's landing burn lights, and of how
+// many, while the landing autopilot flies the burn. ok is false on a vessel whose
+// landing throttle is not a whole count of engines (a Moon lander, a capsule) and
+// outside the burn.
+func LandingEngines(c *spacecraft.Spacecraft) (lit, total int, ok bool) {
+	if c == nil || c.Landing == nil || !c.Landing.Engaged || c.Landing.Phase == spacecraft.PhaseCoast {
+		return 0, 0, false
+	}
+	x := c.LandingThrottle() * LandingEngineTotal
+	lit = int(math.Round(x))
+	if lit < 1 || lit >= LandingEngineTotal || math.Abs(x-float64(lit)) > 1e-6 {
+		return 0, 0, false
+	}
+	return lit, LandingEngineTotal, true
+}
+
+// recordLandingBurn writes the landing burn's engine count at the brake's light.
+func (w *World) recordLandingBurn(c *spacecraft.Spacecraft) {
+	lit, _, ok := LandingEngines(c)
+	if !ok {
+		return
+	}
+	word := "engines"
+	if lit == 1 {
+		word = "engine"
+	}
+	w.recordRowFor(c, fmt.Sprintf("landing burn: %d %s", lit, word))
+}
+
 // recordBurnComplete writes the burn-complete row before the ActiveBurn is cleared.
 func (w *World) recordBurnComplete(c *spacecraft.Spacecraft) {
 	ab := c.ActiveBurn

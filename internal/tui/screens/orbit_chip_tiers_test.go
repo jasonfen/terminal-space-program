@@ -397,6 +397,12 @@ func engineWorstCaseFixtures(t *testing.T) []vabStagesFixture {
 			add(fmt.Sprintf("braking descent from %.0f m with a queue", alt), v.buildEngineBox(bw))
 		}
 	}
+	// ADR 0071 decision 7 (#1023): the TWR row's eng: cell on a counting landing burn.
+	ew := descendingMoonCraft(t, 20_000, 120)
+	ec := ew.ActiveCraft()
+	ec.Stages[0].LandingThrottle = 3.0 / 9
+	ec.Landing = &spacecraft.LandingAutopilot{Engaged: true, Phase: spacecraft.PhaseBrake}
+	add("landing burn on three engines", v.buildEngineBox(ew))
 	// ADR 0059 S5: the raise branch at its widest: the longest altitudes
 	// (geosynchronous, five digits), the longest countdown a Hall thruster
 	// gives (a lowering from there, three-digit days), waiting and climbing.
@@ -424,14 +430,14 @@ func TestEngineWorstCaseFixturesReachEveryBranch(t *testing.T) {
 	joined := map[string]bool{}
 	for _, r := range engineWorstCaseFixtures(t) {
 		for _, l := range r.lines {
-			for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "brake at", "+10 [m]", "⚠", "Surf ", "Tgt ", "▸ raise", "▸ lower", "starts in", "● RAISE"} {
+			for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "brake at", "+10 [m]", "⚠", "Surf ", "Tgt ", "▸ raise", "▸ lower", "starts in", "● RAISE", "eng:   3/9"} {
 				if strings.Contains(l, want) {
 					joined[want] = true
 				}
 			}
 		}
 	}
-	for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "brake at", "+10 [m]", "⚠", "Surf ", "Tgt ", "▸ raise", "▸ lower", "starts in", "● RAISE"} {
+	for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "brake at", "+10 [m]", "⚠", "Surf ", "Tgt ", "▸ raise", "▸ lower", "starts in", "● RAISE", "eng:   3/9"} {
 		if !joined[want] {
 			t.Errorf("worst-case ENGINE fixtures never rendered %q", want)
 		}
