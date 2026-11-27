@@ -1480,3 +1480,24 @@ func TestRecoveryCanReachSpendsTheTankOnTheLandingFirst(t *testing.T) {
 		t.Error("a stage with no recovery mode is not recovering")
 	}
 }
+
+// #1014: a landing that ends clears the correction flags, so the vessel flown
+// again gets its own correction (they were set once per session).
+func TestLandingEndedClearsCorrectionFlags(t *testing.T) {
+	w, c := deorbitWorld(t, 150, 0)
+	if _, err := w.PlanDeorbitAndEngage(); err != nil {
+		t.Fatal(err)
+	}
+	rt := w.apRuntimeFor(c)
+	rt.sawBoost, rt.corrected = true, true
+	w.landingEnded(c)
+	if rt.sawBoost || rt.corrected {
+		t.Errorf("after landingEnded sawBoost=%v corrected=%v, want both cleared", rt.sawBoost, rt.corrected)
+	}
+	rt.sawBoost, rt.corrected = true, true
+	c.Landing.Nose = true // the early (pilot-flown) exit clears them too
+	w.landingEnded(c)
+	if rt.sawBoost || rt.corrected {
+		t.Errorf("nose exit: sawBoost=%v corrected=%v, want both cleared", rt.sawBoost, rt.corrected)
+	}
+}

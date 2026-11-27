@@ -1018,6 +1018,7 @@ func apRodThrottle(c *spacecraft.Spacecraft, ap *spacecraft.LandingAutopilot, f 
 func (w *World) landingEnded(c *spacecraft.Spacecraft) {
 	ap := c.Landing
 	rt := w.apRuntimeFor(c)
+	rt.sawBoost, rt.corrected = false, false
 	defer ap.ClearAttempt()                             // one offset per landing attempt
 	defer func() { c.LZClaim = spacecraft.LZClaim{} }() // spent at contact, after the flash below reads it (ADR 0068 decision 5)
 
