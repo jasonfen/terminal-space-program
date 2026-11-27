@@ -37,7 +37,8 @@ func TestControlsDocNamesBatchRow(t *testing.T) {
 		"| `+` / `-` (target menu) | On a flag you own: `+` adds an LZ (nine at most)",
 		"| `←` / `→` (target menu) | On a site with more than one LZ: choose which, `auto` then `LZ-1` up.",
 		// ADR 0066 S3: the y card and the flag and wreck markers.
-		"| `F3` | **Surface marks** card: show or hide landed vessels (`v`), flags (`f`), wrecks (`w`), partners' marks (`p`) and coverage now (`c`)",
+		"| `F3` | **Surface marks** card: show or hide landed vessels (`v`), flags (`f`), wrecks (`w`), ships (`s`), partners' marks (`p`) and coverage now (`c`)",
+		"| `▬` | a drone ship, coloured like a flag (`F3` hides them) |",
 		"| `⚑` | a flag: where a vessel touched down",
 		"| `☠` | a wreck: where a vessel crashed",
 		// ADR 0066 S9: the COVERAGE notice follows the target; the overlay row.

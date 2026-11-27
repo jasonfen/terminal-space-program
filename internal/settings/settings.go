@@ -66,6 +66,7 @@ const (
 	ChipMarksLanded   Chip = "marks.landed"
 	ChipMarksFlags    Chip = "marks.flags"
 	ChipMarksWrecks   Chip = "marks.wrecks"
+	ChipMarksShips    Chip = "marks.ships"
 	ChipMarksPartners Chip = "marks.partners"
 	ChipCoverageNow   Chip = "coverage.now" // wired by the coverage overlay slice
 )
@@ -101,6 +102,7 @@ var AllChips = []Chip{
 	ChipMarksWrecks,
 	ChipMarksPartners,
 	ChipCoverageNow,
+	ChipMarksShips, // appended: the list is append-only
 }
 
 // chipLabels maps each Chip to the human-readable name the Settings
@@ -122,6 +124,7 @@ var chipLabels = map[Chip]string{
 	ChipMarksLanded:     "Landed vessels",
 	ChipMarksFlags:      "Flags",
 	ChipMarksWrecks:     "Wrecks",
+	ChipMarksShips:      "Ships",
 	ChipMarksPartners:   "Partners' marks",
 	ChipCoverageNow:     "Coverage now",
 }

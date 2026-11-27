@@ -274,3 +274,47 @@ func BenchmarkDrawNineLZCircles(b *testing.B) {
 		v.drawLZCircles(w, w.Sites[0], false, "#5F5F5F")
 	}
 }
+
+// ADR 0071 decision 8 (amended): a ship site (kind point) draws ▬ where a flag
+// draws ⚑, a planted flag and a land LZ keep ⚑, in the same frame; the Ships row
+// governs it, not Flags; the LZ zoom keeps the ring and puts ▬ at the centre
+// you fly to.
+func TestSurfaceMarksShipGlyph(t *testing.T) {
+	v := NewOrbitView(Theme{})
+	v.Resize(200, 60)
+	w := marksWorld(t, 0)
+	body, sys := w.ActiveCraft().Primary.EnglishName, w.System().Name
+	w.Sites = append(w.Sites,
+		sim.Site{ID: 1, Body: body, System: sys, LonDeg: -60, LatDeg: 10, Kind: sim.SitePoint, Name: "Ship"},
+		sim.Site{ID: 2, Body: body, System: sys, LonDeg: -30, LatDeg: -20, Kind: sim.SiteFlag, Name: "Flag"})
+	out := marksFrame(v, w)
+	if n := strings.Count(out, string(shipGlyph)); n != 1 {
+		t.Errorf("%d ship marks, want 1", n)
+	}
+	if n := strings.Count(out, string(flagGlyph)); n != 1 {
+		t.Errorf("%d flags, want 1 (the ship must not draw one)", n)
+	}
+	s := v.settings
+	s.SetChip(settings.ChipMarksFlags, false)
+	v.SetSettings(s)
+	if out = marksFrame(v, w); !strings.Contains(out, string(shipGlyph)) || strings.Contains(out, string(flagGlyph)) {
+		t.Errorf("flags row off: ship must stay, flag go")
+	}
+	s.SetChip(settings.ChipMarksShips, false)
+	v.SetSettings(s)
+	if out = marksFrame(v, w); strings.Contains(out, string(shipGlyph)) {
+		t.Errorf("ships row off still drew ▬")
+	}
+
+	// LZ zoom: the flown-to centre of a ship is ▬, a land site's is ⚑.
+	for kind, want := range map[sim.SiteKind]rune{sim.SitePoint: shipGlyph, sim.SiteFlag: flagGlyph} {
+		w := lzRingWorld(t, 3)
+		w.Sites[0].Kind = kind
+		w.Focus = sim.Focus{Kind: sim.FocusCraft}
+		w.SetTargetSite(w.Sites[0].ID)
+		c, _ := lzMapCells(t, NewOrbitView(Theme{}), w, w.Sites[0], 2)
+		if c[1] != want || c[2] != '2' {
+			t.Errorf("kind %d at LZ zoom: LZ-1 %q LZ-2 %q, want %q and the digit 2", kind, c[1], c[2], want)
+		}
+	}
+}

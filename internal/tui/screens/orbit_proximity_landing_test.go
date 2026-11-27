@@ -311,3 +311,62 @@ func TestLandingChipAltRateNeedSuffix(t *testing.T) {
 		t.Errorf("alt rate row %q is %d cells, chip inner width %d", row, n, proximityChipInnerWidth)
 	}
 }
+
+// shipSGR and targetSGR are the truecolor SGR payloads of the globe's ocean
+// (#1F5F94, which termenv rounds to 147) and TARGET green (#3CDC83).
+const (
+	oceanFG = "38;2;31;95;147"
+	oceanBG = "48;2;31;95;147"
+	greenFG = "38;2;60;220;131"
+)
+
+// landingRawFrame renders the landing view at 140x40 in forced truecolor (an
+// unforced colour assertion is vacuous: lipgloss is colourless under go test)
+// with the aimed site of the given kind, and returns the raw frame.
+func landingRawFrame(t *testing.T, kind sim.SiteKind) string {
+	t.Helper()
+	forceTrueColor(t)
+	w := moonSiteDescentWorld(t, false)
+	w.Sites[0].Kind = kind
+	if entered, refusal := w.ToggleProximityView(); !entered {
+		t.Fatalf("o refused on a site: %q", refusal)
+	}
+	v := newProximityTestView(t, DesignWidth, DesignHeight)
+	return v.Render(w, 0, DesignWidth, DesignHeight)
+}
+
+// groundRow is the raw landing-view row that holds the site's ⚑ left of the
+// OVERHEAD inset.
+func groundRow(t *testing.T, raw string) string {
+	t.Helper()
+	for _, l := range strings.Split(raw, "\n") {
+		if r := []rune(ansi.Strip(l)); len(r) > 100 && strings.ContainsRune(string(r[:100]), flagGlyph) {
+			return l
+		}
+	}
+	t.Fatal("no ground row with a flag")
+	return ""
+}
+
+// ADR 0071 decision 8 (amended 2026-11-27): under a ship (site kind point) the
+// ground line is ocean blue and the deck, a ▄ either side of the ⚑, is in the
+// flag's colour; under a land LZ the line stays dim with no deck. The ship is
+// read from the site, not from any stage's recover mode.
+func TestLandingViewShipSeaAndDeck(t *testing.T) {
+	ship := groundRow(t, landingRawFrame(t, sim.SitePoint))
+	if !strings.Contains(ship, oceanFG) {
+		t.Errorf("ship: ground row has no ocean blue line: %q", ship)
+	}
+	if !strings.Contains(ansi.Strip(ship), "▄⚑▄") {
+		t.Errorf("ship: no deck under the flag: %q", ansi.Strip(ship))
+	}
+	if !strings.Contains(ship, "\x1b["+greenFG+"m▄") {
+		t.Errorf("ship: deck not in the flag's colour: %q", ship)
+	}
+	for _, kind := range []sim.SiteKind{sim.SiteFlag, sim.SiteWreck} {
+		land := groundRow(t, landingRawFrame(t, kind))
+		if strings.Contains(land, oceanFG) || strings.Contains(ansi.Strip(land), "▄") {
+			t.Errorf("kind %d: land site got sea or a deck: %q", kind, land)
+		}
+	}
+}

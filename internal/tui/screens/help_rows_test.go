@@ -66,13 +66,14 @@ func helpPhraseRows() []helpPhrase {
 		{name: "arrows choose an LZ in the target menu", section: "VESSEL", token: "←/→ (target menu)", has: []string{"more than one LZ", "N, B and enter use it", "a taken LZ can be chosen"}},
 		{name: "t opens the target menu", section: "VESSEL", token: "t / T", has: []string{"target menu", "sites here", "t again takes the row", "T clears"}},
 		// ADR 0066 decision 6: y filters the map's surface marks; the t menu keeps them all.
-		{name: "F3 filters surface marks", section: "CAMERA & VIEW", token: "F3", has: []string{"landed vessels [v]", "flags [f]", "wrecks [w]", "partners' marks [p]", "coverage now [c]", "[t] still lists them all"}},
+		{name: "F3 filters surface marks", section: "CAMERA & VIEW", token: "F3", has: []string{"landed vessels [v]", "flags [f]", "wrecks [w]", "ships [s]", "partners' marks [p]", "coverage now [c]", "[t] still lists them all"}},
 		{name: "flag and wreck markers", section: "MAP MARKERS", token: "⚑", has: []string{"where a vessel touched down", "[F3] hides"}},
 		{name: "landing stop marker", section: "MAP MARKERS", token: "⊙", has: []string{"landing view", "powered stop ends"}},
 		{name: "o opens the landing view on ground", section: "CAMERA & VIEW", token: "o (on ground)", has: []string{"landing view", "⊙", "LANDING chip", "cross: / lat vel:"}},
 		{name: "glossary names the landing rates", section: "READOUT GLOSSARY", token: "alt rate", has: []string{"LANDING", "- falling"}},
 		{name: "glossary names the ground speeds", section: "READOUT GLOSSARY", token: "fwd vel / lat vel", has: []string{"LANDING", "R or L"}},
 		{name: "glossary names aim", section: "READOUT GLOSSARY", token: "aim", has: []string{"LANDING", "+ long", "− short"}},
+		{name: "ship marker", section: "MAP MARKERS", token: "▬", has: []string{"drone ship", "coloured like a flag", "[F3] hides"}},
 		{name: "wreck marker", section: "MAP MARKERS", token: "☠", has: []string{"where a vessel crashed", "dim"}},
 		{name: "r and d act on your own site in the menu", section: "VESSEL", token: "r / d (target menu)", has: []string{"rename", "delete", "you own"}},
 		// ADR 0059 decision 12: L orders an orbit altitude; a raise neither caps warp nor is chased by G.

@@ -20,6 +20,9 @@ import (
 const (
 	flagGlyph  = '⚑'
 	wreckGlyph = '☠'
+	// shipGlyph is a drone ship (ADR 0071 decision 8, amended 2026-11-27): a
+	// flat deck, drawn where a flag would be.
+	shipGlyph = '▬'
 )
 
 // markShown says whether the `y` card lets a kind of mark draw. A targeted
@@ -42,6 +45,8 @@ func siteChip(s sim.Site) settings.Chip {
 		return settings.ChipMarksPartners
 	case s.Kind == sim.SiteWreck:
 		return settings.ChipMarksWrecks
+	case s.Kind == sim.SitePoint:
+		return settings.ChipMarksShips
 	}
 	return settings.ChipMarksFlags
 }
@@ -93,6 +98,9 @@ func (v *OrbitView) drawSurfaceMarks(w *sim.World, scale float64, canvasReach in
 		glyph := wreckGlyph
 		if s.Kind != sim.SiteWreck {
 			glyph = flagGlyph
+			if s.Kind == sim.SitePoint {
+				glyph = shipGlyph
+			}
 			if s.Owner == "" {
 				if cr, _, found := w.CraftByID(s.CraftID); found && cr != nil && cr.Color != "" {
 					col = lipgloss.Color(cr.Color)
@@ -143,6 +151,9 @@ func (v *OrbitView) drawLZCircles(w *sim.World, s sim.Site, targeted bool, col l
 		glyph := rune('0' + p.N)
 		if p.N == flown {
 			glyph = flagGlyph
+			if s.Kind == sim.SitePoint {
+				glyph = shipGlyph
+			}
 		}
 		v.canvas.SetCellOverlayColored(p.Pos, glyph, col)
 	}
