@@ -696,14 +696,20 @@ func TestRecoveryReserveSolvesAreCheapAndSpaced(t *testing.T) {
 // N1: at 10x a ship pick must still get its cutoff on the predicted line, not on the
 // fixed-grid fallback: the stage is cut, dropped, accepted, lands inside the circle
 // and keeps at least the boostback margin. Falcon 9 + Dragon ship 75 and the Falcon 9
-// ships 90 and 150 are the cases that lost the booster or landed on 0.2 to 1 t.
+// ships 90 and 150 are the cases that lost the booster or landed on 0.2 to 1 t. The
+// bare Falcon 9 ship 350 had no cutoff at all (#993), and Falcon Heavy's booster pair
+// to ships 150 and 250 (core on the default ship) landed on 0.35 t at 10x (#994).
 func TestRecoveryTenXShipCutoffLandsWithMargin(t *testing.T) {
 	for _, tc := range []struct {
 		load string
 		km   float64
-	}{{"Falcon-9-Dragon", 75}, {"Falcon-9", 90}, {"Falcon-9", 150}} {
+	}{{"Falcon-9-Dragon", 75}, {"Falcon-9", 90}, {"Falcon-9", 150}, {"Falcon-9", 350}, {"Falcon-Heavy", 150}, {"Falcon-Heavy", 250}} {
+		picks := []RecoverPick{{Mode: spacecraft.RecoverShip, ShipKm: tc.km}}
+		if tc.load == "Falcon-Heavy" {
+			picks = append(picks, RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: RecoveryShipDefaultKm})
+		}
 		for _, warp := range []int{0, 1} {
-			st, w, c := climbTimed(t, tc.load, []RecoverPick{{Mode: spacecraft.RecoverShip, ShipKm: tc.km}}, warp)
+			st, w, c := climbTimed(t, tc.load, picks, warp)
 			name := fmt.Sprintf("%s ship %.0f warp %d", tc.load, tc.km, warp)
 			t.Logf("%s: %d solves, %d flights, held %.0f kg, worst tick %v, min gap %.2f real s", name, st.solves, st.evals, st.held, st.worst, st.minGapRealS)
 			if want := recoveryShipWarpCap; warp == 1 && (st.cappedMax == 0 || st.cappedMax > want) { // equal case: exactly the cap is allowed
@@ -722,11 +728,17 @@ func TestRecoveryTenXShipCutoffLandsWithMargin(t *testing.T) {
 				t.Errorf("%s: held %.0f kg, the drop was refused: %v", name, st.held, w.PendingRecoveryEvents)
 				continue
 			}
-			b := w.Crafts[n]
+			bs := w.Crafts[n:]
+			lz := make([]int, len(bs)) // the claim clears on touchdown: read it before
+			for i, b := range bs {
+				lz[i] = max(b.LZClaim.N, 1)
+			}
 			w.Clock.WarpIdx = 0
-			flyDown(w, b)
-			if d := distToLZ(t, w, b, id, 1); !b.Landed || d > SiteLZRadiusM || b.ActiveStageFuel() < BoostbackFuelMarginKg {
-				t.Errorf("%s: landed=%v %.1f m out with %.0f kg, want inside %v m with at least %.0f kg", name, b.Landed, d, b.ActiveStageFuel(), SiteLZRadiusM, BoostbackFuelMarginKg)
+			flyDown(w, bs...)
+			for i, b := range bs {
+				if d := distToLZ(t, w, b, id, lz[i]); !b.Landed || d > SiteLZRadiusM || b.ActiveStageFuel() < BoostbackFuelMarginKg {
+					t.Errorf("%s: %s landed=%v %.1f m from LZ-%d with %.0f kg, want inside %v m with at least %.0f kg", name, b.Name, b.Landed, d, lz[i], b.ActiveStageFuel(), SiteLZRadiusM, BoostbackFuelMarginKg)
+				}
 			}
 		}
 	}
