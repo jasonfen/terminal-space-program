@@ -130,7 +130,8 @@ func TestProximityTitleRowNamesTheActiveVessel(t *testing.T) {
 		t.Fatalf("not in proximity: %s", a.world.ViewMode)
 	}
 	name := a.world.ActiveCraft().Name
-	if row := firstRow(a); !strings.Contains(row, "VESSEL 1/2 · "+name+" · focus") {
+	// #1019: the camera is on the active vessel, so named once, no focus:.
+	if row := firstRow(a); !strings.Contains(row, "VESSEL 1/2 · "+name) || strings.Contains(row, "focus:") {
 		t.Errorf("Proximity Title Row %q does not name the active vessel %q", row, name)
 	}
 }

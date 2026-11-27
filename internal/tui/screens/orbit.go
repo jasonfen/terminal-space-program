@@ -1743,7 +1743,10 @@ func (v *OrbitView) renderTitleBar(systemName string, w *sim.World, totalCols in
 	// corner (now home to the pinned VESSEL chip). It still says what the
 	// camera follows, a body or the whole system, not just your vessel.
 	parts := []string{systemName}
-	if fn := w.FocusName(); fn != "" {
+	// #1019: FocusCraft is the camera on the vessel you fly (it carries no
+	// craft index), and the title already names that vessel, so no focus:.
+	onActive := w.Focus.Kind == sim.FocusCraft && w.ActiveCraft() != nil
+	if fn := w.FocusName(); fn != "" && !onActive {
 		parts = append(parts, "focus: "+fn)
 	}
 	return v.flightTitleRow(w, totalCols, parts...)

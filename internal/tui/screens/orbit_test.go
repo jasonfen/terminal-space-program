@@ -287,6 +287,7 @@ func TestFocusLabelOverlaidOnCanvas(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewWorld: %v", err)
 	}
+	w.Focus = sim.Focus{Kind: sim.FocusSystem} // #1019: no focus: with the camera on your own vessel
 	v.Resize(160, 40)
 	out := v.Render(w, 0, 160, 40)
 	if !strings.Contains(out, "focus: ") {
