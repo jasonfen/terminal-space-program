@@ -204,7 +204,11 @@ func (v *OrbitView) engineBoosterBadge(w *sim.World, c *spacecraft.Spacecraft) s
 // it there (nothing new to say when current equals max), a reversible
 // call, not a measured one.
 func (v *OrbitView) engineTWRCell(c *spacecraft.Spacecraft) string {
-	return chipRowAt(readout.LabelTWR, engineTWRValue(c), engineCols.value1)
+	row := chipRowAt(readout.LabelTWR, engineTWRValue(c), engineCols.value1)
+	if lit, total, ok := sim.LandingEngines(c); ok {
+		row = chipCellAt(row, "eng:", fmt.Sprintf("%d/%d", lit, total), engineCols.label2, engineCols.gap2)
+	}
+	return row
 }
 
 // engineTWRValue is the TWR figure's text, shared with the LANDING chip's

@@ -6,6 +6,7 @@ package sim
 import (
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 	"time"
 
@@ -976,7 +977,27 @@ func TestRecoveryThreeEngineFallback(t *testing.T) {
 			}
 			w.Clock.WarpIdx = 0
 			bs := w.Crafts[n:]
+			w.SetActiveCraftIdx(n)
+			dir := recAttach(t, w) // #1023: the first stage's recording names its landing engines
 			flyDown(w, bs...)
+			wantRow := "landing burn: 1 engine"
+			if tc.wantThree {
+				wantRow = "landing burn: 3 engines"
+			}
+			var rows []string
+			for _, e := range allEvents(t, dir) {
+				if strings.HasPrefix(e, "landing burn") {
+					rows = append(rows, e)
+				}
+			}
+			if len(rows) != len(bs) { // one row per stage, each in its own file
+				t.Errorf("landing burn rows = %q, want %d of %q", rows, len(bs), wantRow)
+			}
+			for _, r := range rows {
+				if r != wantRow {
+					t.Errorf("landing burn row %q, want %q", r, wantRow)
+				}
+			}
 			for i, b := range bs {
 				d := 1e18
 				for k := 1; k <= 2; k++ {

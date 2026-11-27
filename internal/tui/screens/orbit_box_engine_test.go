@@ -482,3 +482,34 @@ func TestEngineBoxTWRReadsTheSuperDracos(t *testing.T) {
 		}
 	}
 }
+
+// ADR 0071 decision 7 (#1023): the TWR row's eng: cell reads lit/total on a
+// vessel flying a counting landing burn, ends at cell 44 of the box (the value
+// column of mode: above it), and is absent on every other vessel and before
+// the brake lights.
+func TestEngineBoxEngCellOnACountingLandingBurn(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w := descendingMoonCraft(t, 20_000, 120)
+	c := w.ActiveCraft()
+	twr := func() string { return v.buildEngineBox(w)[2] }
+	if row := twr(); strings.Contains(row, "eng:") {
+		t.Errorf("unmarked lander TWR row %q carries eng:", row)
+	}
+	c.Stages[0].LandingThrottle = 3.0 / 9
+	c.Landing = &spacecraft.LandingAutopilot{Engaged: true, Phase: spacecraft.PhaseCoast}
+	if row := twr(); strings.Contains(row, "eng:") {
+		t.Errorf("before the brake lights TWR row %q carries eng:", row)
+	}
+	c.Landing.Phase = spacecraft.PhaseBrake
+	row := twr()
+	if !strings.HasSuffix(row, "eng:   3/9") || lipgloss.Width(row) != 44 {
+		t.Errorf("counting landing burn TWR row %q is %d cells, want it ending eng:   3/9 at cell 44", row, lipgloss.Width(row))
+	}
+	if i := strings.Index(row, "eng:"); i != strings.Index(v.buildEngineBox(w)[1], "mode:") {
+		t.Errorf("eng: at %d, want under mode: at %d", i, strings.Index(v.buildEngineBox(w)[1], "mode:"))
+	}
+	c.Stages[0].LandingThrottle = 0.4 // no count of nine
+	if row := twr(); strings.Contains(row, "eng:") {
+		t.Errorf("a throttle that is no count wrote %q", row)
+	}
+}

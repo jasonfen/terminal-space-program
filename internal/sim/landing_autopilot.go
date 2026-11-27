@@ -700,6 +700,7 @@ func (w *World) tickLandingAutopilotOn(c *spacecraft.Spacecraft) {
 			w.apSetThrottle(c, brakeThrottle(c))
 			c.ManualBurn = &spacecraft.ManualBurn{StartTime: w.Clock.SimTime}
 			c.DryOrder = false
+			w.recordLandingBurn(c)
 		}
 	}
 	if !ap.Nose && c.ManualBurn == nil && c.EffectiveThrottle() > 0 {

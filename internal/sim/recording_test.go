@@ -1390,3 +1390,42 @@ func TestBackgroundRowFillsApproachColumns(t *testing.T) {
 		t.Errorf("landed row filled close/tca/dincl: %+v", row)
 	}
 }
+
+// ADR 0071 decision 7 (#1023): a Moon lander flown by N (no landing mark) writes
+// no landing burn row; LandingEngines is the one rule for both the row and the
+// ENGINE box's eng: cell. Equal cases: the count is read on the brake's phase,
+// not the coast, and a throttle of 1 or 0.4 is no count of nine.
+func TestLandingBurnRowAbsentOnAnUnmarkedLander(t *testing.T) {
+	w, c, dir := bgLander(t)
+	if _, err := w.PlanDeorbitOntoSite(); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.EngageLandingAutopilot(); err != nil {
+		t.Fatal(err)
+	}
+	awayFrom(t, w)
+	for i := 0; i < 2*3600*4 && !c.Landed && !c.Crashed; i++ {
+		w.Tick()
+	}
+	ev := strings.Join(allEv(t, fileOf(t, dir, c)), "|")
+	if !c.Landed || !strings.Contains(ev, "hold: Site+ auto brake") {
+		t.Fatalf("setup: landed=%v, brake never flew: %s", c.Landed, ev)
+	}
+	if strings.Contains(ev, "landing burn") {
+		t.Errorf("unmarked lander wrote a landing burn row: %s", ev)
+	}
+	for _, tc := range []struct {
+		thr   float64
+		phase spacecraft.LandingPhase
+		want  int // 0 = not a count
+	}{
+		{3.0 / 9, spacecraft.PhaseBrake, 3}, {1.0 / 9, spacecraft.PhaseFinal, 1},
+		{3.0 / 9, spacecraft.PhaseCoast, 0}, {1, spacecraft.PhaseBrake, 0}, {0.4, spacecraft.PhaseBrake, 0}, {0, spacecraft.PhaseBrake, 0},
+	} {
+		c.Stages[0].LandingThrottle = tc.thr
+		c.Landing = &spacecraft.LandingAutopilot{Engaged: true, Phase: tc.phase}
+		if lit, total, ok := LandingEngines(c); lit != tc.want || ok != (tc.want > 0) || (ok && total != 9) {
+			t.Errorf("throttle %.4f phase %v: %d of %d ok=%v, want %d", tc.thr, tc.phase, lit, total, ok, tc.want)
+		}
+	}
+}
