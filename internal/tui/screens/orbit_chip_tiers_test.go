@@ -403,6 +403,18 @@ func engineWorstCaseFixtures(t *testing.T) []vabStagesFixture {
 	ec.Stages[0].LandingThrottle = 3.0 / 9
 	ec.Landing = &spacecraft.LandingAutopilot{Engaged: true, Phase: spacecraft.PhaseBrake}
 	add("landing burn on three engines", v.buildEngineBox(ew))
+	// ADR 0071 decision 6 (#1022): the booster badge on a ship climb, counting to the
+	// empty tank (DRY T-) and, once a landing works, to the cutoff.
+	sw, sc, step := shipClimbWorld(t)
+	step()
+	add("ship climb, no landing works", v.buildEngineBox(sw))
+	for i := 0; i < 20000; i++ {
+		if _, ok := sw.RecoveryCutIn(sc); ok {
+			break
+		}
+		step()
+	}
+	add("ship climb, a landing works", v.buildEngineBox(sw))
 	// ADR 0059 S5: the raise branch at its widest: the longest altitudes
 	// (geosynchronous, five digits), the longest countdown a Hall thruster
 	// gives (a lowering from there, three-digit days), waiting and climbing.
@@ -430,14 +442,14 @@ func TestEngineWorstCaseFixturesReachEveryBranch(t *testing.T) {
 	joined := map[string]bool{}
 	for _, r := range engineWorstCaseFixtures(t) {
 		for _, l := range r.lines {
-			for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "brake at", "+10 [m]", "⚠", "Surf ", "Tgt ", "▸ raise", "▸ lower", "starts in", "● RAISE", "eng:   3/9"} {
+			for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "brake at", "+10 [m]", "⚠", "Surf ", "Tgt ", "▸ raise", "▸ lower", "starts in", "● RAISE", "eng:   3/9", "DRY T-", "core 100% T-"} {
 				if strings.Contains(l, want) {
 					joined[want] = true
 				}
 			}
 		}
 	}
-	for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "brake at", "+10 [m]", "⚠", "Surf ", "Tgt ", "▸ raise", "▸ lower", "starts in", "● RAISE", "eng:   3/9"} {
+	for _, want := range []string{"▸ in ", "▸ next approach", "left", "⚠ STALLED", "brake at", "+10 [m]", "⚠", "Surf ", "Tgt ", "▸ raise", "▸ lower", "starts in", "● RAISE", "eng:   3/9", "DRY T-", "core 100% T-"} {
 		if !joined[want] {
 			t.Errorf("worst-case ENGINE fixtures never rendered %q", want)
 		}

@@ -185,7 +185,12 @@ func (v *OrbitView) engineBoosterBadge(w *sim.World, c *spacecraft.Spacecraft) s
 		pct := fmt.Sprintf("%.0f%%", th*100)
 		text += " " + pct + strings.Repeat(" ", max(0, 4-len(pct)))
 	}
-	if cut {
+	if cut && c.Stages[0].RecoverMode.IsShip() && !w.RecoveryLandingWorks(c) {
+		// no landing works: the clock is the tank's, not a cutoff's (ADR 0071 decision 6)
+		if secs, ok := c.StageTimeToDry(idx, th); ok {
+			text += " DRY " + readout.Countdown(time.Duration(secs*float64(time.Second)))
+		}
+	} else if cut {
 		if secs, ok := w.RecoveryCutIn(c); ok {
 			text += " " + readout.Countdown(time.Duration(secs*float64(time.Second)))
 		}

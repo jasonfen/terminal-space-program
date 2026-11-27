@@ -513,3 +513,86 @@ func TestEngineBoxEngCellOnACountingLandingBurn(t *testing.T) {
 		t.Errorf("a throttle that is no count wrote %q", row)
 	}
 }
+
+// shipClimbWorld is a Falcon 9 + Dragon on the pad with a drone ship set, throttle
+// up and the burn started; step flies one tick of the 9.0 s-kick climb of
+// TestRecoveryFlatClimbCutoffNeverLeavesARefusedDrop (the standard one: a landing
+// works from about T+2:07).
+func shipClimbWorld(t *testing.T) (w *sim.World, c *spacecraft.Spacecraft, step func()) {
+	t.Helper()
+	deg := math.Pi / 180
+	w, err := sim.NewWorld()
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.Crafts, w.ActiveCraftIdx = nil, -1
+	c, err = w.SpawnCraft(sim.SpawnSpec{LoadoutID: "Falcon-9-Dragon", ParentBodyID: "earth", Launchpad: true,
+		Latitude: sim.DefaultLaunchpadLatitude, LongitudeOffset: sim.DefaultLaunchpadLongitudeEast,
+		Recover: []sim.RecoverPick{{Mode: spacecraft.RecoverShip, ShipKm: sim.RecoveryShipDefaultKm}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.RecomputeCommGraph()
+	c.Throttle, c.EngineMode, c.AttitudeMode = 1, spacecraft.EngineMain, spacecraft.BurnRadialOut
+	w.StartManualBurn()
+	t0 := w.Clock.SimTime
+	return w, c, func() {
+		switch el := w.Clock.SimTime.Sub(t0).Seconds(); {
+		case el >= 9 && el < 11:
+			c.PitchTrim = deg
+		case el >= 11 && c.AttitudeMode == spacecraft.BurnRadialOut:
+			c.AttitudeMode = spacecraft.BurnSurfacePrograde
+		case el >= 14 && el < 111:
+			c.PitchTrim = 0
+		case el >= 111 && el < 124:
+			c.PitchTrim = -math.Ceil((el-111)/1.3+0.01) * deg
+		case el >= 124:
+			c.PitchTrim = -10 * deg
+		}
+		w.Tick()
+	}
+}
+
+// ADR 0071 decision 6 (#1022): while a ship-set stage burns and no landing works
+// the badge counts to the empty tank, `· core 100% DRY T-2m41s`; from the tick a
+// landing works it reads the cutoff clock, `· core 100% T-12s` (bare while only the
+// three-engine plan stands and no cutoff is predicted yet), and never DRY T-. The
+// tick the first plan stands (the equal case) is checked on each side of the switch.
+func TestEngineBoxBadgeCountsToDryUntilALandingWorks(t *testing.T) {
+	v := NewOrbitView(launchThemeForTest())
+	w, c, step := shipClimbWorld(t)
+	dry, cut, flips := 0, 0, 0
+	was := false
+	for i := 0; i < 20000 && c.Stages[0].HeldKg == 0 && c.ManualBurn != nil; i++ {
+		step()
+		if c.Stages[0].HeldKg > 0 { // the cutoff itself: the badge reads MECO
+			break
+		}
+		works := w.RecoveryLandingWorks(c)
+		badge := v.engineBoosterBadge(w, c)
+		if works != was {
+			flips++
+		}
+		was = works
+		switch secs, haveClock := w.RecoveryCutIn(c); {
+		case !works:
+			dry++
+			tank, _ := c.StageTimeToDry(0, c.EffectiveThrottle())
+			if want := " · core 100% DRY " + readout.Countdown(time.Duration(tank*float64(time.Second))); badge != want {
+				t.Fatalf("tick %d: no landing works, badge %q, want the tank's clock %q", i, badge, want)
+			}
+		case haveClock:
+			cut++
+			if want := " · core 100% " + readout.Countdown(time.Duration(secs*float64(time.Second))); badge != want {
+				t.Fatalf("tick %d: a landing works, badge %q, want the cutoff clock %q", i, badge, want)
+			}
+		default:
+			if badge != " · core 100%" {
+				t.Fatalf("tick %d: a landing works with no cutoff predicted, badge %q, want it bare", i, badge)
+			}
+		}
+	}
+	if dry == 0 || cut == 0 || flips != 1 {
+		t.Errorf("climb read DRY T- on %d ticks, the cutoff clock on %d, switched %d times; want both and one switch", dry, cut, flips)
+	}
+}
