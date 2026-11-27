@@ -1576,3 +1576,69 @@ func TestCorrectionForCapsTheBurnToWhatTheTankPays(t *testing.T) {
 		t.Errorf("capped burn %.2f m/s, want inside (0, %.2f)", capped.dv, cp.dv)
 	}
 }
+
+// #1012: the three-engine cut re-solves RecoveryStageGraceS ahead before it commits
+// (staging is the pilot's press, a plan shut a few seconds later was refused at the
+// drop). The recording's bare Falcon 9 to a ship 350 km out (flownF9's climb) has a
+// window at T+139.2 to 139.3 where the plan closes now but not after the 5 s coast.
+// The three-engine line is forced to say "reached" at the first tick of each kind
+// (recoveryCutoff called on that state, so the probe and the cut see the same fall):
+// a plan that closes after the grace cuts, one that does not holds the engines.
+func TestThreeEngineCutHoldsWhenThePlanShutsInsideTheGrace(t *testing.T) {
+	const deg = math.Pi / 180
+	for _, tc := range []struct {
+		name    string
+		shutsIn bool // the tick to cut on: closes now, not after the grace
+		wantCut bool
+	}{{"plan closes after the grace", false, true}, {"plan shuts inside the grace", true, false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := mustWorld(t)
+			w.Crafts, w.ActiveCraftIdx = nil, -1
+			c, err := w.SpawnCraft(SpawnSpec{LoadoutID: "Falcon-9", ParentBodyID: "earth", Launchpad: true,
+				Latitude: DefaultLaunchpadLatitude, LongitudeOffset: DefaultLaunchpadLongitudeEast,
+				Recover: []RecoverPick{{Mode: spacecraft.RecoverShip, ShipKm: 350}}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w.noShipFollow = true
+			w.RecomputeCommGraph()
+			c.Throttle, c.EngineMode, c.AttitudeMode = 1, spacecraft.EngineMain, spacecraft.BurnRadialOut
+			w.StartManualBurn()
+			t0 := w.Clock.SimTime
+			st := &c.Stages[0]
+			for i := 0; i < 60000 && c.ManualBurn != nil && st.HeldKg == 0; i++ {
+				switch el := w.Clock.SimTime.Sub(t0).Seconds(); {
+				case el >= 10.5 && el < 16.2:
+					c.PitchTrim, c.AttitudeMode = 1*deg, spacecraft.BurnSurfacePrograde
+				case el >= 16.2 && el < 126.5:
+					c.PitchTrim = 0
+				case el >= 126.5 && el < 127.5:
+					c.PitchTrim = 5 * deg
+				case el >= 127.5:
+					c.PitchTrim = 10 * deg
+				}
+				if rt := w.recRT[c.ID]; rt != nil && w.Clock.SimTime.Sub(t0).Seconds() > 133 {
+					rt.three, rt.haveCut, rt.nextSolve = threeEngineLine{}, false, w.Clock.SimTime.Add(time.Hour) // the cutoff's own line would cut at T+136.6: keep the engines lit to the window
+				}
+				if w.Clock.SimTime.Sub(t0).Seconds() >= 138.9 { // from here the window is near: probe each tick
+					_, _, _, e0 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, 0, false, 0, 0)
+					_, _, _, e5 := w.recoverySlackAt(c, ThreeEngineLandingThrottle, st.FuelMass, 0, false, RecoveryStageGraceS, 0)
+					if e0 == nil && (e5 != nil) == tc.shutsIn {
+						rt := w.recoveryRTFor(c)
+						now := w.Clock.SimTime
+						rt.nextSolve, rt.seenFeasible, rt.haveCut = now.Add(time.Hour), false, false
+						rt.three = threeEngineLine{have: true, at: now, slack: 0, rate: 1}
+						w.recoveryCutoff(c, w.Clock.BaseStep)
+						t.Logf("T+%.2f, %.0f kg: held %.0f kg", now.Sub(t0).Seconds(), st.FuelMass, st.HeldKg)
+						if cut := st.HeldKg > 0; cut != tc.wantCut {
+							t.Errorf("cut=%v, want %v (plan closes now, after the grace: %v)", cut, tc.wantCut, e5 == nil)
+						}
+						return
+					}
+				}
+				w.Tick()
+			}
+			t.Fatalf("no tick with the plan closing now and (after the grace shut=%v) before the stage cut or burned dry", tc.shutsIn)
+		})
+	}
+}
