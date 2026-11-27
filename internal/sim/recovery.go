@@ -277,6 +277,8 @@ type recoveryRuntime struct {
 	shipAt       time.Time       // when the ship last followed the heading (ADR 0071 decision 4)
 	onFall       bool            // `ship auto`: a landing has worked, the ship now takes the forecast stop
 	autoThree    bool            // `ship auto`: the last closing forecast needed three engines
+	flashed      bool            // the "no way home" Event Flash has gone out (ADR 0071 decision 6): once per climb
+	noPlanErr    error           // why the latest solve of a climb no plan has closed on gave no plan
 }
 
 // threeEngineLine is ADR 0071 decision 1's stand-in for the cutoff line while the
@@ -375,6 +377,25 @@ func (w *World) RecoveryCutIn(c *spacecraft.Spacecraft) (secs float64, ok bool) 
 		return 0, false
 	}
 	return math.Max(0, rt.slack/rt.rate-w.Clock.SimTime.Sub(rt.at).Seconds()), true
+}
+
+// RecoveryLandingWorks is whether a landing works from the stage's state now: a
+// plan has closed and the latest solve did not lose it, or the three-engine plan
+// stands. The badge reads DRY T- (the tank's clock) while it does not (ADR 0071
+// decision 6). It reads solver state; it solves nothing.
+func (w *World) RecoveryLandingWorks(c *spacecraft.Spacecraft) bool {
+	rt := w.recRT[c.ID] // a nil map reads as absent
+	return rt != nil && ((rt.haveCut && !rt.lost) || rt.three.have)
+}
+
+// noWayHomeFlash is decision 6's one Event Flash: in the words N refuses with, once.
+func (w *World) noWayHomeFlash(c *spacecraft.Spacecraft, rt *recoveryRuntime, err error) {
+	if rt.flashed || err == nil {
+		return
+	}
+	rt.flashed = true
+	w.PendingRecoveryEvents = append(w.PendingRecoveryEvents, RecoveryEvent{c.Name, err.Error()})
+	w.recordRowFor(c, "recovery: "+err.Error())
 }
 
 // errRecoveryHeavy: the stage is too heavy for any plan to land it, so the
@@ -676,13 +697,19 @@ func (w *World) recoveryCutoff(c *spacecraft.Spacecraft, simDelta time.Duration)
 		case errors.Is(err, errRecoveryHeavy):
 			rt.nextSolve = now.Add(time.Duration(recoveryHeavySec * float64(time.Second)))
 		default:
+			rt.noPlanErr = err
 			rt.nextSolve = now.Add(time.Duration(math.Max(recoveryRetrySec, recoveryMinSec*tickWarp) * float64(time.Second)))
 		}
 	}
+	// A climb no plan has closed on (#992's flat climb): the tank can no longer land
+	// once it holds less than the margin plus the pad, the least any cutoff leaves
+	// (the reserve is that and the landing burn's own propellant).
+	if !rt.seenFeasible && !rt.three.have && st.FuelMass < BoostbackFuelMarginKg+RecoveryPadKg {
+		w.noWayHomeFlash(c, rt, rt.noPlanErr)
+	}
 	if near() {
-		if rt.lost && rt.lostErr != nil {
-			w.PendingRecoveryEvents = append(w.PendingRecoveryEvents, RecoveryEvent{c.Name, rt.lostErr.Error()})
-			w.recordRowFor(c, "recovery: "+rt.lostErr.Error())
+		if rt.lost { // the reserve line is the last fuel level that lands, and no plan closes at it
+			w.noWayHomeFlash(c, rt, rt.lostErr)
 		}
 		w.cutAtReserve(c)
 	} else if !rt.seenFeasible && rt.three.reached(now.Sub(rt.three.at).Seconds()+simDelta.Seconds()+RecoveryCutLeadS, rt.threePad()) {

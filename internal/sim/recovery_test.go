@@ -1473,3 +1473,26 @@ func TestRecoveryShipAutoSolvesAreCheap(t *testing.T) {
 		t.Errorf("%d aim flights, want at most 7000 (measured 5,583)", w.aimEvals)
 	}
 }
+
+// ADR 0071 decision 6 (#1022, #992): one Event Flash, once, in the words N refuses
+// with, when no landing can work any more: the cutoff reaches the reserve line with
+// no plan that closes (the existing lost case, once per cut) or the tank can no
+// longer land on a climb no plan closed on (7.0 and 7.25: the flat climb of #992).
+// A climb that still lands says nothing, including 8.25, where a plan closed, was
+// lost and closed again (a flash on losing the plan would have lied there).
+// The flash is queued while the stage burns, not at the drop.
+func TestRecoveryNoWayHomeFlashesOnce(t *testing.T) {
+	for _, tc := range []struct {
+		kick float64
+		want int
+	}{{7.0, 1}, {7.25, 1}, {8.0, 0}, {8.25, 0}, {8.5, 0}, {9.0, 0}} {
+		w, c := flatKickClimb(t, tc.kick, RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: RecoveryShipDefaultKm})
+		if n := len(w.PendingRecoveryEvents); n != tc.want {
+			t.Errorf("kick %.2f: %d flashes %v, want %d", tc.kick, n, w.PendingRecoveryEvents, tc.want)
+			continue
+		}
+		if tc.want == 1 && (w.PendingRecoveryEvents[0].CraftName != c.Name || w.PendingRecoveryEvents[0].Refusal == "") {
+			t.Errorf("kick %.2f: flash %+v, want the vessel and the refusal's words", tc.kick, w.PendingRecoveryEvents[0])
+		}
+	}
+}
