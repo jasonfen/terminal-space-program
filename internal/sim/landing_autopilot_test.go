@@ -1435,6 +1435,8 @@ func fhBoosterDrop(t *testing.T) (*World, *spacecraft.Spacecraft) {
 // threshold with the tank dry (1229 m out at 50 m; the pull only ended when it ran dry).
 func TestRecoveringBoosterThatCannotReachLandsWhereItIs(t *testing.T) {
 	w, b := fhBoosterDrop(t)
+	// hold the correction burn off: it brings this drop home (5 m out), which is not the case under test (#1011)
+	w.apRuntimeFor(b).corrected = true
 	var speed float64
 	for i := 0; i < 20*3600 && !(b.Landed || b.Crashed); i++ {
 		speed = contactSpeedMps(b, b.State.R, b.State.V)
@@ -1452,6 +1454,8 @@ func TestRecoveringBoosterThatCannotReachLandsWhereItIs(t *testing.T) {
 	}
 	if len(ev) == 0 || ev[len(ev)-1].DistanceM <= 0 || ev[len(ev)-1].Crashed {
 		t.Errorf("landing events %+v, want one with the distance from the site", ev)
+	} else if d := ev[len(ev)-1].DistanceM; d < 500 { // measured 1,382 m; a pull that reached the site would be metres
+		t.Errorf("landed %.0f m from the site, want over 500 m: it must land where it is, not slide home", d)
 	}
 	t.Logf("touchdown %.2f m/s, fuel %.0f kg, %.0f m from the site", speed, b.ActiveStageFuel(), ev[len(ev)-1].DistanceM)
 }
