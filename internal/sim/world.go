@@ -2544,6 +2544,9 @@ func (w *World) TrimNoseDownDeg(c *spacecraft.Spacecraft) float64 {
 // craft is pinned to it. v0.10.0+.
 func (w *World) commandedDirFor(c *spacecraft.Spacecraft) orbital.Vec3 {
 	mode, rT, vT, aT, planeRad, burnDir := w.attitudeContext(c)
+	if c.ActiveBurn != nil { // a planted burn flies its node's direction, no trims (#1037)
+		return c.BurnDirectionPlantedAtt(mode, rT, vT, aT, planeRad, burnDir)
+	}
 	return c.BurnDirectionForBurnAtt(mode, rT, vT, aT, planeRad, burnDir)
 }
 
@@ -2609,7 +2612,9 @@ func (w *World) stepThrust(c *spacecraft.Spacecraft, mu, dt float64) {
 		// them. Under InstantSAS thrust along the resolved commanded
 		// direction (recomputed per tick — ample for a short burn).
 		thrustFn = c.ThrustAccelFnFixedDir(
-			c.BurnDirectionForBurnAtt(mode, rT, vT, aT, planeRad, burnDir), mu, throttle)
+			c.BurnDirectionPlantedAtt(mode, rT, vT, aT, planeRad, burnDir), mu, throttle)
+	case w.InstantSAS && c.ActiveBurn != nil:
+		thrustFn = c.ThrustAccelFnPlantedAtt(mode, mu, throttle, rT, vT, aT) // #1037: no trims
 	case w.InstantSAS:
 		thrustFn = c.ThrustAccelFnAtWithTargetAtt(mode, mu, throttle, rT, vT, aT)
 	default:

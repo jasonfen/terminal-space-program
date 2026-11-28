@@ -906,6 +906,16 @@ func (s *Spacecraft) ThrustAccelFnAtWithTarget(mode BurnMode, mu, throttle float
 // target's attitude for the PORT-frame modes (captured once per closure
 // like the rest of the target snapshot).
 func (s *Spacecraft) ThrustAccelFnAtWithTargetAtt(mode BurnMode, mu, throttle float64, rT, vT, aT orbital.Vec3) func(r, v orbital.Vec3, t float64) orbital.Vec3 {
+	return s.thrustAccelFn(mode, mu, throttle, rT, vT, aT, true)
+}
+
+// ThrustAccelFnPlantedAtt is ThrustAccelFnAtWithTargetAtt for a planted
+// burn: the pitch / heading trims are not folded in (#1037).
+func (s *Spacecraft) ThrustAccelFnPlantedAtt(mode BurnMode, mu, throttle float64, rT, vT, aT orbital.Vec3) func(r, v orbital.Vec3, t float64) orbital.Vec3 {
+	return s.thrustAccelFn(mode, mu, throttle, rT, vT, aT, false)
+}
+
+func (s *Spacecraft) thrustAccelFn(mode BurnMode, mu, throttle float64, rT, vT, aT orbital.Vec3, trims bool) func(r, v orbital.Vec3, t float64) orbital.Vec3 {
 	mass := s.TotalMass()
 	if throttle < 0 {
 		throttle = 0
@@ -968,7 +978,9 @@ func (s *Spacecraft) ThrustAccelFnAtWithTargetAtt(mode BurnMode, mu, throttle fl
 			dir = DirectionUnit(mode, r, v)
 		}
 		if mode != BurnInertial && !(mode == BurnSite && siteOwned) {
-			dir = ApplyTrims(dir, r, spinAxis, pitchTrim, headingTrim)
+			if trims {
+				dir = ApplyTrims(dir, r, spinAxis, pitchTrim, headingTrim)
+			}
 			dir = PortLean(dir, rT, vT, aT, portPitch, portYaw) // ADR 0055: after the hold, like BurnDirection
 		}
 		if dir.Norm() == 0 {

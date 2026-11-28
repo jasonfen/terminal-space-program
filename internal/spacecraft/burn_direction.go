@@ -57,11 +57,20 @@ func (s *Spacecraft) BurnDirectionWithTarget(mode BurnMode, rT, vT orbital.Vec3)
 // attitude (its nose direction) for the six PORT-frame modes (ADR 0053
 // decision 7). aT is ignored by every other mode.
 func (s *Spacecraft) BurnDirectionWithTargetAtt(mode BurnMode, rT, vT, aT orbital.Vec3) orbital.Vec3 {
+	return s.burnDirectionAtt(mode, rT, vT, aT, true)
+}
+
+// burnDirectionAtt is BurnDirectionWithTargetAtt with the pitch / heading
+// trims optional: a planted burn passes false (#1037).
+func (s *Spacecraft) burnDirectionAtt(mode BurnMode, rT, vT, aT orbital.Vec3, trims bool) orbital.Vec3 {
 	dir := s.BurnDirectionUntrimmedWithTargetAtt(mode, rT, vT, aT)
 	if dir.Norm() == 0 || mode == BurnInertial || mode.IsSitePulse() || (mode == BurnSite && s.Landing.Owns()) {
 		return dir // Inertial: the nose itself, a trim would turn it every tick; Site+ auto: the autopilot's (the q hold takes trims, P33)
 	}
-	return s.PortLean(s.applyTrims(dir), rT, vT, aT)
+	if trims {
+		dir = s.applyTrims(dir)
+	}
+	return s.PortLean(dir, rT, vT, aT)
 }
 
 // PortLean tips dir across the port face by the port trim pair (ADR 0055
@@ -255,6 +264,20 @@ func (s *Spacecraft) BurnDirectionForBurnAtt(mode BurnMode, rT, vT, aT orbital.V
 		return burnDir.Unit()
 	}
 	return s.BurnDirectionPlaneAwareAtt(mode, rT, vT, aT, planeRad)
+}
+
+// BurnDirectionPlantedAtt is BurnDirectionForBurnAtt for a planted node's
+// burn (its pre-slew, its flight, its navball marker): the node's own
+// direction, without the player's pitch / heading trims (#1037). Trims keep
+// steering manual burns, RCS pulses and plain holds.
+func (s *Spacecraft) BurnDirectionPlantedAtt(mode BurnMode, rT, vT, aT orbital.Vec3, planeRad float64, burnDir orbital.Vec3) orbital.Vec3 {
+	switch mode {
+	case BurnVector:
+		return burnDir.Unit()
+	case BurnPlaneChange:
+		return planeChangeDirection(s.State.R, s.State.V, planeRad)
+	}
+	return s.burnDirectionAtt(mode, rT, vT, aT, false)
 }
 
 // localHorizonFrame builds the (east, up, north) local frame at

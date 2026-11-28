@@ -3565,7 +3565,7 @@ func (w *World) nodeLeadActive(c *spacecraft.Spacecraft) (orbital.Vec3, bool) {
 			return orbital.Vec3{}, false
 		}
 	}
-	dir := c.BurnDirectionForBurn(n.Mode, rT, vT, n.PlaneChangeRad, n.BurnDirUnit)
+	dir := c.BurnDirectionPlantedAtt(n.Mode, rT, vT, orbital.Vec3{}, n.PlaneChangeRad, n.BurnDirUnit) // no trims: the burn flies untrimmed (#1037)
 	if spacecraft.HoldsInertialDirection(n.Mode) {
 		dir = w.heldIgnitionDir(c, n)
 	}

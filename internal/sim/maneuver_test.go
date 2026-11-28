@@ -2709,3 +2709,65 @@ func TestPlanTransferMarsDoesNotReplan(t *testing.T) {
 		t.Errorf("planted %d nodes but used %d node IDs: the plan was computed twice", planted, used)
 	}
 }
+
+// flyCircularize plants C from a 200 x 1000 km orbit with the given trims
+// and holds, ticks until the burn is done, and returns the resulting
+// periapsis and apoapsis radii. A burn that fires true gives ~1000 x 1000 km.
+func flyCircularize(t *testing.T, mode spacecraft.BurnMode, pitch, heading float64) (rp, ra float64) {
+	t.Helper()
+	w := mustWorld(t)
+	c := w.ActiveCraft()
+	mu := c.Primary.GravitationalParameter()
+	rPeri := c.Primary.RadiusMeters() + 200e3
+	a := (rPeri + c.Primary.RadiusMeters() + 1000e3) / 2
+	frame := orbital.ReferenceFrameForPrimary(c.Primary)
+	c.State.R = frame.ToWorld(orbital.Vec3{X: rPeri})
+	c.State.V = frame.ToWorld(orbital.Vec3{Y: math.Sqrt(mu * (2/rPeri - 1/a))})
+	c.AttitudeMode, c.PitchTrim, c.HeadingTrim = mode, pitch, heading
+	if _, err := w.PlanCircularizeAtApoapsis(); err != nil {
+		t.Fatalf("PlanCircularizeAtApoapsis: %v", err)
+	}
+	w.Clock.WarpIdx = 3
+	fired := false
+	for i := 0; i < 400000; i++ {
+		w.Tick()
+		if c.ActiveBurn != nil {
+			fired = true
+		}
+		if fired && c.ActiveBurn == nil && len(c.Nodes) == 0 {
+			break
+		}
+	}
+	if !fired || c.ActiveBurn != nil || len(c.Nodes) != 0 {
+		t.Fatalf("burn did not complete (fired=%v)", fired)
+	}
+	r, v := c.State.R.Norm(), c.State.V.Norm()
+	h := c.State.R.Cross(c.State.V).Norm()
+	sa := 1 / (2/r - v*v/mu)
+	e := math.Sqrt(math.Max(0, 1-h*h/(mu*sa)))
+	return sa * (1 - e), sa * (1 + e)
+}
+
+// TestPlantedBurnIgnoresTrims pins #1037: a planted burn flies its node's
+// direction whatever the pitch / heading trims say (a -45 deg heading trim
+// used to leave 324 x 206 km after a circularize). The zero-trim run is the
+// equal case; the trimmed runs must land on the same orbit.
+func TestPlantedBurnIgnoresTrims(t *testing.T) {
+	rp0, ra0 := flyCircularize(t, spacecraft.BurnPrograde, 0, 0)
+	if ra0-rp0 > 20e3 {
+		t.Fatalf("zero-trim circularize left %.0f x %.0f km", rp0/1e3, ra0/1e3)
+	}
+	for _, tc := range []struct {
+		name           string
+		mode           spacecraft.BurnMode
+		pitch, heading float64
+	}{
+		{"heading -45", spacecraft.BurnSurfacePrograde, 0, -math.Pi / 4},
+		{"pitch +20 heading +30", spacecraft.BurnSurfacePrograde, 20 * math.Pi / 180, 30 * math.Pi / 180},
+	} {
+		rp, ra := flyCircularize(t, tc.mode, tc.pitch, tc.heading)
+		if math.Abs(rp-rp0) > 2e3 || math.Abs(ra-ra0) > 2e3 {
+			t.Errorf("%s: orbit %.1f x %.1f km, want the zero-trim %.1f x %.1f km", tc.name, rp/1e3, ra/1e3, rp0/1e3, ra0/1e3)
+		}
+	}
+}
