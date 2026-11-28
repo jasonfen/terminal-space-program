@@ -510,12 +510,13 @@ func TestLunarNLandingPlantsNoCorrection(t *testing.T) {
 				t.Fatalf("tick %d: a %q node was planted on a lander", i, n.AdvisoryKey)
 			}
 		}
+		// read in flight: landingEnded clears the flag at touchdown (#1014)
+		if w.apRuntimeFor(c).corrected {
+			t.Fatalf("tick %d: the correction armed for a stage that is not recovering", i)
+		}
 	}
 	if !c.Landed {
 		t.Fatal("setup: the lander never landed")
-	}
-	if w.apRuntimeFor(c).corrected {
-		t.Error("the correction armed for a stage that is not recovering")
 	}
 }
 

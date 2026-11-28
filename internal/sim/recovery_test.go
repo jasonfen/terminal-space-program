@@ -4,6 +4,7 @@ package sim
 // recover: choice, the drone ship, the flight home at the drop, the cutoff).
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -1494,6 +1495,31 @@ func TestRecoveryNoWayHomeFlashesOnce(t *testing.T) {
 		}
 		if tc.want == 1 && (w.PendingRecoveryEvents[0].CraftName != c.Name || w.PendingRecoveryEvents[0].Refusal == "") {
 			t.Errorf("kick %.2f: flash %+v, want the vessel and the refusal's words", tc.kick, w.PendingRecoveryEvents[0])
+		}
+	}
+}
+
+// The never-closed flash fires once the tank holds less than margin + pad (3.5 t),
+// not at the equal case: 0.35 t and 35 t both passed the flown table above.
+func TestRecoveryNoWayHomeFlashThreshold(t *testing.T) {
+	limit := BoostbackFuelMarginKg + RecoveryPadKg
+	for _, tc := range []struct {
+		fuel float64
+		want int
+	}{{limit - 1, 1}, {limit, 0}, {limit + 1, 0}} {
+		w, c := flatKickClimb(t, 7.0, RecoverPick{Mode: spacecraft.RecoverShip, ShipKm: RecoveryShipDefaultKm})
+		rt := w.recoveryRTFor(c)
+		rt.flashed, rt.seenFeasible, rt.haveCut, rt.lost, rt.three = false, false, false, false, threeEngineLine{}
+		rt.noPlanErr, rt.nextSolve = errors.New("no plan"), w.Clock.SimTime.Add(time.Hour)
+		w.PendingRecoveryEvents = nil
+		if c.ManualBurn == nil {
+			c.ManualBurn = &spacecraft.ManualBurn{StartTime: w.Clock.SimTime}
+		}
+		c.DecouplePlan = nil
+		c.Stages[0].FuelMass = tc.fuel
+		w.recoveryCutoff(c, w.Clock.BaseStep)
+		if n := len(w.PendingRecoveryEvents); n != tc.want {
+			t.Errorf("tank %.0f kg: %d flashes, want %d", tc.fuel, n, tc.want)
 		}
 	}
 }

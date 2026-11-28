@@ -185,8 +185,8 @@ func (v *OrbitView) engineBoosterBadge(w *sim.World, c *spacecraft.Spacecraft) s
 		pct := fmt.Sprintf("%.0f%%", th*100)
 		text += " " + pct + strings.Repeat(" ", max(0, 4-len(pct)))
 	}
-	if cut && c.Stages[0].RecoverMode.IsShip() && !w.RecoveryLandingWorks(c) {
-		// no landing works: the clock is the tank's, not a cutoff's (ADR 0071 decision 6)
+	if cut && c.Stages[0].RecoverMode.IsShip() && !w.RecoveryLandingWorks(c) && (c.Landing == nil || !c.Landing.Engaged) {
+		// no landing works: the clock is the tank's, not a cutoff's (ADR 0071 decision 6); a stage already under the landing autopilot is past its climb, no DRY clock
 		if secs, ok := c.StageTimeToDry(idx, th); ok {
 			text += " DRY " + readout.Countdown(time.Duration(secs*float64(time.Second)))
 		}

@@ -597,7 +597,7 @@ const LandingEngineTotal = 9
 // landing throttle is not a whole count of engines (a Moon lander, a capsule) and
 // outside the burn.
 func LandingEngines(c *spacecraft.Spacecraft) (lit, total int, ok bool) {
-	if c == nil || c.Landing == nil || !c.Landing.Engaged || c.Landing.Phase == spacecraft.PhaseCoast {
+	if c == nil || c.Landing == nil || !c.Landing.Engaged || c.Landing.Nose || c.Landing.Phase == spacecraft.PhaseCoast {
 		return 0, 0, false
 	}
 	x := c.LandingThrottle() * LandingEngineTotal
