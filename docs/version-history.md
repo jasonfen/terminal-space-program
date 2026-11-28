@@ -2,6 +2,19 @@
 
 Newest first. One headline per release, then the concrete changes and the issues they closed.
 
+### v0.71.0
+
+Drone ships at sea, a clock when the stage can't get home, and planted burns that fly true (ADR 0071; PRs `#1024` to `#1033`, `#1036`, `#1038`, `#1045`, `#1046`; closes `#992`, `#1010` to `#1015`, `#1018` to `#1023`, `#1034`, `#1037`; tag `v0.71.0`). Save schema unchanged (25).
+
+- **The drone ship is at sea.** On the approach the landing view's ground is ocean blue, the ship is a `▄⚑▄` deck and the OVERHEAD inset is backed in blue. On the globe and at LZ zoom the ship is `▬`; F3's `ships [s]` row hides it. Within 10 km of the ship `V` shows the water and the deck too. Ships in existing saves draw at sea.
+- **`DRY T-`.** While no landing works on the climb, the ENGINE badge of a stage with a ship set counts to an empty tank instead of a cutoff, and one Event Flash says why when the last fuel that lands passes (`#1022`, `#992`).
+- **Engine count.** During the landing burn the ENGINE box reads `eng: 3/9` (`1/9` on one engine), and the recording has `landing burn: 3 engines` (`#1023`).
+- **A planted burn ignores your trims.** It flies its node's direction, so a heading left over from `G`'s launch window no longer turns a circularize sideways (`#1037`). Manual burns and holds still take the trims.
+- **Correction burns.** Only a stage being recovered plants one, and each landing can get its own (`#1010`, `#1014`).
+- **Views.** `]` keeps the close view on the next flying vessel (`#1018`); the map title names your vessel once (`#1019`); vessels you are not flying and dropped stages draw dim grey (`#1020`).
+- **Planner.** `H` skips a replan that changes nothing on Earth-to-Mars and Moon-return plans (`#1013`).
+- **Known issues.** An older build loads a `ship auto` save without its warp cap or 3 s solve spacing; nothing crashes and the core still lands (`#1015`). A ship landing whose plan stands to an almost empty tank can still burn dry with no flash (`#1039`). Dropping Falcon Heavy's boosters by hand before BECO leaves the boosters' cutoff on the core (`#1040`).
+
 ### v0.70.0
 
 Falcon Heavy's core comes home, and boosters land on the pad (ADR 0071; PRs `#997`, `#1000`, `#1002`, `#1003`, `#1004`, `#1006` to `#1009`; closes `#996`, `#998`, `#999`, `#1001`; tag `v0.70.0`). Save schema unchanged (25).
