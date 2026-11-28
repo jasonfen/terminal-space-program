@@ -45,6 +45,11 @@ func TestControlsDocNamesBatchRow(t *testing.T) {
 		"| `COVERAGE` | The notice for the site or landed vessel you aimed at, or for the lunar coverage rung",
 		"tinted green where the ground is linked this instant (`F3` `c` switches it off)",
 		"Press `t` twice to target the Moon",
+		"| `eng:` | ENGINE's TWR row, during the landing burn: engines lit of the stage's nine, `3/9` (`1/9` on a one-engine landing) |",
+		"| `DRY T-` | ENGINE's badge on a stage with a ship set while no landing works on the climb: time to an empty tank |",
+		"`DRY T-` to an empty tank while no landing works",
+		"(`DRY T-` instead while no landing works)",
+		"| `➤` | your vessel, in yellow (or your theme's craftmarker colour); other vessels and ghosts dim grey |",
 		"| `recover:` ship auto | Falcon Heavy core's default: starts 250 km out, then stays under the core's fall until the cutoff; `Enter` types a km |",
 		"| `recover:` heavy | Falcon Heavy: boosters set to recover, the core holds 60 % (auto) until BECO; moving the core throttle ends it |",
 	} {
