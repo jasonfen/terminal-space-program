@@ -124,6 +124,7 @@ var helpSections = []helpSection{
 		{"alt+↑ / alt+↓", "heading trim 1° left / right (fine); name the pad window's exact heading; in PORT 0.25°"},
 		{"alt", "the Alt key on Windows and Linux (WezTerm and most terminals send it as-is); Option on a Mac, see below"},
 		{"alt on a Mac", "Ghostty works as-is; Terminal.app: Profiles > Keyboard > Use Option as Meta key; iTerm2: Left Option = Esc+"},
+		{"planted burn", "ignores the pitch and heading trims: it flies its node's direction; manual burns and pulses keep them"},
 		{"|", "reset pitch trim and heading trim to 0 (in PORT, the port-face trims; Site+ auto: the aim)"},
 		{"b", "engage / cut the manual burn (main engine); lit, it cuts every liquid engine, never a lit solid"},
 		{"r", "engine: main / rcs; a Dragon also has superdraco (landing burn, N uses it either way)"},

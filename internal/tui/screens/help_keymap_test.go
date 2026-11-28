@@ -258,6 +258,7 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 		"q e w s a d (rcs) in SITE with RCS armed: pulse fwd / back, up / down, left / right; refused under N, free under q",
 		"r engine: main / rcs; a Dragon also has superdraco (landing burn, N uses it either way)",
 		"alt+e / alt+q under Site+ auto, approach and final: the same sink steps, 0.3 m/s a press",
+		"planted burn ignores the pitch and heading trims: it flies its node's direction; manual burns and pulses keep them",
 	} {
 		if !strings.Contains(f1, want) {
 			t.Errorf("F1 MANUAL FLIGHT page lacks %q", want)
@@ -298,6 +299,7 @@ func TestHelpNamesTheSiteLandingAutopilot(t *testing.T) {
 		"Off orbit it plants the boostback and its entry burn",
 		"`hold:` reads `Site+ wait` until the engine is lit",
 		"`b` (surface retrograde, the engine yours: footer `Site+ off: engine lit by hand`) switches it off",
+		"| planted burn | A burn planted as a node (`C`, `B`, `N`, the planner) ignores the pitch and heading trims and flies its node's direction",
 	} {
 		if !strings.Contains(string(doc), want) {
 			t.Errorf("docs/controls.md lacks %q", want)

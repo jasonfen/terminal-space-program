@@ -470,7 +470,7 @@ func (w *World) NavballMarkers() []render.NavballMarker {
 				continue
 			}
 		}
-		dir := active.BurnDirectionPlaneAware(n.Mode, nrT, nvT, n.PlaneChangeRad)
+		dir := active.BurnDirectionPlantedAtt(n.Mode, nrT, nvT, orbital.Vec3{}, n.PlaneChangeRad, orbital.Vec3{}) // the burn flies untrimmed (#1037)
 		if dir.Norm() == 0 {
 			continue
 		}

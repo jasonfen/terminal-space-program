@@ -525,3 +525,35 @@ func TestWorksChuteNeedsChuteEnginesAndAir(t *testing.T) {
 		t.Error("an airless body works the chute")
 	}
 }
+
+// TestPlantedBurnDirectionIgnoresTrims pins #1037 at the closure and
+// direction level: planted variants give the untrimmed direction whatever
+// the trims are (and match a zero-trim craft), while the manual variants
+// still take the trim.
+func TestPlantedBurnDirectionIgnoresTrims(t *testing.T) {
+	systems, _ := bodies.LoadAll()
+	earth := systems[0].FindBody("Earth")
+	sc := NewInLEO(*earth)
+	mu := earth.GravitationalParameter()
+	z := orbital.Vec3{}
+	untrimmed := sc.BurnDirectionUntrimmedWithTargetAtt(BurnSurfacePrograde, z, z, z)
+	thrustDir := func(fn func(r, v orbital.Vec3, t float64) orbital.Vec3) orbital.Vec3 {
+		r := sc.State.R
+		g := r.Scale(-mu / (r.Norm() * r.Norm() * r.Norm()))
+		a := fn(r, sc.State.V, 0).Sub(g)
+		return a.Scale(1 / a.Norm())
+	}
+	for _, trim := range []float64{0, math.Pi / 2} { // zero is the equal case
+		sc.HeadingTrim, sc.PitchTrim = trim, trim/3
+		if d := sc.BurnDirectionPlantedAtt(BurnSurfacePrograde, z, z, z, 0, z); d.Sub(untrimmed).Norm() > 1e-9 {
+			t.Errorf("trim %.2f: planted direction %+v, want untrimmed %+v", trim, d, untrimmed)
+		}
+		if d := thrustDir(sc.ThrustAccelFnPlantedAtt(BurnSurfacePrograde, mu, 1, z, z, z)); d.Sub(untrimmed).Norm() > 1e-6 {
+			t.Errorf("trim %.2f: planted thrust %+v, want untrimmed %+v", trim, d, untrimmed)
+		}
+		manual := sc.BurnDirectionWithTargetAtt(BurnSurfacePrograde, z, z, z)
+		if moved := manual.Sub(untrimmed).Norm() > 1e-6; moved != (trim != 0) {
+			t.Errorf("trim %.2f: manual direction moved=%v", trim, moved)
+		}
+	}
+}
