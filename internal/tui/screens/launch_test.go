@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/jasonfen/terminal-space-program/internal/bodies"
 	"github.com/jasonfen/terminal-space-program/internal/orbital"
@@ -1452,4 +1453,69 @@ func chaseHorizontalAxis(c *spacecraft.Spacecraft, body bodies.CelestialBody, ca
 		return axis
 	}
 	return chaseSurfaceEastAxis(body, camFromBody)
+}
+
+// shipV renders the V view with the aimed site of the given kind and the
+// vessel altM straight above it, in forced truecolor (an unforced colour
+// assertion is vacuous). It returns the raw frame and the canvas's bottom-row
+// ground background.
+func shipV(t *testing.T, kind sim.SiteKind, altM float64) (frame string, ground lipgloss.Color) {
+	t.Helper()
+	forceTrueColor(t)
+	w := moonSiteDescentWorld(t, false)
+	w.Sites[0].Kind = kind
+	st, ok := w.ProximityState()
+	if !ok {
+		t.Fatal("no proximity state on a site")
+	}
+	c := w.ActiveCraft()
+	up := st.TargetWorld.Sub(w.BodyPosition(c.Primary)).Unit()
+	c.State.R = up.Scale(c.Primary.RadiusMeters() + altM)
+	c.State.V = orbital.Vec3{}
+	v := NewLaunchView(launchThemeForTest(), NewOrbitView(launchThemeForTest()))
+	frame = v.Render(w, DesignWidth, DesignHeight)
+	return frame, v.canvas.CellBackground(v.canvas.Cols()/2, v.canvas.Rows()-1)
+}
+
+// #1034: coming down onto a drone ship the V view's ground is the ocean and
+// the ship is a ▄⚑▄ deck; a land LZ, or a ship still far off (a climb whose LZ
+// is a ship downrange), keeps the land look.
+func TestLaunchViewShipSeaAndDeckNearTheShip(t *testing.T) {
+	sea := darkenHex(string(render.ColorEarthOcean), groundTintDarkenFrac)
+	frame, ground := shipV(t, sim.SitePoint, 3000)
+	if ground != sea {
+		t.Errorf("near a ship: ground bg = %q, want ocean %q", ground, sea)
+	}
+	if !strings.Contains(ansi.Strip(frame), "▄⚑▄") {
+		t.Errorf("near a ship: no ▄⚑▄ deck in the frame")
+	}
+	for name, c := range map[string]struct {
+		kind sim.SiteKind
+		alt  float64
+	}{"land LZ near": {sim.SiteFlag, 3000}, "ship far": {sim.SitePoint, 100000}} {
+		frame, ground := shipV(t, c.kind, c.alt)
+		if ground == sea {
+			t.Errorf("%s: ground is ocean", name)
+		}
+		if strings.Contains(ansi.Strip(frame), "▄⚑▄") {
+			t.Errorf("%s: deck drawn", name)
+		}
+	}
+}
+
+// The near distance is the flag-reveal range, the boundary included.
+func TestShipSeaNearBoundary(t *testing.T) {
+	for _, c := range []struct {
+		onShip bool
+		rng    float64
+		want   bool
+	}{
+		{true, sim.SiteRevealRangeM, true},
+		{true, sim.SiteRevealRangeM + 1, false},
+		{false, 0, false},
+	} {
+		if got := shipSeaNear(c.onShip, c.rng); got != c.want {
+			t.Errorf("shipSeaNear(%v, %g) = %v, want %v", c.onShip, c.rng, got, c.want)
+		}
+	}
 }
