@@ -785,6 +785,10 @@ func TestOtherVesselDrawsDimNotOwnColour(t *testing.T) {
 		if own == "#FF00FF" && v.canvas.CountColor(lipgloss.Color(own)) != 0 {
 			t.Errorf("other vessel still inked in its own colour %s", own)
 		}
+		// the arrow glyph is an overlay, which CountColor does not see
+		if own == "#FF00FF" && v.canvas.CountOverlayColor(lipgloss.Color(own)) != 0 {
+			t.Errorf("other vessel's arrow still inked in its own colour %s", own)
+		}
 
 		// Boundary: flying the other vessel swaps which orbit is yellow.
 		w.SetActiveCraftIdx(1)

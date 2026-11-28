@@ -72,6 +72,11 @@ var overheadLadder = func() []float64 {
 
 // overheadPick ranges a ladder: the smallest rung whose capacity (rung * per)
 // holds need, holding prev until need leaves its band (ranged=false: an entry).
+// overheadDimOnOcean is the inset's dim grey on the ship's ocean backdrop:
+// ColorDim #5F5F5F is 1.05:1 on #1F5F94, this is 3.54:1 (WCAG), the 3:1 the
+// dim grey reaches on black.
+var overheadDimOnOcean = lipgloss.Color("#BCBCBC")
+
 func overheadPick(prev int, ranged bool, need, per float64) int {
 	last := len(overheadLadder) - 1
 	if !ranged {
@@ -241,7 +246,9 @@ func (v *OrbitView) drawOverhead(w *sim.World, st sim.ProximityState) (alongBarM
 	c.Center(orbital.Vec3{X: (0.5 - overheadFlagFrac) * widthM})
 	pt := func(a, l float64) orbital.Vec3 { return overheadPoint(a, l, stretch) }
 
+	dim := render.ColorDim
 	if landingOnShip(w) { // a ship's inset is the sea (ADR 0071 decision 8)
+		dim = overheadDimOnOcean
 		for col := 0; col < overheadDiscCols; col++ {
 			for row := 0; row < overheadDiscRows; row++ {
 				c.SetCellBackground(col, row, render.ColorEarthOcean)
@@ -250,12 +257,12 @@ func (v *OrbitView) drawOverhead(w *sim.World, st sim.ProximityState) (alongBarM
 	}
 	// The track line through the flag.
 	reach := widthM
-	c.PlotPolylineClass([]orbital.Vec3{pt(-reach, 0), pt(reach, 0)}, render.ColorDim, widgets.ClassScenery)
+	c.PlotPolylineClass([]orbital.Vec3{pt(-reach, 0), pt(reach, 0)}, dim, widgets.ClassScenery)
 	// The LZ circles, in the class and colour of the site's glyph (Dim for a
 	// partner's): the one you fly to solid, its neighbours dotted.
 	lzCol := render.ColorTarget
 	if m.site.Owner != "" {
-		lzCol = render.ColorDim
+		lzCol = dim
 	}
 	for _, z := range m.lzs {
 		class := widgets.ClassScenery
@@ -288,7 +295,7 @@ func (v *OrbitView) drawOverhead(w *sim.World, st sim.ProximityState) (alongBarM
 		}
 	}
 	for _, z := range m.stand { // a standing vessel, on its LZ
-		col := render.ColorDim
+		col := dim
 		if z.color != "" {
 			col = lipgloss.Color(z.color)
 		}

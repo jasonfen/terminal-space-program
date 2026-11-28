@@ -332,22 +332,3 @@ func TestControlsDocNamesTheLandingView(t *testing.T) {
 		}
 	}
 }
-
-// #1020: the `➤` marker row says other vessels draw dim grey (ADR 0041 d1),
-// in F1's MAP MARKERS page and in controls.md.
-func TestHelpMarkerRowSaysOtherVesselsDim(t *testing.T) {
-	h := screens.NewHelp(screens.Theme{})
-	h.OpenFor("MAP MARKERS")
-	f1 := strings.Join(strings.Fields(h.Render(140, 60, keylayout.QWERTY)), " ")
-	doc, err := os.ReadFile("../../../docs/controls.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	const want = "other vessels and ghosts dim grey"
-	if !strings.Contains(f1, want) {
-		t.Errorf("F1 marker row lacks %q", want)
-	}
-	if !strings.Contains(string(doc), want) {
-		t.Errorf("docs/controls.md marker row lacks %q", want)
-	}
-}

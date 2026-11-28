@@ -67,6 +67,12 @@ func helpPhraseRows() []helpPhrase {
 		{name: "t opens the target menu", section: "VESSEL", token: "t / T", has: []string{"target menu", "sites here", "t again takes the row", "T clears"}},
 		// ADR 0066 decision 6: y filters the map's surface marks; the t menu keeps them all.
 		{name: "F3 filters surface marks", section: "CAMERA & VIEW", token: "F3", has: []string{"landed vessels [v]", "flags [f]", "wrecks [w]", "ships [s]", "partners' marks [p]", "coverage now [c]", "[t] still lists them all"}},
+		// ADR 0071: the landing burn's engine count and the tank's clock while no landing works.
+		{name: "eng: engines lit of nine", section: "READOUT GLOSSARY", token: "eng:", has: []string{"landing burn", "of the stage's nine", "3/9", "1/9"}},
+		{name: "DRY T- is the tank's clock", section: "READOUT GLOSSARY", token: "DRY T-", has: []string{"ship set", "no landing works", "empty tank"}},
+		{name: "boosters and MECO rows name DRY T-", section: "READOUT GLOSSARY", token: "MECO / BECO", has: []string{"DRY T- instead while no landing works"}},
+		// #1020: other vessels draw dim grey (ADR 0041 d1).
+		{name: "➤ marker says other vessels dim", section: "MAP MARKERS", token: "➤", has: []string{"other vessels and ghosts dim grey"}},
 		{name: "flag and wreck markers", section: "MAP MARKERS", token: "⚑", has: []string{"where a vessel touched down", "[F3] hides"}},
 		{name: "landing stop marker", section: "MAP MARKERS", token: "⊙", has: []string{"landing view", "powered stop ends"}},
 		{name: "o opens the landing view on ground", section: "CAMERA & VIEW", token: "o (on ground)", has: []string{"landing view", "⊙", "LANDING chip", "cross: / lat vel:"}},
@@ -297,7 +303,7 @@ func TestHelpSectionOrder(t *testing.T) {
 // retired `dir` in favour of `pro / retro` (same row, new token) and
 // added two: the frame-spelling entry and the `rcs` line ADR 0049's own
 // decision-6 comment always meant to include, for 19. G8 Q3 (#507) added
-// `heading: / hdg` (commanded vs measured), for 20, and #592 added the navball's `[MAN] / [AUT]` and `RCS` tags, for 22, and #600 the STAGES pips, for 23, and the amber hold frame word, for 24, and ADR 0057 S4 the `cargo / hold` row, for 25, and ADR 0058 S5 the `boosters / core` row, for 26, and ADR 0059 S5 the `raise / lower` row, for 27, and ADR 0065 S5 the `COVERAGE` row, for 28, and ADR 0066 S4 the `ground / miss / lpd` row, for 29, and ADR 0067 S1 the `rsv` row, for 30, and ADR 0067 S2 the `Site+ / ROD` row, for 31, and ADR 0067 S3 the `alt rate`, `fwd vel / lat vel` and `aim` rows, for 34, and ADR 0067 S4b the `twr` and `OVERHEAD` rows, for 36. Tightened from
+// `heading: / hdg` (commanded vs measured), for 20, and #592 added the navball's `[MAN] / [AUT]` and `RCS` tags, for 22, and #600 the STAGES pips, for 23, and the amber hold frame word, for 24, and ADR 0057 S4 the `cargo / hold` row, for 25, and ADR 0058 S5 the `boosters / core` row, for 26, and ADR 0059 S5 the `raise / lower` row, for 27, and ADR 0065 S5 the `COVERAGE` row, for 28, and ADR 0066 S4 the `ground / miss / lpd` row, for 29, and ADR 0067 S1 the `rsv` row, for 30, and ADR 0067 S2 the `Site+ / ROD` row, for 31, and ADR 0067 S3 the `alt rate`, `fwd vel / lat vel` and `aim` rows, for 34, and ADR 0067 S4b the `twr` and `OVERHEAD` rows, for 36, and ADR 0071 the `eng:` and `DRY T-` rows (37 to 39). Tightened from
 // the original loose "at least 7" bound to an exact count so a stray
 // addition or removal is caught rather than silently absorbed.
 func TestHelpGlossarySection(t *testing.T) {
@@ -305,7 +311,7 @@ func TestHelpGlossarySection(t *testing.T) {
 		if s.header != "READOUT GLOSSARY" {
 			continue
 		}
-		const want = 37
+		const want = 39
 		if len(s.rows) != want {
 			t.Errorf("READOUT GLOSSARY has %d rows, want exactly %d", len(s.rows), want)
 		}

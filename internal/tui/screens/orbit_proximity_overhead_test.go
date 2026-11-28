@@ -326,4 +326,18 @@ func TestOverheadBackdropShip(t *testing.T) {
 	if raw := landingRawFrame(t, sim.SiteFlag); strings.Contains(raw, oceanBG) {
 		t.Errorf("land site: inset has an ocean backdrop")
 	}
+	// Batch review F5: the track line was dim #5F5F5F on #1F5F94, 1.05:1.
+	// Under a ship it is the lighter grey (3.54:1); under land it stays dim.
+	const dimFG, lightFG = "38;2;95;95;95", "38;2;188;188;188"
+	ship := landingRawFrame(t, sim.SitePoint)
+	if strings.Contains(ship, dimFG+";"+oceanBG) {
+		t.Errorf("ship: dim marks drawn #5F5F5F on the ocean (1.05:1)")
+	}
+	if n := strings.Count(ship, lightFG+";"+oceanBG); n < 10 {
+		t.Errorf("ship: %d track cells in the light grey on the ocean, want at least 10", n)
+	}
+	land := landingRawFrame(t, sim.SiteFlag)
+	if !strings.Contains(land, dimFG) || strings.Contains(land, lightFG) {
+		t.Errorf("land site: dim marks should keep #5F5F5F and never the light grey")
+	}
 }
