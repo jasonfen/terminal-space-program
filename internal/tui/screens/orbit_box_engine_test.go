@@ -581,6 +581,13 @@ func TestEngineBoxBadgeCountsToDryUntilALandingWorks(t *testing.T) {
 			if want := " · core 100% DRY " + readout.Countdown(time.Duration(tank*float64(time.Second))); badge != want {
 				t.Fatalf("tick %d: no landing works, badge %q, want the tank's clock %q", i, badge, want)
 			}
+			if dry == 1 { // F3: under the landing autopilot it is a dropped stage on its way down
+				c.Landing = &spacecraft.LandingAutopilot{Engaged: true}
+				if b := v.engineBoosterBadge(w, c); strings.Contains(b, "DRY T-") {
+					t.Fatalf("a stage under the landing autopilot reads %q, want no DRY T-", b)
+				}
+				c.Landing = nil
+			}
 		case haveClock:
 			cut++
 			if want := " · core 100% " + readout.Countdown(time.Duration(secs*float64(time.Second))); badge != want {

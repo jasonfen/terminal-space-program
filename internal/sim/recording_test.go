@@ -1417,13 +1417,15 @@ func TestLandingBurnRowAbsentOnAnUnmarkedLander(t *testing.T) {
 	for _, tc := range []struct {
 		thr   float64
 		phase spacecraft.LandingPhase
-		want  int // 0 = not a count
+		want  int  // 0 = not a count
+		nose  bool // q's nose hold: the pilot's engine, no count (F6)
 	}{
-		{3.0 / 9, spacecraft.PhaseBrake, 3}, {1.0 / 9, spacecraft.PhaseFinal, 1},
-		{3.0 / 9, spacecraft.PhaseCoast, 0}, {1, spacecraft.PhaseBrake, 0}, {0.4, spacecraft.PhaseBrake, 0}, {0, spacecraft.PhaseBrake, 0},
+		{3.0 / 9, spacecraft.PhaseBrake, 3, false}, {1.0 / 9, spacecraft.PhaseFinal, 1, false},
+		{3.0 / 9, spacecraft.PhaseCoast, 0, false}, {1, spacecraft.PhaseBrake, 0, false}, {0.4, spacecraft.PhaseBrake, 0, false}, {0, spacecraft.PhaseBrake, 0, false},
+		{3.0 / 9, spacecraft.PhaseBrake, 0, true},
 	} {
 		c.Stages[0].LandingThrottle = tc.thr
-		c.Landing = &spacecraft.LandingAutopilot{Engaged: true, Phase: tc.phase}
+		c.Landing = &spacecraft.LandingAutopilot{Engaged: true, Phase: tc.phase, Nose: tc.nose}
 		if lit, total, ok := LandingEngines(c); lit != tc.want || ok != (tc.want > 0) || (ok && total != 9) {
 			t.Errorf("throttle %.4f phase %v: %d of %d ok=%v, want %d", tc.thr, tc.phase, lit, total, ok, tc.want)
 		}
