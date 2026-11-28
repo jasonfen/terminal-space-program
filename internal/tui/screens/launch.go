@@ -534,7 +534,7 @@ func (v *LaunchView) renderScene(w *sim.World, craft *spacecraft.Spacecraft, cor
 	v.canvas.Center(camWorld)
 
 	// Horizon band + two-step sky above (v0.40 / #424).
-	v.drawHorizonAndFill(body, bodyCentre, altitudeM)
+	v.drawHorizonAndFill(body, bodyCentre, altitudeM, vShipSea(w))
 
 	// Current-orbit ellipse, rendered exactly as the orbit-map screens
 	// do (same DrawEllipseClass Real-class path + apo/peri markers).
@@ -924,8 +924,11 @@ const (
 // bodies with an Atmosphere: an airless body (the Moon) keeps a black sky at
 // any altitude, which is physically correct and needs no special case.
 // altitudeM fades the whole sky to black by the atmosphere's CutoffAltitude.
-func (v *LaunchView) drawHorizonAndFill(body bodies.CelestialBody, bodyPos orbital.Vec3, altitudeM float64) {
+func (v *LaunchView) drawHorizonAndFill(body bodies.CelestialBody, bodyPos orbital.Vec3, altitudeM float64, sea bool) {
 	surface := body.SurfaceColorHex()
+	if sea { // a drone ship floats: the ground is the globe's ocean (#1034)
+		surface = string(render.ColorEarthOcean)
+	}
 	apron := []widgets.HorizonBand{
 		{Color: lightenHex(surface, groundApronLightenFrac), Rows: groundApronRows},
 	}
@@ -1754,6 +1757,26 @@ func (v *LaunchView) drawTargetSiteMarks(w *sim.World, bodyPos, camFromBody orbi
 		v.canvas.SetCellOverlayColored(bodyPos.Add(cs), computerSiteGlyph, render.ColorTarget)
 	}
 	if flagRevealed(differs, st.RangeM) { // the landing view's reveal rule
+		if vShipSea(w) { // the deck: one cell either side of the flag along the screen's horizontal
+			cell := v.canvas.Basis().X.Scale(2 / v.canvas.Scale())
+			for _, d := range []orbital.Vec3{flag.Sub(cell), flag.Add(cell)} {
+				v.canvas.SetCellOverlayColored(bodyPos.Add(d), landingDeckGlyph, render.ColorTarget)
+			}
+		}
 		v.canvas.SetCellOverlayColored(bodyPos.Add(flag), flagGlyph, render.ColorTarget)
 	}
+}
+
+// shipSeaNear is when the V view shows sea: the aimed site is a drone ship and
+// the vessel is within the flag-reveal range of it (boundary included), the
+// game's own "you are at the site" distance. A climb whose LZ is a ship sits
+// 600+ km off, so the pad stays land.
+func shipSeaNear(onShip bool, rangeM float64) bool {
+	return onShip && rangeM <= sim.SiteRevealRangeM
+}
+
+// vShipSea reports shipSeaNear for the world's aimed site on the body you are over.
+func vShipSea(w *sim.World) bool {
+	st, ok := w.ProximityState()
+	return ok && st.Surface && shipSeaNear(landingOnShip(w), st.RangeM)
 }

@@ -199,7 +199,7 @@ func TestAscentArcStaysVisibleInItsOwnColourOverTheSky(t *testing.T) {
 	v.canvas.Clear()
 	v.canvas.SetScale(1 / mPerPx)
 	v.canvas.Center(orbital.Vec3{Y: earth.RadiusMeters() + 2000})
-	v.drawHorizonAndFill(earth, orbital.Vec3{}, 2000)
+	v.drawHorizonAndFill(earth, orbital.Vec3{}, 2000, false)
 	var path []orbital.Vec3
 	for i := 0; i <= 60; i++ {
 		f := float64(i) / 60
